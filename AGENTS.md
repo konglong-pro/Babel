@@ -20,6 +20,7 @@ with the application package. Run `npm.cmd run registry:check` after editing it.
 - App gate: `npm.cmd run check -w @babel-apps/<id>`
 - Data backup: stop all apps, then `npm.cmd run data:backup`
 - Launcher verification: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launcher\Babel.ps1 -Selection All -NoBrowser -VerifyAndExit`
+- WPF smoke test: `powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File .\launcher\Babel.Gui.ps1 -SmokeTest`
 
 ## Public/private data discipline
 

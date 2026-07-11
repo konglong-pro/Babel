@@ -42,8 +42,16 @@ npm.cmd run dev:vali
 
 ## Launcher
 
-Run `launcher\Babel.ps1`, double-click `launcher\Babel.vbs`, or use the generated
-`launcher\Babel.lnk`. The menu is generated from `babel.apps.json`.
+Double-click `launcher\Babel.vbs` or `launcher\Babel.lnk` to open the WPF control
+panel. It reads `babel.apps.json` dynamically, shows each registered app and
+port, and can start the selected app, start all apps, stop the session cleanly,
+open the selected page, or run a readiness verification.
+
+The command-line launcher remains available for scripts and recovery work:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launcher\Babel.ps1 -Selection All
+```
 
 For a non-interactive readiness and clean-shutdown check:
 
@@ -52,7 +60,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launcher\Babel.ps1 -Se
 ```
 
 The launcher refuses to create or migrate missing user data. Every path in an
-application's `requiredDataPaths` must already exist.
+application's `requiredDataPaths` must already exist. Closing the WPF window
+sends a stop signal to its managed CLI worker before the window exits.
 
 ## Restore on a new machine
 

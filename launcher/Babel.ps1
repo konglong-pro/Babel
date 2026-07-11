@@ -4,7 +4,9 @@ param(
 
     [switch]$NoBrowser,
 
-    [switch]$VerifyAndExit
+    [switch]$VerifyAndExit,
+
+    [string]$StopSignalPath
 )
 
 Set-StrictMode -Version 2.0
@@ -147,6 +149,47 @@ function Resolve-BabelRelativePath {
 
     if (-not $resolvedPath.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
         throw "$FieldName escapes the Babel root: '$RelativePath'."
+    }
+
+    return $resolvedPath
+}
+
+function Resolve-StopSignalPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        throw "StopSignalPath must be a non-empty absolute path."
+    }
+    if (-not [System.IO.Path]::IsPathRooted($Path)) {
+        throw "StopSignalPath must be an absolute path, not '$Path'."
+    }
+
+    try {
+        $resolvedPath = [System.IO.Path]::GetFullPath($Path)
+    } catch {
+        throw "StopSignalPath is not a valid absolute path: '$Path'."
+    }
+
+    $temporaryRoot = [System.IO.Path]::GetFullPath(
+        [System.IO.Path]::GetTempPath()
+    ).TrimEnd(
+        [System.IO.Path]::DirectorySeparatorChar,
+        [System.IO.Path]::AltDirectorySeparatorChar
+    )
+    $temporaryPrefix = $temporaryRoot + [System.IO.Path]::DirectorySeparatorChar
+
+    if (-not $resolvedPath.StartsWith(
+        $temporaryPrefix,
+        [System.StringComparison]::OrdinalIgnoreCase
+    )) {
+        throw "StopSignalPath must be inside the system temporary directory '$temporaryRoot'."
+    }
+
+    if (Test-Path -LiteralPath $resolvedPath) {
+        throw "StopSignalPath must not already exist: '$resolvedPath'."
     }
 
     return $resolvedPath
@@ -900,15 +943,28 @@ function Wait-ForStopRequest {
     param(
         [Parameter(Mandatory = $true)]
         [AllowEmptyCollection()]
-        [System.Collections.ArrayList]$ManagedEntries
+        [System.Collections.ArrayList]$ManagedEntries,
+
+        [AllowNull()]
+        [string]$StopSignalPath
     )
 
     Write-Host ""
-    Write-Host "Keep this window open. Press Ctrl+C to stop services launched by it." -ForegroundColor Cyan
+    $useStopSignal = -not [string]::IsNullOrWhiteSpace($StopSignalPath)
+    if ($useStopSignal) {
+        Write-Host "Keep this worker running. Waiting for the stop signal at '$StopSignalPath'." -ForegroundColor Cyan
+    } else {
+        Write-Host "Keep this window open. Press Ctrl+C to stop services launched by it." -ForegroundColor Cyan
+    }
 
     $nextProcessCheck = [DateTime]::UtcNow
 
     while ($true) {
+        if ($useStopSignal -and (Test-Path -LiteralPath $StopSignalPath -PathType Leaf)) {
+            Write-Host "[stop] Stop signal received: '$StopSignalPath'." -ForegroundColor Yellow
+            return
+        }
+
         if ([DateTime]::UtcNow -ge $nextProcessCheck) {
             foreach ($entry in $ManagedEntries) {
                 $entry.RootProcess.Refresh()
@@ -929,9 +985,14 @@ function Wait-ForStopRequest {
 
 $babelRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $managedEntries = New-Object System.Collections.ArrayList
+$resolvedStopSignalPath = $null
 $exitCode = 0
 
 try {
+    if ($PSBoundParameters.ContainsKey("StopSignalPath")) {
+        $resolvedStopSignalPath = Resolve-StopSignalPath -Path $StopSignalPath
+    }
+
     $registeredApps = @(Get-BabelApps -RootPath $babelRoot)
     $selectedApps = @(Get-SelectedApps `
         -RequestedSelection $Selection `
@@ -949,18 +1010,38 @@ try {
     if ($VerifyAndExit) {
         Write-Host "[verify] Readiness checks passed; cleaning up managed services."
     } else {
-        Wait-ForStopRequest -ManagedEntries $managedEntries
+        Wait-ForStopRequest `
+            -ManagedEntries $managedEntries `
+            -StopSignalPath $resolvedStopSignalPath
     }
 } catch {
     Write-Host ""
     Write-Host "[error] $($_.Exception.Message)" -ForegroundColor Red
     $exitCode = 1
 } finally {
-    Stop-ManagedServices -ManagedEntries $managedEntries
+    try {
+        Stop-ManagedServices -ManagedEntries $managedEntries
+    } finally {
+        if (
+            -not [string]::IsNullOrWhiteSpace($resolvedStopSignalPath) -and
+            (Test-Path -LiteralPath $resolvedStopSignalPath -PathType Leaf)
+        ) {
+            try {
+                Remove-Item -LiteralPath $resolvedStopSignalPath -Force -ErrorAction Stop
+            } catch {
+                Write-Warning "Could not remove stop signal file '$resolvedStopSignalPath': $($_.Exception.Message)"
+            }
+        }
+    }
 }
 
 if ($exitCode -ne 0) {
-    if (-not $VerifyAndExit -and -not [Console]::IsInputRedirected) {
+    if (
+        -not $VerifyAndExit -and
+        -not $PSBoundParameters.ContainsKey("StopSignalPath") -and
+        [string]::IsNullOrWhiteSpace($resolvedStopSignalPath) -and
+        -not [Console]::IsInputRedirected
+    ) {
         Write-Host ""
         $null = Read-Host "Press Enter to close"
     }
