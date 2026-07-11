@@ -1,0 +1,12 @@
+#!/bin/sh
+set -eu
+
+git diff --cached --name-only --diff-filter=ACMR | while IFS= read -r path; do
+  case "$path" in
+    data/*|*/data/*|*.db|*.db-*|*.sqlite|*.sqlite-*|*-wal|*-shm|*-journal|*/uploads/*.png|*/uploads/*.jpg|*/uploads/*.jpeg|*/uploads/*.gif|*/uploads/*.webp)
+      echo "Refusing to commit user data or SQLite files to the public Babel repository:" >&2
+      echo "$path" >&2
+      exit 1
+      ;;
+  esac
+done

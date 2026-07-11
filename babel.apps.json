@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "apps": [
+    {
+      "name": "ReTex",
+      "id": "retex",
+      "workspace": "apps/retex",
+      "port": 3000,
+      "healthPath": "/api/folders?type=knowledge",
+      "identityPath": "/knowledge",
+      "identityText": "ReTex",
+      "readyTimeoutSeconds": 60,
+      "env": {
+        "RETEX_DATABASE_PATH": "data/retex/sqlite.db",
+        "RETEX_UPLOAD_DIRECTORY": "data/retex/uploads/exercises"
+      },
+      "requiredDataPaths": [
+        "data/retex/sqlite.db",
+        "data/retex/uploads/exercises"
+      ]
+    },
+    {
+      "name": "Esperanto",
+      "id": "esperanto",
+      "workspace": "apps/esperanto",
+      "port": 3001,
+      "healthPath": "/api/folders",
+      "identityPath": "/notes",
+      "identityText": "Esperanto",
+      "readyTimeoutSeconds": 60,
+      "env": {
+        "ESPERANTO_DATABASE_PATH": "data/esperanto/sqlite.db",
+        "ESPERANTO_UPLOAD_DIRECTORY": "data/esperanto/uploads/notes"
+      },
+      "requiredDataPaths": [
+        "data/esperanto/sqlite.db",
+        "data/esperanto/uploads/notes"
+      ]
+    },
+    {
+      "name": "Vali",
+      "id": "vali",
+      "workspace": "apps/vali",
+      "port": 3002,
+      "healthPath": "/api/health",
+      "identityPath": "/",
+      "identityText": "Vali",
+      "readyTimeoutSeconds": 60,
+      "env": {
+        "VALI_DATABASE_PATH": "data/vali/sqlite.db"
+      },
+      "requiredDataPaths": [
+        "data/vali/sqlite.db"
+      ]
+    }
+  ]
+}
