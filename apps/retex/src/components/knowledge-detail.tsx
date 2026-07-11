@@ -1,0 +1,247 @@
+"use client";
+
+import Link from "next/link";
+import { type FormEvent, useEffect, useState } from "react";
+
+import {
+  createKnowledge,
+  deleteKnowledge,
+  getErrorMessage,
+  listExercises,
+  updateKnowledge,
+} from "@/lib/api-client";
+import type { ExerciseSummaryDto, KnowledgeDetailDto } from "@/lib/types";
+import { MarkdownEditor, MarkdownRenderer } from "@/components/markdown";
+import {
+  ConfirmButton,
+  formatDate,
+  parseTags,
+  RelationPicker,
+  Tags,
+} from "@/components/shared";
+
+interface KnowledgeDetailProps {
+  detail: KnowledgeDetailDto | null;
+  mode: "view" | "edit" | "create";
+  folderId: number | null;
+  loading?: boolean;
+  onEdit: () => void;
+  onCancel: () => void;
+  onSaved: (detail: KnowledgeDetailDto) => void;
+  onDeleted: () => void;
+}
+
+export function KnowledgeDetail({
+  detail,
+  mode,
+  folderId,
+  loading,
+  onEdit,
+  onCancel,
+  onSaved,
+  onDeleted,
+}: KnowledgeDetailProps) {
+  if (loading) {
+    return <section className="detail-panel panel-status">Loading note…</section>;
+  }
+
+  if (mode === "create" || mode === "edit") {
+    return (
+      <KnowledgeForm
+        detail={mode === "edit" ? detail : null}
+        folderId={folderId}
+        onCancel={onCancel}
+        onSaved={onSaved}
+      />
+    );
+  }
+
+  if (!detail) {
+    return (
+      <section className="detail-panel empty-state" aria-label="Knowledge details">
+        <span aria-hidden="true">∴</span>
+        <h2>Archive Ideas Worth Revisiting</h2>
+        <p>Select a note on the left, or create a new Knowledge note inside a folder.</p>
+      </section>
+    );
+  }
+
+  return (
+    <article className="detail-panel document-view">
+      <header className="document-header">
+        <div>
+          <span className="eyebrow">Knowledge</span>
+          <h1>{detail.title}</h1>
+          <Tags tags={detail.tags} />
+          <p className="document-meta">Updated {formatDate(detail.updatedAt)}</p>
+        </div>
+        <div className="document-actions">
+          <button type="button" onClick={onEdit}>
+            Edit
+          </button>
+          <ConfirmButton
+            className="danger-ghost"
+            title="Delete Knowledge Note"
+            description={`Delete “${detail.title}”? This action cannot be undone.`}
+            onConfirm={async () => {
+              await deleteKnowledge(detail.id);
+              onDeleted();
+            }}
+          >
+            Delete
+          </ConfirmButton>
+        </div>
+      </header>
+
+      <section className="document-content" aria-label="Note content">
+        <MarkdownRenderer content={detail.contentMd} />
+      </section>
+
+      <section className="related-section">
+        <h2>Related Exercises</h2>
+        {detail.relatedExercises.length === 0 ? (
+          <p className="muted">No related exercises yet.</p>
+        ) : (
+          <ul className="related-list">
+            {detail.relatedExercises.map((exercise) => (
+              <li key={exercise.id}>
+                <Link href={`/exercise?item=${exercise.id}`}>{exercise.title}</Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </article>
+  );
+}
+
+interface KnowledgeFormProps {
+  detail: KnowledgeDetailDto | null;
+  folderId: number | null;
+  onCancel: () => void;
+  onSaved: (detail: KnowledgeDetailDto) => void;
+}
+
+function KnowledgeForm({ detail, folderId, onCancel, onSaved }: KnowledgeFormProps) {
+  const [title, setTitle] = useState(detail?.title ?? "");
+  const [tags, setTags] = useState(detail?.tags.join(", ") ?? "");
+  const [content, setContent] = useState(detail?.contentMd ?? "");
+  const [exerciseIds, setExerciseIds] = useState(
+    detail?.relatedExercises.map((item) => item.id) ?? [],
+  );
+  const [exercises, setExercises] = useState<ExerciseSummaryDto[]>([]);
+  const [relationsLoading, setRelationsLoading] = useState(true);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    listExercises()
+      .then((items) => {
+        if (active) setExercises(items);
+      })
+      .catch((caught) => {
+        if (active) setError(getErrorMessage(caught));
+      })
+      .finally(() => {
+        if (active) setRelationsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (folderId === null) {
+      setError("Select a folder first.");
+      return;
+    }
+    setPending(true);
+    setError("");
+    try {
+      const input = {
+        folderId,
+        title: title.trim(),
+        contentMd: content,
+        tags: parseTags(tags),
+        exerciseIds,
+      };
+      const saved = detail
+        ? await updateKnowledge(detail.id, input)
+        : await createKnowledge(input);
+      onSaved(saved);
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <section className="detail-panel form-view">
+      <form onSubmit={submit}>
+        <header className="document-header">
+          <div>
+            <span className="eyebrow">{detail ? "Edit Knowledge" : "New Knowledge"}</span>
+            <h1>{detail ? detail.title : "Capture a New Mathematical Insight"}</h1>
+          </div>
+          <div className="document-actions">
+            <button type="button" onClick={onCancel}>
+              Cancel
+            </button>
+            <button className="primary-button" type="submit" disabled={pending || !title.trim()}>
+              {pending ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </header>
+
+        {error ? (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        ) : null}
+
+        <div className="form-row two-columns">
+          <label className="field">
+            <span>Title</span>
+            <input
+              name="title"
+              autoComplete="off"
+              required
+              maxLength={240}
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>Tags</span>
+            <input
+              name="tags"
+              autoComplete="off"
+              value={tags}
+              placeholder="limits, derivatives, geometric meaning…"
+              onChange={(event) => setTags(event.target.value)}
+            />
+            <small>Separate tags with commas.</small>
+          </label>
+        </div>
+
+        <MarkdownEditor
+          label="Content"
+          name="contentMd"
+          value={content}
+          onChange={setContent}
+        />
+
+        <RelationPicker
+          legend="Link Exercises"
+          items={exercises}
+          selectedIds={exerciseIds}
+          loading={relationsLoading}
+          onChange={setExerciseIds}
+        />
+      </form>
+    </section>
+  );
+}

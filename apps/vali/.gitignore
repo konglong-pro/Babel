@@ -1,0 +1,14 @@
+node_modules/
+.next/
+*.tsbuildinfo
+data/*.db
+data/*.db-*
+
+.playwright-cli/
+output/
+
+.env
+.env.*
+!.env.example
+*.tmp
+*.log

@@ -1,0 +1,238 @@
+import { ApiError } from "@/lib/http/errors";
+import { assertUploadToken, type NoteImageUpload } from "@/lib/storage";
+
+export type JsonObject = Record<string, unknown>;
+
+export interface NoteMultipartRequest {
+  payload: JsonObject;
+  uploads: Map<string, NoteImageUpload>;
+}
+
+function hasOwn(value: JsonObject, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+export function assertSameOrigin(request: Request): void {
+  let requestUrl: URL;
+  try {
+    requestUrl = new URL(request.url);
+  } catch {
+    throw new ApiError(403, "FORBIDDEN_ORIGIN", "Cross-origin mutations are not allowed.");
+  }
+  if (!["localhost", "127.0.0.1", "[::1]", "::1"].includes(requestUrl.hostname)) {
+    throw new ApiError(403, "FORBIDDEN_ORIGIN", "Cross-origin mutations are not allowed.");
+  }
+
+  const origin = request.headers.get("origin");
+  if (origin === null) return;
+
+  let requestOrigin: string;
+  let suppliedOrigin: string;
+  try {
+    requestOrigin = requestUrl.origin;
+    suppliedOrigin = new URL(origin).origin;
+  } catch {
+    throw new ApiError(
+      403,
+      "FORBIDDEN_ORIGIN",
+      "Cross-origin mutations are not allowed.",
+    );
+  }
+
+  if (suppliedOrigin !== requestOrigin) {
+    throw new ApiError(
+      403,
+      "FORBIDDEN_ORIGIN",
+      "Cross-origin mutations are not allowed.",
+    );
+  }
+}
+
+export async function readJsonObject(request: Request): Promise<JsonObject> {
+  let value: unknown;
+  try {
+    value = await request.json();
+  } catch {
+    throw new ApiError(400, "INVALID_JSON", "The request body must be a valid JSON object.");
+  }
+  return asJsonObject(value, "The request body must be a JSON object.");
+}
+
+export async function readNoteMultipart(
+  request: Request,
+): Promise<NoteMultipartRequest> {
+  let formData: FormData;
+  try {
+    formData = await request.formData();
+  } catch {
+    throw new ApiError(
+      400,
+      "INVALID_MULTIPART",
+      "The request body must be valid multipart form data.",
+    );
+  }
+
+  const payloadParts = formData.getAll("payload");
+  if (payloadParts.length !== 1 || typeof payloadParts[0] !== "string") {
+    throw new ApiError(
+      400,
+      "VALIDATION_ERROR",
+      "The multipart payload field must contain one JSON object.",
+      { field: "payload" },
+    );
+  }
+
+  let parsedPayload: unknown;
+  try {
+    parsedPayload = JSON.parse(payloadParts[0]);
+  } catch {
+    throw new ApiError(
+      400,
+      "INVALID_JSON",
+      "The multipart payload field must contain valid JSON.",
+      { field: "payload" },
+    );
+  }
+  const payload = asJsonObject(
+    parsedPayload,
+    "The multipart payload field must contain a JSON object.",
+  );
+
+  const uploads = new Map<string, NoteImageUpload>();
+  for (const [field, value] of formData.entries()) {
+    if (field === "payload") continue;
+    if (!field.startsWith("image:")) {
+      throw new ApiError(400, "VALIDATION_ERROR", `Unexpected multipart field: ${field}.`, {
+        field,
+      });
+    }
+    const token = field.slice("image:".length);
+    assertUploadToken(token);
+    if (uploads.has(token)) {
+      throw new ApiError(400, "VALIDATION_ERROR", "Image upload tokens must be unique.", {
+        token,
+      });
+    }
+    if (!isNoteImageUpload(value)) {
+      throw new ApiError(400, "VALIDATION_ERROR", "Image fields must contain files.", {
+        field,
+      });
+    }
+    uploads.set(token, value);
+  }
+
+  return { payload, uploads };
+}
+
+export function parsePositiveInteger(value: string, field: string): number {
+  if (!/^\d+$/.test(value)) {
+    throw new ApiError(400, "VALIDATION_ERROR", `${field} must be a positive integer.`, {
+      field,
+    });
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new ApiError(400, "VALIDATION_ERROR", `${field} must be a positive integer.`, {
+      field,
+    });
+  }
+  return parsed;
+}
+
+export function requiredString(body: JsonObject, field: string): string {
+  const value = body[field];
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new ApiError(400, "VALIDATION_ERROR", `${field} is required.`, { field });
+  }
+  return value.trim();
+}
+
+export function optionalString(
+  body: JsonObject,
+  field: string,
+  options: { allowEmpty?: boolean; trim?: boolean } = {},
+): string | undefined {
+  if (!hasOwn(body, field)) return undefined;
+  const value = body[field];
+  if (typeof value !== "string") {
+    throw new ApiError(400, "VALIDATION_ERROR", `${field} must be a string.`, { field });
+  }
+  const normalized = options.trim === false ? value : value.trim();
+  if (options.allowEmpty !== true && normalized.length === 0) {
+    throw new ApiError(400, "VALIDATION_ERROR", `${field} is required.`, { field });
+  }
+  return normalized;
+}
+
+export function requiredPositiveInteger(body: JsonObject, field: string): number {
+  const value = body[field];
+  if (!Number.isSafeInteger(value) || (value as number) <= 0) {
+    throw new ApiError(400, "VALIDATION_ERROR", `${field} must be a positive integer.`, {
+      field,
+    });
+  }
+  return value as number;
+}
+
+export function optionalPositiveInteger(
+  body: JsonObject,
+  field: string,
+): number | undefined {
+  return hasOwn(body, field) ? requiredPositiveInteger(body, field) : undefined;
+}
+
+export function optionalNullablePositiveInteger(
+  body: JsonObject,
+  field: string,
+): number | null | undefined {
+  if (!hasOwn(body, field)) return undefined;
+  return body[field] === null ? null : requiredPositiveInteger(body, field);
+}
+
+export function optionalStringArray(
+  body: JsonObject,
+  field: string,
+): string[] | undefined {
+  if (!hasOwn(body, field)) return undefined;
+  const value = body[field];
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    throw new ApiError(400, "VALIDATION_ERROR", `${field} must be an array of strings.`, {
+      field,
+    });
+  }
+  return [...value] as string[];
+}
+
+export function assertOnlyFields(body: JsonObject, allowed: readonly string[]): void {
+  const unknown = Object.keys(body).find((field) => !allowed.includes(field));
+  if (unknown) {
+    throw new ApiError(400, "VALIDATION_ERROR", `Unexpected field: ${unknown}.`, {
+      field: unknown,
+    });
+  }
+}
+
+export function assertPatchHasFields(
+  patch: Record<string, unknown>,
+  message = "At least one field must be provided for update.",
+): void {
+  if (Object.values(patch).every((value) => value === undefined)) {
+    throw new ApiError(400, "VALIDATION_ERROR", message);
+  }
+}
+
+function asJsonObject(value: unknown, message: string): JsonObject {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new ApiError(400, "INVALID_JSON", message);
+  }
+  return value as JsonObject;
+}
+
+function isNoteImageUpload(value: FormDataEntryValue): value is File {
+  return (
+    typeof value !== "string" &&
+    typeof value.type === "string" &&
+    typeof value.size === "number" &&
+    typeof value.arrayBuffer === "function"
+  );
+}

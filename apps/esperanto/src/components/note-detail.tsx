@@ -1,0 +1,315 @@
+"use client";
+
+import {
+  type FormEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+
+import { MarkdownEditor, MarkdownRenderer, type StagedImage } from "@/components/markdown";
+import {
+  ConfirmButton,
+  folderPathLabel,
+  formatDate,
+  parseTags,
+  Tags,
+} from "@/components/shared";
+import {
+  createNote,
+  deleteNote,
+  getErrorMessage,
+  updateNote,
+} from "@/lib/api-client";
+import type { FolderDto, NoteDetailDto } from "@/lib/types";
+
+export type NoteViewMode = "view" | "edit" | "create";
+
+interface NoteDetailProps {
+  detail: NoteDetailDto | null;
+  mode: NoteViewMode;
+  folderId: number | null;
+  folders: FolderDto[];
+  loading?: boolean;
+  onEdit: () => void;
+  onCancel: () => void;
+  onSaved: (detail: NoteDetailDto) => Promise<void> | void;
+  onDeleted: () => Promise<void> | void;
+  onDirtyChange: (dirty: boolean) => void;
+  onRegisterSave: (action: (() => void) | null) => void;
+  onBack: () => void;
+}
+
+export function NoteDetail({
+  detail,
+  mode,
+  folderId,
+  folders,
+  loading,
+  onEdit,
+  onCancel,
+  onSaved,
+  onDeleted,
+  onDirtyChange,
+  onRegisterSave,
+  onBack,
+}: NoteDetailProps) {
+  const folderMap = useMemo(() => new Map(folders.map((folder) => [folder.id, folder])), [folders]);
+
+  if (loading) {
+    return <section className="detail-panel panel-status detail-loading">Loading note…</section>;
+  }
+
+  if (mode === "create" || mode === "edit") {
+    return (
+      <NoteForm
+        detail={mode === "edit" ? detail : null}
+        initialFolderId={folderId}
+        folders={folders}
+        onCancel={onCancel}
+        onSaved={onSaved}
+        onDirtyChange={onDirtyChange}
+        onRegisterSave={onRegisterSave}
+      />
+    );
+  }
+
+  if (!detail) {
+    return (
+      <section className="detail-panel empty-state" aria-label="Note details">
+        <button className="content-back" type="button" onClick={onBack}>
+          <span aria-hidden="true">←</span> Notes
+        </button>
+        <span className="empty-monogram" aria-hidden="true">E</span>
+        <h2>Make language memorable</h2>
+        <p>Select a note, or choose a folder and create one.</p>
+      </section>
+    );
+  }
+
+  return (
+    <article className="detail-panel document-view">
+      <button className="content-back" type="button" onClick={onBack}>
+        <span aria-hidden="true">←</span> Notes
+      </button>
+      <header className="document-header">
+        <div>
+          <span className="eyebrow">{folderPathLabel(detail.folderId, folderMap) || "Note"}</span>
+          <h1>{detail.title}</h1>
+          <Tags tags={detail.tags} />
+          <p className="document-meta">
+            Updated <time dateTime={detail.updatedAt}>{formatDate(detail.updatedAt)}</time>
+          </p>
+        </div>
+        <div className="document-actions">
+          <button type="button" onClick={onEdit}>Edit</button>
+          <ConfirmButton
+            className="danger-ghost"
+            title="Delete note"
+            description={`Delete “${detail.title}”? This action cannot be undone.`}
+            onConfirm={async () => {
+              await deleteNote(detail.id);
+              await onDeleted();
+            }}
+          >
+            Delete
+          </ConfirmButton>
+        </div>
+      </header>
+
+      <section className="document-content" aria-label="Note content">
+        <MarkdownRenderer content={detail.contentMd} />
+      </section>
+    </article>
+  );
+}
+
+interface NoteFormProps {
+  detail: NoteDetailDto | null;
+  initialFolderId: number | null;
+  folders: FolderDto[];
+  onCancel: () => void;
+  onSaved: (detail: NoteDetailDto) => Promise<void> | void;
+  onDirtyChange: (dirty: boolean) => void;
+  onRegisterSave: (action: (() => void) | null) => void;
+}
+
+function NoteForm({
+  detail,
+  initialFolderId,
+  folders,
+  onCancel,
+  onSaved,
+  onDirtyChange,
+  onRegisterSave,
+}: NoteFormProps) {
+  const formRef = useRef<HTMLFormElement>(null);
+  const stagedRef = useRef<StagedImage[]>([]);
+  const initialTitle = detail?.title ?? "";
+  const initialTags = detail?.tags.join(", ") ?? "";
+  const initialContent = detail?.contentMd ?? "";
+  const initialFolder = detail?.folderId ?? initialFolderId;
+  const [title, setTitle] = useState(initialTitle);
+  const [tags, setTags] = useState(initialTags);
+  const [content, setContent] = useState(initialContent);
+  const [folderId, setFolderId] = useState<number | null>(initialFolder);
+  const [stagedImages, setStagedImages] = useState<StagedImage[]>([]);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+
+  const folderMap = useMemo(() => new Map(folders.map((folder) => [folder.id, folder])), [folders]);
+  const folderOptions = useMemo(
+    () => folders.map((folder) => ({ id: folder.id, label: folderPathLabel(folder.id, folderMap) })),
+    [folderMap, folders],
+  );
+  const imagePreviews = useMemo(
+    () => new Map(stagedImages.map((image) => [image.token, image.previewUrl])),
+    [stagedImages],
+  );
+  const dirty =
+    title !== initialTitle ||
+    tags !== initialTags ||
+    content !== initialContent ||
+    folderId !== initialFolder ||
+    stagedImages.length > 0;
+
+  useEffect(() => {
+    stagedRef.current = stagedImages;
+  }, [stagedImages]);
+
+  useEffect(() => {
+    onDirtyChange(dirty);
+  }, [dirty, onDirtyChange]);
+
+  useEffect(() => {
+    const save = () => formRef.current?.requestSubmit();
+    onRegisterSave(save);
+    return () => onRegisterSave(null);
+  }, [onRegisterSave]);
+
+  useEffect(() => {
+    return () => {
+      onDirtyChange(false);
+      for (const image of stagedRef.current) URL.revokeObjectURL(image.previewUrl);
+    };
+  }, [onDirtyChange]);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (pending) return;
+    if (folderId === null) {
+      setError("Select a folder before saving this note.");
+      return;
+    }
+
+    setPending(true);
+    setError("");
+    try {
+      const input = {
+        folderId,
+        title: title.trim(),
+        contentMd: content,
+        tags: parseTags(tags),
+      };
+      const saved = detail
+        ? await updateNote(detail.id, input, stagedImages)
+        : await createNote(input, stagedImages);
+      onDirtyChange(false);
+      await onSaved(saved);
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  function changeContent(nextContent: string) {
+    setContent(nextContent);
+    setStagedImages((current) => {
+      const retained = current.filter((image) => {
+        const referenced = nextContent.includes(`esperanto-upload://${image.token}`);
+        if (!referenced) URL.revokeObjectURL(image.previewUrl);
+        return referenced;
+      });
+      return retained.length === current.length ? current : retained;
+    });
+  }
+
+  return (
+    <section className="detail-panel form-view">
+      <form ref={formRef} onSubmit={submit}>
+        <header className="document-header form-header">
+          <div>
+            <span className="eyebrow">{detail ? "Edit note" : "New note"}</span>
+            <h1>{detail ? detail.title : "Capture what you learned"}</h1>
+          </div>
+          <div className="document-actions">
+            <button type="button" onClick={onCancel}>Cancel</button>
+            <button
+              className="primary-button"
+              type="submit"
+              disabled={pending || folderId === null || !title.trim()}
+              title="Save note (Ctrl/Cmd+S)"
+            >
+              {pending ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </header>
+
+        {error ? <p className="form-error" role="alert">{error}</p> : null}
+
+        <div className="form-row form-columns">
+          <label className="field title-field">
+            <span>Title</span>
+            <input
+              name="title"
+              autoComplete="off"
+              required
+              maxLength={240}
+              value={title}
+              placeholder="A clear title for this note"
+              onChange={(event) => setTitle(event.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>Folder</span>
+            <select
+              name="folderId"
+              required
+              value={folderId ?? ""}
+              onChange={(event) => setFolderId(event.target.value ? Number(event.target.value) : null)}
+            >
+              <option value="" disabled>Select a folder</option>
+              {folderOptions.map((folder) => (
+                <option key={folder.id} value={folder.id}>{folder.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="field tags-field">
+            <span>Tags</span>
+            <input
+              name="tags"
+              autoComplete="off"
+              value={tags}
+              placeholder="phrasal verbs, travel, review"
+              onChange={(event) => setTags(event.target.value)}
+            />
+            <small>Separate tags with commas. Matching is case-insensitive.</small>
+          </label>
+        </div>
+
+        <MarkdownEditor
+          label="Content"
+          name="contentMd"
+          value={content}
+          imagePreviews={imagePreviews}
+          onChange={changeContent}
+          onImageError={setError}
+          onStageImage={(image) => setStagedImages((current) => [...current, image])}
+        />
+        <p className="editor-footnote">Images remain in this browser until you save the note.</p>
+      </form>
+    </section>
+  );
+}
