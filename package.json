@@ -1,0 +1,42 @@
+{
+  "name": "babel-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22.13.0 <23"
+  },
+  "scripts": {
+    "check": "npm run registry:check && npm run check --workspaces --if-present",
+    "registry:check": "tsx scripts/check-registry.ts",
+    "data:backup": "tsx scripts/data-backup.ts",
+    "git:setup": "git config core.hooksPath .githooks",
+    "dev:retex": "npm run dev -w @babel-apps/retex",
+    "dev:esperanto": "npm run dev -w @babel-apps/esperanto",
+    "dev:vali": "npm run dev -w @babel-apps/vali"
+  },
+  "dependencies": {
+    "better-sqlite3": "12.11.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "7.6.13",
+    "@types/node": "22.20.1",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "drizzle-kit": "0.31.10",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.2.10",
+    "tsx": "4.23.0",
+    "typescript": "6.0.3"
+  },
+  "overrides": {
+    "postcss": "8.5.10",
+    "@esbuild-kit/core-utils": {
+      "esbuild": "0.25.12"
+    }
+  }
+}

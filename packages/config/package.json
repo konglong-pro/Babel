@@ -1,0 +1,10 @@
+{
+  "name": "@babel-apps/config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./eslint-next": "./eslint.next.mjs",
+    "./tsconfig": "./tsconfig.base.json"
+  }
+}

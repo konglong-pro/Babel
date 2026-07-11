@@ -1,0 +1,90 @@
+# Babel
+
+Babel is a local-first monorepo for three independent notebook applications:
+ReTex, Esperanto, and Vali. The application code is intended for a public GitHub
+repository. User data lives in the nested, independent, private `data/` Git
+repository and is never tracked by the public repository.
+
+## Layout
+
+```text
+apps/             ReTex, Esperanto, and Vali workspaces
+packages/config/  shared TypeScript and ESLint baselines
+launcher/         registry-driven Windows launcher
+scripts/          registry validation and private-data backup
+babel.apps.json   launcher and app-registration source of truth
+data/             private nested repository (not part of public Babel Git)
+```
+
+Ports are assigned in `babel.apps.json`: ReTex 3000, Esperanto 3001, and Vali
+3002. New applications take the next free port starting at 3003.
+
+## Install and verify
+
+Use Node.js 22.13 or newer, but lower than Node.js 23.
+
+```powershell
+npm.cmd install
+npm.cmd run git:setup
+npm.cmd run check
+```
+
+The full check validates the registry, then runs every workspace's lint,
+typecheck, tests, and production build.
+
+For development, run one application at a time:
+
+```powershell
+npm.cmd run dev:retex
+npm.cmd run dev:esperanto
+npm.cmd run dev:vali
+```
+
+## Launcher
+
+Run `launcher\Babel.ps1`, double-click `launcher\Babel.vbs`, or use the generated
+`launcher\Babel.lnk`. The menu is generated from `babel.apps.json`.
+
+For a non-interactive readiness and clean-shutdown check:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launcher\Babel.ps1 -Selection All -NoBrowser -VerifyAndExit
+```
+
+The launcher refuses to create or migrate missing user data. Every path in an
+application's `requiredDataPaths` must already exist.
+
+## Restore on a new machine
+
+```powershell
+git clone https://github.com/konglong-pro/babel.git E:\Babel
+git clone https://github.com/konglong-pro/babel-data.git E:\Babel\data
+Set-Location E:\Babel
+npm.cmd install
+npm.cmd run git:setup
+npm.cmd run check
+```
+
+Do not initialize `data/` from fixtures when restoring an existing vault.
+
+## Back up private data
+
+Stop all Babel applications, then run:
+
+```powershell
+npm.cmd run data:backup
+```
+
+The command refuses to run while a registered port is listening. It checkpoints
+and integrity-checks every SQLite database, commits changes in the private
+`data/` repository, and pushes its configured `origin`.
+
+Never restore a database while an application is running. Move the current
+database and all `-wal`, `-shm`, and `-journal` sidecars aside together. Copy a
+verified checkpoint to `sqlite.db`, run an integrity check, and only then start
+the application. Avoid destructive `git clean -fdx` commands at the Babel root:
+ignored `data/` is a real private repository, not disposable build output.
+
+Vali treats SQLite as its sole source of truth. Its Markdown and JSON workflows
+are canonical, semantic import/export formats; they are not files to edit in
+place as the live store.
