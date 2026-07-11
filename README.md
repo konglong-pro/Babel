@@ -1,23 +1,25 @@
 # Babel
 
-Babel is a local-first monorepo for three independent notebook applications:
-ReTex, Esperanto, and Vali. The application code is intended for a public GitHub
-repository. User data lives in the nested, independent, private `data/` Git
-repository and is never tracked by the public repository.
+Babel is a local-first monorepo for independently registered notebook
+applications. The application code is intended for a public GitHub repository.
+User data lives in the nested, independent, private `data/` Git repository and
+is never tracked by the public repository.
 
 ## Layout
 
 ```text
-apps/             ReTex, Esperanto, and Vali workspaces
+apps/             registered application workspaces
 packages/config/  shared TypeScript and ESLint baselines
+packages/platform/ shared HTTP and SQLite infrastructure for mirror apps
+templates/        source templates for new application workspaces
 launcher/         registry-driven Windows launcher
-scripts/          registry validation and private-data backup
+scripts/          scaffolding, registry validation, and private-data backup
 babel.apps.json   launcher and app-registration source of truth
 data/             private nested repository (not part of public Babel Git)
 ```
 
-Ports are assigned in `babel.apps.json`: ReTex 3000, Esperanto 3001, and Vali
-3002. New applications take the next free port starting at 3003.
+Ports are assigned in `babel.apps.json`. New applications take the smallest free
+port in the registry's 3000-3999 range.
 
 ## Install and verify
 
@@ -29,16 +31,31 @@ npm.cmd run git:setup
 npm.cmd run check
 ```
 
-The full check validates the registry, then runs every workspace's lint,
-typecheck, tests, and production build.
+The full check validates the registry, tests the root scripts, then runs every
+workspace's declared check.
 
 For development, run one application at a time:
 
 ```powershell
-npm.cmd run dev:retex
-npm.cmd run dev:esperanto
-npm.cmd run dev:vali
+npm.cmd run dev -w @babel-apps/<id>
 ```
+
+Existing applications also expose root shortcuts such as
+`npm.cmd run dev:retex`.
+
+## Add a mirror application
+
+From the Babel root, pass a safe ASCII display name:
+
+```powershell
+npm.cmd run new-app -- "My Notes"
+```
+
+The command copies `templates/mirror-app`, renders its app tokens, assigns the
+smallest free registered port, adds `dev:<id>`, updates `babel.apps.json` and the
+npm lockfile, then validates the registry. It does not create private data or run
+schema migrations. Provision the registered database and upload paths explicitly
+before launching or backing up the new application.
 
 ## Launcher
 

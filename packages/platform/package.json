@@ -1,0 +1,24 @@
+{
+  "name": "@babel-apps/platform",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./db/checkpoint": "./src/db/checkpoint.ts",
+    "./db/client": "./src/db/client.ts",
+    "./db/migrate": "./src/db/migrate.ts",
+    "./http/errors": "./src/http/errors.ts",
+    "./http/request": "./src/http/request.ts"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit --incremental false",
+    "test": "tsx --test tests/*.test.ts",
+    "check": "npm run lint && npm run typecheck && npm run test"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.11.1",
+    "drizzle-orm": "^0.45.2",
+    "next": "^16.2.10"
+  }
+}

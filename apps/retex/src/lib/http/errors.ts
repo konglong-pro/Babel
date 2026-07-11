@@ -1,28 +1,13 @@
-import { NextResponse } from "next/server";
+import {
+  ApiError,
+  createHttpErrorHandlers,
+  type ApiErrorBody,
+} from "@babel-apps/platform/http/errors";
 
 import { isImageStorageError, type ImageStorageErrorCode } from "@/lib/storage";
 
-export type ApiErrorBody = {
-  error: {
-    code: string;
-    message: string;
-    details?: unknown;
-  };
-};
-
-export class ApiError extends Error {
-  readonly status: number;
-  readonly code: string;
-  readonly details?: unknown;
-
-  constructor(status: number, code: string, message: string, details?: unknown) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-    this.code = code;
-    this.details = details;
-  }
-}
+export { ApiError };
+export type { ApiErrorBody };
 
 const errorStatuses: Readonly<Record<string, number>> = {
   BAD_REQUEST: 400,
@@ -58,100 +43,8 @@ const imageErrorStatuses: Readonly<Record<ImageStorageErrorCode, number>> = {
   NOT_FOUND: 404,
 };
 
-type ErrorLike = {
-  code?: unknown;
-  message?: unknown;
-  status?: unknown;
-  statusCode?: unknown;
-  details?: unknown;
-};
-
-function isErrorLike(value: unknown): value is ErrorLike {
-  return typeof value === "object" && value !== null;
-}
-
-function statusFromError(error: ErrorLike): number | undefined {
-  const explicitStatus =
-    typeof error.status === "number" ? error.status : error.statusCode;
-
-  if (
-    typeof explicitStatus === "number" &&
-    Number.isInteger(explicitStatus) &&
-    explicitStatus >= 400 &&
-    explicitStatus <= 599
-  ) {
-    return explicitStatus;
-  }
-
-  return typeof error.code === "string" ? errorStatuses[error.code] : undefined;
-}
-
-export function errorResponse(error: unknown): NextResponse<ApiErrorBody> {
-  if (error instanceof ApiError) {
-    return NextResponse.json(
-      {
-        error: {
-          code: error.code,
-          message: error.message,
-          ...(error.details === undefined ? {} : { details: error.details }),
-        },
-      },
-      { status: error.status },
-    );
-  }
-
-  if (isImageStorageError(error)) {
-    return NextResponse.json(
-      {
-        error: {
-          code: error.code,
-          message: error.message,
-        },
-      },
-      { status: imageErrorStatuses[error.code] },
-    );
-  }
-
-  if (isErrorLike(error)) {
-    const status = statusFromError(error);
-    if (status !== undefined) {
-      const code = typeof error.code === "string" ? error.code : "REQUEST_FAILED";
-      const message =
-        typeof error.message === "string" && error.message.length > 0
-          ? error.message
-          : "The request could not be completed.";
-
-      return NextResponse.json(
-        {
-          error: {
-            code,
-            message,
-            ...(error.details === undefined ? {} : { details: error.details }),
-          },
-        },
-        { status },
-      );
-    }
-  }
-
-  console.error("Unhandled API error", error);
-  return NextResponse.json(
-    {
-      error: {
-        code: "INTERNAL_ERROR",
-        message: "The server failed to process the request.",
-      },
-    },
-    { status: 500 },
-  );
-}
-
-export async function handleApi(
-  handler: () => Response | Promise<Response>,
-): Promise<Response> {
-  try {
-    return await handler();
-  } catch (error) {
-    return errorResponse(error);
-  }
-}
+export const { errorResponse, handleApi } = createHttpErrorHandlers({
+  errorStatuses,
+  imageErrorStatuses,
+  isImageStorageError,
+});

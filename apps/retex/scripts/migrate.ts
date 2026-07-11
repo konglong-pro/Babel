@@ -1,11 +1,12 @@
 import path from "node:path";
 
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
+import { runMigrations } from "@babel-apps/platform/db/migrate";
 
 import { db, sqlite } from "../src/lib/db/client";
 
-const migrationsFolder = path.resolve(process.cwd(), "drizzle");
-migrate(db, { migrationsFolder });
-sqlite.close();
-
-console.log("ReTex database is up to date.");
+runMigrations({
+  appName: "ReTex",
+  db,
+  sqlite,
+  migrationsFolder: path.resolve(process.cwd(), "drizzle"),
+});

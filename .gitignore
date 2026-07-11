@@ -1,5 +1,6 @@
 /data/
 /node_modules/
+/.new-app.lock
 **/node_modules/
 **/.next/
 **/output/

@@ -11,8 +11,10 @@
     "node": ">=22.13.0 <23"
   },
   "scripts": {
-    "check": "npm run registry:check && npm run check --workspaces --if-present",
+    "check": "npm run registry:check && npm run test:scripts && npm run check --workspaces --if-present",
     "registry:check": "tsx scripts/check-registry.ts",
+    "test:scripts": "tsx --test scripts/*.test.ts",
+    "new-app": "tsx scripts/new-app.ts",
     "data:backup": "tsx scripts/data-backup.ts",
     "git:setup": "git config core.hooksPath .githooks",
     "dev:retex": "npm run dev -w @babel-apps/retex",
