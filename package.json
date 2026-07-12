@@ -19,7 +19,8 @@
     "git:setup": "git config core.hooksPath .githooks",
     "dev:retex": "npm run dev -w @babel-apps/retex",
     "dev:esperanto": "npm run dev -w @babel-apps/esperanto",
-    "dev:vali": "npm run dev -w @babel-apps/vali"
+    "dev:vali": "npm run dev -w @babel-apps/vali",
+    "dev:neum": "npm run dev -w @babel-apps/neum"
   },
   "dependencies": {
     "better-sqlite3": "12.11.1"

@@ -1,0 +1,28 @@
+# dependencies
+/node_modules
+
+# Next.js
+/.next
+/out
+
+# versioned app data (ignore only transient database sidecars and uploads)
+/data/sqlite.db-*
+/data/uploads/notes/.staging/
+/data/uploads/notes/.staging-*
+/data/uploads/notes/*.tmp
+
+# local environment
+.env*
+!.env.example
+
+# logs and editor files
+*.log
+.DS_Store
+/.playwright-cli
+/output/
+.idea/
+.vscode/
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts

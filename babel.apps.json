@@ -52,6 +52,24 @@
       "requiredDataPaths": [
         "data/vali/sqlite.db"
       ]
+    },
+    {
+      "name": "Neum",
+      "id": "neum",
+      "workspace": "apps/neum",
+      "port": 3003,
+      "healthPath": "/api/health",
+      "identityPath": "/entries",
+      "identityText": "Neum",
+      "readyTimeoutSeconds": 60,
+      "env": {
+        "NEUM_DATABASE_PATH": "data/neum/sqlite.db",
+        "NEUM_UPLOAD_DIRECTORY": "data/neum/uploads/entries"
+      },
+      "requiredDataPaths": [
+        "data/neum/sqlite.db",
+        "data/neum/uploads/entries"
+      ]
     }
   ]
 }
