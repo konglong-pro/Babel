@@ -70,6 +70,24 @@
         "data/neum/sqlite.db",
         "data/neum/uploads/entries"
       ]
+    },
+    {
+      "name": "Herodotus",
+      "id": "herodotus",
+      "workspace": "apps/herodotus",
+      "port": 3004,
+      "healthPath": "/api/health",
+      "identityPath": "/notes",
+      "identityText": "Herodotus",
+      "readyTimeoutSeconds": 60,
+      "env": {
+        "HERODOTUS_DATABASE_PATH": "data/herodotus/sqlite.db",
+        "HERODOTUS_UPLOAD_DIRECTORY": "data/herodotus/uploads/notes"
+      },
+      "requiredDataPaths": [
+        "data/herodotus/sqlite.db",
+        "data/herodotus/uploads/notes"
+      ]
     }
   ]
 }
