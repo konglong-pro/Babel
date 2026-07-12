@@ -121,6 +121,126 @@ function Test-ObjectProperty {
     return $null -ne $InputObject.PSObject.Properties[$Name]
 }
 
+function Resolve-NodeRuntime {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RootPath
+    )
+
+    $manifestPath = Join-Path $RootPath "package.json"
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        throw "Babel root manifest is missing: '$manifestPath'."
+    }
+
+    try {
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    } catch {
+        throw "Babel root manifest is not valid JSON: $($_.Exception.Message)"
+    }
+
+    if (
+        -not (Test-ObjectProperty -InputObject $manifest -Name "engines") -or
+        -not (Test-ObjectProperty -InputObject $manifest.engines -Name "node")
+    ) {
+        throw "Babel root manifest must declare engines.node."
+    }
+
+    $engineRange = ([string]$manifest.engines.node).Trim()
+    $rangeMatch = [regex]::Match(
+        $engineRange,
+        "^>=\s*(?<minimum>[0-9]+\.[0-9]+\.[0-9]+)\s+<\s*(?<maximumMajor>[0-9]+)\s*$"
+    )
+    if (-not $rangeMatch.Success) {
+        throw "Unsupported engines.node range '$engineRange'; expected '>=x.y.z <major'."
+    }
+
+    $minimumVersion = [Version]::Parse($rangeMatch.Groups["minimum"].Value)
+    $maximumMajor = [int]$rangeMatch.Groups["maximumMajor"].Value
+    $candidatePaths = @()
+
+    foreach ($command in @(Get-Command node.exe -All -CommandType Application -ErrorAction SilentlyContinue)) {
+        $candidatePaths += [string]$command.Source
+    }
+
+    $fnmRoots = @()
+    if (-not [string]::IsNullOrWhiteSpace($env:FNM_DIR)) {
+        $fnmRoots += $env:FNM_DIR
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:APPDATA)) {
+        $fnmRoots += Join-Path $env:APPDATA "fnm"
+    }
+    foreach ($fnmRoot in $fnmRoots) {
+        $candidatePaths += Join-Path $fnmRoot "aliases\default\node.exe"
+    }
+
+    $seenPaths = @{}
+    $discoveredRuntimes = @()
+    foreach ($candidatePath in $candidatePaths) {
+        if ([string]::IsNullOrWhiteSpace($candidatePath)) {
+            continue
+        }
+
+        try {
+            $resolvedCandidate = [IO.Path]::GetFullPath($candidatePath)
+        } catch {
+            continue
+        }
+        if ($seenPaths.ContainsKey($resolvedCandidate)) {
+            continue
+        }
+        $seenPaths[$resolvedCandidate] = $true
+        if (-not (Test-Path -LiteralPath $resolvedCandidate -PathType Leaf)) {
+            continue
+        }
+
+        try {
+            $versionOutput = @(& $resolvedCandidate --version 2>$null)
+            $versionExitCode = $LASTEXITCODE
+        } catch {
+            continue
+        }
+        if ($versionExitCode -ne 0 -or $versionOutput.Count -eq 0) {
+            continue
+        }
+
+        $versionText = ([string]$versionOutput[0]).Trim()
+        $versionMatch = [regex]::Match(
+            $versionText,
+            "^v?(?<version>[0-9]+\.[0-9]+\.[0-9]+)(?:[-+].*)?$"
+        )
+        if (-not $versionMatch.Success) {
+            continue
+        }
+
+        $version = [Version]::Parse($versionMatch.Groups["version"].Value)
+        $discoveredRuntimes += "$versionText at '$resolvedCandidate'"
+        if ($version -lt $minimumVersion -or $version.Major -ge $maximumMajor) {
+            continue
+        }
+
+        $runtimeDirectory = Split-Path -Parent $resolvedCandidate
+        $npmPath = Join-Path $runtimeDirectory "npm.cmd"
+        if (-not (Test-Path -LiteralPath $npmPath -PathType Leaf)) {
+            $discoveredRuntimes += "compatible $versionText at '$resolvedCandidate' without npm.cmd"
+            continue
+        }
+
+        return [pscustomobject]@{
+            NodePath = $resolvedCandidate
+            NpmPath = $npmPath
+            Directory = $runtimeDirectory
+            Version = $version
+            EngineRange = $engineRange
+        }
+    }
+
+    $discoveredSummary = "none"
+    if ($discoveredRuntimes.Count -gt 0) {
+        $discoveredSummary = $discoveredRuntimes -join "; "
+    }
+    throw "No Node.js runtime satisfies engines.node '$engineRange'. Found: $discoveredSummary. Select a compatible Node version and retry."
+}
+
 function Resolve-BabelRelativePath {
     param(
         [Parameter(Mandatory = $true)]
@@ -221,6 +341,9 @@ function Get-BabelApps {
     if (-not (Test-ObjectProperty -InputObject $registry -Name "apps")) {
         throw "Babel app registry is missing 'apps'."
     }
+
+    $nodeRuntime = Resolve-NodeRuntime -RootPath $RootPath
+    Write-Host "[runtime] Node v$($nodeRuntime.Version) ($($nodeRuntime.NodePath))"
 
     $definitions = @($registry.apps)
     if ($definitions.Count -eq 0) {
@@ -335,6 +458,14 @@ function Get-BabelApps {
                 -RelativePath ([string]$property.Value) `
                 -FieldName "$name.env.$($property.Name)"
         }
+        $environment["PATH"] = $nodeRuntime.Directory
+        $processPath = [Environment]::GetEnvironmentVariable(
+            "PATH",
+            [EnvironmentVariableTarget]::Process
+        )
+        if (-not [string]::IsNullOrWhiteSpace($processPath)) {
+            $environment["PATH"] += [IO.Path]::PathSeparator + $processPath
+        }
 
         $requiredDataPaths = @()
         foreach ($relativeDataPath in @($definition.requiredDataPaths)) {
@@ -394,10 +525,10 @@ function Get-BabelApps {
                 (Join-Path $workspace ".next\required-server-files.json")
             )
             BuildInputPaths = $buildInputPaths
-            BuildCommand = "npm.cmd"
+            BuildCommand = $nodeRuntime.NpmPath
             BuildArguments = @("run", "build", "-w", $expectedPackageName)
             BuildWorkingDirectory = $RootPath
-            StartCommand = "node.exe"
+            StartCommand = $nodeRuntime.NodePath
             StartArguments = @(
                 $nextEntrypoint,
                 "start",
@@ -745,7 +876,7 @@ function Start-OrReuseApp {
     if (Test-TcpPort -ComputerName "127.0.0.1" -Port $App.Port) {
         Write-Host "[reuse] $($App.Name) is already listening on port $($App.Port)." -ForegroundColor Cyan
         Wait-ExistingAppReady -App $App
-        Write-Host "[ready] $($App.Name): $($App.Url)" -ForegroundColor Green
+        Write-Host "[ready] $($App.Name): $($App.IdentityUrl)" -ForegroundColor Green
 
         return [pscustomobject]@{
             App = $App
@@ -765,7 +896,7 @@ function Start-OrReuseApp {
     [void]$ManagedEntries.Add($managedEntry)
 
     Wait-AppReady -App $App -RootProcess $rootProcess
-    Write-Host "[ready] $($App.Name): $($App.Url)" -ForegroundColor Green
+    Write-Host "[ready] $($App.Name): $($App.IdentityUrl)" -ForegroundColor Green
     return [pscustomobject]@{
         App = $App
         AlreadyRunning = $false
@@ -916,29 +1047,6 @@ function Get-SelectedApps {
     throw "Unknown selection '$resolvedSelection'. Use Menu, All, or a registered app name or id."
 }
 
-function Open-AppPages {
-    param(
-        [Parameter(Mandatory = $true)]
-        [object[]]$Statuses,
-
-        [switch]$SuppressBrowser
-    )
-
-    foreach ($status in $Statuses) {
-        if ($SuppressBrowser) {
-            Write-Host "[browser] Would open: $($status.App.Url)"
-            continue
-        }
-
-        try {
-            Start-Process -FilePath $status.App.Url
-            Write-Host "[browser] Opened: $($status.App.Url)"
-        } catch {
-            Write-Warning "Could not open '$($status.App.Url)'. Open it manually in your browser."
-        }
-    }
-}
-
 function Wait-ForStopRequest {
     param(
         [Parameter(Mandatory = $true)]
@@ -1002,10 +1110,6 @@ try {
     foreach ($app in $selectedApps) {
         $statuses += Start-OrReuseApp -App $app -ManagedEntries $managedEntries
     }
-
-    Open-AppPages `
-        -Statuses $statuses `
-        -SuppressBrowser:($NoBrowser -or $VerifyAndExit)
 
     if ($VerifyAndExit) {
         Write-Host "[verify] Readiness checks passed; cleaning up managed services."

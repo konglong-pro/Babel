@@ -62,7 +62,8 @@ before launching or backing up the new application.
 Double-click `launcher\Babel.vbs` or `launcher\Babel.lnk` to open the WPF control
 panel. It reads `babel.apps.json` dynamically, shows each registered app and
 port, and can start the selected app, start all apps, stop the session cleanly,
-open the selected page, or run a readiness verification.
+or run a readiness verification. The launcher starts backends only and writes
+each notebook URL to the Session Log; it does not open a browser.
 
 The command-line launcher remains available for scripts and recovery work:
 
@@ -78,7 +79,9 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launcher\Babel.ps1 -Se
 
 The launcher refuses to create or migrate missing user data. Every path in an
 application's `requiredDataPaths` must already exist. Closing the WPF window
-sends a stop signal to its managed CLI worker before the window exits.
+sends a stop signal to its managed CLI worker before the window exits. The
+worker selects a Node.js runtime compatible with the root `engines.node` range
+from PATH or fnm's default alias and reports the selected runtime in the log.
 
 ## Restore on a new machine
 

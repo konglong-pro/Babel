@@ -1,144 +1,537 @@
-﻿<Window
+<Window
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     x:Name="BabelWindow"
-    Title="Babel 启动器"
-    Width="820"
-    Height="610"
-    MinWidth="680"
-    MinHeight="500"
+    Title="Babel Launcher"
+    Width="1000"
+    Height="720"
+    MinWidth="860"
+    MinHeight="620"
     WindowStartupLocation="CenterScreen"
-    Background="#F4F6F8"
+    Background="#FBF8EF"
     FontFamily="Segoe UI"
     FontSize="14"
+    UseLayoutRounding="True"
+    SnapsToDevicePixels="True"
     TextOptions.TextFormattingMode="Display"
-    AutomationProperties.Name="Babel 应用启动器">
+    AutomationProperties.Name="Babel application launcher">
     <Window.Resources>
-        <Style TargetType="Button">
-            <Setter Property="MinWidth" Value="112" />
-            <Setter Property="MinHeight" Value="36" />
-            <Setter Property="Margin" Value="0,0,8,8" />
-            <Setter Property="Padding" Value="12,5" />
-            <Setter Property="HorizontalContentAlignment" Value="Center" />
-            <Setter Property="VerticalContentAlignment" Value="Center" />
-        </Style>
+        <DrawingBrush
+            x:Key="PaperBrush"
+            TileMode="Tile"
+            Viewport="0,0,28,28"
+            ViewportUnits="Absolute">
+            <DrawingBrush.Drawing>
+                <DrawingGroup>
+                    <GeometryDrawing Brush="#FBF8EF">
+                        <GeometryDrawing.Geometry>
+                            <RectangleGeometry Rect="0,0,28,28" />
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                    <GeometryDrawing Brush="#101E1B18">
+                        <GeometryDrawing.Geometry>
+                            <EllipseGeometry Center="5,5" RadiusX="0.55" RadiusY="0.55" />
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                </DrawingGroup>
+            </DrawingBrush.Drawing>
+        </DrawingBrush>
+
         <Style TargetType="TextBlock">
             <Setter Property="TextWrapping" Value="Wrap" />
         </Style>
+
+        <Style x:Key="CardStyle" TargetType="Border">
+            <Setter Property="Background" Value="#FFFFFC" />
+            <Setter Property="BorderBrush" Value="#1D1B18" />
+            <Setter Property="BorderThickness" Value="2" />
+            <Setter Property="CornerRadius" Value="12" />
+            <Setter Property="Effect">
+                <Setter.Value>
+                    <DropShadowEffect
+                        Color="#1D1B18"
+                        BlurRadius="0"
+                        Direction="315"
+                        ShadowDepth="5"
+                        Opacity="1" />
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="ActionButtonStyle" TargetType="Button">
+            <Setter Property="Height" Value="36" />
+            <Setter Property="Margin" Value="0,0,0,7" />
+            <Setter Property="Padding" Value="6,6" />
+            <Setter Property="Background" Value="#FFFFFC" />
+            <Setter Property="Foreground" Value="#1D1B18" />
+            <Setter Property="BorderBrush" Value="#1D1B18" />
+            <Setter Property="BorderThickness" Value="2" />
+            <Setter Property="FontFamily" Value="Arial" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border
+                            x:Name="ButtonChrome"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="6"
+                            Padding="{TemplateBinding Padding}">
+                            <ContentPresenter
+                                HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                RecognizesAccessKey="True" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="ButtonChrome" Property="Background" Value="#FFF19A" />
+                                <Setter Property="Foreground" Value="#1D1B18" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="ButtonChrome" Property="Background" Value="#F6DA64" />
+                                <Setter Property="Foreground" Value="#1D1B18" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="ButtonChrome" Property="BorderBrush" Value="#2E75D4" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.34" />
+                                <Setter Property="Cursor" Value="Arrow" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style
+            x:Key="PrimaryButtonStyle"
+            TargetType="Button"
+            BasedOn="{StaticResource ActionButtonStyle}">
+            <Setter Property="Background" Value="#FFF19A" />
+        </Style>
+
+        <Style
+            x:Key="StopButtonStyle"
+            TargetType="Button"
+            BasedOn="{StaticResource ActionButtonStyle}">
+            <Setter Property="Background" Value="#EF2B2D" />
+            <Setter Property="Foreground" Value="White" />
+        </Style>
+
+        <Style x:Key="AppGridHeaderStyle" TargetType="DataGridColumnHeader">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="#E8292E" />
+            <Setter Property="BorderBrush" Value="#1D1B18" />
+            <Setter Property="BorderThickness" Value="0,0,0,2" />
+            <Setter Property="Padding" Value="14,10" />
+            <Setter Property="FontFamily" Value="Arial" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+        </Style>
+
+        <Style x:Key="AppGridRowStyle" TargetType="DataGridRow">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="#E4DED0" />
+            <Setter Property="BorderThickness" Value="0,0,0,1" />
+            <Setter Property="MinHeight" Value="40" />
+            <Setter Property="Foreground" Value="#1D1B18" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#FFF9D8" />
+                </Trigger>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="#FFF19A" />
+                    <Setter Property="Foreground" Value="#1D1B18" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="AppGridCellStyle" TargetType="DataGridCell">
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="14,8" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        </Style>
     </Window.Resources>
 
-    <Grid>
+    <Grid Background="{StaticResource PaperBrush}">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
+            <RowDefinition Height="190" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="180" />
-            <RowDefinition Height="Auto" />
+            <RowDefinition Height="132" />
+            <RowDefinition Height="42" />
         </Grid.RowDefinitions>
 
-        <Border Grid.Row="0" Background="#173B57" Padding="22,18">
-            <StackPanel>
-                <TextBlock
-                    Foreground="White"
-                    FontSize="24"
-                    FontWeight="SemiBold"
-                    Text="Babel" />
-                <TextBlock
-                    Margin="0,5,0,0"
-                    Foreground="#DCE8F0"
-                    Text="统一启动、停止和验证本地笔记应用" />
-            </StackPanel>
-        </Border>
-
-        <Grid Grid.Row="1" Margin="20,18,20,12">
+        <Grid Grid.Row="0" Margin="34,24,34,14">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="230" />
             </Grid.ColumnDefinitions>
 
-            <DataGrid
-                x:Name="AppsGrid"
-                Grid.Column="0"
-                Margin="0,0,18,0"
-                AutoGenerateColumns="False"
-                CanUserAddRows="False"
-                CanUserDeleteRows="False"
-                CanUserReorderColumns="False"
-                HeadersVisibility="Column"
-                IsReadOnly="True"
-                SelectionMode="Single"
-                SelectionUnit="FullRow"
-                GridLinesVisibility="Horizontal"
-                AlternatingRowBackground="#F7FAFC"
-                RowHeight="38"
-                AutomationProperties.Name="已注册应用列表"
-                AutomationProperties.HelpText="使用方向键选择一个应用">
-                <DataGrid.Columns>
-                    <DataGridTextColumn Header="应用" Binding="{Binding Name}" Width="*" />
-                    <DataGridTextColumn Header="端口" Binding="{Binding Port}" Width="90" />
-                    <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="130" />
-                </DataGrid.Columns>
-            </DataGrid>
+            <StackPanel Grid.Column="0">
+                <StackPanel Orientation="Horizontal">
+                    <Image
+                        x:Name="BrandLogo"
+                        Width="42"
+                        Height="42"
+                        Margin="0,0,12,0"
+                        Stretch="Uniform"
+                        AutomationProperties.Name="Babel green book logo" />
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        Foreground="#A7C080"
+                        FontFamily="Arial"
+                        FontSize="20"
+                        FontWeight="Bold"
+                        Text="Babel" />
+                </StackPanel>
 
-            <StackPanel Grid.Column="1" Width="136">
-                <Button
-                    x:Name="StartSelectedButton"
-                    Content="启动选中 (_S)"
-                    IsDefault="True"
-                    AutomationProperties.Name="启动选中的应用" />
-                <Button
-                    x:Name="StartAllButton"
-                    Content="启动全部 (_A)"
-                    AutomationProperties.Name="启动全部应用" />
-                <Button
-                    x:Name="StopButton"
-                    Content="停止 (_T)"
-                    AutomationProperties.Name="停止本窗口启动的应用" />
-                <Button
-                    x:Name="OpenButton"
-                    Content="打开页面 (_O)"
-                    AutomationProperties.Name="在浏览器打开选中的应用" />
-                <Button
-                    x:Name="VerifyButton"
-                    Content="验证全部 (_V)"
-                    AutomationProperties.Name="验证全部应用" />
+                <StackPanel Margin="0,12,0,0">
+                    <StackPanel.Effect>
+                        <DropShadowEffect
+                            Color="#1D1B18"
+                            BlurRadius="0"
+                            Direction="315"
+                            ShadowDepth="3"
+                            Opacity="1" />
+                    </StackPanel.Effect>
+                    <TextBlock
+                        Foreground="#FFF19A"
+                        FontFamily="Arial Black"
+                        FontSize="42"
+                        FontWeight="Black"
+                        LineHeight="43"
+                        Text="Attention Iteration" />
+                </StackPanel>
+
             </StackPanel>
+
+            <Canvas
+                Grid.Column="1"
+                Width="230"
+                Height="150"
+                IsHitTestVisible="False">
+                <Border
+                    Canvas.Left="16"
+                    Canvas.Top="12"
+                    Width="108"
+                    Height="34"
+                    Background="#2E75D4"
+                    BorderBrush="#1D1B18"
+                    BorderThickness="2"
+                    CornerRadius="17"
+                    RenderTransformOrigin="0.5,0.5">
+                    <Border.RenderTransform>
+                        <RotateTransform Angle="-8" />
+                    </Border.RenderTransform>
+                    <TextBlock
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Foreground="White"
+                        FontFamily="Arial Black"
+                        FontSize="10"
+                        Text="LOCAL / FIRST" />
+                </Border>
+
+                <Border
+                    Canvas.Left="102"
+                    Canvas.Top="65"
+                    Width="94"
+                    Height="38"
+                    Background="#3ABF77"
+                    BorderBrush="#1D1B18"
+                    BorderThickness="2"
+                    CornerRadius="7"
+                    RenderTransformOrigin="0.5,0.5">
+                    <Border.RenderTransform>
+                        <RotateTransform Angle="7" />
+                    </Border.RenderTransform>
+                    <TextBlock
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Foreground="#1D1B18"
+                        FontFamily="Arial Black"
+                        FontSize="12"
+                        Text="READY" />
+                </Border>
+
+                <Border
+                    Canvas.Left="28"
+                    Canvas.Top="103"
+                    Width="82"
+                    Height="31"
+                    Background="#F39B32"
+                    BorderBrush="#1D1B18"
+                    BorderThickness="2"
+                    CornerRadius="4"
+                    RenderTransformOrigin="0.5,0.5">
+                    <Border.RenderTransform>
+                        <RotateTransform Angle="-4" />
+                    </Border.RenderTransform>
+                    <TextBlock
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Foreground="#1D1B18"
+                        FontFamily="Arial Black"
+                        FontSize="9"
+                        Text="NO CLOUD" />
+                </Border>
+
+                <Ellipse
+                    Canvas.Left="178"
+                    Canvas.Top="7"
+                    Width="28"
+                    Height="28"
+                    Fill="#EF2B2D"
+                    Stroke="#1D1B18"
+                    StrokeThickness="2" />
+                <Path
+                    Canvas.Left="186"
+                    Canvas.Top="16"
+                    Width="12"
+                    Height="8"
+                    Data="M 0,4 C 3,0 9,0 12,4 C 9,8 3,8 0,4 Z"
+                    Fill="White"
+                    Stretch="Fill" />
+            </Canvas>
         </Grid>
 
-        <Border Grid.Row="2" Margin="20,0,20,14" BorderBrush="#CDD6DE" BorderThickness="1" Background="White">
+        <Grid Grid.Row="1" Margin="34,0,34,18">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="198" />
+            </Grid.ColumnDefinitions>
+
+            <Border
+                Grid.Column="0"
+                Margin="0,0,20,0"
+                Padding="20,16,20,14"
+                Style="{StaticResource CardStyle}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <Grid Grid.Row="0" Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock
+                            Foreground="#EF2B2D"
+                            FontFamily="Arial"
+                            FontSize="11"
+                            FontWeight="Bold"
+                            Text="R  E  G  I  S  T  E  R  E  D    A  P  P  S" />
+                        <TextBlock
+                            Grid.Column="1"
+                            Foreground="#777068"
+                            FontSize="11"
+                            Text="SELECT A NOTEBOOK" />
+                    </Grid>
+
+                    <DataGrid
+                        x:Name="AppsGrid"
+                        Grid.Row="1"
+                        AutoGenerateColumns="False"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        CanUserAddRows="False"
+                        CanUserDeleteRows="False"
+                        CanUserReorderColumns="False"
+                        CanUserResizeRows="False"
+                        ColumnHeaderStyle="{StaticResource AppGridHeaderStyle}"
+                        CellStyle="{StaticResource AppGridCellStyle}"
+                        RowStyle="{StaticResource AppGridRowStyle}"
+                        HeadersVisibility="Column"
+                        IsReadOnly="True"
+                        RowHeaderWidth="0"
+                        SelectionMode="Single"
+                        SelectionUnit="FullRow"
+                        GridLinesVisibility="None"
+                        AutomationProperties.Name="Registered application list"
+                        AutomationProperties.HelpText="Use the arrow keys to select an application">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="APPLICATION" Binding="{Binding Name}" Width="260" />
+                            <DataGridTextColumn Header="PORT" Binding="{Binding Port}" Width="90" />
+                            <DataGridTemplateColumn Header="STATUS" Width="150">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Border
+                                            HorizontalAlignment="Left"
+                                            VerticalAlignment="Center"
+                                            Padding="8,4"
+                                            BorderBrush="#1D1B18"
+                                            BorderThickness="1"
+                                            CornerRadius="10">
+                                            <Border.Style>
+                                                <Style TargetType="Border">
+                                                    <Setter Property="Background" Value="#EEE9DE" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Status}" Value="RUNNING">
+                                                            <Setter Property="Background" Value="#BCEBCF" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Status}" Value="STARTING">
+                                                            <Setter Property="Background" Value="#C8DDF8" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Status}" Value="VERIFYING">
+                                                            <Setter Property="Background" Value="#FFF19A" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Status}" Value="STOPPING">
+                                                            <Setter Property="Background" Value="#FFD09A" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
+                                            <TextBlock
+                                                Foreground="#1D1B18"
+                                                FontFamily="Arial"
+                                                FontSize="10"
+                                                FontWeight="Bold"
+                                                Text="{Binding Status}" />
+                                        </Border>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </Border>
+
+            <Border
+                Grid.Column="1"
+                Padding="14"
+                Style="{StaticResource CardStyle}">
+                <ScrollViewer
+                    HorizontalScrollBarVisibility="Disabled"
+                    VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <TextBlock
+                            Margin="1,0,0,4"
+                            Foreground="#EF2B2D"
+                            FontFamily="Arial"
+                            FontSize="11"
+                            FontWeight="Bold"
+                            Text="C  O  M  M  A  N  D  S" />
+                        <TextBlock
+                            Margin="1,0,0,8"
+                            Foreground="#777068"
+                            FontSize="11"
+                            Text="Keys: S / A / T / V" />
+                        <Button
+                            x:Name="StartSelectedButton"
+                            Content="START SELECTED (_S)"
+                            IsDefault="True"
+                            Style="{StaticResource PrimaryButtonStyle}"
+                            AutomationProperties.Name="Start the selected application" />
+                        <Button
+                            x:Name="StartAllButton"
+                            Content="START ALL (_A)"
+                            Style="{StaticResource ActionButtonStyle}"
+                            AutomationProperties.Name="Start all applications" />
+                        <Button
+                            x:Name="StopButton"
+                            Content="STOP WORKER (_T)"
+                            Style="{StaticResource StopButtonStyle}"
+                            AutomationProperties.Name="Stop applications managed by this window" />
+                        <Button
+                            x:Name="VerifyButton"
+                            Content="VERIFY ALL (_V)"
+                            Margin="0"
+                            Style="{StaticResource ActionButtonStyle}"
+                            AutomationProperties.Name="Verify all applications" />
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+
+        <Border
+            Grid.Row="2"
+            Margin="34,0,34,16"
+            Background="#1D1B18"
+            BorderBrush="#1D1B18"
+            BorderThickness="2"
+            CornerRadius="12">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
-                <TextBlock
-                    Grid.Row="0"
-                    Padding="10,8"
-                    Background="#EAF0F4"
-                    FontWeight="SemiBold"
-                    Text="启动日志" />
+                <Grid Grid.Row="0" Margin="15,11,15,5">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock
+                        Foreground="#FFF19A"
+                        FontFamily="Arial"
+                        FontSize="11"
+                        FontWeight="Bold"
+                        Text="S  E  S  S  I  O  N    L  O  G" />
+                    <TextBlock
+                        Grid.Column="1"
+                        Foreground="#999188"
+                        FontSize="10"
+                        Text="LIVE OUTPUT / LAST 50K CHARACTERS" />
+                </Grid>
                 <TextBox
                     x:Name="LogTextBox"
                     Grid.Row="1"
-                    Padding="10,8"
+                    Margin="4,0,4,4"
+                    Padding="12,7"
+                    Background="Transparent"
                     BorderThickness="0"
+                    Foreground="#F7EFA8"
                     IsReadOnly="True"
                     AcceptsReturn="True"
                     FontFamily="Consolas"
                     FontSize="12"
                     VerticalScrollBarVisibility="Auto"
                     HorizontalScrollBarVisibility="Auto"
-                    AutomationProperties.Name="启动日志，只读" />
+                    AutomationProperties.Name="Read-only session log" />
             </Grid>
         </Border>
 
-        <StatusBar Grid.Row="3" Padding="12,5" Background="#E3E9EE">
-            <StatusBarItem>
-                <TextBlock x:Name="StatusText" Text="正在载入应用注册表…" />
-            </StatusBarItem>
-            <Separator />
-            <StatusBarItem HorizontalAlignment="Right">
-                <TextBlock x:Name="WorkerText" Text="worker：空闲" />
-            </StatusBarItem>
-        </StatusBar>
+        <Border Grid.Row="3" Background="#EF2B2D" Padding="34,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
+                    <Ellipse Width="8" Height="8" Margin="0,0,10,0" Fill="#FFF19A" />
+                    <TextBlock
+                        x:Name="StatusText"
+                        VerticalAlignment="Center"
+                        Foreground="White"
+                        FontSize="12"
+                        FontWeight="SemiBold"
+                        TextWrapping="NoWrap"
+                        TextTrimming="CharacterEllipsis"
+                        ToolTip="{Binding RelativeSource={RelativeSource Self}, Path=Text}"
+                        Text="Loading the application registry..." />
+                </StackPanel>
+                <TextBlock
+                    x:Name="WorkerText"
+                    Grid.Column="1"
+                    VerticalAlignment="Center"
+                    Foreground="White"
+                    FontFamily="Consolas"
+                    FontSize="11"
+                    FontWeight="Bold"
+                    TextWrapping="NoWrap"
+                    TextTrimming="CharacterEllipsis"
+                    ToolTip="{Binding RelativeSource={RelativeSource Self}, Path=Text}"
+                    Text="WORKER / IDLE" />
+            </Grid>
+        </Border>
     </Grid>
 </Window>

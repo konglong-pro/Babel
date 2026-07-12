@@ -42,28 +42,28 @@ function Get-RegisteredApps {
     )
 
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-        throw "找不到应用注册表：$Path"
+        throw "Application registry not found: $Path"
     }
 
     try {
         $registry = Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json
     } catch {
-        throw "应用注册表不是有效 JSON：$($_.Exception.Message)"
+        throw "The application registry is not valid JSON: $($_.Exception.Message)"
     }
 
     if (-not (Test-RequiredProperty -InputObject $registry -Name "schemaVersion")) {
-        throw "应用注册表缺少 schemaVersion。"
+        throw "The application registry is missing schemaVersion."
     }
     if ([string]$registry.schemaVersion -ne "1") {
-        throw "不支持应用注册表 schemaVersion '$($registry.schemaVersion)'。"
+        throw "Unsupported application registry schemaVersion '$($registry.schemaVersion)'."
     }
     if (-not (Test-RequiredProperty -InputObject $registry -Name "apps")) {
-        throw "应用注册表缺少 apps。"
+        throw "The application registry is missing apps."
     }
 
     $definitions = @($registry.apps)
     if ($definitions.Count -eq 0) {
-        throw "应用注册表中没有应用。"
+        throw "The application registry does not contain any applications."
     }
 
     $ids = @{}
@@ -73,7 +73,7 @@ function Get-RegisteredApps {
     foreach ($definition in $definitions) {
         foreach ($propertyName in @("name", "id", "port", "identityPath")) {
             if (-not (Test-RequiredProperty -InputObject $definition -Name $propertyName)) {
-                throw "应用注册表条目缺少 $propertyName。"
+                throw "Application registry entry is missing $propertyName."
             }
         }
 
@@ -83,29 +83,28 @@ function Get-RegisteredApps {
         $identityPath = ([string]$definition.identityPath).Trim()
 
         if ([string]::IsNullOrWhiteSpace($name)) {
-            throw "应用名称不能为空。"
+            throw "Application name cannot be empty."
         }
         if ($id -notmatch "^[a-z0-9][a-z0-9-]*$") {
-            throw "应用 id '$id' 只能使用小写字母、数字和连字符。"
+            throw "Application id '$id' may contain only lowercase letters, numbers, and hyphens."
         }
         if ($ids.ContainsKey($id)) {
-            throw "应用 id '$id' 重复。"
+            throw "Duplicate application id '$id'."
         }
         if (-not [int]::TryParse([string]$definition.port, [ref]$port) -or $port -lt 1 -or $port -gt 65535) {
-            throw "应用 '$name' 的端口无效。"
+            throw "Application '$name' has an invalid port."
         }
         if ($ports.ContainsKey([string]$port)) {
-            throw "应用端口 '$port' 重复。"
+            throw "Duplicate application port '$port'."
         }
         if (-not $identityPath.StartsWith("/")) {
-            throw "应用 '$name' 的 identityPath 必须以 / 开头。"
+            throw "Application '$name' identityPath must start with /."
         }
 
         $apps += [pscustomobject]@{
             Name = $name
             Id = $id
             Port = $port
-            OpenUrl = "http://127.0.0.1:$port$identityPath"
         }
         $ids[$id] = $true
         $ports[[string]$port] = $true
@@ -121,7 +120,7 @@ function Import-BabelWindow {
     )
 
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-        throw "找不到界面文件：$Path"
+        throw "UI file not found: $Path"
     }
 
     try {
@@ -133,7 +132,7 @@ function Import-BabelWindow {
             $reader.Close()
         }
     } catch {
-        throw "无法加载 Babel XAML：$($_.Exception.Message)"
+        throw "Could not load Babel XAML: $($_.Exception.Message)"
     }
 }
 
@@ -148,7 +147,7 @@ function Get-RequiredControl {
 
     $control = $Window.FindName($Name)
     if ($null -eq $control) {
-        throw "XAML 缺少必需控件 '$Name'。"
+        throw "XAML is missing required control '$Name'."
     }
     return $control
 }
@@ -157,11 +156,11 @@ $registeredApps = @(Get-RegisteredApps -Path $registryPath)
 $window = Import-BabelWindow -Path $xamlPath
 
 $requiredControlNames = @(
+    "BrandLogo",
     "AppsGrid",
     "StartSelectedButton",
     "StartAllButton",
     "StopButton",
-    "OpenButton",
     "VerifyButton",
     "LogTextBox",
     "StatusText",
@@ -172,13 +171,31 @@ foreach ($controlName in $requiredControlNames) {
     $controls[$controlName] = Get-RequiredControl -Window $window -Name $controlName
 }
 
+$brandLogoPath = Join-Path $PSScriptRoot "assets\Babel.png"
+if (-not (Test-Path -LiteralPath $brandLogoPath -PathType Leaf)) {
+    throw "Brand logo not found: $brandLogoPath"
+}
+
+try {
+    $brandLogoUri = New-Object Uri($brandLogoPath, [UriKind]::Absolute)
+    $brandLogoBitmap = New-Object Windows.Media.Imaging.BitmapImage
+    $brandLogoBitmap.BeginInit()
+    $brandLogoBitmap.CacheOption = [Windows.Media.Imaging.BitmapCacheOption]::OnLoad
+    $brandLogoBitmap.UriSource = $brandLogoUri
+    $brandLogoBitmap.EndInit()
+    $brandLogoBitmap.Freeze()
+    $controls.BrandLogo.Source = $brandLogoBitmap
+} catch {
+    throw "Could not load Babel brand logo: $($_.Exception.Message)"
+}
+
 if ($SmokeTest) {
     Write-Output "Babel GUI smoke test passed: $($registeredApps.Count) app(s), $($controls.Count) required control(s)."
     return
 }
 
 if (-not (Test-Path -LiteralPath $workerScriptPath -PathType Leaf)) {
-    throw "找不到 Babel worker：$workerScriptPath"
+    throw "Babel worker not found: $workerScriptPath"
 }
 
 $script:Window = $window
@@ -186,7 +203,6 @@ $script:AppsGrid = $controls.AppsGrid
 $script:StartSelectedButton = $controls.StartSelectedButton
 $script:StartAllButton = $controls.StartAllButton
 $script:StopButton = $controls.StopButton
-$script:OpenButton = $controls.OpenButton
 $script:VerifyButton = $controls.VerifyButton
 $script:LogTextBox = $controls.LogTextBox
 $script:StatusText = $controls.StatusText
@@ -216,7 +232,7 @@ foreach ($app in $script:RegisteredApps) {
     $row.Id = $app.Id
     $row.Name = $app.Name
     $row.Port = $app.Port
-    $row.Status = "检查中"
+    $row.Status = "CHECKING"
     [void]$appTable.Rows.Add($row)
     $script:AppsById[$app.Id] = $app
     $script:RowsById[$app.Id] = $row
@@ -308,19 +324,18 @@ function Refresh-ButtonState {
     $script:StartAllButton.IsEnabled = -not $workerActive
     $script:VerifyButton.IsEnabled = -not $workerActive
     $script:StopButton.IsEnabled = $workerActive -and -not $script:StopRequested
-    $script:OpenButton.IsEnabled = $hasSelection
 
     if ($workerActive) {
-        $action = "运行中"
+        $action = "RUNNING"
         if ($script:WorkerMode -eq "Verify") {
-            $action = "验证中"
+            $action = "VERIFYING"
         }
         if ($script:StopRequested) {
-            $action = "停止中"
+            $action = "STOPPING"
         }
-        $script:WorkerText.Text = "worker：$action / PID $($script:Worker.Id)"
+        $script:WorkerText.Text = "WORKER / $action / PID $($script:Worker.Id)"
     } else {
-        $script:WorkerText.Text = "worker：空闲"
+        $script:WorkerText.Text = "WORKER / IDLE"
     }
 }
 
@@ -328,16 +343,16 @@ function Refresh-AppStatuses {
     $workerActive = Test-WorkerActive
 
     foreach ($app in $script:RegisteredApps) {
-        $status = "已停止"
+        $status = "STOPPED"
         if (Test-LocalPort -Port $app.Port) {
-            $status = "运行中"
+            $status = "RUNNING"
         } elseif ($workerActive -and $script:WorkerTargets -contains $app.Id) {
             if ($script:StopRequested) {
-                $status = "正在停止"
+                $status = "STOPPING"
             } elseif ($script:WorkerMode -eq "Verify") {
-                $status = "正在验证"
+                $status = "VERIFYING"
             } else {
-                $status = "正在启动"
+                $status = "STARTING"
             }
         }
         $script:RowsById[$app.Id].Status = $status
@@ -375,7 +390,7 @@ function Update-LogView {
 
     $maximumLogCharacters = 50000
     if ($rendered.Length -gt $maximumLogCharacters) {
-        $rendered = "…仅显示最后 $maximumLogCharacters 个字符…`r`n" + $rendered.Substring(
+        $rendered = "[Showing only the last $maximumLogCharacters characters]`r`n" + $rendered.Substring(
             $rendered.Length - $maximumLogCharacters
         )
     }
@@ -389,7 +404,7 @@ function Update-LogView {
 
 function Request-WorkerStop {
     if (-not (Test-WorkerActive)) {
-        Set-UiStatus -Message "当前没有由此窗口管理的 worker。"
+        Set-UiStatus -Message "No worker is currently managed by this window."
         return
     }
     if ($script:StopRequested) {
@@ -398,7 +413,7 @@ function Request-WorkerStop {
 
     try {
         if ([string]::IsNullOrWhiteSpace($script:StopSignalPath)) {
-            throw "worker 没有停止信号路径。"
+            throw "The worker stop signal path is unavailable."
         }
         [IO.File]::WriteAllText(
             $script:StopSignalPath,
@@ -406,15 +421,15 @@ function Request-WorkerStop {
             (New-Object Text.UTF8Encoding($false))
         )
         $script:StopRequested = $true
-        Set-UiStatus -Message "已请求 worker 正常停止，请等待服务清理完成。"
+        Set-UiStatus -Message "Graceful stop requested. Waiting for managed services to shut down."
         Refresh-ButtonState
         Refresh-AppStatuses
     } catch {
-        Set-UiStatus -Message "无法写入停止信号：$($_.Exception.Message)"
+        Set-UiStatus -Message "Could not write the stop signal: $($_.Exception.Message)"
         [Windows.MessageBox]::Show(
             $script:Window,
-            "无法请求 worker 停止。`r`n`r`n$($_.Exception.Message)",
-            "Babel 启动器",
+            "Could not request worker shutdown.`r`n`r`n$($_.Exception.Message)",
+            "Babel Launcher",
             [Windows.MessageBoxButton]::OK,
             [Windows.MessageBoxImage]::Error
         ) | Out-Null
@@ -451,12 +466,12 @@ function Complete-WorkerIfExited {
 
     if ($exitCode -eq 0) {
         if ($completedMode -eq "Verify") {
-            Set-UiStatus -Message "全部应用验证通过。"
+            Set-UiStatus -Message "All applications passed verification."
         } else {
-            Set-UiStatus -Message "worker 已正常结束，所管理的服务已停止。"
+            Set-UiStatus -Message "Worker exited cleanly. Managed services are stopped."
         }
     } else {
-        Set-UiStatus -Message "worker 异常结束（退出码 $exitCode），请查看日志。"
+        Set-UiStatus -Message "Worker exited unexpectedly (code $exitCode). Review the session log."
     }
 
     Refresh-AppStatuses
@@ -490,13 +505,13 @@ function Start-BabelWorker {
 
     Complete-WorkerIfExited
     if (Test-WorkerActive) {
-        Set-UiStatus -Message "已有一个 Babel worker 正在运行；请先停止它。"
+        Set-UiStatus -Message "A Babel worker is already running. Stop it before starting another."
         return
     }
 
     $powershellPath = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
     if (-not (Test-Path -LiteralPath $powershellPath -PathType Leaf)) {
-        throw "找不到 Windows PowerShell 5.1：$powershellPath"
+        throw "Windows PowerShell 5.1 not found: $powershellPath"
     }
 
     $sessionDirectory = Join-Path ([IO.Path]::GetTempPath()) ("BabelLauncher\" + [Guid]::NewGuid().ToString("N"))
@@ -506,7 +521,7 @@ function Start-BabelWorker {
     $stdOutLogPath = Join-Path $sessionDirectory "stdout.log"
     $stdErrLogPath = Join-Path $sessionDirectory "stderr.log"
     if (Test-Path -LiteralPath $stopSignalPath) {
-        throw "停止信号路径在 worker 启动前已经存在：$stopSignalPath"
+        throw "The stop signal already exists before worker startup: $stopSignalPath"
     }
 
     $workerCommand = "& " + (ConvertTo-PowerShellLiteral -Value $workerScriptPath) +
@@ -540,7 +555,7 @@ function Start-BabelWorker {
             throw "Windows did not create the worker process."
         }
     } catch {
-        throw "无法启动 Babel worker：$($_.Exception.Message)"
+        throw "Could not start the Babel worker: $($_.Exception.Message)"
     }
 
     $script:Worker = $process
@@ -558,9 +573,9 @@ function Start-BabelWorker {
     $script:LogTextBox.Text = ""
 
     if ($Mode -eq "Verify") {
-        Set-UiStatus -Message "正在验证全部应用；完成后临时启动的服务会自动停止。"
+        Set-UiStatus -Message "Verifying all applications. Temporary services will stop automatically."
     } else {
-        Set-UiStatus -Message "worker 已启动，正在准备应用。日志目录：$sessionDirectory"
+        Set-UiStatus -Message "Worker started. Preparing applications. Session logs: $sessionDirectory"
     }
     Refresh-AppStatuses
     Refresh-ButtonState
@@ -570,7 +585,7 @@ $script:StartSelectedButton.Add_Click({
     try {
         $app = Get-SelectedApp
         if ($null -eq $app) {
-            Set-UiStatus -Message "请先选择一个应用。"
+            Set-UiStatus -Message "Select an application first."
             return
         }
         Start-BabelWorker -Selection $app.Id -Mode "Start"
@@ -579,7 +594,7 @@ $script:StartSelectedButton.Add_Click({
         [Windows.MessageBox]::Show(
             $script:Window,
             $_.Exception.Message,
-            "Babel 启动器",
+            "Babel Launcher",
             [Windows.MessageBoxButton]::OK,
             [Windows.MessageBoxImage]::Error
         ) | Out-Null
@@ -594,7 +609,7 @@ $script:StartAllButton.Add_Click({
         [Windows.MessageBox]::Show(
             $script:Window,
             $_.Exception.Message,
-            "Babel 启动器",
+            "Babel Launcher",
             [Windows.MessageBoxButton]::OK,
             [Windows.MessageBoxImage]::Error
         ) | Out-Null
@@ -605,24 +620,6 @@ $script:StopButton.Add_Click({
     Request-WorkerStop
 })
 
-$script:OpenButton.Add_Click({
-    try {
-        $app = Get-SelectedApp
-        if ($null -eq $app) {
-            Set-UiStatus -Message "请先选择一个应用。"
-            return
-        }
-        if (-not (Test-LocalPort -Port $app.Port -TimeoutMilliseconds 200)) {
-            Set-UiStatus -Message "$($app.Name) 尚未运行，无法打开页面。"
-            return
-        }
-        Start-Process -FilePath $app.OpenUrl | Out-Null
-        Set-UiStatus -Message "已在浏览器打开 $($app.Name)。"
-    } catch {
-        Set-UiStatus -Message "无法打开页面：$($_.Exception.Message)"
-    }
-})
-
 $script:VerifyButton.Add_Click({
     try {
         Start-BabelWorker -Selection "All" -Mode "Verify"
@@ -631,7 +628,7 @@ $script:VerifyButton.Add_Click({
         [Windows.MessageBox]::Show(
             $script:Window,
             $_.Exception.Message,
-            "Babel 启动器",
+            "Babel Launcher",
             [Windows.MessageBoxButton]::OK,
             [Windows.MessageBoxImage]::Error
         ) | Out-Null
@@ -652,7 +649,7 @@ $timer.Add_Tick({
         Refresh-ButtonState
     } catch {
         try {
-            Set-UiStatus -Message "界面轮询失败：$($_.Exception.Message)"
+            Set-UiStatus -Message "UI polling failed: $($_.Exception.Message)"
         } catch {
             # Never allow a status-rendering failure to escape the Dispatcher.
         }
@@ -670,7 +667,7 @@ $script:Window.Add_Closing({
     if (Test-WorkerActive) {
         $eventArgs.Cancel = $true
         $script:CloseRequested = $true
-        Set-UiStatus -Message "正在正常停止 worker，清理完成后窗口会自动关闭。"
+        Set-UiStatus -Message "Stopping the worker gracefully. The window will close after cleanup."
         Request-WorkerStop
     } else {
         $timer.Stop()
@@ -679,6 +676,6 @@ $script:Window.Add_Closing({
 
 Refresh-AppStatuses
 Refresh-ButtonState
-Set-UiStatus -Message "已载入 $($script:RegisteredApps.Count) 个应用。选择应用后即可启动。"
+Set-UiStatus -Message "Loaded $($script:RegisteredApps.Count) applications. Select one to begin."
 $timer.Start()
 [void]$script:Window.ShowDialog()
