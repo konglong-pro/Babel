@@ -151,6 +151,24 @@ test("renders the repository mirror template as an independent app", async (t) =
     path.join(generatedRoot, "drizzle", "0000_mirror-notes_notes.sql"),
   );
   await access(path.join(generatedRoot, "src", "components", "markdown.tsx"));
+  const folderPanel = await readFile(
+    path.join(generatedRoot, "src", "components", "folder-panel.tsx"),
+    "utf8",
+  );
+  assert.match(folderPanel, /aria-expanded=/);
+  assert.match(folderPanel, /className="folder-disclosure"/);
+  assert.match(folderPanel, /className="folder-disclosure-spacer"/);
+  await access(
+    path.join(generatedRoot, "src", "components", "folder-tree-state.ts"),
+  );
+  await access(path.join(generatedRoot, "tests", "folder-tree-state.test.ts"));
+  const globalStyles = await readFile(
+    path.join(generatedRoot, "src", "app", "globals.css"),
+    "utf8",
+  );
+  assert.match(globalStyles, /\.folder-node-row/);
+  assert.match(globalStyles, /\.folder-disclosure/);
+  assert.match(globalStyles, /\.folder-disclosure-spacer/);
   await access(path.join(generatedRoot, "src", "lib", "repositories", "index.ts"));
 });
 

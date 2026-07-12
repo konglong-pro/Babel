@@ -334,6 +334,59 @@ a {
   padding-left: 0.38rem;
 }
 
+.folder-node-row {
+  display: grid;
+  min-width: 0;
+  align-items: center;
+  grid-template-columns: 28px minmax(0, 1fr);
+}
+
+.folder-tree .folder-disclosure {
+  display: grid;
+  width: 28px;
+  min-height: 28px;
+  place-items: center;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+  padding: 0;
+  text-transform: none;
+}
+
+.folder-tree .folder-disclosure::before {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  content: "";
+  transform: rotate(-45deg);
+  transition: transform 120ms ease;
+}
+
+.folder-tree .folder-disclosure[aria-expanded="true"]::before {
+  transform: rotate(45deg);
+}
+
+.folder-tree .folder-disclosure:hover:not(:disabled) {
+  border-color: transparent;
+  background: rgb(23 63 98 / 7%);
+  box-shadow: none;
+  color: inherit;
+  transform: none;
+}
+
+.folder-disclosure-spacer {
+  display: block;
+  width: 28px;
+  height: 28px;
+}
+
+.folder-node-row > .folder-node {
+  min-width: 0;
+}
+
 .folder-node {
   display: flex;
   width: 100%;

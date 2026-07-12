@@ -389,6 +389,64 @@ a {
   padding-left: 0.38rem;
 }
 
+.folder-node-row {
+  display: flex;
+  min-width: 0;
+  align-items: stretch;
+}
+
+.folder-node-row .folder-node {
+  width: auto;
+  min-width: 0;
+  flex: 1;
+}
+
+.folder-disclosure,
+.folder-disclosure-spacer {
+  width: 1.45rem;
+  min-height: 0;
+  flex: 0 0 1.45rem;
+}
+
+.folder-disclosure {
+  display: grid;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink);
+  padding: 0;
+  place-items: center;
+}
+
+.folder-disclosure::before {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  content: "";
+  transform: rotate(-45deg);
+  transition: transform 120ms ease;
+}
+
+.folder-disclosure[aria-expanded="true"]::before {
+  transform: rotate(45deg);
+}
+
+.folder-disclosure:focus-visible {
+  background: rgb(255 255 255 / 34%);
+  color: var(--ink);
+}
+
+.folder-disclosure:hover:not(:disabled),
+.folder-disclosure:active:not(:disabled) {
+  border-color: transparent;
+  background: rgb(255 255 255 / 34%);
+  box-shadow: none;
+  color: var(--ink);
+  transform: none;
+}
+
 .folder-node {
   display: flex;
   width: 100%;

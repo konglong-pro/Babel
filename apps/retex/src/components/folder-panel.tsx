@@ -2,6 +2,12 @@
 
 import { type FormEvent, useId, useMemo, useRef, useState } from "react";
 
+import {
+  type FolderExpansionState,
+  folderSelectionPath,
+  revealFolderSelection,
+  toggleFolderExpansion,
+} from "@/components/folder-tree-state";
 import type { FolderDto, FolderType } from "@/lib/types";
 
 interface FolderPanelProps {
@@ -20,34 +26,65 @@ interface FolderBranchProps {
   parentId: number | null;
   grouped: Map<number | null, FolderDto[]>;
   selectedId: number | null;
+  expandedIds: ReadonlySet<number>;
   onSelect: (id: number) => void;
+  onToggle: (id: number) => void;
 }
 
-function FolderBranch({ parentId, grouped, selectedId, onSelect }: FolderBranchProps) {
+function FolderBranch({
+  parentId,
+  grouped,
+  selectedId,
+  expandedIds,
+  onSelect,
+  onToggle,
+}: FolderBranchProps) {
   const children = grouped.get(parentId) ?? [];
   if (children.length === 0) return null;
 
   return (
     <ul>
-      {children.map((folder) => (
-        <li key={folder.id}>
-          <button
-            type="button"
-            className={selectedId === folder.id ? "folder-node selected" : "folder-node"}
-            aria-current={selectedId === folder.id ? "true" : undefined}
-            onClick={() => onSelect(folder.id)}
-          >
-            <span aria-hidden="true">▱</span>
-            <span>{folder.name}</span>
-          </button>
-          <FolderBranch
-            parentId={folder.id}
-            grouped={grouped}
-            selectedId={selectedId}
-            onSelect={onSelect}
-          />
-        </li>
-      ))}
+      {children.map((folder) => {
+        const hasChildren = (grouped.get(folder.id)?.length ?? 0) > 0;
+        const expanded = hasChildren && expandedIds.has(folder.id);
+
+        return (
+          <li key={folder.id}>
+            <div className="folder-node-row">
+              {hasChildren ? (
+                <button
+                  type="button"
+                  className="folder-disclosure"
+                  aria-expanded={expanded}
+                  aria-label={`${expanded ? "Collapse" : "Expand"} ${folder.name}`}
+                  onClick={() => onToggle(folder.id)}
+                />
+              ) : (
+                <span className="folder-disclosure-spacer" aria-hidden="true" />
+              )}
+              <button
+                type="button"
+                className={selectedId === folder.id ? "folder-node selected" : "folder-node"}
+                aria-current={selectedId === folder.id ? "true" : undefined}
+                onClick={() => onSelect(folder.id)}
+              >
+                <span aria-hidden="true">▱</span>
+                <span>{folder.name}</span>
+              </button>
+            </div>
+            {expanded ? (
+              <FolderBranch
+                parentId={folder.id}
+                grouped={grouped}
+                selectedId={selectedId}
+                expandedIds={expandedIds}
+                onSelect={onSelect}
+                onToggle={onToggle}
+              />
+            ) : null}
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -101,7 +138,20 @@ export function FolderPanel({
   const [targetId, setTargetId] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const [expansionState, setExpansionState] = useState<FolderExpansionState>(() => ({
+    expandedIds: new Set(),
+    revealedPathKey: "",
+  }));
   const dialogTitleId = useId();
+  const selectedPath = useMemo(
+    () => folderSelectionPath(folders, selectedId),
+    [folders, selectedId],
+  );
+  const revealedExpansionState = revealFolderSelection(expansionState, selectedPath);
+  if (revealedExpansionState !== expansionState) {
+    setExpansionState(revealedExpansionState);
+  }
+  const visibleExpandedIds = revealedExpansionState.expandedIds;
 
   const grouped = useMemo(() => {
     const result = new Map<number | null, FolderDto[]>();
@@ -130,6 +180,16 @@ export function FolderPanel({
         .sort((a, b) => a.path.localeCompare(b.path, "en-US")),
     [folderMap, folders, selectedId, unavailableTargets],
   );
+
+  function handleToggle(folderId: number) {
+    setExpansionState((current) => {
+      const revealedState = revealFolderSelection(current, selectedPath);
+      return {
+        ...revealedState,
+        expandedIds: toggleFolderExpansion(revealedState.expandedIds, folderId),
+      };
+    });
+  }
 
   function openDialog(mode: typeof dialogMode) {
     setDialogMode(mode);
@@ -208,7 +268,9 @@ export function FolderPanel({
             parentId={null}
             grouped={grouped}
             selectedId={selectedId}
+            expandedIds={visibleExpandedIds}
             onSelect={onSelect}
+            onToggle={handleToggle}
           />
         )}
       </nav>
