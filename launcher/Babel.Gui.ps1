@@ -1,10 +1,16 @@
 ﻿[CmdletBinding()]
 param(
-    [switch]$SmokeTest
+    [switch]$SmokeTest,
+
+    [switch]$TraySmokeTest
 )
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
+
+if ($SmokeTest -and $TraySmokeTest) {
+    throw "SmokeTest and TraySmokeTest cannot be used together."
+}
 
 if ($PSVersionTable.PSEdition -ne "Desktop" -or $PSVersionTable.PSVersion.Major -ne 5) {
     throw "Babel GUI requires Windows PowerShell 5.1."
@@ -17,6 +23,8 @@ Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
 Add-Type -AssemblyName System.Data
+Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.Windows.Forms
 
 $babelRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $registryPath = Join-Path $babelRoot "babel.apps.json"
@@ -162,6 +170,7 @@ $requiredControlNames = @(
     "StartAllButton",
     "StopButton",
     "VerifyButton",
+    "MinimizeToTrayButton",
     "LogTextBox",
     "StatusText",
     "WorkerText"
@@ -204,6 +213,7 @@ $script:StartSelectedButton = $controls.StartSelectedButton
 $script:StartAllButton = $controls.StartAllButton
 $script:StopButton = $controls.StopButton
 $script:VerifyButton = $controls.VerifyButton
+$script:MinimizeToTrayButton = $controls.MinimizeToTrayButton
 $script:LogTextBox = $controls.LogTextBox
 $script:StatusText = $controls.StatusText
 $script:WorkerText = $controls.WorkerText
@@ -220,6 +230,13 @@ $script:StopRequested = $false
 $script:CloseRequested = $false
 $script:AllowClose = $false
 $script:LastRenderedLog = ""
+$script:NotifyIcon = $null
+$script:TrayIconImage = $null
+$script:TrayContextMenu = $null
+$script:TrayOpenMenuItem = $null
+$script:TrayExitMenuItem = $null
+$script:TraySmokeTimer = $null
+$script:TraySmokeError = $null
 
 $appTable = New-Object System.Data.DataTable
 [void]$appTable.Columns.Add("Id", [string])
@@ -249,8 +266,54 @@ if (Test-Path -LiteralPath $iconPath -PathType Leaf) {
         $iconUri = New-Object Uri($iconPath, [UriKind]::Absolute)
         $script:Window.Icon = [Windows.Media.Imaging.BitmapFrame]::Create($iconUri)
     } catch {
-        # A missing or unreadable icon must not make the launcher unusable.
+        # An unreadable window icon must not make the launcher unusable.
     }
+}
+
+try {
+    if (Test-Path -LiteralPath $iconPath -PathType Leaf) {
+        try {
+            $script:TrayIconImage = New-Object System.Drawing.Icon($iconPath)
+        } catch {
+            $script:TrayIconImage = $null
+        }
+    }
+    if ($null -eq $script:TrayIconImage) {
+        $script:TrayIconImage = [System.Drawing.Icon]([System.Drawing.SystemIcons]::Application.Clone())
+    }
+
+    $script:NotifyIcon = New-Object System.Windows.Forms.NotifyIcon
+    $script:NotifyIcon.Icon = $script:TrayIconImage
+    $script:NotifyIcon.Text = "Babel Launcher"
+    $script:NotifyIcon.Visible = $false
+
+    $script:TrayContextMenu = New-Object System.Windows.Forms.ContextMenuStrip
+    $script:TrayOpenMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem
+    $script:TrayOpenMenuItem.Text = "Open Babel"
+    $script:TrayExitMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem
+    $script:TrayExitMenuItem.Text = "Exit"
+    [void]$script:TrayContextMenu.Items.Add($script:TrayOpenMenuItem)
+    [void]$script:TrayContextMenu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator))
+    [void]$script:TrayContextMenu.Items.Add($script:TrayExitMenuItem)
+    $script:NotifyIcon.ContextMenuStrip = $script:TrayContextMenu
+} catch {
+    $trayInitializationError = $_.Exception.Message
+    if ($null -ne $script:NotifyIcon) {
+        $script:NotifyIcon.Dispose()
+    }
+    if ($null -ne $script:TrayContextMenu) {
+        $script:TrayContextMenu.Dispose()
+    }
+    if ($null -ne $script:TrayIconImage) {
+        $script:TrayIconImage.Dispose()
+    }
+    $script:NotifyIcon = $null
+    $script:TrayContextMenu = $null
+    $script:TrayIconImage = $null
+    $script:TrayOpenMenuItem = $null
+    $script:TrayExitMenuItem = $null
+    $script:MinimizeToTrayButton.IsEnabled = $false
+    $script:MinimizeToTrayButton.ToolTip = "Notification-area mode is unavailable: $trayInitializationError"
 }
 
 function Set-UiStatus {
@@ -260,6 +323,46 @@ function Set-UiStatus {
     )
 
     $script:StatusText.Text = $Message
+}
+
+function Hide-BabelWindowToTray {
+    if ($null -eq $script:NotifyIcon) {
+        throw "The Babel notification-area icon is unavailable."
+    }
+
+    $script:NotifyIcon.Visible = $true
+    $script:Window.ShowInTaskbar = $false
+    $script:Window.Hide()
+}
+
+function Restore-BabelWindowFromTray {
+    if ($null -eq $script:NotifyIcon) {
+        return
+    }
+
+    $script:Window.ShowInTaskbar = $true
+    $script:Window.Show()
+    $script:Window.WindowState = [Windows.WindowState]::Normal
+    [void]$script:Window.Activate()
+    $script:NotifyIcon.Visible = $false
+}
+
+function Dispose-BabelTrayResources {
+    if ($null -ne $script:NotifyIcon) {
+        $script:NotifyIcon.Visible = $false
+        $script:NotifyIcon.Dispose()
+        $script:NotifyIcon = $null
+    }
+    if ($null -ne $script:TrayContextMenu) {
+        $script:TrayContextMenu.Dispose()
+        $script:TrayContextMenu = $null
+    }
+    $script:TrayOpenMenuItem = $null
+    $script:TrayExitMenuItem = $null
+    if ($null -ne $script:TrayIconImage) {
+        $script:TrayIconImage.Dispose()
+        $script:TrayIconImage = $null
+    }
 }
 
 function Test-LocalPort {
@@ -620,6 +723,37 @@ $script:StopButton.Add_Click({
     Request-WorkerStop
 })
 
+$script:MinimizeToTrayButton.Add_Click({
+    Hide-BabelWindowToTray
+})
+
+if ($null -ne $script:NotifyIcon) {
+    $script:NotifyIcon.Add_MouseClick({
+        param($sender, $eventArgs)
+
+        if ($eventArgs.Button -eq [Windows.Forms.MouseButtons]::Left) {
+            Restore-BabelWindowFromTray
+        }
+    })
+
+    $script:NotifyIcon.Add_MouseDoubleClick({
+        param($sender, $eventArgs)
+
+        if ($eventArgs.Button -eq [Windows.Forms.MouseButtons]::Left) {
+            Restore-BabelWindowFromTray
+        }
+    })
+
+    $script:TrayOpenMenuItem.Add_Click({
+        Restore-BabelWindowFromTray
+    })
+
+    $script:TrayExitMenuItem.Add_Click({
+        Restore-BabelWindowFromTray
+        $script:Window.Close()
+    })
+}
+
 $script:VerifyButton.Add_Click({
     try {
         Start-BabelWorker -Selection "All" -Mode "Verify"
@@ -674,8 +808,75 @@ $script:Window.Add_Closing({
     }
 })
 
+if ($TraySmokeTest) {
+    $script:Window.WindowStartupLocation = [Windows.WindowStartupLocation]::Manual
+    $script:Window.Left = -10000
+    $script:Window.Top = -10000
+    $script:Window.Opacity = 0
+    $script:Window.ShowInTaskbar = $false
+
+    $script:TraySmokeTimer = New-Object Windows.Threading.DispatcherTimer
+    $script:TraySmokeTimer.Interval = [TimeSpan]::FromMilliseconds(150)
+    $script:TraySmokeTimer.Add_Tick({
+        $script:TraySmokeTimer.Stop()
+        try {
+            Hide-BabelWindowToTray
+            if ($script:Window.IsVisible -or $script:Window.ShowInTaskbar) {
+                throw "The launcher window remained visible after minimizing to the tray."
+            }
+            if (-not $script:NotifyIcon.Visible) {
+                throw "The notification-area icon did not become visible."
+            }
+
+            Restore-BabelWindowFromTray
+            if (-not $script:Window.IsVisible -or -not $script:Window.ShowInTaskbar) {
+                throw "The launcher window did not restore from the tray."
+            }
+            if ($script:Window.WindowState -ne [Windows.WindowState]::Normal) {
+                throw "The restored launcher window is not in its normal state."
+            }
+            if ($script:NotifyIcon.Visible) {
+                throw "The notification-area icon remained visible after restore."
+            }
+        } catch {
+            $script:TraySmokeError = $_.Exception.Message
+        } finally {
+            $script:AllowClose = $true
+            $script:Window.Close()
+        }
+    })
+    $script:TraySmokeTimer.Start()
+}
+
 Refresh-AppStatuses
 Refresh-ButtonState
 Set-UiStatus -Message "Loaded $($script:RegisteredApps.Count) applications. Select one to begin."
+$wpfApplication = New-Object Windows.Application
+$wpfApplication.ShutdownMode = [Windows.ShutdownMode]::OnMainWindowClose
 $timer.Start()
-[void]$script:Window.ShowDialog()
+try {
+    [void]$wpfApplication.Run($script:Window)
+} finally {
+    $timer.Stop()
+    if ($null -ne $script:TraySmokeTimer) {
+        $script:TraySmokeTimer.Stop()
+        $script:TraySmokeTimer = $null
+    }
+    Dispose-BabelTrayResources
+}
+
+if ($TraySmokeTest) {
+    if (-not [string]::IsNullOrWhiteSpace($script:TraySmokeError)) {
+        throw "Babel GUI tray smoke test failed: $($script:TraySmokeError)"
+    }
+    if (
+        $null -ne $script:NotifyIcon -or
+        $null -ne $script:TrayContextMenu -or
+        $null -ne $script:TrayIconImage -or
+        $null -ne $script:TrayOpenMenuItem -or
+        $null -ne $script:TrayExitMenuItem
+    ) {
+        throw "Babel GUI tray smoke test failed to release notification-area resources."
+    }
+    Write-Output "Babel GUI tray smoke test passed."
+}

@@ -331,7 +331,7 @@
                             Margin="1,0,0,8"
                             Foreground="#777068"
                             FontSize="11"
-                            Text="Keys: S / A / T / V" />
+                            Text="Keys: S / A / T / V / M" />
                         <Button
                             x:Name="StartSelectedButton"
                             Content="START SELECTED (_S)"
@@ -351,9 +351,14 @@
                         <Button
                             x:Name="VerifyButton"
                             Content="VERIFY ALL (_V)"
-                            Margin="0"
                             Style="{StaticResource ActionButtonStyle}"
                             AutomationProperties.Name="Verify all applications" />
+                        <Button
+                            x:Name="MinimizeToTrayButton"
+                            Content="MINIMIZE TO TRAY (_M)"
+                            Margin="0"
+                            Style="{StaticResource ActionButtonStyle}"
+                            AutomationProperties.Name="Hide the launcher in the Windows notification area" />
                     </StackPanel>
                 </ScrollViewer>
             </Border>

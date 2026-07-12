@@ -62,7 +62,9 @@ before launching or backing up the new application.
 Double-click `launcher\Babel.vbs` or `launcher\Babel.lnk` to open the WPF control
 panel. It reads `babel.apps.json` dynamically, shows each registered app and
 port, and can start the selected app, start all apps, stop the session cleanly,
-or run a readiness verification. The launcher starts backends only and writes
+or run a readiness verification. `MINIMIZE TO TRAY` hides the control panel in
+the Windows notification area without stopping its worker; tray `Exit` follows
+the same graceful shutdown path. The launcher starts backends only and writes
 each notebook URL to the Session Log; it does not open a browser.
 
 The command-line launcher remains available for scripts and recovery work:

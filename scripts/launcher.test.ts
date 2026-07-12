@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 const root = path.resolve(import.meta.dirname, "..");
 const workerPath = path.join(root, "launcher", "Babel.ps1");
@@ -43,6 +47,77 @@ test("ready messages publish the registered identity URL", () => {
     "every ready message must give the user the registered identity URL",
   );
 });
+
+test("the launcher can minimize to the system tray and restore safely", () => {
+  const missingContracts: string[] = [];
+  if (!/x:Name=["']MinimizeToTrayButton["']/i.test(xamlSource)) {
+    missingContracts.push("offer a minimize-to-tray command");
+  }
+  if (!/Windows\.Forms\.NotifyIcon/i.test(guiSource)) {
+    missingContracts.push("create a Windows notification-area icon");
+  }
+  if (!/\$script:Window\.Hide\(\)/i.test(guiSource)) {
+    missingContracts.push("hide the WPF window without stopping its worker");
+  }
+  if (!/\$script:Window\.Show\(\)/i.test(guiSource)) {
+    missingContracts.push("restore the WPF window from the tray");
+  }
+  if (!/\$script:NotifyIcon\.Visible\s*=\s*\$true/i.test(guiSource)) {
+    missingContracts.push("show the tray icon while the window is hidden");
+  }
+  if (!/\$script:MinimizeToTrayButton\.Add_Click[\s\S]{0,240}Hide-BabelWindowToTray/i.test(guiSource)) {
+    missingContracts.push("connect the tray command to the hide lifecycle");
+  }
+  if (!/\$script:NotifyIcon\.Add_MouseClick[\s\S]{0,360}Restore-BabelWindowFromTray/i.test(guiSource)) {
+    missingContracts.push("restore from a left click on the tray icon");
+  }
+  if (!/\$script:TrayOpenMenuItem\.Add_Click[\s\S]{0,240}Restore-BabelWindowFromTray/i.test(guiSource)) {
+    missingContracts.push("restore from the tray Open command");
+  }
+  if (!/function\s+Restore-BabelWindowFromTray[\s\S]{0,720}\$script:Window\.WindowState\s*=\s*\[Windows\.WindowState\]::Normal[\s\S]{0,240}\$script:Window\.Activate\(\)[\s\S]{0,240}\$script:NotifyIcon\.Visible\s*=\s*\$false/i.test(guiSource)) {
+    missingContracts.push("restore, activate, and hide the tray icon");
+  }
+  if (!/function\s+Dispose-BabelTrayResources[\s\S]{0,320}\$script:NotifyIcon\.Visible\s*=\s*\$false[\s\S]{0,160}\$script:NotifyIcon\.Dispose\(\)/i.test(guiSource)) {
+    missingContracts.push("hide and dispose the tray icon on final exit");
+  }
+  if (!/\$script:TrayExitMenuItem\.Add_Click[\s\S]{0,240}\$script:Window\.Close\(\)/i.test(guiSource)) {
+    missingContracts.push("route the tray Exit command through the window close lifecycle");
+  }
+  if (!/\$script:Window\.Add_Closing[\s\S]{0,720}Request-WorkerStop/i.test(guiSource)) {
+    missingContracts.push("keep graceful worker shutdown behind the close lifecycle");
+  }
+  if (!/New-Object\s+Windows\.Application[\s\S]{0,240}\.Run\(\$script:Window\)/i.test(guiSource)) {
+    missingContracts.push("keep the WPF message loop alive while the window is hidden");
+  }
+  if (/\.ShowDialog\(\)/i.test(guiSource)) {
+    missingContracts.push("avoid a modal loop that returns as soon as the window is hidden");
+  }
+
+  assert.deepEqual(missingContracts, []);
+});
+
+test(
+  "the tray lifecycle passes a real Windows PowerShell smoke test",
+  { skip: process.platform !== "win32" },
+  async () => {
+    const { stdout } = await execFileAsync(
+      "powershell.exe",
+      [
+        "-NoLogo",
+        "-NoProfile",
+        "-STA",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        guiPath,
+        "-TraySmokeTest",
+      ],
+      { cwd: root, encoding: "utf8", timeout: 30_000, windowsHide: true },
+    );
+
+    assert.match(stdout, /Babel GUI tray smoke test passed/i);
+  },
+);
 
 test("the launcher resolves a Node executable compatible with the root engine", () => {
   const requiredNodeRange = rootManifest.engines?.node;
