@@ -5,7 +5,7 @@ import type BetterSqlite3 from "better-sqlite3";
 import { resolveDatabasePath } from "@babel-apps/platform/db/client";
 import { assertLiveDatabaseMigrationsCurrent } from "@babel-apps/platform/db/readiness";
 
-export const NEUM_SCHEMA_MIGRATION_TIMESTAMP = 1_783_911_845_304;
+export const NEUM_SCHEMA_MIGRATION_TIMESTAMP = 1_783_937_572_499;
 
 const databasePathOptions = {
   envVar: "NEUM_DATABASE_PATH",
@@ -16,7 +16,10 @@ export const appDatabaseReadinessOptions = {
   appName: "Neum",
   packageName: "@babel-apps/neum",
   expectedMigration: NEUM_SCHEMA_MIGRATION_TIMESTAMP,
-  requiredColumns: { entry: ["parent_id"] },
+  requiredColumns: {
+    entry: ["parent_id"],
+    entry_link: ["source_entry_id", "target_title_key", "target_entry_id"],
+  },
 } as const;
 
 export function resolveAppDatabasePath(): string {
@@ -42,6 +45,13 @@ const requiredTables = {
     "version",
     "created_at",
     "updated_at",
+  ],
+  entry_link: [
+    "id",
+    "source_entry_id",
+    "target_title_key",
+    "target_entry_id",
+    "created_at",
   ],
   tag: ["id", "name", "name_key"],
   entry_tag: ["entry_id", "tag_id"],
@@ -74,6 +84,21 @@ const requiredIndexes = {
     table: "entry_image",
     columns: ["image_path"],
     unique: true,
+  },
+  entry_link_source_title_unique: {
+    table: "entry_link",
+    columns: ["source_entry_id", "target_title_key"],
+    unique: true,
+  },
+  entry_link_target_idx: {
+    table: "entry_link",
+    columns: ["target_entry_id"],
+    unique: false,
+  },
+  entry_link_title_key_idx: {
+    table: "entry_link",
+    columns: ["target_title_key"],
+    unique: false,
   },
   entry_tag_tag_idx: {
     table: "entry_tag",
@@ -117,6 +142,8 @@ const requiredForeignKeys = [
   ["entry", "parent_id", "entry", "id", "RESTRICT"],
   ["entry", "folder_id", "folder", "id", "RESTRICT"],
   ["entry_image", "entry_id", "entry", "id", "CASCADE"],
+  ["entry_link", "source_entry_id", "entry", "id", "CASCADE"],
+  ["entry_link", "target_entry_id", "entry", "id", "SET NULL"],
   ["entry_tag", "entry_id", "entry", "id", "CASCADE"],
   ["entry_tag", "tag_id", "tag", "id", "CASCADE"],
   ["folder", "parent_id", "folder", "id", "RESTRICT"],

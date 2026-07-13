@@ -26,6 +26,12 @@ import type {
 
 import { RepositoryError } from "./errors";
 import {
+  listOutgoingEntryLinks,
+  reconcileEntryTitleChange,
+  replaceSourceEntryLinks,
+  resolveIncomingLinksForTitle,
+} from "./links";
+import {
   assertPositiveId,
   descendantFolderIds,
   moveTrashedEntryDescendantsToFolder,
@@ -113,7 +119,9 @@ export function searchEntries(
 
 export function getEntry(id: number): EntryDetailDto | null {
   const row = findEntryRow(id);
-  return row ? entryRowToDetail(row) : null;
+  return row
+    ? entryRowToDetail(row, undefined, listOutgoingEntryLinks(id))
+    : null;
 }
 
 export function listEntryImagePaths(entryId: number): string[] {
@@ -137,7 +145,7 @@ export function createEntry(
   const imagePaths = normalizeNewImagePaths(newImagePaths);
   assertManagedImageOwnership(fields.notesMd, [], imagePaths);
 
-  const created = sqlite.transaction(() => {
+  return sqlite.transaction(() => {
     const row = db.insert(entries).values(fields).returning().get();
     replaceEntryTags(row.id, normalizedTags);
     if (imagePaths.length > 0) {
@@ -145,9 +153,14 @@ export function createEntry(
         .values(imagePaths.map((imagePath) => ({ entryId: row.id, imagePath })))
         .run();
     }
-    return row;
+    replaceSourceEntryLinks(sqlite, row.id, fields.notesMd);
+    resolveIncomingLinksForTitle(sqlite, fields.title);
+    return entryRowToDetail(
+      row,
+      undefined,
+      listOutgoingEntryLinks(row.id, sqlite),
+    );
   })();
-  return entryRowToDetail(created);
 }
 
 export function updateEntry(
@@ -220,10 +233,16 @@ export function updateEntry(
         .values(imagePaths.map((imagePath) => ({ entryId: id, imagePath })))
         .run();
     }
-    return row;
+    replaceSourceEntryLinks(sqlite, id, fields.notesMd);
+    reconcileEntryTitleChange(sqlite, id, current.title, fields.title);
+    return entryRowToDetail(
+      row,
+      undefined,
+      listOutgoingEntryLinks(id, sqlite),
+    );
   })();
 
-  return { entry: entryRowToDetail(updated), removedImagePaths };
+  return { entry: updated, removedImagePaths };
 }
 
 export function findEntryRow(id: number): EntryRow | null {
@@ -251,6 +270,7 @@ export function entryRowToSummary(
 export function entryRowToDetail(
   row: EntryRow,
   tagNames?: readonly string[],
+  links: EntryDetailDto["links"] = [],
 ): EntryDetailDto {
   return {
     ...entryRowToSummary(row, tagNames),
@@ -259,6 +279,7 @@ export function entryRowToDetail(
     language: row.language,
     filename: row.filename,
     createdAt: row.createdAt,
+    links,
   };
 }
 

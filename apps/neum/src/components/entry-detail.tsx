@@ -1,8 +1,20 @@
 "use client";
 
-import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import type { Wikilink } from "@babel-apps/markdown/core";
+import {
+  MarkdownRenderer,
+  type ResolvedWikilink,
+} from "@babel-apps/markdown/react";
+import {
+  useCallback,
+  type FormEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
-import { MarkdownEditor, MarkdownRenderer, type StagedImage } from "@/components/markdown";
+import { MarkdownEditor, type StagedImage } from "@/components/markdown-editor";
 import {
   ConfirmButton,
   entryKindLabel,
@@ -18,6 +30,7 @@ import {
   updateEntry,
 } from "@/lib/api-client";
 import type {
+  EntryBacklinkDto,
   EntryDetailDto,
   EntryKind,
   EntrySummaryDto,
@@ -70,11 +83,14 @@ interface EntryDetailProps {
   parentId: number | null;
   folders: FolderDto[];
   entries: readonly EntrySummaryDto[];
+  backlinks: EntryBacklinkDto[];
   loading?: boolean;
   onEdit: () => void;
   onCancel: () => void;
   onSaved: (detail: EntryDetailDto) => Promise<void> | void;
   onDeleted: () => Promise<void> | void;
+  onNavigateEntry: (id: number, folderId?: number, exactFolder?: boolean) => void;
+  onCreateWikilink?: (title: string, folderId: number) => Promise<void> | void;
   onDirtyChange: (dirty: boolean) => void;
   onRegisterSave: (action: (() => void) | null) => void;
   onBack: () => void;
@@ -87,11 +103,14 @@ export function EntryDetail({
   parentId,
   folders,
   entries,
+  backlinks,
   loading,
   onEdit,
   onCancel,
   onSaved,
   onDeleted,
+  onNavigateEntry,
+  onCreateWikilink,
   onDirtyChange,
   onRegisterSave,
   onBack,
@@ -100,6 +119,30 @@ export function EntryDetail({
     () => new Map(folders.map((folder) => [folder.id, folder])),
     [folders],
   );
+  const wikilinkTargets = useMemo(() => {
+    const targets = new Map<string, ResolvedWikilink>();
+    for (const link of detail?.links ?? []) {
+      if (link.targetId === null || link.targetKind === null) continue;
+      targets.set(link.titleKey, { id: link.targetId, kind: link.targetKind });
+    }
+    return targets;
+  }, [detail?.links]);
+  const resolveWikilink = useCallback(
+    (titleKey: string): ResolvedWikilink | null => wikilinkTargets.get(titleKey) ?? null,
+    [wikilinkTargets],
+  );
+  const navigateWikilink = useCallback(
+    (target: ResolvedWikilink) => onNavigateEntry(target.id, undefined, true),
+    [onNavigateEntry],
+  );
+  const createFromWikilink = useCallback((wikilink: Wikilink) => {
+    if (onCreateWikilink === undefined) return;
+    const targetFolderId = detail?.folderId ?? folderId;
+    const title = wikilink.titleRaw.trim().replace(/\s+/gu, " ");
+    if (targetFolderId === null || !title) return;
+    if (!window.confirm(`Create entry “${title}”?`)) return;
+    void onCreateWikilink(title, targetFolderId);
+  }, [detail?.folderId, folderId, onCreateWikilink]);
 
   if (loading) {
     return <section className="detail-panel panel-status detail-loading">Loading entry…</section>;
@@ -118,6 +161,9 @@ export function EntryDetail({
         onSaved={onSaved}
         onDirtyChange={onDirtyChange}
         onRegisterSave={onRegisterSave}
+        resolveWikilink={resolveWikilink}
+        onNavigateWikilink={navigateWikilink}
+        onCreateWikilink={onCreateWikilink}
       />
     );
   }
@@ -172,7 +218,13 @@ export function EntryDetail({
 
       <section className="document-content" aria-label="Entry content">
         {detail.notesMd ? (
-          <MarkdownRenderer content={detail.notesMd} />
+          <MarkdownRenderer
+            content={detail.notesMd}
+            uploadScheme="neum-upload"
+            resolveWikilink={resolveWikilink}
+            onNavigateWikilink={navigateWikilink}
+            onCreateFromWikilink={onCreateWikilink === undefined ? undefined : createFromWikilink}
+          />
         ) : (
           <p className="empty-copy">No explanatory notes yet.</p>
         )}
@@ -185,6 +237,26 @@ export function EntryDetail({
             <pre className="code-block"><code>{detail.code}</code></pre>
           </section>
         ) : null}
+      </section>
+      <section className="linked-mentions" aria-labelledby="linked-mentions-heading">
+        <h2 id="linked-mentions-heading">Linked mentions ({backlinks.length})</h2>
+        {backlinks.length === 0 ? (
+          <p className="empty-copy">No entries link here yet.</p>
+        ) : (
+          <ul>
+            {backlinks.map((backlink) => (
+              <li key={backlink.id}>
+                <button
+                  type="button"
+                  onClick={() => onNavigateEntry(backlink.id, backlink.folderId, true)}
+                >
+                  <span>{backlink.title}</span>
+                  <small>{entryKindLabel(backlink.kind)}</small>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
     </article>
   );
@@ -200,6 +272,9 @@ interface EntryFormProps {
   onSaved: (detail: EntryDetailDto) => Promise<void> | void;
   onDirtyChange: (dirty: boolean) => void;
   onRegisterSave: (action: (() => void) | null) => void;
+  resolveWikilink: (titleKey: string) => ResolvedWikilink | null;
+  onNavigateWikilink: (target: ResolvedWikilink) => void;
+  onCreateWikilink?: (title: string, folderId: number) => Promise<void> | void;
 }
 
 function EntryForm({
@@ -212,6 +287,9 @@ function EntryForm({
   onSaved,
   onDirtyChange,
   onRegisterSave,
+  resolveWikilink,
+  onNavigateWikilink,
+  onCreateWikilink,
 }: EntryFormProps) {
   const formRef = useRef<HTMLFormElement>(null);
   const stagedRef = useRef<StagedImage[]>([]);
@@ -353,6 +431,14 @@ function EntryForm({
     });
   }
 
+  function createFromWikilink(wikilink: Wikilink) {
+    if (folderId === null || onCreateWikilink === undefined) return;
+    const title = wikilink.titleRaw.trim().replace(/\s+/gu, " ");
+    if (!title) return;
+    if (!window.confirm(`Create entry “${title}”?`)) return;
+    void onCreateWikilink(title, folderId);
+  }
+
   return (
     <section className="detail-panel form-view">
       <form ref={formRef} onSubmit={submit}>
@@ -456,6 +542,9 @@ function EntryForm({
           onChange={changeNotes}
           onImageError={setError}
           onStageImage={(image) => setStagedImages((current) => [...current, image])}
+          resolveWikilink={resolveWikilink}
+          onNavigateWikilink={onNavigateWikilink}
+          onCreateFromWikilink={onCreateWikilink === undefined ? undefined : createFromWikilink}
         />
         <p className="editor-footnote">Images remain in this browser until you save the entry.</p>
 

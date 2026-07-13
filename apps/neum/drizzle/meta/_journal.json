@@ -15,6 +15,13 @@
       "when": 1783911845304,
       "tag": "0001_entry_page_tree",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1783937572499,
+      "tag": "0002_solid_paladin",
+      "breakpoints": true
     }
   ]
 }

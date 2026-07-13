@@ -62,6 +62,7 @@ test("Neum core persistence", async (t) => {
     assert.deepEqual(tables, [
       "entry",
       "entry_image",
+      "entry_link",
       "entry_tag",
       "folder",
       "tag",
@@ -203,6 +204,128 @@ test("Neum core persistence", async (t) => {
       repository.listTags().filter(({ name }) => name === "Älgorithms").length,
       1,
     );
+  });
+
+  await t.test("wikilinks resolve deterministically and follow entry lifecycle", () => {
+    const inbox = repository.listFolders()[0];
+    const source = repository.createEntry({
+      folderId: inbox.id,
+      kind: "knowledge",
+      title: "Wikilink lifecycle source",
+      notesMd: [
+        "[[  Wikilink lifecycle target  ]] and [[wikilink lifecycle target|again]]",
+        "`[[Skipped inline target]]`",
+        "```txt",
+        "[[Skipped fenced target]]",
+        "```",
+      ].join("\n"),
+    });
+    assert.deepEqual(source.links, [
+      {
+        titleKey: "wikilink lifecycle target",
+        targetId: null,
+        targetKind: null,
+      },
+    ]);
+
+    const firstTarget = repository.createEntry({
+      folderId: inbox.id,
+      kind: "snippet",
+      title: "Wikilink lifecycle target",
+      code: "const first = true;",
+      language: "typescript",
+    });
+    const secondTarget = repository.createEntry({
+      folderId: inbox.id,
+      kind: "knowledge",
+      title: "WIKILINK   LIFECYCLE TARGET",
+    });
+    assert.deepEqual(repository.getEntry(source.id)?.links, [
+      {
+        titleKey: "wikilink lifecycle target",
+        targetId: firstTarget.id,
+        targetKind: "snippet",
+      },
+    ]);
+    assert.deepEqual(
+      repository.listEntryBacklinks(firstTarget.id).map(({ id }) => id),
+      [source.id],
+    );
+
+    const renamedFirst = repository.updateEntry(firstTarget.id, {
+      expectedVersion: firstTarget.version,
+      title: "Wikilink lifecycle renamed",
+    }).entry;
+    assert.equal(repository.getEntry(source.id)?.links[0]?.targetId, secondTarget.id);
+    repository.updateEntry(secondTarget.id, {
+      expectedVersion: secondTarget.version,
+      title: "Wikilink lifecycle second renamed",
+    });
+    assert.equal(repository.getEntry(source.id)?.links[0]?.targetId, null);
+    const restoredName = repository.updateEntry(renamedFirst.id, {
+      expectedVersion: renamedFirst.version,
+      title: "Wikilink lifecycle target",
+    }).entry;
+    assert.equal(repository.getEntry(source.id)?.links[0]?.targetId, firstTarget.id);
+
+    const beforeStale = repository.getEntry(source.id)!;
+    assert.throws(
+      () =>
+        repository.updateEntry(source.id, {
+          expectedVersion: beforeStale.version + 1,
+          notesMd: "[[Stale replacement target]]",
+        }),
+      repositoryConflict("VERSION_CONFLICT"),
+    );
+    assert.deepEqual(repository.getEntry(source.id), beforeStale);
+
+    database.sqlite.exec(`CREATE TRIGGER fail_wikilink_insert
+      BEFORE INSERT ON entry_link
+      WHEN NEW.target_title_key = 'forced rollback target'
+      BEGIN SELECT RAISE(ABORT, 'forced wikilink failure'); END`);
+    try {
+      assert.throws(
+        () =>
+          repository.createEntry({
+            folderId: inbox.id,
+            kind: "knowledge",
+            title: "Wikilink rolled back create",
+            notesMd: "[[Forced rollback target]]",
+          }),
+        /forced wikilink failure/,
+      );
+      assert.equal(repository.listEntryTitles("Wikilink rolled back create").length, 0);
+      assert.throws(
+        () =>
+          repository.updateEntry(source.id, {
+            expectedVersion: beforeStale.version,
+            notesMd: "[[Forced rollback target]]",
+          }),
+        /forced wikilink failure/,
+      );
+      assert.deepEqual(repository.getEntry(source.id), beforeStale);
+    } finally {
+      database.sqlite.exec("DROP TRIGGER fail_wikilink_insert");
+    }
+
+    const trashedSource = repository.moveEntryToTrash(
+      source.id,
+      beforeStale.version,
+    );
+    assert.ok(trashedSource);
+    assert.deepEqual(repository.listEntryBacklinks(firstTarget.id), []);
+    const restoredSource = repository.restoreTrashEntry(trashedSource.trashId);
+    assert.equal(restoredSource.links[0]?.targetId, firstTarget.id);
+
+    const trashedTarget = repository.moveEntryToTrash(
+      restoredName.id,
+      restoredName.version,
+    );
+    assert.ok(trashedTarget);
+    assert.equal(repository.getEntry(restoredSource.id)?.links[0]?.targetId, null);
+    const restoredTarget = repository.restoreTrashEntry(trashedTarget.trashId);
+    assert.equal(restoredTarget.id, firstTarget.id);
+    assert.equal(repository.getEntry(restoredSource.id)?.links[0]?.targetId, firstTarget.id);
   });
 
   await t.test("entries form guarded page trees and move as a branch", () => {

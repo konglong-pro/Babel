@@ -12,7 +12,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { assertAppDatabaseReady } from "@/lib/db/readiness";
 import { GET as getHealth } from "@/app/api/health/route";
 
-const latestMigration = 1_783_911_845_304;
+const latestMigration = 1_783_937_572_499;
 const migrationsFolder = path.resolve(process.cwd(), "drizzle");
 
 test("Neum database readiness", async (t) => {
@@ -35,6 +35,19 @@ test("Neum database readiness", async (t) => {
     assert.throws(
       () => assertAppDatabaseReady(databasePath),
       /missing required column: entry\.parent_id/i,
+    );
+  });
+
+  await t.test("rejects a migrated database without the link index", () => {
+    const databasePath = path.join(root, "missing-link-index.db");
+    const sqlite = new BetterSqlite3(databasePath);
+    migrate(drizzle(sqlite), { migrationsFolder });
+    sqlite.exec('DROP TABLE "entry_link"');
+    sqlite.close();
+
+    assert.throws(
+      () => assertAppDatabaseReady(databasePath),
+      /entry_link/i,
     );
   });
 

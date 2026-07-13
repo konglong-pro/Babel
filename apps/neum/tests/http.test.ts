@@ -9,17 +9,27 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 
 import type * as EntryCollectionRoute from "@/app/api/entries/route";
 import type * as EntryItemRoute from "@/app/api/entries/[id]/route";
+import type * as EntryBacklinksRoute from "@/app/api/entries/[id]/backlinks/route";
+import type * as EntryTitlesRoute from "@/app/api/entries/titles/route";
 import type * as FolderCollectionRoute from "@/app/api/folders/route";
 import type * as HealthRoute from "@/app/api/health/route";
 import type * as SearchRoute from "@/app/api/search/route";
 import type * as TrashCollectionRoute from "@/app/api/trash/route";
 import type * as TrashItemRoute from "@/app/api/trash/[id]/route";
 import type * as TrashRestoreRoute from "@/app/api/trash/[id]/restore/route";
-import type { EntryDetailDto, PaginatedDto, TrashEntryDto } from "@/lib/types";
+import type {
+  EntryBacklinkDto,
+  EntryDetailDto,
+  EntryTitleDto,
+  PaginatedDto,
+  TrashEntryDto,
+} from "@/lib/types";
 import { withEntryMutationLock } from "@/lib/mutation-lock";
 
 let entryCollectionRoute: typeof EntryCollectionRoute;
 let entryItemRoute: typeof EntryItemRoute;
+let entryBacklinksRoute: typeof EntryBacklinksRoute;
+let entryTitlesRoute: typeof EntryTitlesRoute;
 let folderCollectionRoute: typeof FolderCollectionRoute;
 let healthRoute: typeof HealthRoute;
 let searchRoute: typeof SearchRoute;
@@ -40,6 +50,8 @@ test("Neum HTTP contract", async (t) => {
     Promise.all([
       import("@/app/api/entries/route"),
       import("@/app/api/entries/[id]/route"),
+      import("@/app/api/entries/[id]/backlinks/route"),
+      import("@/app/api/entries/titles/route"),
       import("@/app/api/folders/route"),
       import("@/app/api/health/route"),
       import("@/app/api/search/route"),
@@ -54,6 +66,8 @@ test("Neum HTTP contract", async (t) => {
   [
     entryCollectionRoute,
     entryItemRoute,
+    entryBacklinksRoute,
+    entryTitlesRoute,
     folderCollectionRoute,
     healthRoute,
     searchRoute,
@@ -230,6 +244,83 @@ test("Neum HTTP contract", async (t) => {
       assert.equal(page.limit, 1);
       assert.equal(page.offset, 0);
     }
+  });
+
+  await t.test("wikilink detail, title, and backlink routes expose the link index", async () => {
+    const targetResponse = await entryCollectionRoute.POST(
+      multipartRequest("http://localhost/api/entries", {
+        folderId: 1,
+        kind: "knowledge",
+        title: "HTTP wikilink target",
+      }),
+    );
+    const target = (await targetResponse.json()) as EntryDetailDto;
+    const sourceResponse = await entryCollectionRoute.POST(
+      multipartRequest("http://localhost/api/entries", {
+        folderId: 1,
+        kind: "snippet",
+        title: "HTTP wikilink source",
+        notesMd: "[[HTTP wikilink target]] and [[HTTP missing target]]",
+        code: "const linked = true;",
+        language: "typescript",
+      }),
+    );
+    const source = (await sourceResponse.json()) as EntryDetailDto;
+    assert.deepEqual(source.links, [
+      {
+        titleKey: "http missing target",
+        targetId: null,
+        targetKind: null,
+      },
+      {
+        titleKey: "http wikilink target",
+        targetId: target.id,
+        targetKind: "knowledge",
+      },
+    ]);
+
+    const detailResponse = await entryItemRoute.GET(
+      new Request(`http://localhost/api/entries/${source.id}`),
+      routeContext(source.id),
+    );
+    assert.equal(detailResponse.status, 200);
+    assert.deepEqual((await detailResponse.json() as EntryDetailDto).links, source.links);
+
+    const titlesResponse = await entryTitlesRoute.GET(
+      new Request("http://localhost/api/entries/titles?q=http%20wikilink&limit=20"),
+    );
+    assert.equal(titlesResponse.status, 200);
+    const titles = (await titlesResponse.json()) as EntryTitleDto[];
+    assert.deepEqual(
+      titles.map(({ id, kind, title }) => ({ id, kind, title })),
+      [
+        { id: source.id, kind: "snippet", title: source.title },
+        { id: target.id, kind: "knowledge", title: target.title },
+      ],
+    );
+    const invalidLimit = await entryTitlesRoute.GET(
+      new Request("http://localhost/api/entries/titles?limit=101"),
+    );
+    assert.equal(invalidLimit.status, 400);
+
+    const backlinksResponse = await entryBacklinksRoute.GET(
+      new Request(`http://localhost/api/entries/${target.id}/backlinks`),
+      routeContext(target.id),
+    );
+    assert.equal(backlinksResponse.status, 200);
+    assert.deepEqual(await backlinksResponse.json(), [
+      {
+        id: source.id,
+        folderId: source.folderId,
+        kind: source.kind,
+        title: source.title,
+      } satisfies EntryBacklinkDto,
+    ]);
+    const missingBacklinks = await entryBacklinksRoute.GET(
+      new Request("http://localhost/api/entries/999999/backlinks"),
+      routeContext(999999),
+    );
+    assert.equal(missingBacklinks.status, 404);
   });
 
   await t.test("expectedVersion prevents stale updates and deletes", async () => {

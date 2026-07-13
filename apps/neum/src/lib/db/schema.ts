@@ -80,6 +80,29 @@ export const entries = sqliteTable(
   ],
 );
 
+export const entryLinks = sqliteTable(
+  "entry_link",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    sourceEntryId: integer("source_entry_id")
+      .notNull()
+      .references(() => entries.id, { onDelete: "cascade" }),
+    targetTitleKey: text("target_title_key").notNull(),
+    targetEntryId: integer("target_entry_id").references(() => entries.id, {
+      onDelete: "set null",
+    }),
+    createdAt: text("created_at").notNull().default(timestampDefault),
+  },
+  (table) => [
+    uniqueIndex("entry_link_source_title_unique").on(
+      table.sourceEntryId,
+      table.targetTitleKey,
+    ),
+    index("entry_link_target_idx").on(table.targetEntryId),
+    index("entry_link_title_key_idx").on(table.targetTitleKey),
+  ],
+);
+
 export const tags = sqliteTable(
   "tag",
   {

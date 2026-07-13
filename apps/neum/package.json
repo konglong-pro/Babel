@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
+    "db:backfill-links": "tsx scripts/backfill-links.ts",
     "db:check": "tsx scripts/check-database.ts",
     "db:checkpoint": "tsx scripts/checkpoint-database.ts",
     "snapshot:export": "tsx scripts/export-snapshot.ts",
@@ -18,13 +19,12 @@
     "check": "npm run lint && npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {
+    "@babel-apps/markdown": "0.1.0",
     "@babel-apps/platform": "0.1.0",
     "better-sqlite3": "^12.11.1",
     "drizzle-orm": "^0.45.2",
     "next": "^16.2.10",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7",
-    "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
+    "react-dom": "^19.2.7"
   }
 }

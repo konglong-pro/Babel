@@ -25,6 +25,26 @@ export interface EntryDetailDto extends EntrySummaryDto {
   language: string | null;
   filename: string | null;
   createdAt: string;
+  links: EntryLinkDto[];
+}
+
+export interface EntryLinkDto {
+  titleKey: string;
+  targetId: number | null;
+  targetKind: EntryKind | null;
+}
+
+export interface EntryBacklinkDto {
+  id: number;
+  folderId: number;
+  kind: EntryKind;
+  title: string;
+}
+
+export interface EntryTitleDto {
+  id: number;
+  kind: EntryKind;
+  title: string;
 }
 
 export interface TagSummaryDto {
@@ -33,7 +53,7 @@ export interface TagSummaryDto {
   entryCount: number;
 }
 
-export interface TrashEntryDto extends EntryDetailDto {
+export interface TrashEntryDto extends Omit<EntryDetailDto, "links"> {
   trashId: number;
   deletedAt: string;
   imagePaths: string[];

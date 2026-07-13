@@ -2,6 +2,7 @@ import type BetterSqlite3 from "better-sqlite3";
 
 import { assertCurrentNeumSchema } from "../db/readiness";
 import { identityKey } from "../identity";
+import { rebuildAllEntryLinksInTransaction } from "../repositories/links";
 import { SnapshotError } from "./errors";
 import type {
   NeumDatabaseSnapshot,
@@ -65,6 +66,7 @@ interface TrashRow {
 
 const domainTables = [
   "entry",
+  "entry_link",
   "tag",
   "entry_tag",
   "entry_image",
@@ -116,14 +118,14 @@ export function assertPristineNeumTarget(sqlite: BetterSqlite3.Database): void {
         sqlite
           .prepare(
             `SELECT "name", "seq" FROM "sqlite_sequence"
-             WHERE "name" IN ('folder', 'entry', 'tag', 'entry_image', 'trash_entry')`,
+             WHERE "name" IN ('folder', 'entry', 'entry_link', 'tag', 'entry_image', 'trash_entry')`,
           )
           .all() as Array<{ name: string; seq: number }>
       ).map(({ name, seq }) => [name, seq]),
     );
     const hasPristineSequences =
       domainSequences.get("folder") === 1 &&
-      ["entry", "tag", "entry_image", "trash_entry"].every(
+      ["entry", "entry_link", "tag", "entry_image", "trash_entry"].every(
         (name) => (domainSequences.get(name) ?? 0) === 0,
       );
     if (!hasPristineInbox || hasDomainRows || !hasPristineSequences) {
@@ -217,6 +219,7 @@ export function restoreNeumDatabaseSnapshotRows(
     );
   }
   reserveEntryIds(sqlite, manifest);
+  rebuildAllEntryLinksInTransaction(sqlite);
 }
 
 function reserveEntryIds(

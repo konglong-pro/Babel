@@ -21,6 +21,11 @@ import {
 } from "./entries";
 import { RepositoryError } from "./errors";
 import {
+  listOutgoingEntryLinks,
+  replaceSourceEntryLinks,
+  resolveIncomingLinksForTitle,
+} from "./links";
+import {
   assertNoTrashedEntryChildren,
   assertPositiveId,
   normalizeEntryKind,
@@ -32,7 +37,7 @@ import {
   tagNamesForEntry,
 } from "./shared";
 
-type SnapshotEntry = Omit<EntryDetailDto, "tags">;
+type SnapshotEntry = Omit<EntryDetailDto, "tags" | "links">;
 
 export interface TrashEntrySnapshot {
   entry: SnapshotEntry;
@@ -116,6 +121,7 @@ export function moveEntryToTrash(
         { entryId: id, expectedVersion },
       );
     }
+    resolveIncomingLinksForTitle(sqlite, current.title);
     pruneUnusedTags();
     return inserted;
   })();
@@ -207,8 +213,14 @@ export function restoreTrashEntry(trashId: number): EntryDetailDto {
         )
         .run();
     }
+    replaceSourceEntryLinks(sqlite, restored.id, restored.notesMd);
+    resolveIncomingLinksForTitle(sqlite, restored.title);
     db.delete(trashEntries).where(eq(trashEntries.id, trashId)).run();
-    return entryRowToDetail(restored);
+    return entryRowToDetail(
+      restored,
+      undefined,
+      listOutgoingEntryLinks(restored.id, sqlite),
+    );
   })();
 }
 

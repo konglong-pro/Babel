@@ -1,7 +1,9 @@
 import type {
+  EntryBacklinkDto,
   EntryDetailDto,
   EntryKind,
   EntrySummaryDto,
+  EntryTitleDto,
   FolderDto,
   PaginatedDto,
   TagSummaryDto,
@@ -136,6 +138,20 @@ export function listEntries(filters: EntryListFilters = {}): Promise<PaginatedDt
 
 export function getEntry(id: number): Promise<EntryDetailDto> {
   return request(`/api/entries/${id}`);
+}
+
+export function listEntryBacklinks(id: number): Promise<EntryBacklinkDto[]> {
+  return request(`/api/entries/${id}/backlinks`);
+}
+
+export function listEntryTitles(
+  query: string,
+  signal?: AbortSignal,
+): Promise<EntryTitleDto[]> {
+  return request(
+    `/api/entries/titles${queryString({ q: query, limit: 20 })}`,
+    { signal },
+  );
 }
 
 export interface EntryInput {

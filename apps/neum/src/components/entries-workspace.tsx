@@ -12,11 +12,13 @@ import { FolderPanel } from "@/components/folder-panel";
 import { TrashDetail, TrashList } from "@/components/trash-panel";
 import {
   ApiError,
+  createEntry,
   createFolder,
   deleteFolder,
   getEntry,
   getErrorMessage,
   getTrashEntry,
+  listEntryBacklinks,
   listEntries,
   listFolders,
   listTrash,
@@ -24,7 +26,13 @@ import {
   restoreTrashEntry,
   updateFolder,
 } from "@/lib/api-client";
-import type { EntryDetailDto, EntrySummaryDto, FolderDto, TrashEntryDto } from "@/lib/types";
+import type {
+  EntryBacklinkDto,
+  EntryDetailDto,
+  EntrySummaryDto,
+  FolderDto,
+  TrashEntryDto,
+} from "@/lib/types";
 
 type ResponsiveStage = "library" | "entries" | "entry";
 type WorkspaceView = "library" | "trash";
@@ -78,6 +86,7 @@ export function EntriesWorkspace({
   );
   const [selectedTrash, setSelectedTrash] = useState<TrashEntryDto | null>(null);
   const [detail, setDetail] = useState<EntryDetailDto | null>(null);
+  const [backlinks, setBacklinks] = useState<EntryBacklinkDto[]>([]);
   const [draftParentId, setDraftParentId] = useState<number | null>(null);
   const [mode, setMode] = useState<EntryViewMode>("view");
   const [view, setView] = useState<WorkspaceView>(initialTrash ? "trash" : "library");
@@ -102,6 +111,9 @@ export function EntriesWorkspace({
   const allowUnloadRef = useRef(false);
   const popFallbackTimerRef = useRef<number | null>(null);
   const indexRequestRef = useRef(0);
+  const selectionVersionRef = useRef(0);
+  const wikilinkCreatePendingRef = useRef(false);
+  const exactFolderEntryRef = useRef<number | null>(null);
 
   const refreshEntries = useCallback(async (folderId: number | null) => {
     const requestId = ++indexRequestRef.current;
@@ -142,6 +154,59 @@ export function EntriesWorkspace({
     setTrashItems(page.items);
     setTrashTotal(page.total);
     return page;
+  }, []);
+
+  const setActiveEntryId = useCallback((
+    id: number | null,
+    exactFolder = false,
+  ): number => {
+    selectionVersionRef.current += 1;
+    exactFolderEntryRef.current = id !== null && exactFolder ? id : null;
+    setSelectedEntryId(id);
+    return selectionVersionRef.current;
+  }, []);
+
+  const replaceLocation = useCallback((input: {
+    folderId?: number | null;
+    entryId?: number | null;
+    trashId?: number | null;
+  }) => {
+    const params = new URLSearchParams();
+    if (input.trashId !== undefined) {
+      params.set("view", "trash");
+      if (input.trashId !== null) params.set("trash", String(input.trashId));
+    } else {
+      if (input.folderId !== null && input.folderId !== undefined) {
+        params.set("folder", String(input.folderId));
+      }
+      if (input.entryId !== null && input.entryId !== undefined) {
+        params.set("entry", String(input.entryId));
+      }
+    }
+    const query = params.toString();
+    const nextUrl = query ? `/entries?${query}` : "/entries";
+    guardedUrlRef.current = nextUrl;
+    window.history.replaceState(window.history.state, "", nextUrl);
+  }, []);
+
+  const loadEntryList = useCallback(async (folderId: number | null) => {
+    const requestId = ++indexRequestRef.current;
+    setIndexLoading(true);
+    try {
+      const page = await listEntries({
+        folderId: folderId ?? undefined,
+        includeDescendants: true,
+        completeTree: true,
+        limit: PAGE_LIMIT,
+      });
+      if (requestId !== indexRequestRef.current) return;
+      setEntries(page.items);
+      setEntryTotal(page.total);
+    } catch (caught) {
+      if (requestId === indexRequestRef.current) setError(getErrorMessage(caught));
+    } finally {
+      if (requestId === indexRequestRef.current) setIndexLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -203,29 +268,50 @@ export function EntriesWorkspace({
     };
   }, [initialEntryId, initialFolderId, initialTrash, initialTrashId]);
 
+  const selectedEntryIsListed = selectedEntryId !== null && entries.some(
+    (entry) => entry.id === selectedEntryId,
+  );
   useEffect(() => {
-    if (view !== "library" || selectedEntryId === null) return;
+    if (view !== "library" || indexLoading || selectedEntryId === null) return;
     if (detail?.id === selectedEntryId && detailRequestVersion === 0) return;
 
     let active = true;
-    getEntry(selectedEntryId)
-      .then((nextDetail) => {
-        if (!active) return;
+    const selectionVersion = selectionVersionRef.current;
+    Promise.all([getEntry(selectedEntryId), listEntryBacklinks(selectedEntryId)])
+      .then(([nextDetail, nextBacklinks]) => {
+        if (!active || selectionVersionRef.current !== selectionVersion) return;
+        const exactFolder = exactFolderEntryRef.current === selectedEntryId;
+        exactFolderEntryRef.current = null;
         setDetail(nextDetail);
+        setBacklinks(nextBacklinks);
         setDetailRequestVersion(0);
+        setDetailLoading(false);
+        if (exactFolder || !selectedEntryIsListed) {
+          setSelectedFolderId(nextDetail.folderId);
+          replaceLocation({ folderId: nextDetail.folderId, entryId: nextDetail.id });
+          void loadEntryList(nextDetail.folderId);
+        }
       })
       .catch((caught) => {
-        if (!active) return;
+        if (!active || selectionVersionRef.current !== selectionVersion) return;
         setDetail(null);
+        setBacklinks([]);
         setDetailError(getErrorMessage(caught));
-      })
-      .finally(() => {
-        if (active) setDetailLoading(false);
+        setDetailLoading(false);
       });
     return () => {
       active = false;
     };
-  }, [detail?.id, detailRequestVersion, selectedEntryId, view]);
+  }, [
+    detail?.id,
+    detailRequestVersion,
+    indexLoading,
+    loadEntryList,
+    replaceLocation,
+    selectedEntryId,
+    selectedEntryIsListed,
+    view,
+  ]);
 
   const setDirtyState = useCallback((nextDirty: boolean) => {
     dirtyRef.current = nextDirty;
@@ -243,6 +329,7 @@ export function EntriesWorkspace({
   }, []);
 
   const confirmDiscard = useCallback((): boolean => {
+    if (wikilinkCreatePendingRef.current) return false;
     if (!dirtyRef.current) return true;
     return window.confirm("Discard your unsaved changes?");
   }, []);
@@ -251,28 +338,33 @@ export function EntriesWorkspace({
     setDirtyState(false);
     setView("library");
     setSelectedFolderId(null);
-    setSelectedEntryId(null);
+    setActiveEntryId(null);
     setSelectedTrash(null);
     setDetail(null);
+    setBacklinks([]);
     setDraftParentId(null);
     setDetailError("");
     setDetailLoading(false);
     setDetailRequestVersion(0);
     setMode("view");
     setStage("library");
-  }, [setDirtyState]);
+  }, [setActiveEntryId, setDirtyState]);
 
   useEffect(() => {
     guardedUrlRef.current = currentRelativeUrl();
     guardEntryPresentRef.current = isGuardedHistoryState(window.history.state);
 
     function beforeUnload(event: BeforeUnloadEvent) {
-      if (!dirtyRef.current || allowUnloadRef.current) return;
+      if (
+        (!dirtyRef.current && !wikilinkCreatePendingRef.current) ||
+        allowUnloadRef.current
+      ) return;
       event.preventDefault();
       event.returnValue = true;
     }
 
     function saveShortcut(event: KeyboardEvent) {
+      if (wikilinkCreatePendingRef.current) return;
       if (!(event.ctrlKey || event.metaKey) || event.key.toLocaleLowerCase() !== "s") return;
       if (!saveActionRef.current) return;
       event.preventDefault();
@@ -303,7 +395,10 @@ export function EntriesWorkspace({
       if (!guardEntryPresentRef.current) return;
       event.stopImmediatePropagation();
 
-      if (dirtyRef.current && !confirmDiscard()) {
+      if (
+        (dirtyRef.current || wikilinkCreatePendingRef.current) &&
+        !confirmDiscard()
+      ) {
         window.history.pushState(guardedHistoryState(), "", guardedUrlRef.current);
         guardEntryPresentRef.current = true;
         return;
@@ -344,49 +439,6 @@ export function EntriesWorkspace({
     () => new Map(folders.map((folder) => [folder.id, folder])),
     [folders],
   );
-
-  function replaceLocation(input: {
-    folderId?: number | null;
-    entryId?: number | null;
-    trashId?: number | null;
-  }) {
-    const params = new URLSearchParams();
-    if (input.trashId !== undefined) {
-      params.set("view", "trash");
-      if (input.trashId !== null) params.set("trash", String(input.trashId));
-    } else {
-      if (input.folderId !== null && input.folderId !== undefined) {
-        params.set("folder", String(input.folderId));
-      }
-      if (input.entryId !== null && input.entryId !== undefined) {
-        params.set("entry", String(input.entryId));
-      }
-    }
-    const query = params.toString();
-    const nextUrl = query ? `/entries?${query}` : "/entries";
-    guardedUrlRef.current = nextUrl;
-    window.history.replaceState(window.history.state, "", nextUrl);
-  }
-
-  async function loadEntryList(folderId: number | null) {
-    const requestId = ++indexRequestRef.current;
-    setIndexLoading(true);
-    try {
-      const page = await listEntries({
-        folderId: folderId ?? undefined,
-        includeDescendants: true,
-        completeTree: true,
-        limit: PAGE_LIMIT,
-      });
-      if (requestId !== indexRequestRef.current) return;
-      setEntries(page.items);
-      setEntryTotal(page.total);
-    } catch (caught) {
-      if (requestId === indexRequestRef.current) setError(getErrorMessage(caught));
-    } finally {
-      if (requestId === indexRequestRef.current) setIndexLoading(false);
-    }
-  }
 
   async function loadMoreEntries() {
     if (entryPageLoading || entries.length >= entryTotal) return;
@@ -443,9 +495,10 @@ export function EntriesWorkspace({
     if (!confirmDiscard()) return;
     setView("library");
     setSelectedFolderId(id);
-    setSelectedEntryId(null);
+    setActiveEntryId(null);
     setSelectedTrash(null);
     setDetail(null);
+    setBacklinks([]);
     setDraftParentId(null);
     setDetailError("");
     setDetailLoading(false);
@@ -456,26 +509,33 @@ export function EntriesWorkspace({
     void loadEntryList(id);
   }
 
-  function selectEntry(id: number) {
+  function selectEntry(id: number, folderId?: number, exactFolder = false) {
     if (!confirmDiscard()) return;
-    setSelectedEntryId(id);
+    const folderChanged = folderId !== undefined && folderId !== selectedFolderId;
+    if (folderChanged) {
+      setSelectedFolderId(folderId);
+      void loadEntryList(folderId);
+    }
+    setActiveEntryId(id, exactFolder && folderId === undefined);
     setDetail(null);
+    setBacklinks([]);
     setDraftParentId(null);
     setDetailError("");
     setDetailLoading(true);
     setDetailRequestVersion(0);
     setMode("view");
     setStage("entry");
-    replaceLocation({ folderId: selectedFolderId, entryId: id });
+    replaceLocation({ folderId: folderId ?? selectedFolderId, entryId: id });
   }
 
   async function openTrash() {
     if (!confirmDiscard()) return;
     setView("trash");
     setSelectedFolderId(null);
-    setSelectedEntryId(null);
+    setActiveEntryId(null);
     setSelectedTrash(null);
     setDetail(null);
+    setBacklinks([]);
     setDraftParentId(null);
     setMode("view");
     setStage("entries");
@@ -496,9 +556,10 @@ export function EntriesWorkspace({
     await refreshIndex(created.id);
     setView("library");
     setSelectedFolderId(created.id);
-    setSelectedEntryId(null);
+    setActiveEntryId(null);
     setSelectedTrash(null);
     setDetail(null);
+    setBacklinks([]);
     setDraftParentId(null);
     setMode("view");
     setDetailLoading(false);
@@ -522,8 +583,9 @@ export function EntriesWorkspace({
     await deleteFolder(id);
     await refreshIndex(null);
     setSelectedFolderId(null);
-    setSelectedEntryId(null);
+    setActiveEntryId(null);
     setDetail(null);
+    setBacklinks([]);
     setMode("view");
     setDetailLoading(false);
     setDetailRequestVersion(0);
@@ -533,8 +595,9 @@ export function EntriesWorkspace({
 
   async function handleSaved(saved: EntryDetailDto) {
     setDetail(saved);
+    setBacklinks([]);
     setDraftParentId(null);
-    setSelectedEntryId(saved.id);
+    const selectionVersion = setActiveEntryId(saved.id);
     setSelectedFolderId(saved.folderId);
     setMode("view");
     setStage("entry");
@@ -543,15 +606,61 @@ export function EntriesWorkspace({
     setDirtyState(false);
     replaceLocation({ folderId: saved.folderId, entryId: saved.id });
     try {
-      await refreshEntries(saved.folderId);
+      const [nextBacklinks] = await Promise.all([
+        listEntryBacklinks(saved.id),
+        refreshEntries(saved.folderId),
+      ]);
+      if (selectionVersionRef.current === selectionVersion) {
+        setBacklinks(nextBacklinks);
+      }
     } catch (caught) {
       setError(getErrorMessage(caught));
     }
   }
 
+  async function handleCreateWikilink(title: string, folderId: number) {
+    if (wikilinkCreatePendingRef.current) return;
+    if (!confirmDiscard()) return;
+
+    wikilinkCreatePendingRef.current = true;
+    saveActionRef.current = null;
+    if (!guardEntryPresentRef.current) {
+      guardedUrlRef.current = currentRelativeUrl();
+      window.history.pushState(guardedHistoryState(), "", guardedUrlRef.current);
+      guardEntryPresentRef.current = true;
+    }
+    setMode("view");
+    setDraftParentId(null);
+    setDirtyState(false);
+    setDetailError("");
+    setDetailLoading(true);
+    setError("");
+    try {
+      const saved = await createEntry({
+        folderId,
+        parentId: null,
+        kind: "knowledge",
+        title,
+        notesMd: "",
+        code: null,
+        language: null,
+        filename: null,
+        tags: [],
+      });
+      await handleSaved(saved);
+    } catch (caught) {
+      setMode("view");
+      setDetailLoading(false);
+      setError(getErrorMessage(caught));
+    } finally {
+      wikilinkCreatePendingRef.current = false;
+    }
+  }
+
   async function handleDeleted() {
-    setSelectedEntryId(null);
+    setActiveEntryId(null);
     setDetail(null);
+    setBacklinks([]);
     setDraftParentId(null);
     setMode("view");
     setStage("entries");
@@ -576,14 +685,21 @@ export function EntriesWorkspace({
     setView("library");
     setSelectedTrash(null);
     setSelectedFolderId(restored.folderId);
-    setSelectedEntryId(restored.id);
+    const selectionVersion = setActiveEntryId(restored.id);
     setDetail(restored);
+    setBacklinks([]);
     setDraftParentId(null);
     setMode("view");
     setStage("entry");
     replaceLocation({ folderId: restored.folderId, entryId: restored.id });
     try {
-      await refreshIndex(restored.folderId);
+      const [nextBacklinks] = await Promise.all([
+        listEntryBacklinks(restored.id),
+        refreshIndex(restored.folderId),
+      ]);
+      if (selectionVersionRef.current === selectionVersion) {
+        setBacklinks(nextBacklinks);
+      }
     } catch (caught) {
       setError(getErrorMessage(caught));
     }
@@ -617,9 +733,10 @@ export function EntriesWorkspace({
     const folderId = parent?.folderId ?? selectedFolderId;
     if (folderId === null || (parentId !== null && !parent)) return;
     setSelectedFolderId(folderId);
-    setSelectedEntryId(null);
+    setActiveEntryId(null);
     setDraftParentId(parentId);
     setDetail(null);
+    setBacklinks([]);
     setDetailError("");
     setDetailLoading(false);
     setDetailRequestVersion(0);
@@ -711,11 +828,14 @@ export function EntriesWorkspace({
           parentId={mode === "create" ? draftParentId : detail?.parentId ?? null}
           folders={folders}
           entries={entries}
+          backlinks={backlinks}
           loading={detailLoading}
           onEdit={() => setMode("edit")}
           onCancel={cancelEditing}
           onSaved={handleSaved}
           onDeleted={handleDeleted}
+          onNavigateEntry={selectEntry}
+          onCreateWikilink={handleCreateWikilink}
           onDirtyChange={setDirtyState}
           onRegisterSave={registerSave}
           onBack={backToEntries}

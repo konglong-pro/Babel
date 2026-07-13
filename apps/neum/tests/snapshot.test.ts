@@ -83,6 +83,29 @@ test("complete database and image snapshots round-trip without semantic loss", a
     });
     assert.equal(applied.applied, true);
     assert.deepEqual(readNeumDatabaseSnapshot(target), readNeumDatabaseSnapshot(source));
+    assert.deepEqual(
+      target
+        .prepare(
+          `SELECT "source_entry_id" AS sourceId,
+                  "target_title_key" AS targetTitleKey,
+                  "target_entry_id" AS targetId
+           FROM "entry_link"
+           ORDER BY "target_title_key"`,
+        )
+        .all(),
+      [
+        {
+          sourceId: 11,
+          targetTitleKey: "broken yaml is still useful",
+          targetId: 12,
+        },
+        {
+          sourceId: 11,
+          targetTitleKey: "missing restored target",
+          targetId: null,
+        },
+      ],
+    );
     assert.deepEqual(await readFile(path.join(targetUploads, "active.png")), png);
     assert.deepEqual(await readFile(path.join(targetUploads, "deleted.gif")), gif);
 
@@ -260,8 +283,8 @@ test("late database failure rolls back rows and removes staged images", async ()
       uploadDirectory: path.join(root, "source-uploads"),
       destination: path.join(root, "bundle"),
     });
-    target.exec(`CREATE TRIGGER fail_snapshot_trash
-      BEFORE INSERT ON trash_entry
+    target.exec(`CREATE TRIGGER fail_snapshot_link
+      BEFORE INSERT ON entry_link
       BEGIN SELECT RAISE(ABORT, 'late failure'); END`);
 
     await assert.rejects(
@@ -277,7 +300,14 @@ test("late database failure rolls back rows and removes staged images", async ()
       target.prepare('SELECT "id", "name" FROM "folder"').all(),
       [{ id: 1, name: "Inbox" }],
     );
-    for (const table of ["entry", "tag", "entry_tag", "entry_image", "trash_entry"]) {
+    for (const table of [
+      "entry",
+      "entry_link",
+      "tag",
+      "entry_tag",
+      "entry_image",
+      "trash_entry",
+    ]) {
       assert.equal(
         target.prepare(`SELECT count(*) FROM "${table}"`).pluck().get(),
         0,
@@ -396,6 +426,17 @@ function createSchema(sqlite: BetterSqlite3.Database): void {
     CREATE INDEX entry_kind_idx ON entry(kind);
     CREATE INDEX entry_title_idx ON entry(title);
     CREATE INDEX entry_updated_idx ON entry(updated_at, id);
+    CREATE TABLE entry_link (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_entry_id INTEGER NOT NULL REFERENCES entry(id) ON DELETE CASCADE,
+      target_title_key TEXT NOT NULL,
+      target_entry_id INTEGER REFERENCES entry(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    );
+    CREATE UNIQUE INDEX entry_link_source_title_unique
+      ON entry_link(source_entry_id, target_title_key);
+    CREATE INDEX entry_link_target_idx ON entry_link(target_entry_id);
+    CREATE INDEX entry_link_title_key_idx ON entry_link(target_title_key);
     CREATE TABLE tag (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -498,6 +539,9 @@ function seedRichSource(sqlite: BetterSqlite3.Database): void {
     created,
     updated,
   );
+  sqlite
+    .prepare('UPDATE "entry" SET "notes_md" = "notes_md" || ? WHERE "id" = 11')
+    .run("\n\n[[Broken YAML is still useful]] [[Missing restored target]]");
   sqlite.prepare('INSERT INTO "entry_tag" VALUES (?, ?)').run(11, 5);
   sqlite.prepare('INSERT INTO "entry_tag" VALUES (?, ?)').run(12, 6);
   sqlite
