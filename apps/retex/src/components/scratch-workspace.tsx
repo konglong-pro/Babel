@@ -11,7 +11,7 @@ import {
   saveScratch,
 } from "@/lib/api-client";
 import { imageUrl, type ExerciseDetailDto } from "@/lib/types";
-import { MarkdownEditor } from "@/components/markdown";
+import { MarkdownEditor } from "@/components/markdown-editor";
 import { ConfirmButton, formatDate } from "@/components/shared";
 
 export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {

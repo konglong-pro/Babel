@@ -12,6 +12,13 @@ import type {
 } from "@/lib/types";
 
 import { RepositoryError } from "./errors";
+import {
+  deleteEntityLinks,
+  listOutgoingNoteLinks,
+  reconcileNoteTitleChange,
+  replaceSourceNoteLinks,
+  resolveIncomingLinksForTitle,
+} from "./links";
 import { validateKnowledgeIds } from "./relation-validation";
 import { listExerciseKnowledge } from "./relations";
 import {
@@ -73,7 +80,13 @@ export function getExercise(id: number): ExerciseDetailDto | null {
     .where(eq(exercises.id, id))
     .get();
 
-  return exercise ? toExerciseDetail(exercise) : null;
+  return exercise
+    ? toExerciseDetail(
+        exercise,
+        listExerciseKnowledge(exercise.id),
+        listOutgoingNoteLinks("exercise", exercise.id),
+      )
+    : null;
 }
 
 export function createExercise(
@@ -87,7 +100,7 @@ export function createExercise(
   const tags = tagsToJson(input.tags ?? []);
   const knowledgeIds = validateKnowledgeIds(input.knowledgeIds ?? []);
 
-  const exercise = db.transaction((transaction) => {
+  return db.transaction((transaction) => {
     const row = transaction
       .insert(exercises)
       .values({
@@ -113,10 +126,14 @@ export function createExercise(
         .run();
     }
 
-    return row;
+    replaceSourceNoteLinks(transaction, "exercise", row.id, [answerMd, solutionMd]);
+    resolveIncomingLinksForTitle(transaction, title);
+    return toExerciseDetail(
+      row,
+      listExerciseKnowledge(row.id, transaction),
+      listOutgoingNoteLinks("exercise", row.id, transaction),
+    );
   });
-
-  return toExerciseDetail(exercise);
 }
 
 export function updateExercise(
@@ -183,10 +200,10 @@ export function updateExercise(
   }
 
   if (!hasChanges) {
-    return toExerciseDetail(current);
+    return getExercise(id)!;
   }
 
-  const updated = db.transaction((transaction) => {
+  return db.transaction((transaction) => {
     const row = transaction
       .update(exercises)
       .set(changes)
@@ -210,13 +227,28 @@ export function updateExercise(
             })),
           )
           .run();
-      }
+        }
     }
 
-    return row;
+    replaceSourceNoteLinks(transaction, "exercise", id, [
+      changes.answerMd ?? current.answerMd,
+      changes.solutionMd ?? current.solutionMd,
+    ]);
+    if (changes.title !== undefined) {
+      reconcileNoteTitleChange(
+        transaction,
+        "exercise",
+        id,
+        current.title,
+        changes.title,
+      );
+    }
+    return toExerciseDetail(
+      row,
+      listExerciseKnowledge(id, transaction),
+      listOutgoingNoteLinks("exercise", id, transaction),
+    );
   });
-
-  return toExerciseDetail(updated);
 }
 
 export async function deleteExerciseImageIfUnused(
@@ -234,27 +266,28 @@ export async function deleteExerciseImageIfUnused(
 
 export async function deleteExercise(id: number): Promise<boolean> {
   assertPositiveId(id, "id");
-  const exercise = db
-    .select()
-    .from(exercises)
-    .where(eq(exercises.id, id))
-    .get();
+  const deleted = db.transaction((transaction) => {
+    const exercise = transaction
+      .select()
+      .from(exercises)
+      .where(eq(exercises.id, id))
+      .get();
+    if (!exercise) return null;
 
-  if (!exercise) {
-    return false;
-  }
+    const imagePath = normalizeStoredExerciseImagePath(exercise.imagePath);
+    const sharedImage = transaction
+      .select({ id: exercises.id })
+      .from(exercises)
+      .where(and(eq(exercises.imagePath, imagePath), ne(exercises.id, id)))
+      .get();
+    transaction.delete(exercises).where(eq(exercises.id, id)).run();
+    deleteEntityLinks(transaction, "exercise", id, exercise.title);
+    return { imagePath, deleteImage: sharedImage === undefined };
+  });
 
-  const imagePath = normalizeStoredExerciseImagePath(exercise.imagePath);
-  const sharedImage = db
-    .select({ id: exercises.id })
-    .from(exercises)
-    .where(and(eq(exercises.imagePath, imagePath), ne(exercises.id, id)))
-    .get();
-
-  db.delete(exercises).where(eq(exercises.id, id)).run();
-
-  if (!sharedImage) {
-    await deleteExerciseImage(imagePath);
+  if (!deleted) return false;
+  if (deleted.deleteImage) {
+    await deleteExerciseImage(deleted.imagePath);
   }
 
   return true;
@@ -271,12 +304,17 @@ function toExerciseSummary(row: ExerciseRow): ExerciseSummaryDto {
   };
 }
 
-function toExerciseDetail(row: ExerciseRow): ExerciseDetailDto {
+function toExerciseDetail(
+  row: ExerciseRow,
+  relatedKnowledge: ExerciseDetailDto["relatedKnowledge"],
+  links: ExerciseDetailDto["links"],
+): ExerciseDetailDto {
   return {
     ...toExerciseSummary(row),
     answerMd: row.answerMd,
     solutionMd: row.solutionMd,
     createdAt: row.createdAt,
-    relatedKnowledge: listExerciseKnowledge(row.id),
+    relatedKnowledge,
+    links,
   };
 }

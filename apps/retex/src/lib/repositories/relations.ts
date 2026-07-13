@@ -9,6 +9,7 @@ import {
 import type { RelatedItemDto } from "@/lib/types";
 
 import { RepositoryError } from "./errors";
+import type { NoteLinkTransaction } from "./links";
 import {
   exerciseExists,
   knowledgeExists,
@@ -19,10 +20,11 @@ import { assertPositiveId } from "./shared";
 
 export function listKnowledgeExercises(
   knowledgeId: number,
+  transaction?: NoteLinkTransaction,
 ): RelatedItemDto[] {
-  requireKnowledge(knowledgeId);
+  requireKnowledge(knowledgeId, transaction);
 
-  return db
+  return (transaction ?? db)
     .select({ id: exercises.id, title: exercises.title })
     .from(knowledgeExercises)
     .innerJoin(exercises, eq(knowledgeExercises.exerciseId, exercises.id))
@@ -33,10 +35,11 @@ export function listKnowledgeExercises(
 
 export function listExerciseKnowledge(
   exerciseId: number,
+  transaction?: NoteLinkTransaction,
 ): RelatedItemDto[] {
-  requireExercise(exerciseId);
+  requireExercise(exerciseId, transaction);
 
-  return db
+  return (transaction ?? db)
     .select({ id: knowledgeNotes.id, title: knowledgeNotes.title })
     .from(knowledgeExercises)
     .innerJoin(
@@ -136,14 +139,28 @@ export function unlinkKnowledgeExercise(
   return result.changes > 0;
 }
 
-function requireKnowledge(knowledgeId: number): void {
-  if (!knowledgeExists(knowledgeId)) {
+function requireKnowledge(
+  knowledgeId: number,
+  transaction?: NoteLinkTransaction,
+): void {
+  if (transaction === undefined ? !knowledgeExists(knowledgeId) : !transaction
+    .select({ id: knowledgeNotes.id })
+    .from(knowledgeNotes)
+    .where(eq(knowledgeNotes.id, knowledgeId))
+    .get()) {
     throw new RepositoryError("NOT_FOUND", "Knowledge note not found.", { knowledgeId });
   }
 }
 
-function requireExercise(exerciseId: number): void {
-  if (!exerciseExists(exerciseId)) {
+function requireExercise(
+  exerciseId: number,
+  transaction?: NoteLinkTransaction,
+): void {
+  if (transaction === undefined ? !exerciseExists(exerciseId) : !transaction
+    .select({ id: exercises.id })
+    .from(exercises)
+    .where(eq(exercises.id, exerciseId))
+    .get()) {
     throw new RepositoryError("NOT_FOUND", "Exercise not found.", { exerciseId });
   }
 }

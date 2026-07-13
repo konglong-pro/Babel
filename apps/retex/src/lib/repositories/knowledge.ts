@@ -8,6 +8,13 @@ import type {
 } from "@/lib/types";
 
 import { RepositoryError } from "./errors";
+import {
+  deleteEntityLinks,
+  listOutgoingNoteLinks,
+  reconcileNoteTitleChange,
+  replaceSourceNoteLinks,
+  resolveIncomingLinksForTitle,
+} from "./links";
 import { validateExerciseIds } from "./relation-validation";
 import { listKnowledgeExercises } from "./relations";
 import {
@@ -71,7 +78,11 @@ export function getKnowledge(id: number): KnowledgeDetailDto | null {
     return null;
   }
 
-  return toKnowledgeDetail(knowledge);
+  return toKnowledgeDetail(
+    knowledge,
+    listKnowledgeExercises(knowledge.id),
+    listOutgoingNoteLinks("knowledge", knowledge.id),
+  );
 }
 
 export function createKnowledge(
@@ -87,7 +98,7 @@ export function createKnowledge(
   const tags = tagsToJson(input.tags ?? []);
   const exerciseIds = validateExerciseIds(input.exerciseIds ?? []);
 
-  const knowledge = db.transaction((transaction) => {
+  return db.transaction((transaction) => {
     const row = transaction
       .insert(knowledgeNotes)
       .values({ folderId: input.folderId, parentId, title, contentMd, tags })
@@ -106,10 +117,14 @@ export function createKnowledge(
         .run();
     }
 
-    return row;
+    replaceSourceNoteLinks(transaction, "knowledge", row.id, [contentMd]);
+    resolveIncomingLinksForTitle(transaction, title);
+    return toKnowledgeDetail(
+      row,
+      listKnowledgeExercises(row.id, transaction),
+      listOutgoingNoteLinks("knowledge", row.id, transaction),
+    );
   });
-
-  return toKnowledgeDetail(knowledge);
 }
 
 export function updateKnowledge(
@@ -183,13 +198,13 @@ export function updateKnowledge(
   }
 
   if (!hasChanges) {
-    return toKnowledgeDetail(current);
+    return getKnowledge(id)!;
   }
 
   const descendantIdsToMove = folderChanged
     ? knowledgeDescendantIds(id).filter((knowledgeId) => knowledgeId !== id)
     : [];
-  const updated = db.transaction((transaction) => {
+  return db.transaction((transaction) => {
     if (descendantIdsToMove.length > 0) {
       transaction
         .update(knowledgeNotes)
@@ -221,36 +236,59 @@ export function updateKnowledge(
             })),
           )
           .run();
-      }
+        }
     }
 
-    return row;
+    replaceSourceNoteLinks(transaction, "knowledge", id, [
+      changes.contentMd ?? current.contentMd,
+    ]);
+    if (changes.title !== undefined) {
+      reconcileNoteTitleChange(
+        transaction,
+        "knowledge",
+        id,
+        current.title,
+        changes.title,
+      );
+    }
+    return toKnowledgeDetail(
+      row,
+      listKnowledgeExercises(id, transaction),
+      listOutgoingNoteLinks("knowledge", id, transaction),
+    );
   });
-
-  return toKnowledgeDetail(updated);
 }
 
 export function deleteKnowledge(id: number): boolean {
   assertPositiveId(id, "id");
-  const child = db
-    .select({ id: knowledgeNotes.id })
-    .from(knowledgeNotes)
-    .where(eq(knowledgeNotes.parentId, id))
-    .get();
-  if (child) {
-    throw new RepositoryError(
-      "NOT_EMPTY",
-      "Knowledge notes with child pages cannot be deleted.",
-      { knowledgeId: id },
-    );
-  }
-  return (
-    db
+  return db.transaction((transaction) => {
+    const current = transaction
+      .select({ id: knowledgeNotes.id, title: knowledgeNotes.title })
+      .from(knowledgeNotes)
+      .where(eq(knowledgeNotes.id, id))
+      .get();
+    if (!current) return false;
+    const child = transaction
+      .select({ id: knowledgeNotes.id })
+      .from(knowledgeNotes)
+      .where(eq(knowledgeNotes.parentId, id))
+      .get();
+    if (child) {
+      throw new RepositoryError(
+        "NOT_EMPTY",
+        "Knowledge notes with child pages cannot be deleted.",
+        { knowledgeId: id },
+      );
+    }
+    const deleted = transaction
       .delete(knowledgeNotes)
       .where(eq(knowledgeNotes.id, id))
       .returning({ id: knowledgeNotes.id })
-      .get() !== undefined
-  );
+      .get();
+    if (!deleted) return false;
+    deleteEntityLinks(transaction, "knowledge", id, current.title);
+    return true;
+  });
 }
 
 function toKnowledgeSummary(row: KnowledgeRow): KnowledgeSummaryDto {
@@ -361,11 +399,16 @@ function knowledgeDescendantIds(knowledgeId: number): number[] {
   return result;
 }
 
-function toKnowledgeDetail(row: KnowledgeRow): KnowledgeDetailDto {
+function toKnowledgeDetail(
+  row: KnowledgeRow,
+  relatedExercises: KnowledgeDetailDto["relatedExercises"],
+  links: KnowledgeDetailDto["links"],
+): KnowledgeDetailDto {
   return {
     ...toKnowledgeSummary(row),
     contentMd: row.contentMd,
     createdAt: row.createdAt,
-    relatedExercises: listKnowledgeExercises(row.id),
+    relatedExercises,
+    links,
   };
 }

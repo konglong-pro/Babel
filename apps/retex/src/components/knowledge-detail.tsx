@@ -1,21 +1,15 @@
 "use client";
 
-import Link from "next/link";
-import { type FormEvent, useEffect, useMemo, useState } from "react";
-
+import type { Wikilink } from "@babel-apps/markdown/core";
 import {
-  createKnowledge,
-  deleteKnowledge,
-  getErrorMessage,
-  listExercises,
-  updateKnowledge,
-} from "@/lib/api-client";
-import type {
-  ExerciseSummaryDto,
-  KnowledgeDetailDto,
-  KnowledgeSummaryDto,
-} from "@/lib/types";
-import { MarkdownEditor, MarkdownRenderer } from "@/components/markdown";
+  MarkdownRenderer,
+  type ResolvedWikilink,
+} from "@babel-apps/markdown/react";
+import Link from "next/link";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+
+import { LinkedMentions } from "@/components/linked-mentions";
+import { MarkdownEditor } from "@/components/markdown-editor";
 import { pageDescendantIds } from "@/components/page-tree-state";
 import {
   ConfirmButton,
@@ -24,6 +18,20 @@ import {
   RelationPicker,
   Tags,
 } from "@/components/shared";
+import {
+  createKnowledge,
+  deleteKnowledge,
+  getErrorMessage,
+  listExercises,
+  updateKnowledge,
+} from "@/lib/api-client";
+import type {
+  BacklinksDto,
+  ExerciseSummaryDto,
+  KnowledgeDetailDto,
+  KnowledgeSummaryDto,
+  LinkEntityKind,
+} from "@/lib/types";
 
 interface KnowledgeDetailProps {
   detail: KnowledgeDetailDto | null;
@@ -31,12 +39,19 @@ interface KnowledgeDetailProps {
   folderId: number | null;
   pages: KnowledgeSummaryDto[];
   createParentId: number | null;
+  backlinks: BacklinksDto;
   loading?: boolean;
   onEdit: () => void;
   onCreateChild: () => void;
   onCancel: () => void;
   onSaved: (detail: KnowledgeDetailDto) => void;
   onDeleted: () => void;
+  onNavigateEntity: (
+    kind: LinkEntityKind,
+    id: number,
+    folderId?: number,
+  ) => void;
+  onCreateWikilink: (title: string, folderId: number) => Promise<void> | void;
 }
 
 function pagePathLabel(
@@ -60,13 +75,43 @@ export function KnowledgeDetail({
   folderId,
   pages,
   createParentId,
+  backlinks,
   loading,
   onEdit,
   onCreateChild,
   onCancel,
   onSaved,
   onDeleted,
+  onNavigateEntity,
+  onCreateWikilink,
 }: KnowledgeDetailProps) {
+  const wikilinkTargets = useMemo(() => {
+    const targets = new Map<string, ResolvedWikilink>();
+    for (const link of detail?.links ?? []) {
+      if (link.targetId === null || link.targetKind === null) continue;
+      targets.set(link.titleKey, { id: link.targetId, kind: link.targetKind });
+    }
+    return targets;
+  }, [detail?.links]);
+  const resolveWikilink = useCallback(
+    (titleKey: string): ResolvedWikilink | null => wikilinkTargets.get(titleKey) ?? null,
+    [wikilinkTargets],
+  );
+  const navigateWikilink = useCallback(
+    (target: ResolvedWikilink) => {
+      if (!isLinkEntityKind(target.kind)) return;
+      onNavigateEntity(target.kind, target.id);
+    },
+    [onNavigateEntity],
+  );
+  const createFromWikilink = useCallback((wikilink: Wikilink) => {
+    const targetFolderId = detail?.folderId ?? folderId;
+    const title = normalizedWikilinkTitle(wikilink);
+    if (targetFolderId === null || !title) return;
+    if (!window.confirm(`Create Knowledge note “${title}” and open it?`)) return;
+    void Promise.resolve(onCreateWikilink(title, targetFolderId)).catch(() => undefined);
+  }, [detail?.folderId, folderId, onCreateWikilink]);
+
   if (loading) {
     return <section className="detail-panel panel-status">Loading note…</section>;
   }
@@ -81,6 +126,9 @@ export function KnowledgeDetail({
         createParentId={createParentId}
         onCancel={onCancel}
         onSaved={onSaved}
+        resolveWikilink={resolveWikilink}
+        onNavigateWikilink={navigateWikilink}
+        onCreateWikilink={onCreateWikilink}
       />
     );
   }
@@ -126,7 +174,14 @@ export function KnowledgeDetail({
       </header>
 
       <section className="document-content" aria-label="Note content">
-        <MarkdownRenderer content={detail.contentMd} />
+        <MarkdownRenderer
+          content={detail.contentMd}
+          remarkFeatures={["math"]}
+          defaultWikilinkKind="knowledge"
+          resolveWikilink={resolveWikilink}
+          onNavigateWikilink={navigateWikilink}
+          onCreateFromWikilink={createFromWikilink}
+        />
       </section>
 
       <section className="related-section">
@@ -143,6 +198,8 @@ export function KnowledgeDetail({
           </ul>
         )}
       </section>
+
+      <LinkedMentions backlinks={backlinks} onNavigate={onNavigateEntity} />
     </article>
   );
 }
@@ -154,6 +211,9 @@ interface KnowledgeFormProps {
   createParentId: number | null;
   onCancel: () => void;
   onSaved: (detail: KnowledgeDetailDto) => void;
+  resolveWikilink: (titleKey: string) => ResolvedWikilink | null;
+  onNavigateWikilink: (target: ResolvedWikilink) => void;
+  onCreateWikilink: (title: string, folderId: number) => Promise<void> | void;
 }
 
 function KnowledgeForm({
@@ -163,6 +223,9 @@ function KnowledgeForm({
   createParentId,
   onCancel,
   onSaved,
+  resolveWikilink,
+  onNavigateWikilink,
+  onCreateWikilink,
 }: KnowledgeFormProps) {
   const [title, setTitle] = useState(detail?.title ?? "");
   const [tags, setTags] = useState(detail?.tags.join(", ") ?? "");
@@ -216,6 +279,7 @@ function KnowledgeForm({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (pending) return;
     if (folderId === null) {
       setError("Select a folder first.");
       return;
@@ -240,6 +304,20 @@ function KnowledgeForm({
     } finally {
       setPending(false);
     }
+  }
+
+  function createFromWikilink(wikilink: Wikilink) {
+    const targetTitle = normalizedWikilinkTitle(wikilink);
+    if (folderId === null || !targetTitle) return;
+    if (!window.confirm(
+      `Create Knowledge note “${targetTitle}”, discard unsaved changes, and open it?`,
+    )) return;
+    void Promise.resolve(onCreateWikilink(targetTitle, folderId)).catch(() => undefined);
+  }
+
+  function navigateFromPreview(target: ResolvedWikilink) {
+    if (!window.confirm("Discard unsaved changes and open this linked note?")) return;
+    onNavigateWikilink(target);
   }
 
   return (
@@ -312,6 +390,11 @@ function KnowledgeForm({
           name="contentMd"
           value={content}
           onChange={setContent}
+          hint="Use $…$ for math and [[title]] to link another note."
+          enableWikilinkAutocomplete
+          resolveWikilink={resolveWikilink}
+          onNavigateWikilink={navigateFromPreview}
+          onCreateFromWikilink={createFromWikilink}
         />
 
         <RelationPicker
@@ -324,4 +407,12 @@ function KnowledgeForm({
       </form>
     </section>
   );
+}
+
+function normalizedWikilinkTitle(wikilink: Wikilink): string {
+  return wikilink.titleRaw.trim().replace(/\s+/gu, " ");
+}
+
+function isLinkEntityKind(value: string | undefined): value is LinkEntityKind {
+  return value === "knowledge" || value === "exercise";
 }

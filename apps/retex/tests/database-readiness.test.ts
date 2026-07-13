@@ -12,7 +12,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { assertAppDatabaseReady } from "@/lib/db/readiness";
 import { GET as getHealth } from "@/app/api/health/route";
 
-const latestMigration = 1_783_911_773_028;
+const latestMigration = 1_783_940_858_762;
 const migrationsFolder = path.resolve(process.cwd(), "drizzle");
 
 test("ReTex database readiness", async (t) => {
@@ -38,6 +38,16 @@ test("ReTex database readiness", async (t) => {
     );
   });
 
+  await t.test("rejects a latest-looking database without the link index", () => {
+    const databasePath = path.join(root, "missing-note-link.db");
+    createLatestLookingDatabase(databasePath, "knowledge_note", true);
+
+    assert.throws(
+      () => assertAppDatabaseReady(databasePath),
+      /missing required column: note_link\.source_kind/i,
+    );
+  });
+
   await t.test("health reports current and incompatible schemas", async () => {
     const originalPath = process.env.RETEX_DATABASE_PATH;
     process.env.RETEX_DATABASE_PATH = path.join(root, "current.db");
@@ -60,11 +70,18 @@ test("ReTex database readiness", async (t) => {
   });
 });
 
-function createLatestLookingDatabase(databasePath: string, table: string): void {
+function createLatestLookingDatabase(
+  databasePath: string,
+  table: string,
+  includeParentId = false,
+): void {
   const sqlite = new BetterSqlite3(databasePath);
   try {
     sqlite.exec(`
-      CREATE TABLE ${table} (id integer PRIMARY KEY);
+      CREATE TABLE ${table} (
+        id integer PRIMARY KEY
+        ${includeParentId ? ", parent_id integer" : ""}
+      );
       CREATE TABLE __drizzle_migrations (
         id integer PRIMARY KEY AUTOINCREMENT,
         hash text NOT NULL,

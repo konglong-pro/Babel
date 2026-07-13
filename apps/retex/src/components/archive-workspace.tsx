@@ -1,30 +1,42 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
+import { ExerciseDetail } from "@/components/exercise-detail";
+import { FolderPanel } from "@/components/folder-panel";
+import { ItemList } from "@/components/item-list";
+import { KnowledgeDetail } from "@/components/knowledge-detail";
 import {
   createFolder,
+  createKnowledge,
   deleteFolder,
   getErrorMessage,
   getExercise,
+  getExerciseBacklinks,
   getKnowledge,
+  getKnowledgeBacklinks,
   listExercises,
   listFolders,
   listKnowledge,
   updateFolder,
 } from "@/lib/api-client";
 import type {
+  BacklinksDto,
   ExerciseDetailDto,
   ExerciseSummaryDto,
   FolderDto,
   FolderType,
   KnowledgeDetailDto,
   KnowledgeSummaryDto,
+  LinkEntityKind,
 } from "@/lib/types";
-import { ExerciseDetail } from "@/components/exercise-detail";
-import { FolderPanel } from "@/components/folder-panel";
-import { ItemList } from "@/components/item-list";
-import { KnowledgeDetail } from "@/components/knowledge-detail";
 
 type ArchiveSummary = KnowledgeSummaryDto | ExerciseSummaryDto;
 type ArchiveDetail = KnowledgeDetailDto | ExerciseDetailDto;
@@ -34,6 +46,14 @@ interface ArchiveWorkspaceProps {
   type: FolderType;
   initialFolderId?: number | null;
   initialItemId?: number | null;
+}
+
+interface WikilinkCreationRequest {
+  title: string;
+}
+
+function emptyBacklinks(): BacklinksDto {
+  return { knowledge: [], exercises: [] };
 }
 
 export function ArchiveWorkspace({
@@ -46,12 +66,37 @@ export function ArchiveWorkspace({
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(initialFolderId);
   const [selectedItemId, setSelectedItemId] = useState<number | null>(initialItemId);
   const [detail, setDetail] = useState<ArchiveDetail | null>(null);
+  const [backlinks, setBacklinks] = useState<BacklinksDto>(emptyBacklinks);
   const [mode, setMode] = useState<ViewMode>("view");
   const [createParentId, setCreateParentId] = useState<number | null>(null);
   const [indexLoading, setIndexLoading] = useState(true);
+  const [detailRequestVersion, setDetailRequestVersion] = useState(0);
   const [error, setError] = useState("");
+  const [wikilinkCreation, setWikilinkCreation] = useState<WikilinkCreationRequest | null>(null);
+  const [knowledgeFolders, setKnowledgeFolders] = useState<FolderDto[]>([]);
+  const [knowledgeFoldersLoading, setKnowledgeFoldersLoading] = useState(false);
+  const [knowledgeFoldersError, setKnowledgeFoldersError] = useState("");
+  const selectionGenerationRef = useRef(0);
+  const navigationGenerationRef = useRef(0);
+  const folderRequestGenerationRef = useRef(0);
+  const wikilinkCreateGenerationRef = useRef(0);
+  const wikilinkCreatePendingRef = useRef(false);
 
   const basePath = type === "knowledge" ? "/knowledge" : "/exercise";
+  const beginNavigation = useCallback(() => {
+    navigationGenerationRef.current += 1;
+    wikilinkCreateGenerationRef.current += 1;
+    return navigationGenerationRef.current;
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      navigationGenerationRef.current += 1;
+      selectionGenerationRef.current += 1;
+      folderRequestGenerationRef.current += 1;
+      wikilinkCreateGenerationRef.current += 1;
+    };
+  }, []);
 
   const loadIndex = useCallback(async () => {
     const [nextFolders, nextItems] = await Promise.all([
@@ -85,25 +130,33 @@ export function ArchiveWorkspace({
   }, [type]);
 
   useEffect(() => {
-    if (selectedItemId === null) {
-      return;
-    }
+    if (selectedItemId === null) return;
+
     let active = true;
-    const promise =
-      type === "knowledge" ? getKnowledge(selectedItemId) : getExercise(selectedItemId);
-    promise
-      .then((nextDetail) => {
-        if (active) setDetail(nextDetail);
+    const selectionGeneration = selectionGenerationRef.current;
+    const detailRequest = type === "knowledge"
+      ? getKnowledge(selectedItemId)
+      : getExercise(selectedItemId);
+    const backlinksRequest = type === "knowledge"
+      ? getKnowledgeBacklinks(selectedItemId)
+      : getExerciseBacklinks(selectedItemId);
+
+    Promise.all([detailRequest, backlinksRequest])
+      .then(([nextDetail, nextBacklinks]) => {
+        if (!active || selectionGeneration !== selectionGenerationRef.current) return;
+        setDetail(nextDetail);
+        setBacklinks(nextBacklinks);
       })
       .catch((caught) => {
-        if (!active) return;
+        if (!active || selectionGeneration !== selectionGenerationRef.current) return;
         setDetail(null);
+        setBacklinks(emptyBacklinks());
         setError(getErrorMessage(caught));
       });
     return () => {
       active = false;
     };
-  }, [selectedItemId, type]);
+  }, [detailRequestVersion, selectedItemId, type]);
 
   const visibleItems = useMemo(() => {
     const filtered =
@@ -115,37 +168,93 @@ export function ArchiveWorkspace({
     );
   }, [items, selectedFolderId]);
 
-  function replaceLocation(folderId: number | null, itemId: number | null) {
+  const replaceLocation = useCallback((folderId: number | null, itemId: number | null) => {
     const params = new URLSearchParams();
     if (folderId !== null) params.set("folder", String(folderId));
     if (itemId !== null) params.set("item", String(itemId));
     const query = params.toString();
     window.history.replaceState(null, "", query ? `${basePath}?${query}` : basePath);
-  }
+  }, [basePath]);
 
-  function selectFolder(id: number | null) {
+  const selectFolder = useCallback((id: number | null) => {
+    beginNavigation();
+    selectionGenerationRef.current += 1;
     setSelectedFolderId(id);
     setSelectedItemId(null);
     setDetail(null);
+    setBacklinks(emptyBacklinks());
     setMode("view");
     setCreateParentId(null);
+    setError("");
     replaceLocation(id, null);
-  }
+  }, [beginNavigation, replaceLocation]);
 
-  function selectItem(id: number) {
+  const selectItem = useCallback((id: number, exactFolderId?: number) => {
+    beginNavigation();
+    selectionGenerationRef.current += 1;
+    const targetFolderId = exactFolderId
+      ?? items.find((item) => item.id === id)?.folderId
+      ?? selectedFolderId;
+    setSelectedFolderId(targetFolderId);
     setSelectedItemId(id);
     setDetail(null);
+    setBacklinks(emptyBacklinks());
     setError("");
     setMode("view");
     setCreateParentId(null);
-    replaceLocation(selectedFolderId, id);
-  }
+    setDetailRequestVersion((version) => version + 1);
+    replaceLocation(targetFolderId, id);
+  }, [beginNavigation, items, replaceLocation, selectedFolderId]);
+
+  const navigateEntity = useCallback((
+    kind: LinkEntityKind,
+    id: number,
+    exactFolderId?: number,
+  ) => {
+    const generation = beginNavigation();
+
+    const indexedFolderId = kind === type
+      ? items.find((item) => item.id === id)?.folderId
+      : undefined;
+    const knownFolderId = exactFolderId ?? indexedFolderId;
+
+    if (kind === type && knownFolderId !== undefined) {
+      selectItem(id, knownFolderId);
+      return;
+    }
+
+    if (kind !== type && knownFolderId !== undefined) {
+      window.location.assign(entityLocation(kind, id, knownFolderId));
+      return;
+    }
+
+    const targetRequest = kind === "knowledge" ? getKnowledge(id) : getExercise(id);
+    void targetRequest.then(
+      (target) => {
+        if (generation !== navigationGenerationRef.current) return;
+        if (kind === type) {
+          selectItem(id, target.folderId);
+        } else {
+          window.location.assign(entityLocation(kind, id, target.folderId));
+        }
+      },
+      (caught) => {
+        if (generation === navigationGenerationRef.current) {
+          setError(getErrorMessage(caught));
+        }
+      },
+    );
+  }, [beginNavigation, items, selectItem, type]);
 
   async function handleCreateFolder(name: string, parentId: number | null) {
+    beginNavigation();
     const created = await createFolder({ type, parentId, name });
     await loadIndex();
+    selectionGenerationRef.current += 1;
     setSelectedFolderId(created.id);
     setSelectedItemId(null);
+    setDetail(null);
+    setBacklinks(emptyBacklinks());
     replaceLocation(created.id, null);
   }
 
@@ -160,37 +269,133 @@ export function ArchiveWorkspace({
   }
 
   async function handleDeleteFolder(id: number) {
+    beginNavigation();
     await deleteFolder(id);
+    selectionGenerationRef.current += 1;
     setSelectedFolderId(null);
     setSelectedItemId(null);
     setDetail(null);
+    setBacklinks(emptyBacklinks());
     await loadIndex();
     replaceLocation(null, null);
   }
 
   async function handleSaved(saved: ArchiveDetail) {
+    beginNavigation();
+    selectionGenerationRef.current += 1;
     setDetail(saved);
+    setBacklinks(emptyBacklinks());
     setSelectedItemId(saved.id);
     setSelectedFolderId(saved.folderId);
     setMode("view");
     setCreateParentId(null);
-    await loadIndex();
+    setDetailRequestVersion((version) => version + 1);
     replaceLocation(saved.folderId, saved.id);
+    try {
+      await loadIndex();
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+    }
   }
 
   async function handleDeleted() {
+    beginNavigation();
+    selectionGenerationRef.current += 1;
     setSelectedItemId(null);
     setDetail(null);
+    setBacklinks(emptyBacklinks());
     setMode("view");
     setCreateParentId(null);
     await loadIndex();
     replaceLocation(selectedFolderId, null);
   }
 
+  async function createKnowledgeNote(title: string, folderId: number) {
+    if (wikilinkCreatePendingRef.current) return;
+    const requestGeneration = wikilinkCreateGenerationRef.current + 1;
+    wikilinkCreateGenerationRef.current = requestGeneration;
+    const startingNavigationGeneration = navigationGenerationRef.current;
+    wikilinkCreatePendingRef.current = true;
+    try {
+      const saved = await createKnowledge({
+        folderId,
+        parentId: null,
+        title,
+        contentMd: "",
+        tags: [],
+        exerciseIds: [],
+      });
+      if (
+        requestGeneration !== wikilinkCreateGenerationRef.current ||
+        startingNavigationGeneration !== navigationGenerationRef.current
+      ) {
+        return;
+      }
+      if (type === "knowledge") {
+        await handleSaved(saved);
+      } else {
+        beginNavigation();
+        window.location.assign(entityLocation("knowledge", saved.id, saved.folderId));
+      }
+    } catch (caught) {
+      if (
+        requestGeneration !== wikilinkCreateGenerationRef.current ||
+        startingNavigationGeneration !== navigationGenerationRef.current
+      ) {
+        return;
+      }
+      throw caught;
+    } finally {
+      wikilinkCreatePendingRef.current = false;
+    }
+  }
+
+  async function createKnowledgeFromKnowledgeWikilink(title: string, folderId: number) {
+    setError("");
+    try {
+      await createKnowledgeNote(title, folderId);
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+    }
+  }
+
+  function requestKnowledgeCreation(title: string) {
+    if (wikilinkCreatePendingRef.current) return;
+    const requestGeneration = folderRequestGenerationRef.current + 1;
+    folderRequestGenerationRef.current = requestGeneration;
+    setWikilinkCreation({ title });
+    setKnowledgeFolders([]);
+    setKnowledgeFoldersError("");
+    setKnowledgeFoldersLoading(true);
+    void listFolders("knowledge").then(
+      (nextFolders) => {
+        if (requestGeneration !== folderRequestGenerationRef.current) return;
+        setKnowledgeFolders(nextFolders);
+        setKnowledgeFoldersLoading(false);
+      },
+      (caught) => {
+        if (requestGeneration !== folderRequestGenerationRef.current) return;
+        setKnowledgeFoldersError(getErrorMessage(caught));
+        setKnowledgeFoldersLoading(false);
+      },
+    );
+  }
+
+  function cancelKnowledgeCreation() {
+    beginNavigation();
+    folderRequestGenerationRef.current += 1;
+    setWikilinkCreation(null);
+    setKnowledgeFolders([]);
+    setKnowledgeFoldersError("");
+    setKnowledgeFoldersLoading(false);
+  }
+
   const effectiveFolderId = detail?.folderId ?? selectedFolderId;
   const detailLoading = selectedItemId !== null && detail?.id !== selectedItemId && !error;
 
   function beginCreate(parentId: number | null) {
+    beginNavigation();
+    selectionGenerationRef.current += 1;
     if (type === "knowledge" && parentId !== null) {
       const parent = (items as KnowledgeSummaryDto[]).find((item) => item.id === parentId);
       if (parent) {
@@ -201,76 +406,234 @@ export function ArchiveWorkspace({
     setCreateParentId(type === "knowledge" ? parentId : null);
     setSelectedItemId(null);
     setDetail(null);
+    setBacklinks(emptyBacklinks());
     setMode("create");
   }
 
-  return (
-    <div className="archive-workspace">
-      <FolderPanel
-        type={type}
-        folders={folders}
-        selectedId={selectedFolderId}
-        busy={indexLoading}
-        onSelect={selectFolder}
-        onCreate={handleCreateFolder}
-        onRename={handleRenameFolder}
-        onMove={handleMoveFolder}
-        onDelete={handleDeleteFolder}
-      />
-      <ItemList
-        type={type}
-        items={visibleItems}
-        selectedId={selectedItemId}
-        selectedFolderId={selectedFolderId}
-        loading={indexLoading}
-        onSelect={selectItem}
-        onCreate={beginCreate}
-      />
+  function beginEdit() {
+    beginNavigation();
+    setMode("edit");
+  }
 
-      {error ? (
-        <section className="detail-panel error-state" role="alert">
-          <span aria-hidden="true">!</span>
-          <h2>Couldn’t Load the Archive</h2>
-          <p>{error}</p>
-          <button
-            type="button"
-            onClick={() => {
-              setError("");
-              setIndexLoading(true);
-              loadIndex()
-                .catch((caught) => setError(getErrorMessage(caught)))
-                .finally(() => setIndexLoading(false));
-            }}
-          >
-            Retry
-          </button>
-        </section>
-      ) : type === "knowledge" ? (
-        <KnowledgeDetail
-          detail={detail as KnowledgeDetailDto | null}
-          mode={mode}
-          folderId={effectiveFolderId}
-          pages={items as KnowledgeSummaryDto[]}
-          createParentId={createParentId}
-          loading={detailLoading}
-          onEdit={() => setMode("edit")}
-          onCreateChild={() => beginCreate(detail?.id ?? null)}
-          onCancel={() => setMode("view")}
-          onSaved={handleSaved}
-          onDeleted={handleDeleted}
+  function cancelEditing() {
+    beginNavigation();
+    setMode("view");
+  }
+
+  return (
+    <>
+      <div className="archive-workspace">
+        <FolderPanel
+          type={type}
+          folders={folders}
+          selectedId={selectedFolderId}
+          busy={indexLoading}
+          onSelect={selectFolder}
+          onCreate={handleCreateFolder}
+          onRename={handleRenameFolder}
+          onMove={handleMoveFolder}
+          onDelete={handleDeleteFolder}
         />
-      ) : (
-        <ExerciseDetail
-          detail={detail as ExerciseDetailDto | null}
-          mode={mode}
-          folderId={effectiveFolderId}
-          loading={detailLoading}
-          onEdit={() => setMode("edit")}
-          onCancel={() => setMode("view")}
-          onSaved={handleSaved}
-          onDeleted={handleDeleted}
+        <ItemList
+          type={type}
+          items={visibleItems}
+          selectedId={selectedItemId}
+          selectedFolderId={selectedFolderId}
+          loading={indexLoading}
+          onSelect={selectItem}
+          onCreate={beginCreate}
+        />
+
+        {error ? (
+          <section className="detail-panel error-state" role="alert">
+            <span aria-hidden="true">!</span>
+            <h2>Couldn’t Load the Archive</h2>
+            <p>{error}</p>
+            <button
+              type="button"
+              onClick={() => {
+                setError("");
+                setIndexLoading(true);
+                loadIndex()
+                  .catch((caught) => setError(getErrorMessage(caught)))
+                  .finally(() => setIndexLoading(false));
+              }}
+            >
+              Retry
+            </button>
+          </section>
+        ) : type === "knowledge" ? (
+          <KnowledgeDetail
+            detail={detail as KnowledgeDetailDto | null}
+            mode={mode}
+            folderId={effectiveFolderId}
+            pages={items as KnowledgeSummaryDto[]}
+            createParentId={createParentId}
+            backlinks={backlinks}
+            loading={detailLoading}
+            onEdit={beginEdit}
+            onCreateChild={() => beginCreate(detail?.id ?? null)}
+            onCancel={cancelEditing}
+            onSaved={handleSaved}
+            onDeleted={handleDeleted}
+            onNavigateEntity={navigateEntity}
+            onCreateWikilink={createKnowledgeFromKnowledgeWikilink}
+          />
+        ) : (
+          <ExerciseDetail
+            detail={detail as ExerciseDetailDto | null}
+            mode={mode}
+            folderId={effectiveFolderId}
+            backlinks={backlinks}
+            loading={detailLoading}
+            onEdit={beginEdit}
+            onCancel={cancelEditing}
+            onSaved={handleSaved}
+            onDeleted={handleDeleted}
+            onNavigateEntity={navigateEntity}
+            onCreateKnowledgeWikilink={requestKnowledgeCreation}
+          />
+        )}
+      </div>
+
+      {wikilinkCreation === null ? null : (
+        <KnowledgeFolderDialog
+          request={wikilinkCreation}
+          folders={knowledgeFolders}
+          loading={knowledgeFoldersLoading}
+          loadError={knowledgeFoldersError}
+          onCancel={cancelKnowledgeCreation}
+          onCreate={createKnowledgeNote}
         />
       )}
-    </div>
+    </>
   );
+}
+
+interface KnowledgeFolderDialogProps {
+  request: WikilinkCreationRequest;
+  folders: FolderDto[];
+  loading: boolean;
+  loadError: string;
+  onCancel: () => void;
+  onCreate: (title: string, folderId: number) => Promise<void>;
+}
+
+function KnowledgeFolderDialog({
+  request,
+  folders,
+  loading,
+  loadError,
+  onCancel,
+  onCreate,
+}: KnowledgeFolderDialogProps) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [folderId, setFolderId] = useState<number | null>(null);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  const folderOptions = useMemo(() => {
+    const folderMap = new Map(folders.map((folder) => [folder.id, folder]));
+    return folders
+      .map((folder) => ({ id: folder.id, label: folderPath(folder, folderMap) }))
+      .sort((a, b) => a.label.localeCompare(b.label, "en-US"));
+  }, [folders]);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (dialog !== null && !dialog.open) dialog.showModal();
+  }, []);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (pending) return;
+    if (folderId === null) {
+      setError("Choose a Knowledge folder before creating the note.");
+      return;
+    }
+    setPending(true);
+    setError("");
+    try {
+      await onCreate(request.title, folderId);
+      dialogRef.current?.close();
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <dialog
+      ref={dialogRef}
+      className="dialog"
+      onCancel={(event) => {
+        if (pending) event.preventDefault();
+      }}
+      onClose={onCancel}
+    >
+      <form className="dialog-body" onSubmit={submit}>
+        <h2>Create Knowledge Note</h2>
+        <p>
+          Choose where to create “{request.title}”. The new note will open after creation.
+        </p>
+        {loading ? <p className="muted">Loading Knowledge folders…</p> : null}
+        {!loading && !loadError && folderOptions.length === 0 ? (
+          <p className="form-error" role="alert">
+            No Knowledge folder exists. Cancel and create a Knowledge folder first.
+          </p>
+        ) : null}
+        {loadError ? (
+          <p className="form-error" role="alert">{loadError}</p>
+        ) : null}
+        {folderOptions.length > 0 ? (
+          <label className="field">
+            <span>Knowledge folder</span>
+            <select
+              name="knowledgeFolderId"
+              required
+              value={folderId ?? ""}
+              onChange={(event) => setFolderId(event.target.value ? Number(event.target.value) : null)}
+            >
+              <option value="" disabled>Choose a folder</option>
+              {folderOptions.map((folder) => (
+                <option key={folder.id} value={folder.id}>{folder.label}</option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        {error ? <p className="form-error" role="alert">{error}</p> : null}
+        <div className="dialog-actions">
+          <button type="button" disabled={pending} onClick={() => dialogRef.current?.close()}>
+            Cancel
+          </button>
+          <button
+            className="primary-button"
+            type="submit"
+            disabled={pending || loading || Boolean(loadError) || folderOptions.length === 0}
+          >
+            {pending ? "Creating…" : "Create and Open"}
+          </button>
+        </div>
+      </form>
+    </dialog>
+  );
+}
+
+function entityLocation(kind: LinkEntityKind, id: number, folderId: number): string {
+  const path = kind === "knowledge" ? "/knowledge" : "/exercise";
+  return `${path}?folder=${folderId}&item=${id}`;
+}
+
+function folderPath(folder: FolderDto, folders: ReadonlyMap<number, FolderDto>): string {
+  const names = [folder.name];
+  const seen = new Set([folder.id]);
+  let parentId = folder.parentId;
+  while (parentId !== null && !seen.has(parentId)) {
+    const parent = folders.get(parentId);
+    if (!parent) break;
+    names.unshift(parent.name);
+    seen.add(parent.id);
+    parentId = parent.parentId;
+  }
+  return names.join(" / ");
 }

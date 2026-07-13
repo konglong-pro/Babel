@@ -675,6 +675,33 @@ a {
   padding: 0.35rem 0;
 }
 
+.markdown-body .wikilink {
+  border-radius: 3px;
+  cursor: pointer;
+  padding: 0 0.08em;
+  text-decoration: none;
+}
+
+.markdown-body .wikilink-resolved {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  box-shadow: inset 0 -1px var(--accent-border);
+}
+
+.markdown-body .wikilink-unresolved {
+  border-bottom: 1px dashed var(--muted);
+  color: var(--muted);
+}
+
+.markdown-body .wikilink:hover {
+  background: var(--accent-soft-strong);
+  color: var(--accent-dark);
+}
+
+.markdown-body .wikilink[aria-disabled="true"] {
+  cursor: default;
+}
+
 .related-section {
   border-top: 1px solid var(--line);
   margin-top: 1.75rem;
@@ -864,6 +891,100 @@ a {
   min-width: 0;
   overflow: auto;
   padding: 0.82rem 1rem;
+}
+
+.wikilink-autocomplete {
+  display: grid;
+  gap: 0.2rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--panel-strong);
+  box-shadow: var(--shadow);
+  padding: 0.28rem;
+}
+
+.wikilink-autocomplete-option {
+  display: flex;
+  width: 100%;
+  min-height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  border-color: transparent;
+  background: transparent;
+  padding: 0.42rem 0.55rem;
+  text-align: left;
+}
+
+.wikilink-autocomplete-option[aria-selected="true"] {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+
+.wikilink-autocomplete-kind,
+.wikilink-autocomplete-status {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.wikilink-autocomplete-status {
+  padding: 0.55rem;
+}
+
+.linked-mentions {
+  max-width: 880px;
+  border-top: 1px solid var(--line);
+  margin-top: 1.75rem;
+  padding-top: 1rem;
+}
+
+.linked-mentions h2,
+.linked-mentions h3 {
+  margin-top: 0;
+}
+
+.linked-mentions h2 {
+  font-size: 1rem;
+}
+
+.linked-mentions h3 {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.linked-mention-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.linked-mentions ul {
+  display: grid;
+  gap: 0.25rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.linked-mentions button {
+  width: 100%;
+  border-color: transparent;
+  background: transparent;
+  color: var(--accent-dark);
+  padding-inline: 0;
+  text-align: left;
+}
+
+.linked-mentions button:hover:not(:disabled) {
+  border-color: transparent;
+  background: transparent;
+  color: var(--accent-hover);
+  text-decoration: underline;
+  text-underline-offset: 0.16em;
 }
 
 .relation-picker {

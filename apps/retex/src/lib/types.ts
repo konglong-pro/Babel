@@ -2,6 +2,33 @@ export const folderTypes = ["knowledge", "exercise"] as const;
 
 export type FolderType = (typeof folderTypes)[number];
 
+export const linkEntityKinds = ["knowledge", "exercise"] as const;
+
+export type LinkEntityKind = (typeof linkEntityKinds)[number];
+
+export interface NoteLinkDto {
+  titleKey: string;
+  targetId: number | null;
+  targetKind: LinkEntityKind | null;
+}
+
+export interface NoteTitleDto {
+  id: number;
+  title: string;
+  kind: LinkEntityKind;
+}
+
+export interface BacklinkDto {
+  id: number;
+  title: string;
+  folderId: number;
+}
+
+export interface BacklinksDto {
+  knowledge: BacklinkDto[];
+  exercises: BacklinkDto[];
+}
+
 export interface FolderDto {
   id: number;
   parentId: number | null;
@@ -29,6 +56,7 @@ export interface KnowledgeDetailDto extends KnowledgeSummaryDto {
   contentMd: string;
   createdAt: string;
   relatedExercises: RelatedItemDto[];
+  links: NoteLinkDto[];
 }
 
 export interface ExerciseSummaryDto {
@@ -45,6 +73,7 @@ export interface ExerciseDetailDto extends ExerciseSummaryDto {
   solutionMd: string;
   createdAt: string;
   relatedKnowledge: RelatedItemDto[];
+  links: NoteLinkDto[];
 }
 
 export interface ScratchSolutionDto {

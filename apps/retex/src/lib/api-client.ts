@@ -1,10 +1,12 @@
 import type {
+  BacklinksDto,
   ExerciseDetailDto,
   ExerciseSummaryDto,
   FolderDto,
   FolderType,
   KnowledgeDetailDto,
   KnowledgeSummaryDto,
+  NoteTitleDto,
   ScratchSolutionDto,
   SearchResultsDto,
 } from "@/lib/types";
@@ -104,6 +106,10 @@ export function getKnowledge(id: number): Promise<KnowledgeDetailDto> {
   return request(`/api/knowledge/${id}`);
 }
 
+export function getKnowledgeBacklinks(id: number): Promise<BacklinksDto> {
+  return request(`/api/knowledge/${id}/backlinks`);
+}
+
 export interface KnowledgeInput {
   folderId: number;
   parentId: number | null;
@@ -135,6 +141,10 @@ export function listExercises(folderId?: number): Promise<ExerciseSummaryDto[]> 
 
 export function getExercise(id: number): Promise<ExerciseDetailDto> {
   return request(`/api/exercises/${id}`);
+}
+
+export function getExerciseBacklinks(id: number): Promise<BacklinksDto> {
+  return request(`/api/exercises/${id}/backlinks`);
 }
 
 export interface ExerciseInput {
@@ -195,4 +205,11 @@ export function deleteScratch(exerciseId: number): Promise<void> {
 
 export function searchArchive(query: string): Promise<SearchResultsDto> {
   return request(`/api/search?q=${encodeURIComponent(query)}`);
+}
+
+export function listNoteTitles(
+  query: string,
+  signal?: AbortSignal,
+): Promise<NoteTitleDto[]> {
+  return request(`/api/titles?q=${encodeURIComponent(query)}`, { signal });
 }

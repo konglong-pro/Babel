@@ -1,8 +1,22 @@
 "use client";
 
+import type { Wikilink } from "@babel-apps/markdown/core";
+import {
+  MarkdownRenderer,
+  type ResolvedWikilink,
+} from "@babel-apps/markdown/react";
 import Link from "next/link";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
+import { LinkedMentions } from "@/components/linked-mentions";
+import { MarkdownEditor } from "@/components/markdown-editor";
+import {
+  ConfirmButton,
+  formatDate,
+  parseTags,
+  RelationPicker,
+  Tags,
+} from "@/components/shared";
 import {
   createExercise,
   deleteExercise,
@@ -11,37 +25,69 @@ import {
   updateExercise,
   uploadExerciseImage,
 } from "@/lib/api-client";
-import { imageUrl, type ExerciseDetailDto, type KnowledgeSummaryDto } from "@/lib/types";
-import { MarkdownEditor, MarkdownRenderer } from "@/components/markdown";
-import {
-  ConfirmButton,
-  formatDate,
-  parseTags,
-  RelationPicker,
-  Tags,
-} from "@/components/shared";
+import type {
+  BacklinksDto,
+  ExerciseDetailDto,
+  KnowledgeSummaryDto,
+  LinkEntityKind,
+} from "@/lib/types";
+import { imageUrl } from "@/lib/types";
 
 interface ExerciseDetailProps {
   detail: ExerciseDetailDto | null;
   mode: "view" | "edit" | "create";
   folderId: number | null;
+  backlinks: BacklinksDto;
   loading?: boolean;
   onEdit: () => void;
   onCancel: () => void;
   onSaved: (detail: ExerciseDetailDto) => void;
   onDeleted: () => void;
+  onNavigateEntity: (
+    kind: LinkEntityKind,
+    id: number,
+    folderId?: number,
+  ) => void;
+  onCreateKnowledgeWikilink: (title: string) => void;
 }
 
 export function ExerciseDetail({
   detail,
   mode,
   folderId,
+  backlinks,
   loading,
   onEdit,
   onCancel,
   onSaved,
   onDeleted,
+  onNavigateEntity,
+  onCreateKnowledgeWikilink,
 }: ExerciseDetailProps) {
+  const wikilinkTargets = useMemo(() => {
+    const targets = new Map<string, ResolvedWikilink>();
+    for (const link of detail?.links ?? []) {
+      if (link.targetId === null || link.targetKind === null) continue;
+      targets.set(link.titleKey, { id: link.targetId, kind: link.targetKind });
+    }
+    return targets;
+  }, [detail?.links]);
+  const resolveWikilink = useCallback(
+    (titleKey: string): ResolvedWikilink | null => wikilinkTargets.get(titleKey) ?? null,
+    [wikilinkTargets],
+  );
+  const navigateWikilink = useCallback(
+    (target: ResolvedWikilink) => {
+      if (!isLinkEntityKind(target.kind)) return;
+      onNavigateEntity(target.kind, target.id);
+    },
+    [onNavigateEntity],
+  );
+  const createFromWikilink = useCallback((wikilink: Wikilink) => {
+    const title = normalizedWikilinkTitle(wikilink);
+    if (title) onCreateKnowledgeWikilink(title);
+  }, [onCreateKnowledgeWikilink]);
+
   if (loading) {
     return <section className="detail-panel panel-status">Loading exercise…</section>;
   }
@@ -49,10 +95,14 @@ export function ExerciseDetail({
   if (mode === "create" || mode === "edit") {
     return (
       <ExerciseForm
+        key={mode === "edit" ? `edit:${detail?.id ?? "none"}` : `new:${folderId ?? "none"}`}
         detail={mode === "edit" ? detail : null}
         folderId={folderId}
         onCancel={onCancel}
         onSaved={onSaved}
+        resolveWikilink={resolveWikilink}
+        onNavigateWikilink={navigateWikilink}
+        onCreateKnowledgeWikilink={onCreateKnowledgeWikilink}
       />
     );
   }
@@ -116,11 +166,27 @@ export function ExerciseDetail({
       <div className="exercise-sections">
         <details>
           <summary>Archived Answer</summary>
-          <MarkdownRenderer content={detail.answerMd} emptyText="No archived answer yet." />
+          <MarkdownRenderer
+            content={detail.answerMd}
+            emptyText="No archived answer yet."
+            remarkFeatures={["math"]}
+            defaultWikilinkKind="knowledge"
+            resolveWikilink={resolveWikilink}
+            onNavigateWikilink={navigateWikilink}
+            onCreateFromWikilink={createFromWikilink}
+          />
         </details>
         <details>
           <summary>Archived Solution</summary>
-          <MarkdownRenderer content={detail.solutionMd} emptyText="No archived solution yet." />
+          <MarkdownRenderer
+            content={detail.solutionMd}
+            emptyText="No archived solution yet."
+            remarkFeatures={["math"]}
+            defaultWikilinkKind="knowledge"
+            resolveWikilink={resolveWikilink}
+            onNavigateWikilink={navigateWikilink}
+            onCreateFromWikilink={createFromWikilink}
+          />
         </details>
       </div>
 
@@ -146,6 +212,8 @@ export function ExerciseDetail({
           </ul>
         )}
       </section>
+
+      <LinkedMentions backlinks={backlinks} onNavigate={onNavigateEntity} />
     </article>
   );
 }
@@ -155,9 +223,20 @@ interface ExerciseFormProps {
   folderId: number | null;
   onCancel: () => void;
   onSaved: (detail: ExerciseDetailDto) => void;
+  resolveWikilink: (titleKey: string) => ResolvedWikilink | null;
+  onNavigateWikilink: (target: ResolvedWikilink) => void;
+  onCreateKnowledgeWikilink: (title: string) => void;
 }
 
-function ExerciseForm({ detail, folderId, onCancel, onSaved }: ExerciseFormProps) {
+function ExerciseForm({
+  detail,
+  folderId,
+  onCancel,
+  onSaved,
+  resolveWikilink,
+  onNavigateWikilink,
+  onCreateKnowledgeWikilink,
+}: ExerciseFormProps) {
   const [title, setTitle] = useState(detail?.title ?? "");
   const [tags, setTags] = useState(detail?.tags.join(", ") ?? "");
   const [answer, setAnswer] = useState(detail?.answerMd ?? "");
@@ -190,6 +269,7 @@ function ExerciseForm({ detail, folderId, onCancel, onSaved }: ExerciseFormProps
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (pending) return;
     if (folderId === null) {
       setError("Select a folder first.");
       return;
@@ -225,6 +305,20 @@ function ExerciseForm({ detail, folderId, onCancel, onSaved }: ExerciseFormProps
     } finally {
       setPending(false);
     }
+  }
+
+  function createFromWikilink(wikilink: Wikilink) {
+    const targetTitle = normalizedWikilinkTitle(wikilink);
+    if (!targetTitle) return;
+    if (!window.confirm(
+      `Discard unsaved changes and choose a Knowledge folder for “${targetTitle}”?`,
+    )) return;
+    onCreateKnowledgeWikilink(targetTitle);
+  }
+
+  function navigateFromPreview(target: ResolvedWikilink) {
+    if (!window.confirm("Discard unsaved changes and open this linked note?")) return;
+    onNavigateWikilink(target);
   }
 
   return (
@@ -304,6 +398,11 @@ function ExerciseForm({ detail, folderId, onCancel, onSaved }: ExerciseFormProps
           value={answer}
           onChange={setAnswer}
           placeholder="Record the final answer from your first archive pass…"
+          hint="Use $…$ for math and [[title]] to link another note."
+          enableWikilinkAutocomplete
+          resolveWikilink={resolveWikilink}
+          onNavigateWikilink={navigateFromPreview}
+          onCreateFromWikilink={createFromWikilink}
         />
         <MarkdownEditor
           label="Your Solution"
@@ -311,6 +410,11 @@ function ExerciseForm({ detail, folderId, onCancel, onSaved }: ExerciseFormProps
           value={solution}
           onChange={setSolution}
           placeholder="Record the key insight, full derivation, and reminders for your future self…"
+          hint="Use $…$ for math and [[title]] to link another note."
+          enableWikilinkAutocomplete
+          resolveWikilink={resolveWikilink}
+          onNavigateWikilink={navigateFromPreview}
+          onCreateFromWikilink={createFromWikilink}
         />
 
         <RelationPicker
@@ -323,4 +427,12 @@ function ExerciseForm({ detail, folderId, onCancel, onSaved }: ExerciseFormProps
       </form>
     </section>
   );
+}
+
+function normalizedWikilinkTitle(wikilink: Wikilink): string {
+  return wikilink.titleRaw.trim().replace(/\s+/gu, " ");
+}
+
+function isLinkEntityKind(value: string | undefined): value is LinkEntityKind {
+  return value === "knowledge" || value === "exercise";
 }

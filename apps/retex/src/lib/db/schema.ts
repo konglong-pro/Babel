@@ -10,7 +10,7 @@ import {
   type AnySQLiteColumn,
 } from "drizzle-orm/sqlite-core";
 
-import { folderTypes } from "@/lib/types";
+import { folderTypes, linkEntityKinds } from "@/lib/types";
 
 const timestamps = {
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -108,5 +108,50 @@ export const knowledgeExercises = sqliteTable(
   (table) => [
     primaryKey({ columns: [table.knowledgeId, table.exerciseId] }),
     index("knowledge_exercise_exercise_idx").on(table.exerciseId),
+  ],
+);
+
+export const noteLinks = sqliteTable(
+  "note_link",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    sourceKind: text("source_kind", { enum: linkEntityKinds }).notNull(),
+    sourceId: integer("source_id").notNull(),
+    targetTitleKey: text("target_title_key").notNull(),
+    targetKind: text("target_kind", { enum: linkEntityKinds }),
+    targetId: integer("target_id"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+  },
+  (table) => [
+    uniqueIndex("note_link_source_title_unique").on(
+      table.sourceKind,
+      table.sourceId,
+      table.targetTitleKey,
+    ),
+    index("note_link_target_idx").on(table.targetKind, table.targetId),
+    index("note_link_title_key_idx").on(table.targetTitleKey),
+    check(
+      "note_link_source_kind_check",
+      sql`${table.sourceKind} in ('knowledge', 'exercise')`,
+    ),
+    check(
+      "note_link_target_kind_check",
+      sql`${table.targetKind} is null or ${table.targetKind} in ('knowledge', 'exercise')`,
+    ),
+    check(
+      "note_link_target_pair_check",
+      sql`(${table.targetKind} is null and ${table.targetId} is null) or (${table.targetKind} is not null and ${table.targetId} is not null)`,
+    ),
+    check("note_link_source_id_check", sql`${table.sourceId} > 0`),
+    check(
+      "note_link_target_id_check",
+      sql`${table.targetId} is null or ${table.targetId} > 0`,
+    ),
+    check(
+      "note_link_title_key_not_blank",
+      sql`length(${table.targetTitleKey}) > 0`,
+    ),
   ],
 );
