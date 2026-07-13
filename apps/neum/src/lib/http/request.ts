@@ -1,4 +1,8 @@
-import { hasOwn, type JsonObject } from "@babel-apps/platform/http/request";
+import {
+  hasOwn,
+  normalizeLoopbackOrigin,
+  type JsonObject,
+} from "@babel-apps/platform/http/request";
 
 import { ApiError } from "@/lib/http/errors";
 import { assertUploadToken, type EntryImageUpload } from "@/lib/storage";
@@ -21,24 +25,14 @@ export interface EntryMultipartRequest {
 }
 
 export function assertSameOrigin(request: Request): void {
-  let requestUrl: URL;
-  try {
-    requestUrl = new URL(request.url);
-  } catch {
-    throw forbiddenOrigin();
-  }
-
-  if (!["localhost", "127.0.0.1", "[::1]", "::1"].includes(requestUrl.hostname)) {
-    throw forbiddenOrigin();
-  }
+  const requestOrigin = normalizeLoopbackOrigin(request.url);
+  if (requestOrigin === undefined) throw forbiddenOrigin();
 
   const origin = request.headers.get("origin");
   if (origin === null) return;
 
-  try {
-    if (new URL(origin).origin !== requestUrl.origin) throw forbiddenOrigin();
-  } catch (error) {
-    if (error instanceof ApiError) throw error;
+  const suppliedOrigin = normalizeLoopbackOrigin(origin);
+  if (suppliedOrigin === undefined || suppliedOrigin !== requestOrigin) {
     throw forbiddenOrigin();
   }
 }

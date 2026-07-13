@@ -9,6 +9,12 @@ import BetterSqlite3 from "better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 
 import { assertCurrentNeumSchema } from "@/lib/db/readiness";
+import {
+  NEUM_SNAPSHOT_APP_ID,
+  NEUM_SNAPSHOT_SCHEMA_VERSION,
+  readNeumDatabaseSnapshot,
+  validateSnapshotManifest,
+} from "@/lib/exchange";
 import type * as DatabaseModule from "@/lib/db/client";
 import type * as RepositoryModule from "@/lib/repositories";
 import type * as StorageModule from "@/lib/storage";
@@ -196,6 +202,139 @@ test("Neum core persistence", async (t) => {
     assert.equal(
       repository.listTags().filter(({ name }) => name === "Älgorithms").length,
       1,
+    );
+  });
+
+  await t.test("entries form guarded page trees and move as a branch", () => {
+    const source = repository.createFolder({ name: "Page tree source" });
+    const target = repository.createFolder({ name: "Page tree target" });
+    const root = repository.createEntry({
+      folderId: source.id,
+      kind: "knowledge",
+      title: "Root page",
+    });
+    const child = repository.createEntry({
+      folderId: source.id,
+      parentId: root.id,
+      kind: "snippet",
+      title: "Child page",
+      code: "const child = true;",
+      language: "typescript",
+    });
+    const grandchild = repository.createEntry({
+      folderId: source.id,
+      parentId: child.id,
+      kind: "knowledge",
+      title: "Grandchild page",
+    });
+
+    assert.equal(repository.getEntry(child.id)?.parentId, root.id);
+    assert.equal(repository.getEntry(grandchild.id)?.parentId, child.id);
+    assert.throws(
+      () =>
+        repository.createEntry({
+          folderId: target.id,
+          parentId: root.id,
+          kind: "knowledge",
+          title: "Cross-folder child",
+        }),
+      repositoryConflict("CONFLICT"),
+    );
+    assert.throws(
+      () =>
+        repository.updateEntry(root.id, {
+          expectedVersion: root.version,
+          parentId: grandchild.id,
+        }),
+      repositoryConflict("CONFLICT"),
+    );
+    assert.throws(
+      () => repository.moveEntryToTrash(root.id, root.version),
+      repositoryConflict("NOT_EMPTY"),
+    );
+
+    const moved = repository.updateEntry(root.id, {
+      expectedVersion: root.version,
+      folderId: target.id,
+    }).entry;
+    assert.equal(moved.folderId, target.id);
+    assert.equal(moved.parentId, null);
+    assert.equal(repository.getEntry(child.id)?.folderId, target.id);
+    assert.equal(repository.getEntry(grandchild.id)?.folderId, target.id);
+    const completeTree = repository.listEntries({
+      folderId: target.id,
+      completeTree: true,
+      limit: 1,
+    });
+    assert.equal(completeTree.items.length, completeTree.total);
+    assert.ok(completeTree.items.length >= 3);
+
+    const movedGrandchild = repository.getEntry(grandchild.id)!;
+    const trashed = repository.moveEntryToTrash(
+      grandchild.id,
+      movedGrandchild.version,
+    );
+    assert.ok(trashed);
+    assert.equal(trashed.parentId, child.id);
+    const restored = repository.restoreTrashEntry(trashed.trashId);
+    assert.equal(restored.parentId, child.id);
+    const detached = repository.updateEntry(restored.id, {
+      expectedVersion: restored.version,
+      parentId: null,
+    }).entry;
+    assert.equal(detached.parentId, null);
+  });
+
+  await t.test("trashed subpages follow parent folder moves and protect trash parents", () => {
+    const source = repository.createFolder({ name: "Trash page source" });
+    const target = repository.createFolder({ name: "Trash page target" });
+    const root = repository.createEntry({
+      folderId: source.id,
+      kind: "knowledge",
+      title: "Trash-linked root",
+    });
+    const child = repository.createEntry({
+      folderId: source.id,
+      parentId: root.id,
+      kind: "knowledge",
+      title: "Trash-linked child",
+    });
+
+    const firstTrash = repository.moveEntryToTrash(child.id, child.version);
+    assert.ok(firstTrash);
+    const movedRoot = repository.updateEntry(root.id, {
+      expectedVersion: root.version,
+      folderId: target.id,
+    }).entry;
+    const movedTrash = repository.getTrashEntry(firstTrash.trashId);
+    assert.ok(movedTrash);
+    assert.equal(movedTrash.folderId, target.id);
+    assert.equal(movedTrash.parentId, root.id);
+
+    const restoredChild = repository.restoreTrashEntry(firstTrash.trashId);
+    assert.equal(restoredChild.folderId, target.id);
+    assert.equal(restoredChild.parentId, root.id);
+    const childTrash = repository.moveEntryToTrash(
+      restoredChild.id,
+      restoredChild.version,
+    );
+    assert.ok(childTrash);
+    const parentTrash = repository.moveEntryToTrash(root.id, movedRoot.version);
+    assert.ok(parentTrash);
+    assert.throws(
+      () => repository.purgeTrashEntry(parentTrash.trashId),
+      repositoryConflict("NOT_EMPTY"),
+    );
+
+    const snapshot = readNeumDatabaseSnapshot(database.sqlite);
+    assert.doesNotThrow(() =>
+      validateSnapshotManifest({
+        appId: NEUM_SNAPSHOT_APP_ID,
+        schemaVersion: NEUM_SNAPSHOT_SCHEMA_VERSION,
+        exportedAt: "2026-07-13T00:00:00.000Z",
+        ...snapshot,
+        images: [],
+      }),
     );
   });
 

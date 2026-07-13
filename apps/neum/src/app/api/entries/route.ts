@@ -5,6 +5,7 @@ import { parseEntryQuery } from "@/lib/http/entry-query";
 import {
   assertOnlyFields,
   assertSameOrigin,
+  optionalNullablePositiveInteger,
   optionalNullableString,
   optionalString,
   optionalStringArray,
@@ -34,6 +35,7 @@ export function POST(request: Request): Promise<Response> {
     const { payload, uploads } = await readEntryMultipart(request);
     assertOnlyFields(payload, [
       "folderId",
+      "parentId",
       "kind",
       "title",
       "notesMd",
@@ -50,6 +52,7 @@ export function POST(request: Request): Promise<Response> {
       const entry = createEntry(
         {
           folderId: requiredPositiveInteger(payload, "folderId"),
+          parentId: optionalNullablePositiveInteger(payload, "parentId"),
           kind: requiredEntryKind(payload),
           title: requiredString(payload, "title"),
           notesMd: staged.notesMd,

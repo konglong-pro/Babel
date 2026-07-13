@@ -40,6 +40,10 @@ export const knowledgeNotes = sqliteTable(
   "knowledge_note",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
+    parentId: integer("parent_id").references(
+      (): AnySQLiteColumn => knowledgeNotes.id,
+      { onDelete: "restrict" },
+    ),
     folderId: integer("folder_id")
       .notNull()
       .references(() => folders.id, { onDelete: "restrict" }),
@@ -50,6 +54,7 @@ export const knowledgeNotes = sqliteTable(
   },
   (table) => [
     index("knowledge_folder_idx").on(table.folderId),
+    index("knowledge_parent_idx").on(table.parentId),
     index("knowledge_title_idx").on(table.title),
     check("knowledge_title_not_blank", sql`length(trim(${table.title})) > 0`),
   ],

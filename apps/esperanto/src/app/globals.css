@@ -321,6 +321,7 @@ a {
 }
 
 .folder-tree ul,
+.note-tree ul,
 .note-list,
 .tag-list,
 .search-result-list {
@@ -329,13 +330,15 @@ a {
   padding: 0;
 }
 
-.folder-tree ul ul {
+.folder-tree ul ul,
+.note-tree ul ul {
   margin-left: 0.66rem;
   border-left: 1px solid #cfc3b1;
   padding-left: 0.38rem;
 }
 
-.folder-node-row {
+.folder-node-row,
+.note-node-row {
   display: flex;
   min-width: 0;
   align-items: stretch;
@@ -347,14 +350,22 @@ a {
   flex: 1;
 }
 
+.note-node-row .note-card {
+  width: auto;
+  min-width: 0;
+  flex: 1;
+}
+
 .folder-disclosure,
+.note-disclosure,
 .folder-disclosure-spacer {
   width: 1.45rem;
   min-height: 0;
   flex: 0 0 1.45rem;
 }
 
-.folder-disclosure {
+.folder-disclosure,
+.note-disclosure {
   display: grid;
   border: 0;
   border-radius: 3px;
@@ -364,7 +375,8 @@ a {
   place-items: center;
 }
 
-.folder-disclosure::before {
+.folder-disclosure::before,
+.note-disclosure::before {
   width: 0.4rem;
   height: 0.4rem;
   border-right: 1.5px solid currentColor;
@@ -374,16 +386,19 @@ a {
   transition: transform 140ms ease;
 }
 
-.folder-disclosure[aria-expanded="true"]::before {
+.folder-disclosure[aria-expanded="true"]::before,
+.note-disclosure[aria-expanded="true"]::before {
   transform: rotate(45deg);
 }
 
-.folder-disclosure:focus-visible {
+.folder-disclosure:focus-visible,
+.note-disclosure:focus-visible {
   background: rgb(23 63 98 / 9%);
   color: var(--blue-hover);
 }
 
-.folder-disclosure:hover:not(:disabled) {
+.folder-disclosure:hover:not(:disabled),
+.note-disclosure:hover:not(:disabled) {
   border-color: transparent;
   background: rgb(23 63 98 / 9%);
   color: var(--blue-hover);
@@ -474,6 +489,29 @@ a {
 
 .note-list-heading .primary-button {
   white-space: nowrap;
+}
+
+.note-create-actions {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.note-create-actions button {
+  white-space: nowrap;
+}
+
+.tree-create-action {
+  margin: 0.2rem 0 0.4rem 1.85rem;
+  border-color: transparent;
+  background: transparent;
+  color: var(--blue);
+  padding: 0.28rem 0.45rem;
+  font-size: 0.72rem;
+}
+
+.tree-create-action:hover:not(:disabled) {
+  border-color: transparent;
+  background: rgb(23 63 98 / 7%);
 }
 
 .note-list {

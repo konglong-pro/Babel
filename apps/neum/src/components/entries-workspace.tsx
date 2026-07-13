@@ -78,6 +78,7 @@ export function EntriesWorkspace({
   );
   const [selectedTrash, setSelectedTrash] = useState<TrashEntryDto | null>(null);
   const [detail, setDetail] = useState<EntryDetailDto | null>(null);
+  const [draftParentId, setDraftParentId] = useState<number | null>(null);
   const [mode, setMode] = useState<EntryViewMode>("view");
   const [view, setView] = useState<WorkspaceView>(initialTrash ? "trash" : "library");
   const [stage, setStage] = useState<ResponsiveStage>(
@@ -107,6 +108,7 @@ export function EntriesWorkspace({
     const page = await listEntries({
       folderId: folderId ?? undefined,
       includeDescendants: true,
+      completeTree: true,
       limit: PAGE_LIMIT,
     });
     if (requestId !== indexRequestRef.current) return page;
@@ -122,6 +124,7 @@ export function EntriesWorkspace({
       listEntries({
         folderId: folderId ?? undefined,
         includeDescendants: true,
+        completeTree: true,
         limit: PAGE_LIMIT,
       }),
     ]);
@@ -172,6 +175,7 @@ export function EntriesWorkspace({
             listEntries({
               folderId: initialFolderId ?? undefined,
               includeDescendants: true,
+              completeTree: true,
               limit: PAGE_LIMIT,
             }),
           ]);
@@ -250,6 +254,7 @@ export function EntriesWorkspace({
     setSelectedEntryId(null);
     setSelectedTrash(null);
     setDetail(null);
+    setDraftParentId(null);
     setDetailError("");
     setDetailLoading(false);
     setDetailRequestVersion(0);
@@ -370,6 +375,7 @@ export function EntriesWorkspace({
       const page = await listEntries({
         folderId: folderId ?? undefined,
         includeDescendants: true,
+        completeTree: true,
         limit: PAGE_LIMIT,
       });
       if (requestId !== indexRequestRef.current) return;
@@ -440,6 +446,7 @@ export function EntriesWorkspace({
     setSelectedEntryId(null);
     setSelectedTrash(null);
     setDetail(null);
+    setDraftParentId(null);
     setDetailError("");
     setDetailLoading(false);
     setDetailRequestVersion(0);
@@ -453,6 +460,7 @@ export function EntriesWorkspace({
     if (!confirmDiscard()) return;
     setSelectedEntryId(id);
     setDetail(null);
+    setDraftParentId(null);
     setDetailError("");
     setDetailLoading(true);
     setDetailRequestVersion(0);
@@ -468,6 +476,7 @@ export function EntriesWorkspace({
     setSelectedEntryId(null);
     setSelectedTrash(null);
     setDetail(null);
+    setDraftParentId(null);
     setMode("view");
     setStage("entries");
     setIndexLoading(true);
@@ -490,6 +499,7 @@ export function EntriesWorkspace({
     setSelectedEntryId(null);
     setSelectedTrash(null);
     setDetail(null);
+    setDraftParentId(null);
     setMode("view");
     setDetailLoading(false);
     setDetailRequestVersion(0);
@@ -523,6 +533,7 @@ export function EntriesWorkspace({
 
   async function handleSaved(saved: EntryDetailDto) {
     setDetail(saved);
+    setDraftParentId(null);
     setSelectedEntryId(saved.id);
     setSelectedFolderId(saved.folderId);
     setMode("view");
@@ -541,6 +552,7 @@ export function EntriesWorkspace({
   async function handleDeleted() {
     setSelectedEntryId(null);
     setDetail(null);
+    setDraftParentId(null);
     setMode("view");
     setStage("entries");
     setDetailLoading(false);
@@ -566,6 +578,7 @@ export function EntriesWorkspace({
     setSelectedFolderId(restored.folderId);
     setSelectedEntryId(restored.id);
     setDetail(restored);
+    setDraftParentId(null);
     setMode("view");
     setStage("entry");
     replaceLocation({ folderId: restored.folderId, entryId: restored.id });
@@ -594,6 +607,25 @@ export function EntriesWorkspace({
     if (!confirmDiscard()) return;
     setMode("view");
     setStage("entries");
+  }
+
+  function beginCreateEntry(parentId: number | null) {
+    if (!confirmDiscard()) return;
+    const parent = parentId === null
+      ? undefined
+      : entries.find((entry) => entry.id === parentId);
+    const folderId = parent?.folderId ?? selectedFolderId;
+    if (folderId === null || (parentId !== null && !parent)) return;
+    setSelectedFolderId(folderId);
+    setSelectedEntryId(null);
+    setDraftParentId(parentId);
+    setDetail(null);
+    setDetailError("");
+    setDetailLoading(false);
+    setDetailRequestVersion(0);
+    setMode("create");
+    setStage("entry");
+    replaceLocation({ folderId, entryId: null });
   }
 
   return (
@@ -629,17 +661,8 @@ export function EntriesWorkspace({
           loadingMore={entryPageLoading}
           onSelect={selectEntry}
           onLoadMore={loadMoreEntries}
-          onCreate={() => {
-            if (selectedFolderId === null || !confirmDiscard()) return;
-            setSelectedEntryId(null);
-            setDetail(null);
-            setDetailError("");
-            setDetailLoading(false);
-            setDetailRequestVersion(0);
-            setMode("create");
-            setStage("entry");
-            replaceLocation({ folderId: selectedFolderId, entryId: null });
-          }}
+          onCreate={() => beginCreateEntry(null)}
+          onCreateChild={beginCreateEntry}
           onBack={() => setStage("library")}
         />
       ) : (
@@ -685,7 +708,9 @@ export function EntriesWorkspace({
           detail={detail}
           mode={mode}
           folderId={detail?.folderId ?? selectedFolderId}
+          parentId={mode === "create" ? draftParentId : detail?.parentId ?? null}
           folders={folders}
+          entries={entries}
           loading={detailLoading}
           onEdit={() => setMode("edit")}
           onCancel={cancelEditing}

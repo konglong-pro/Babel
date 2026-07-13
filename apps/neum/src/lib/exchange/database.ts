@@ -25,6 +25,7 @@ interface FolderRow {
 
 interface EntryRow {
   id: number;
+  parentId: number | null;
   folderId: number;
   kind: SnapshotEntryKind;
   title: string;
@@ -174,7 +175,7 @@ export function restoreNeumDatabaseSnapshotRows(
   }
 
   const insertEntry = sqlite.prepare(
-    'INSERT INTO "entry" ("id", "folder_id", "kind", "title", "notes_md", "code", "language", "filename", "version", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO "entry" ("id", "parent_id", "folder_id", "kind", "title", "notes_md", "code", "language", "filename", "version", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
   );
   const insertEntryTag = sqlite.prepare(
     'INSERT INTO "entry_tag" ("entry_id", "tag_id") VALUES (?, ?)',
@@ -182,9 +183,10 @@ export function restoreNeumDatabaseSnapshotRows(
   const insertEntryImage = sqlite.prepare(
     'INSERT INTO "entry_image" ("id", "entry_id", "image_path", "created_at") VALUES (?, ?, ?, ?)',
   );
-  for (const item of manifest.entries) {
+  for (const item of entriesInParentFirstOrder(manifest.entries)) {
     insertEntry.run(
       item.id,
+      item.parentId,
       item.folderId,
       item.kind,
       item.title,
@@ -248,7 +250,7 @@ function readRows(sqlite: BetterSqlite3.Database): NeumDatabaseSnapshot {
     .all() as TagRow[];
   const entryRows = sqlite
     .prepare(
-      'SELECT "id", "folder_id" AS "folderId", "kind", "title", "notes_md" AS "notesMd", "code", "language", "filename", "version", "created_at" AS "createdAt", "updated_at" AS "updatedAt" FROM "entry" ORDER BY "id"',
+      'SELECT "id", "parent_id" AS "parentId", "folder_id" AS "folderId", "kind", "title", "notes_md" AS "notesMd", "code", "language", "filename", "version", "created_at" AS "createdAt", "updated_at" AS "updatedAt" FROM "entry" ORDER BY "id"',
     )
     .all() as EntryRow[];
   const entryTagRows = sqlite
@@ -300,7 +302,13 @@ function readRows(sqlite: BetterSqlite3.Database): NeumDatabaseSnapshot {
 
 function parseTrashSnapshot(row: TrashRow): SnapshotTrashPayload {
   try {
-    return JSON.parse(row.snapshotJson) as SnapshotTrashPayload;
+    const parsed = JSON.parse(row.snapshotJson) as {
+      entry?: Partial<SnapshotTrashPayload["entry"]>;
+    } & Record<string, unknown>;
+    if (parsed.entry && parsed.entry.parentId === undefined) {
+      parsed.entry.parentId = null;
+    }
+    return parsed as unknown as SnapshotTrashPayload;
   } catch (error) {
     throw new SnapshotError(
       "INVALID_DATABASE",
@@ -308,6 +316,32 @@ function parseTrashSnapshot(row: TrashRow): SnapshotTrashPayload {
       { cause: error },
     );
   }
+}
+
+function entriesInParentFirstOrder(
+  entries: readonly SnapshotEntry[],
+): SnapshotEntry[] {
+  const pending = new Map(entries.map((item) => [item.id, item]));
+  const inserted = new Set<number>();
+  const ordered: SnapshotEntry[] = [];
+  while (pending.size > 0) {
+    let progressed = false;
+    for (const [id, item] of pending) {
+      if (item.parentId === null || inserted.has(item.parentId)) {
+        ordered.push(item);
+        inserted.add(id);
+        pending.delete(id);
+        progressed = true;
+      }
+    }
+    if (!progressed) {
+      throw new SnapshotError(
+        "INVALID_MANIFEST",
+        "Entry hierarchy cannot be restored in parent-first order.",
+      );
+    }
+  }
+  return ordered;
 }
 
 function foldersInParentFirstOrder(

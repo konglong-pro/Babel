@@ -48,6 +48,90 @@ test("ready messages publish the registered identity URL", () => {
   );
 });
 
+test("the launcher separates internal probes from the public identity URL", () => {
+  const appHealthSource =
+    workerSource.match(/function\s+Test-AppHealth\b([\s\S]*?)function\s+Get-NewestInputTimeUtc\b/i)?.[1] ?? "";
+
+  assert.match(
+    workerSource,
+    /\$internalBaseUrl\s*=\s*"http:\/\/127\.0\.0\.1:\$port"/i,
+    "the launcher must define its internal base URL on explicit IPv4 loopback",
+  );
+  assert.match(
+    workerSource,
+    /\$publicBaseUrl\s*=\s*"http:\/\/localhost:\$port"/i,
+    "the launcher must publish a localhost base URL for browser use",
+  );
+  assert.match(
+    workerSource,
+    /\bHealthUrl\s*=\s*\$internalBaseUrl\s*\+\s*\$healthPath/i,
+    "health checks must use the internal loopback URL",
+  );
+  assert.match(
+    workerSource,
+    /\bIdentityHealthUrl\s*=\s*\$internalBaseUrl\s*\+\s*\$identityPath/i,
+    "identity readiness checks must use the internal loopback URL",
+  );
+  assert.match(
+    workerSource,
+    /\bIdentityUrl\s*=\s*\$publicBaseUrl\s*\+\s*\$identityPath/i,
+    "the identity URL shown to users must use localhost",
+  );
+  assert.match(
+    appHealthSource,
+    /-Uri\s+\$App\.IdentityHealthUrl\b/i,
+    "Test-AppHealth must request the internal identity health URL",
+  );
+  assert.doesNotMatch(
+    appHealthSource,
+    /-Uri\s+\$App\.IdentityUrl\b/i,
+    "Test-AppHealth must not request the public identity URL",
+  );
+  assert.match(
+    workerSource,
+    /StartArguments\s*=\s*@\([\s\S]{0,320}"-H"\s*,\s*"127\.0\.0\.1"/i,
+    "Next.js must remain bound to explicit IPv4 loopback",
+  );
+});
+
+test("the launcher checks database migrations after preflight and before starting an app", () => {
+  const startOrReuseSource =
+    workerSource.match(
+      /function\s+Start-OrReuseApp\b([\s\S]*?)function\s+Stop-ProcessTree\b/i,
+    )?.[1] ?? "";
+  const databaseCheckSource =
+    workerSource.match(
+      /function\s+Assert-AppDatabaseReady\b([\s\S]*?)function\s+[A-Za-z]/i,
+    )?.[1] ?? "";
+
+  assert.match(
+    workerSource,
+    /DatabaseCheckArguments\s*=\s*@\("run",\s*"db:check",\s*"-w",\s*\$expectedPackageName\)/i,
+    "registered apps with db:check must expose the workspace check command",
+  );
+  assert.match(
+    startOrReuseSource,
+    /Test-TcpPort[\s\S]*?Wait-ExistingAppReady[\s\S]*?return[\s\S]*?Assert-AppPreflight\s+-App\s+\$App[\s\S]*?Assert-AppDatabaseReady\s+-App\s+\$App[\s\S]*?Ensure-AppBuild/i,
+    "existing apps must use health checks, while new starts validate paths and dependencies before the database gate",
+  );
+  assert.match(
+    databaseCheckSource,
+    /DatabaseCheckArguments/i,
+    "the database gate must invoke only the configured db:check arguments",
+  );
+  assert.doesNotMatch(
+    databaseCheckSource,
+    /&[^\r\n]*db:migrate/i,
+    "the launcher must never invoke a database migration",
+  );
+  assert.match(databaseCheckSource, /Review the diagnostic output above/i);
+  assert.doesNotMatch(
+    databaseCheckSource,
+    /data:backup|db:migrate/i,
+    "only the stale-schema diagnostic may recommend a migration",
+  );
+});
+
 test("the launcher can minimize to the system tray and restore safely", () => {
   const missingContracts: string[] = [];
   if (!/x:Name=["']MinimizeToTrayButton["']/i.test(xamlSource)) {

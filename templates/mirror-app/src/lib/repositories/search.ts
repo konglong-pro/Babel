@@ -26,6 +26,7 @@ export function searchNotes(query: string): SearchResultsDto {
     .map((row) => ({
       id: row.id,
       folderId: row.folderId,
+      parentId: row.parentId,
       title: row.title,
       tags: tagsFromJson(row.tags),
       updatedAt: row.updatedAt,

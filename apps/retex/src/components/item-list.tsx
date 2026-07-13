@@ -1,7 +1,15 @@
 "use client";
 
-import type { ExerciseSummaryDto, FolderType, KnowledgeSummaryDto } from "@/lib/types";
+import { useMemo, useState } from "react";
+
+import {
+  type PageExpansionState,
+  pageSelectionPath,
+  revealPageSelection,
+  togglePageExpansion,
+} from "@/components/page-tree-state";
 import { formatDate, Tags } from "@/components/shared";
+import type { ExerciseSummaryDto, FolderType, KnowledgeSummaryDto } from "@/lib/types";
 
 type ArchiveSummary = KnowledgeSummaryDto | ExerciseSummaryDto;
 
@@ -12,7 +20,95 @@ interface ItemListProps {
   selectedFolderId: number | null;
   loading?: boolean;
   onSelect: (id: number) => void;
-  onCreate: () => void;
+  onCreate: (parentId: number | null) => void;
+}
+
+interface KnowledgeBranchProps {
+  parentId: number | null;
+  grouped: Map<number | null, KnowledgeSummaryDto[]>;
+  selectedId: number | null;
+  expandedIds: ReadonlySet<number>;
+  onSelect: (id: number) => void;
+  onToggle: (id: number) => void;
+  onCreate: (parentId: number) => void;
+}
+
+function KnowledgeBranch({
+  parentId,
+  grouped,
+  selectedId,
+  expandedIds,
+  onSelect,
+  onToggle,
+  onCreate,
+}: KnowledgeBranchProps) {
+  const children = grouped.get(parentId) ?? [];
+  if (children.length === 0) return null;
+
+  return (
+    <ul>
+      {children.map((item) => {
+        const expanded = expandedIds.has(item.id);
+        return (
+          <li key={item.id}>
+            <div className="item-tree-row">
+              <button
+                type="button"
+                className="item-disclosure"
+                aria-expanded={expanded}
+                aria-label={`${expanded ? "Collapse" : "Expand"} ${item.title}`}
+                onClick={() => onToggle(item.id)}
+              />
+              <ItemCard item={item} selected={selectedId === item.id} onSelect={onSelect} />
+            </div>
+            {expanded ? (
+              <div className="item-tree-children">
+                <KnowledgeBranch
+                  parentId={item.id}
+                  grouped={grouped}
+                  selectedId={selectedId}
+                  expandedIds={expandedIds}
+                  onSelect={onSelect}
+                  onToggle={onToggle}
+                  onCreate={onCreate}
+                />
+                <button
+                  type="button"
+                  className="inline-tree-create"
+                  onClick={() => onCreate(item.id)}
+                >
+                  New subnote
+                </button>
+              </div>
+            ) : null}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function ItemCard({
+  item,
+  selected,
+  onSelect,
+}: {
+  item: ArchiveSummary;
+  selected: boolean;
+  onSelect: (id: number) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={selected ? "item-card selected" : "item-card"}
+      aria-current={selected ? "true" : undefined}
+      onClick={() => onSelect(item.id)}
+    >
+      <strong>{item.title}</strong>
+      <Tags tags={item.tags} />
+      <time dateTime={item.updatedAt}>Updated {formatDate(item.updatedAt)}</time>
+    </button>
+  );
 }
 
 export function ItemList({
@@ -25,6 +121,40 @@ export function ItemList({
   onCreate,
 }: ItemListProps) {
   const itemName = type === "knowledge" ? "Knowledge Notes" : "Exercises";
+  const knowledgeItems = useMemo(
+    () => (type === "knowledge" ? (items as KnowledgeSummaryDto[]) : []),
+    [items, type],
+  );
+  const [expansionState, setExpansionState] = useState<PageExpansionState>(() => ({
+    expandedIds: new Set(),
+    revealedPathKey: "",
+  }));
+  const selectedPath = useMemo(
+    () => pageSelectionPath(knowledgeItems, selectedId),
+    [knowledgeItems, selectedId],
+  );
+  const revealedState = revealPageSelection(expansionState, selectedPath);
+  if (revealedState !== expansionState) setExpansionState(revealedState);
+
+  const groupedKnowledge = useMemo(() => {
+    const grouped = new Map<number | null, KnowledgeSummaryDto[]>();
+    for (const item of knowledgeItems) {
+      const siblings = grouped.get(item.parentId) ?? [];
+      siblings.push(item);
+      grouped.set(item.parentId, siblings);
+    }
+    return grouped;
+  }, [knowledgeItems]);
+
+  function toggleKnowledge(id: number) {
+    setExpansionState((current) => {
+      const revealed = revealPageSelection(current, selectedPath);
+      return {
+        ...revealed,
+        expandedIds: togglePageExpansion(revealed.expandedIds, id),
+      };
+    });
+  }
 
   return (
     <aside className="archive-panel item-panel" aria-label={`${itemName} list`}>
@@ -38,7 +168,7 @@ export function ItemList({
           className="primary-button small"
           disabled={selectedFolderId === null}
           title={selectedFolderId === null ? "Select a folder first" : undefined}
-          onClick={onCreate}
+          onClick={() => onCreate(null)}
         >
           New
         </button>
@@ -54,22 +184,28 @@ export function ItemList({
           <p>No {itemName.toLocaleLowerCase()} here yet.</p>
         </div>
       ) : null}
-      <ul className="item-list">
-        {items.map((item) => (
-          <li key={item.id}>
-            <button
-              type="button"
-              className={selectedId === item.id ? "item-card selected" : "item-card"}
-              aria-current={selectedId === item.id ? "true" : undefined}
-              onClick={() => onSelect(item.id)}
-            >
-              <strong>{item.title}</strong>
-              <Tags tags={item.tags} />
-              <time dateTime={item.updatedAt}>Updated {formatDate(item.updatedAt)}</time>
-            </button>
-          </li>
-        ))}
-      </ul>
+
+      {type === "knowledge" ? (
+        <nav className="item-tree" aria-label="Knowledge page tree">
+          <KnowledgeBranch
+            parentId={null}
+            grouped={groupedKnowledge}
+            selectedId={selectedId}
+            expandedIds={revealedState.expandedIds}
+            onSelect={onSelect}
+            onToggle={toggleKnowledge}
+            onCreate={onCreate}
+          />
+        </nav>
+      ) : (
+        <ul className="item-list">
+          {items.map((item) => (
+            <li key={item.id}>
+              <ItemCard item={item} selected={selectedId === item.id} onSelect={onSelect} />
+            </li>
+          ))}
+        </ul>
+      )}
     </aside>
   );
 }

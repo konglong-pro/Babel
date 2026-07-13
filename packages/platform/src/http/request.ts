@@ -2,8 +2,26 @@ import { ApiError } from "./errors";
 
 export type JsonObject = Record<string, unknown>;
 
+const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+
 export function hasOwn(value: JsonObject, key: string): boolean {
   return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+export function normalizeLoopbackOrigin(value: string): string | undefined {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return undefined;
+  }
+
+  if (!LOOPBACK_HOSTNAMES.has(url.hostname.toLowerCase())) {
+    return undefined;
+  }
+
+  url.hostname = "localhost";
+  return url.origin;
 }
 
 export async function readJsonObject(request: Request): Promise<JsonObject> {

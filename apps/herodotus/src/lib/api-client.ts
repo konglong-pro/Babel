@@ -99,6 +99,7 @@ export function getNote(id: number): Promise<NoteDetailDto> {
 
 export interface NoteInput {
   folderId: number;
+  parentId: number | null;
   title: string;
   contentMd: string;
   tags: string[];

@@ -124,7 +124,7 @@ test("__APP_NAME__ backend integration", async (t) => {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Origin: "http://localhost",
+            Origin: "http://127.0.0.1",
           },
           body: JSON.stringify({ name: "Origin checked", parentId: null }),
         }),
@@ -205,6 +205,103 @@ test("__APP_NAME__ backend integration", async (t) => {
         (error: unknown) =>
           error instanceof repositories.RepositoryError && error.code === "NOT_EMPTY",
       );
+    });
+
+    await t.test("notes form a guarded hierarchy and move their descendants together", () => {
+      const vocabulary = repositories.listFolders()[0];
+      const grammar = repositories.listFolders()[1];
+      const parent = repositories.createNote({
+        folderId: vocabulary.id,
+        parentId: null,
+        title: "Parent page",
+      });
+      const child = repositories.createNote({
+        folderId: vocabulary.id,
+        parentId: parent.id,
+        title: "Child page",
+      });
+      const grandchild = repositories.createNote({
+        folderId: vocabulary.id,
+        parentId: child.id,
+        title: "Grandchild page",
+      });
+
+      assert.equal(child.parentId, parent.id);
+      assert.throws(
+        () => repositories.updateNote(parent.id, { parentId: grandchild.id }),
+        (error: unknown) =>
+          error instanceof repositories.RepositoryError && error.code === "CONFLICT",
+      );
+      assert.throws(
+        () => repositories.deleteNote(parent.id),
+        (error: unknown) =>
+          error instanceof repositories.RepositoryError && error.code === "NOT_EMPTY",
+      );
+
+      const moved = repositories.updateNote(parent.id, { folderId: grammar.id }).note;
+      assert.equal(moved.parentId, null);
+      assert.deepEqual(
+        [parent.id, child.id, grandchild.id].map((id) => repositories.getNote(id)?.folderId),
+        [grammar.id, grammar.id, grammar.id],
+      );
+
+      const vocabularyRoot = repositories.createNote({
+        folderId: vocabulary.id,
+        title: "Vocabulary root",
+      });
+      assert.throws(
+        () => repositories.createNote({
+          folderId: grammar.id,
+          parentId: vocabularyRoot.id,
+          title: "Cross-folder child",
+        }),
+        (error: unknown) =>
+          error instanceof repositories.RepositoryError && error.code === "CONFLICT",
+      );
+      const reparented = repositories.updateNote(child.id, {
+        folderId: vocabulary.id,
+        parentId: vocabularyRoot.id,
+      }).note;
+      assert.equal(reparented.parentId, vocabularyRoot.id);
+      assert.equal(repositories.getNote(grandchild.id)?.folderId, vocabulary.id);
+    });
+
+    await t.test("note routes expose parent pages and reject cyclic or non-empty mutations", async () => {
+      const folderId = repositories.listFolders()[0].id;
+      const parentResponse = await noteCollectionRoute.POST(
+        new Request("http://localhost/api/notes", {
+          method: "POST",
+          body: noteForm({ folderId, parentId: null, title: "API parent" }),
+        }),
+      );
+      assert.equal(parentResponse.status, 201);
+      const parent = (await parentResponse.json()) as { id: number; parentId: number | null };
+      assert.equal(parent.parentId, null);
+
+      const childResponse = await noteCollectionRoute.POST(
+        new Request("http://localhost/api/notes", {
+          method: "POST",
+          body: noteForm({ folderId, parentId: parent.id, title: "API child" }),
+        }),
+      );
+      assert.equal(childResponse.status, 201);
+      const child = (await childResponse.json()) as { id: number; parentId: number | null };
+      assert.equal(child.parentId, parent.id);
+
+      const cycle = await noteItemRoute.PATCH(
+        new Request(`http://localhost/api/notes/${parent.id}`, {
+          method: "PATCH",
+          body: noteForm({ parentId: child.id }),
+        }),
+        { params: Promise.resolve({ id: String(parent.id) }) },
+      );
+      assert.equal(cycle.status, 409);
+
+      const nonEmpty = await noteItemRoute.DELETE(
+        new Request(`http://localhost/api/notes/${parent.id}`, { method: "DELETE" }),
+        { params: Promise.resolve({ id: String(parent.id) }) },
+      );
+      assert.equal(nonEmpty.status, 409);
     });
 
     await t.test("partial concurrent image staging rolls back successful siblings", async () => {

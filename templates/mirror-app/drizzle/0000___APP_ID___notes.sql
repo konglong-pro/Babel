@@ -13,16 +13,20 @@ CREATE INDEX `folder_parent_idx` ON `folder` (`parent_id`);
 CREATE TABLE `note` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`folder_id` integer NOT NULL,
+	`parent_id` integer,
 	`title` text NOT NULL,
 	`content_md` text DEFAULT '' NOT NULL,
 	`tags` text DEFAULT '[]' NOT NULL,
 	`created_at` text DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) NOT NULL,
 	`updated_at` text DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) NOT NULL,
 	FOREIGN KEY (`folder_id`) REFERENCES `folder`(`id`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (`parent_id`) REFERENCES `note`(`id`) ON UPDATE no action ON DELETE restrict,
 	CONSTRAINT "note_title_not_blank" CHECK(length(trim("note"."title")) > 0)
 );
 --> statement-breakpoint
 CREATE INDEX `note_folder_idx` ON `note` (`folder_id`);
+--> statement-breakpoint
+CREATE INDEX `note_parent_idx` ON `note` (`parent_id`);
 --> statement-breakpoint
 CREATE INDEX `note_title_idx` ON `note` (`title`);
 --> statement-breakpoint

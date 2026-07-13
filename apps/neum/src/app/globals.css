@@ -320,6 +320,7 @@ a {
 }
 
 .folder-tree ul,
+.entry-tree ul,
 .entry-list,
 .tag-list,
 .search-result-list {
@@ -341,7 +342,15 @@ a {
   grid-template-columns: 28px minmax(0, 1fr);
 }
 
-.folder-tree .folder-disclosure {
+.entry-node-row {
+  display: grid;
+  min-width: 0;
+  align-items: start;
+  grid-template-columns: 28px minmax(0, 1fr);
+}
+
+.folder-tree .folder-disclosure,
+.entry-tree .entry-disclosure {
   display: grid;
   width: 28px;
   min-height: 28px;
@@ -355,7 +364,8 @@ a {
   text-transform: none;
 }
 
-.folder-tree .folder-disclosure::before {
+.folder-tree .folder-disclosure::before,
+.entry-tree .entry-disclosure::before {
   width: 0.42rem;
   height: 0.42rem;
   border-right: 1.5px solid currentColor;
@@ -365,11 +375,13 @@ a {
   transition: transform 120ms ease;
 }
 
-.folder-tree .folder-disclosure[aria-expanded="true"]::before {
+.folder-tree .folder-disclosure[aria-expanded="true"]::before,
+.entry-tree .entry-disclosure[aria-expanded="true"]::before {
   transform: rotate(45deg);
 }
 
-.folder-tree .folder-disclosure:hover:not(:disabled) {
+.folder-tree .folder-disclosure:hover:not(:disabled),
+.entry-tree .entry-disclosure:hover:not(:disabled) {
   border-color: transparent;
   background: rgb(23 63 98 / 7%);
   box-shadow: none;
@@ -385,6 +397,36 @@ a {
 
 .folder-node-row > .folder-node {
   min-width: 0;
+}
+
+.entry-node-row > .entry-card {
+  min-width: 0;
+}
+
+.folder-children,
+.entry-children {
+  margin-left: 0.66rem;
+  border-left: 1px solid #cfc3b1;
+  padding-left: 0.38rem;
+}
+
+.folder-inline-create,
+.entry-inline-create {
+  width: 100%;
+  border-color: transparent;
+  background: transparent;
+  color: var(--ink-faint);
+  text-align: left;
+  text-transform: none;
+  box-shadow: none;
+}
+
+.folder-inline-create:hover:not(:disabled),
+.entry-inline-create:hover:not(:disabled) {
+  border-color: transparent;
+  background: rgb(23 63 98 / 7%);
+  box-shadow: none;
+  transform: none;
 }
 
 .folder-node {
@@ -481,7 +523,17 @@ a {
   white-space: nowrap;
 }
 
+.entry-list-actions {
+  display: grid;
+  gap: 0.38rem;
+}
+
 .entry-list {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.entry-tree > ul {
   display: grid;
   gap: 0.3rem;
 }

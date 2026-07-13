@@ -127,16 +127,79 @@ test("Neum HTTP contract", async (t) => {
     assert.equal(foreign.status, 403);
 
     const unknown = await folderCollectionRoute.POST(
-      jsonRequest("http://localhost/api/folders", {
-        name: "Systems",
-        unexpected: true,
-      }),
+      jsonRequest(
+        "http://localhost/api/folders",
+        {
+          name: "Systems",
+          unexpected: true,
+        },
+        "POST",
+        { origin: "http://127.0.0.1" },
+      ),
     );
     assert.equal(unknown.status, 400);
     assert.equal((await errorCode(unknown)), "VALIDATION_ERROR");
   });
 
   let snippet: EntryDetailDto;
+  let rootPage: EntryDetailDto;
+  let childPage: EntryDetailDto;
+  await t.test("entry routes create nested pages and reject deleting a parent", async () => {
+    const rootResponse = await entryCollectionRoute.POST(
+      multipartRequest("http://localhost/api/entries", {
+        folderId: 1,
+        parentId: null,
+        kind: "knowledge",
+        title: "HTTP root page",
+      }),
+    );
+    assert.equal(rootResponse.status, 201);
+    rootPage = (await rootResponse.json()) as EntryDetailDto;
+    assert.equal(rootPage.parentId, null);
+
+    const childResponse = await entryCollectionRoute.POST(
+      multipartRequest("http://localhost/api/entries", {
+        folderId: 1,
+        parentId: rootPage.id,
+        kind: "knowledge",
+        title: "HTTP child page",
+      }),
+    );
+    assert.equal(childResponse.status, 201);
+    childPage = (await childResponse.json()) as EntryDetailDto;
+    assert.equal(childPage.parentId, rootPage.id);
+
+    const completeTreeResponse = await entryCollectionRoute.GET(
+      new Request("http://localhost/api/entries?completeTree=true&limit=1"),
+    );
+    assert.equal(completeTreeResponse.status, 200);
+    const completeTree = (await completeTreeResponse.json()) as PaginatedDto<EntryDetailDto>;
+    assert.equal(completeTree.items.length, completeTree.total);
+    assert.ok(completeTree.items.length >= 2);
+
+    const blocked = await entryItemRoute.DELETE(
+      jsonRequest(
+        `http://localhost/api/entries/${rootPage.id}`,
+        { expectedVersion: rootPage.version },
+        "DELETE",
+      ),
+      routeContext(rootPage.id),
+    );
+    assert.equal(blocked.status, 409);
+    assert.equal(await errorCode(blocked), "NOT_EMPTY");
+
+    const detached = await entryItemRoute.PATCH(
+      multipartRequest(`http://localhost/api/entries/${childPage.id}`, {
+        expectedVersion: childPage.version,
+        parentId: null,
+      }),
+      routeContext(childPage.id),
+    );
+    assert.equal(detached.status, 200);
+    childPage = (await detached.json()) as EntryDetailDto;
+    assert.equal(childPage.parentId, null);
+  });
+
   await t.test("snippet content is preserved and literal search is paginated", async () => {
     const inboxId = 1;
     const created = await entryCollectionRoute.POST(

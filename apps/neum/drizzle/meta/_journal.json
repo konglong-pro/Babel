@@ -8,6 +8,13 @@
       "when": 1783791055114,
       "tag": "0000_neum_entries",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1783911845304,
+      "tag": "0001_entry_page_tree",
+      "breakpoints": true
     }
   ]
 }

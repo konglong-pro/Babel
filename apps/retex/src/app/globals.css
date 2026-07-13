@@ -359,6 +359,7 @@ a {
 }
 
 .folder-tree ul,
+.item-tree ul,
 .item-list,
 .tag-list,
 .related-list,
@@ -374,10 +375,23 @@ a {
   padding-left: 0.38rem;
 }
 
+.item-tree ul ul {
+  margin-left: 0.62rem;
+  border-left: 1px solid var(--line);
+  padding-left: 0.38rem;
+}
+
 .folder-node-row {
   display: grid;
   min-width: 0;
   align-items: center;
+  grid-template-columns: 28px minmax(0, 1fr);
+}
+
+.item-tree-row {
+  display: grid;
+  min-width: 0;
+  align-items: start;
   grid-template-columns: 28px minmax(0, 1fr);
 }
 
@@ -395,7 +409,30 @@ a {
   text-transform: none;
 }
 
+.item-tree .item-disclosure {
+  display: grid;
+  width: 28px;
+  min-height: 28px;
+  place-items: center;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+  padding: 0;
+}
+
 .folder-tree .folder-disclosure::before {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  content: "";
+  transform: rotate(-45deg);
+  transition: transform 120ms ease;
+}
+
+.item-tree .item-disclosure::before {
   width: 0.42rem;
   height: 0.42rem;
   border-right: 1.5px solid currentColor;
@@ -409,12 +446,33 @@ a {
   transform: rotate(45deg);
 }
 
+.item-tree .item-disclosure[aria-expanded="true"]::before {
+  transform: rotate(45deg);
+}
+
 .folder-tree .folder-disclosure:hover:not(:disabled) {
   border-color: transparent;
   background: #eeeeef;
   box-shadow: none;
   color: inherit;
   transform: none;
+}
+
+.item-tree .item-disclosure:hover:not(:disabled) {
+  border-color: transparent;
+  background: #eeeeef;
+  box-shadow: none;
+  color: inherit;
+}
+
+.inline-tree-create {
+  min-height: 28px;
+  margin: 0.15rem 0 0.25rem 28px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--accent-dark);
+  font-size: 0.7rem;
+  text-align: left;
 }
 
 .folder-disclosure-spacer {

@@ -10,6 +10,7 @@ export interface EntryQueryOptions {
   includeDescendants: boolean;
   kind?: EntryKind;
   tag?: string;
+  completeTree: boolean;
   limit: number;
   offset: number;
 }
@@ -18,20 +19,21 @@ export interface SearchQueryOptions extends EntryQueryOptions {
   query: string;
 }
 
-const entryFields = new Set(["folderId", "scope", "kind", "tag", "limit", "offset"]);
-const searchFields = new Set([...entryFields, "q"]);
+const filterFields = ["folderId", "scope", "kind", "tag", "limit", "offset"];
+const entryFields = new Set([...filterFields, "completeTree"]);
+const searchFields = new Set([...filterFields, "q"]);
 
 export function parseEntryQuery(request: Request): EntryQueryOptions {
   const params = new URL(request.url).searchParams;
   assertOnlyQueryFields(params, entryFields);
-  return parseFilters(params);
+  return parseFilters(params, true);
 }
 
 export function parseSearchQuery(request: Request): SearchQueryOptions {
   const params = new URL(request.url).searchParams;
   assertOnlyQueryFields(params, searchFields);
   return {
-    ...parseFilters(params),
+    ...parseFilters(params, false),
     query: params.get("q")?.trim() ?? "",
   };
 }
@@ -46,7 +48,10 @@ export function parseTrashQuery(request: Request): Pick<
   return parsePagination(params);
 }
 
-function parseFilters(params: URLSearchParams): EntryQueryOptions {
+function parseFilters(
+  params: URLSearchParams,
+  allowCompleteTree: boolean,
+): EntryQueryOptions {
   const folder = params.get("folderId");
   const scope = params.get("scope") ?? "tree";
   if (scope !== "tree" && scope !== "direct") {
@@ -77,11 +82,22 @@ function parseFilters(params: URLSearchParams): EntryQueryOptions {
     });
   }
 
+  const rawCompleteTree = allowCompleteTree ? params.get("completeTree") : null;
+  if (rawCompleteTree !== null && rawCompleteTree !== "true" && rawCompleteTree !== "false") {
+    throw new ApiError(
+      400,
+      "VALIDATION_ERROR",
+      "completeTree must be true or false.",
+      { field: "completeTree" },
+    );
+  }
+
   return {
     ...(folder === null ? {} : { folderId: parsePositiveInteger(folder, "folderId") }),
     includeDescendants: scope === "tree",
     ...(kind === undefined ? {} : { kind }),
     ...(tag === undefined ? {} : { tag }),
+    completeTree: rawCompleteTree === "true",
     ...parsePagination(params),
   };
 }

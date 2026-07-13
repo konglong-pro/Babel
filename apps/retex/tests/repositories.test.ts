@@ -170,3 +170,73 @@ test("repository workflow preserves archive invariants", async () => {
   assert.equal(repositories.deleteFolder(knowledgeRoot.id), true);
   assert.equal(repositories.deleteFolder(exerciseRoot.id), true);
 });
+
+test("knowledge notes form a parent-child tree inside one folder", () => {
+  const folder = repositories.createFolder({ type: "knowledge", name: "Page tree" });
+  const parent = repositories.createKnowledge({
+    folderId: folder.id,
+    title: "Parent page",
+  });
+  const child = repositories.createKnowledge({
+    folderId: folder.id,
+    parentId: parent.id,
+    title: "Child page",
+  });
+
+  assert.equal(parent.parentId, null);
+  assert.equal(child.parentId, parent.id);
+  assert.equal(repositories.listKnowledge(folder.id).find((item) => item.id === child.id)?.parentId, parent.id);
+});
+
+test("knowledge page moves preserve tree invariants", () => {
+  const source = repositories.createFolder({ type: "knowledge", name: "Tree source" });
+  const target = repositories.createFolder({ type: "knowledge", name: "Tree target" });
+  const root = repositories.createKnowledge({ folderId: source.id, title: "Tree root" });
+  const child = repositories.createKnowledge({
+    folderId: source.id,
+    parentId: root.id,
+    title: "Tree child",
+  });
+  const grandchild = repositories.createKnowledge({
+    folderId: source.id,
+    parentId: child.id,
+    title: "Tree grandchild",
+  });
+
+  assert.throws(
+    () => repositories.updateKnowledge(root.id, { parentId: grandchild.id }),
+    /cycle|itself|descendant/i,
+  );
+  assert.throws(
+    () => repositories.createKnowledge({ folderId: target.id, parentId: root.id, title: "Wrong folder" }),
+    /same folder/i,
+  );
+  assert.throws(() => repositories.deleteKnowledge(root.id), /cannot be deleted|child/i);
+
+  const moved = repositories.updateKnowledge(root.id, { folderId: target.id });
+  assert.equal(moved.parentId, null);
+  assert.deepEqual(
+    [root.id, child.id, grandchild.id].map((id) => repositories.getKnowledge(id)?.folderId),
+    [target.id, target.id, target.id],
+  );
+  assert.equal(repositories.getKnowledge(child.id)?.parentId, root.id);
+  assert.equal(repositories.getKnowledge(grandchild.id)?.parentId, child.id);
+
+  const sourceParent = repositories.createKnowledge({ folderId: source.id, title: "Source parent" });
+  const detached = repositories.createKnowledge({
+    folderId: source.id,
+    parentId: sourceParent.id,
+    title: "Detach on move",
+  });
+  const detachedChild = repositories.createKnowledge({
+    folderId: source.id,
+    parentId: detached.id,
+    title: "Move with parent",
+  });
+  assert.equal(repositories.updateKnowledge(detached.id, { folderId: target.id }).parentId, null);
+  assert.equal(repositories.getKnowledge(detachedChild.id)?.folderId, target.id);
+  assert.equal(
+    repositories.updateKnowledge(detached.id, { parentId: root.id }).parentId,
+    root.id,
+  );
+});

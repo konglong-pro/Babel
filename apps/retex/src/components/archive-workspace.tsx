@@ -47,6 +47,7 @@ export function ArchiveWorkspace({
   const [selectedItemId, setSelectedItemId] = useState<number | null>(initialItemId);
   const [detail, setDetail] = useState<ArchiveDetail | null>(null);
   const [mode, setMode] = useState<ViewMode>("view");
+  const [createParentId, setCreateParentId] = useState<number | null>(null);
   const [indexLoading, setIndexLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -127,6 +128,7 @@ export function ArchiveWorkspace({
     setSelectedItemId(null);
     setDetail(null);
     setMode("view");
+    setCreateParentId(null);
     replaceLocation(id, null);
   }
 
@@ -135,6 +137,7 @@ export function ArchiveWorkspace({
     setDetail(null);
     setError("");
     setMode("view");
+    setCreateParentId(null);
     replaceLocation(selectedFolderId, id);
   }
 
@@ -170,6 +173,7 @@ export function ArchiveWorkspace({
     setSelectedItemId(saved.id);
     setSelectedFolderId(saved.folderId);
     setMode("view");
+    setCreateParentId(null);
     await loadIndex();
     replaceLocation(saved.folderId, saved.id);
   }
@@ -178,12 +182,27 @@ export function ArchiveWorkspace({
     setSelectedItemId(null);
     setDetail(null);
     setMode("view");
+    setCreateParentId(null);
     await loadIndex();
     replaceLocation(selectedFolderId, null);
   }
 
   const effectiveFolderId = detail?.folderId ?? selectedFolderId;
   const detailLoading = selectedItemId !== null && detail?.id !== selectedItemId && !error;
+
+  function beginCreate(parentId: number | null) {
+    if (type === "knowledge" && parentId !== null) {
+      const parent = (items as KnowledgeSummaryDto[]).find((item) => item.id === parentId);
+      if (parent) {
+        setSelectedFolderId(parent.folderId);
+        replaceLocation(parent.folderId, null);
+      }
+    }
+    setCreateParentId(type === "knowledge" ? parentId : null);
+    setSelectedItemId(null);
+    setDetail(null);
+    setMode("create");
+  }
 
   return (
     <div className="archive-workspace">
@@ -205,11 +224,7 @@ export function ArchiveWorkspace({
         selectedFolderId={selectedFolderId}
         loading={indexLoading}
         onSelect={selectItem}
-        onCreate={() => {
-          setSelectedItemId(null);
-          setDetail(null);
-          setMode("create");
-        }}
+        onCreate={beginCreate}
       />
 
       {error ? (
@@ -235,8 +250,11 @@ export function ArchiveWorkspace({
           detail={detail as KnowledgeDetailDto | null}
           mode={mode}
           folderId={effectiveFolderId}
+          pages={items as KnowledgeSummaryDto[]}
+          createParentId={createParentId}
           loading={detailLoading}
           onEdit={() => setMode("edit")}
+          onCreateChild={() => beginCreate(detail?.id ?? null)}
           onCancel={() => setMode("view")}
           onSaved={handleSaved}
           onDeleted={handleDeleted}

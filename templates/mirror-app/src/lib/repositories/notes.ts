@@ -19,6 +19,7 @@ type NoteRow = typeof notes.$inferSelect;
 
 export interface CreateNoteInput {
   folderId: number;
+  parentId?: number | null;
   title: string;
   contentMd?: string;
   tags?: readonly string[];
@@ -26,6 +27,7 @@ export interface CreateNoteInput {
 
 export interface UpdateNoteInput {
   folderId?: number;
+  parentId?: number | null;
   title?: string;
   contentMd?: string;
   tags?: readonly string[];
@@ -101,6 +103,8 @@ export function createNote(
   newImagePaths: readonly string[] = [],
 ): NoteDetailDto {
   requireFolder(input.folderId);
+  const parentId = input.parentId ?? null;
+  assertNoteParent(parentId, input.folderId);
   const title = normalizeRequiredText(input.title, "title");
   const contentMd = normalizeMarkdown(input.contentMd ?? "", "contentMd");
   const tags = tagsToJson(input.tags ?? []);
@@ -110,7 +114,7 @@ export function createNote(
   const row = db.transaction((transaction) => {
     const inserted = transaction
       .insert(notes)
-      .values({ folderId: input.folderId, title, contentMd, tags })
+      .values({ folderId: input.folderId, parentId, title, contentMd, tags })
       .returning()
       .get();
     if (imagePaths.length > 0) {
@@ -148,15 +152,28 @@ export function updateNote(
 
   const changes: {
     folderId?: number;
+    parentId?: number | null;
     title?: string;
     contentMd?: string;
     tags?: string;
     updatedAt: SQL;
   } = { updatedAt: sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))` };
   let changed = imagePaths.length > 0;
+  const folderChanged = input.folderId !== undefined && input.folderId !== current.folderId;
   if (input.folderId !== undefined) {
     requireFolder(input.folderId);
     changes.folderId = input.folderId;
+    changed = true;
+  }
+  const parentChanged = Object.prototype.hasOwnProperty.call(input, "parentId");
+  const nextParentId = parentChanged
+    ? input.parentId ?? null
+    : folderChanged
+      ? null
+      : current.parentId;
+  if (parentChanged || folderChanged) {
+    assertNoteParent(nextParentId, input.folderId ?? current.folderId, id);
+    changes.parentId = nextParentId;
     changed = true;
   }
   if (input.title !== undefined) {
@@ -184,8 +201,16 @@ export function updateNote(
     (imagePath) => !referencedImagePaths.has(imagePath),
   );
   assertPreparedImageRemoval(removedImagePaths, expectedRemovedImagePaths);
+  const movingNoteIds = folderChanged ? noteSubtreeIds(id) : [];
 
   const updated = db.transaction((transaction) => {
+    if (folderChanged) {
+      transaction
+        .update(notes)
+        .set({ folderId: input.folderId! })
+        .where(inArray(notes.id, movingNoteIds))
+        .run();
+    }
     const row = transaction
       .update(notes)
       .set(changes)
@@ -222,6 +247,12 @@ export function deleteNote(
   assertPositiveId(id, "id");
   const current = db.select({ id: notes.id }).from(notes).where(eq(notes.id, id)).get();
   if (!current) return null;
+  const child = db.select({ id: notes.id }).from(notes).where(eq(notes.parentId, id)).get();
+  if (child) {
+    throw new RepositoryError("NOT_EMPTY", "Delete child pages before deleting this note.", {
+      noteId: id,
+    });
+  }
   const imagePaths = listNoteImagePaths(id);
   assertPreparedImageRemoval(imagePaths, expectedImagePaths);
   db.delete(notes).where(eq(notes.id, id)).run();
@@ -237,6 +268,48 @@ function normalizeNewImagePaths(imagePaths: readonly string[]): string[] {
     throw new RepositoryError("VALIDATION", "Image paths must be unique.");
   }
   return normalized;
+}
+
+function assertNoteParent(
+  parentId: number | null,
+  folderId: number,
+  noteId?: number,
+): void {
+  if (parentId === null) return;
+  assertPositiveId(parentId, "parentId");
+  if (parentId === noteId) {
+    throw new RepositoryError("CONFLICT", "A note cannot be its own parent.");
+  }
+  const parent = db.select().from(notes).where(eq(notes.id, parentId)).get();
+  if (!parent) {
+    throw new RepositoryError("NOT_FOUND", "Parent note not found.", { parentId });
+  }
+  if (parent.folderId !== folderId) {
+    throw new RepositoryError(
+      "CONFLICT",
+      "Parent and child notes must be in the same folder.",
+      { parentId, folderId },
+    );
+  }
+  if (noteId !== undefined && noteSubtreeIds(noteId).includes(parentId)) {
+    throw new RepositoryError("CONFLICT", "A note cannot be moved below its descendant.");
+  }
+}
+
+function noteSubtreeIds(rootId: number): number[] {
+  const rows = db.select({ id: notes.id, parentId: notes.parentId }).from(notes).all();
+  const ids = new Set([rootId]);
+  let added = true;
+  while (added) {
+    added = false;
+    for (const row of rows) {
+      if (row.parentId !== null && ids.has(row.parentId) && !ids.has(row.id)) {
+        ids.add(row.id);
+        added = true;
+      }
+    }
+  }
+  return [...ids];
 }
 
 function assertPreparedImageRemoval(
@@ -293,6 +366,7 @@ function toNoteSummary(row: NoteRow): NoteSummaryDto {
   return {
     id: row.id,
     folderId: row.folderId,
+    parentId: row.parentId,
     title: row.title,
     tags: tagsFromJson(row.tags),
     updatedAt: row.updatedAt,

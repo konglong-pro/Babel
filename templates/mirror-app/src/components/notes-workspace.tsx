@@ -85,6 +85,10 @@ export function NotesWorkspace({
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(initialFolderId);
   const [selectedNoteId, setSelectedNoteId] = useState<number | null>(initialNoteId);
   const [detail, setDetail] = useState<NoteDetailDto | null>(null);
+  const [createTarget, setCreateTarget] = useState<{
+    folderId: number;
+    parentId: number | null;
+  } | null>(null);
   const [mode, setMode] = useState<NoteViewMode>("view");
   const [stage, setStage] = useState<ResponsiveStage>(
     initialNoteId !== null ? "note" : initialFolderId !== null ? "notes" : "library",
@@ -189,6 +193,7 @@ export function NotesWorkspace({
     setSelectedFolderId(null);
     setSelectedNoteId(null);
     setDetail(null);
+    setCreateTarget(null);
     setDetailError("");
     setDetailLoading(false);
     setDetailRequestVersion(0);
@@ -311,6 +316,7 @@ export function NotesWorkspace({
     setSelectedFolderId(id);
     setSelectedNoteId(null);
     setDetail(null);
+    setCreateTarget(null);
     setDetailError("");
     setDetailLoading(false);
     setDetailRequestVersion(0);
@@ -323,6 +329,7 @@ export function NotesWorkspace({
     if (!confirmDiscard()) return;
     setSelectedNoteId(id);
     setDetail(null);
+    setCreateTarget(null);
     setDetailError("");
     setDetailLoading(true);
     setDetailRequestVersion(0);
@@ -338,6 +345,7 @@ export function NotesWorkspace({
     setSelectedFolderId(created.id);
     setSelectedNoteId(null);
     setDetail(null);
+    setCreateTarget(null);
     setMode("view");
     setDetailLoading(false);
     setDetailRequestVersion(0);
@@ -362,6 +370,7 @@ export function NotesWorkspace({
     setSelectedFolderId(null);
     setSelectedNoteId(null);
     setDetail(null);
+    setCreateTarget(null);
     setMode("view");
     setDetailLoading(false);
     setDetailRequestVersion(0);
@@ -373,6 +382,7 @@ export function NotesWorkspace({
     const folderChanged = detail !== null && saved.folderId !== detail.folderId;
     const nextFolderId = detail === null || folderChanged ? saved.folderId : selectedFolderId;
     setDetail(saved);
+    setCreateTarget(null);
     setSelectedNoteId(saved.id);
     setSelectedFolderId(nextFolderId);
     setMode("view");
@@ -391,6 +401,7 @@ export function NotesWorkspace({
   async function handleDeleted() {
     setSelectedNoteId(null);
     setDetail(null);
+    setCreateTarget(null);
     setMode("view");
     setStage("notes");
     setDetailLoading(false);
@@ -406,13 +417,29 @@ export function NotesWorkspace({
   function cancelEditing() {
     if (!confirmDiscard()) return;
     setMode("view");
+    setCreateTarget(null);
     if (!detail) setStage("notes");
   }
 
   function backToNotes() {
     if (!confirmDiscard()) return;
     setMode("view");
+    setCreateTarget(null);
     setStage("notes");
+  }
+
+  function startCreateNote(parentId: number | null, folderId?: number) {
+    const targetFolderId = folderId ?? selectedFolderId;
+    if (targetFolderId === null || !confirmDiscard()) return;
+    setSelectedNoteId(null);
+    setDetail(null);
+    setCreateTarget({ folderId: targetFolderId, parentId });
+    setDetailError("");
+    setDetailLoading(false);
+    setDetailRequestVersion(0);
+    setMode("create");
+    setStage("note");
+    replaceLocation(selectedFolderId, null);
   }
 
   return (
@@ -441,17 +468,7 @@ export function NotesWorkspace({
         selectedNoteId={selectedNoteId}
         loading={indexLoading}
         onSelect={selectNote}
-        onCreate={() => {
-          if (selectedFolderId === null || !confirmDiscard()) return;
-          setSelectedNoteId(null);
-          setDetail(null);
-          setDetailError("");
-          setDetailLoading(false);
-          setDetailRequestVersion(0);
-          setMode("create");
-          setStage("note");
-          replaceLocation(selectedFolderId, null);
-        }}
+        onCreate={startCreateNote}
         onBack={() => setStage("library")}
       />
 
@@ -476,8 +493,10 @@ export function NotesWorkspace({
         <NoteDetail
           detail={detail}
           mode={mode}
-          folderId={detail?.folderId ?? selectedFolderId}
+          folderId={detail?.folderId ?? createTarget?.folderId ?? selectedFolderId}
+          parentId={detail?.parentId ?? createTarget?.parentId ?? null}
           folders={folders}
+          notes={notes}
           loading={detailLoading}
           onEdit={() => setMode("edit")}
           onCancel={cancelEditing}

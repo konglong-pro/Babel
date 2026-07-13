@@ -106,6 +106,7 @@ export function getKnowledge(id: number): Promise<KnowledgeDetailDto> {
 
 export interface KnowledgeInput {
   folderId: number;
+  parentId: number | null;
   title: string;
   contentMd: string;
   tags: string[];

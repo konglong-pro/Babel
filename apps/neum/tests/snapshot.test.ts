@@ -19,6 +19,7 @@ import {
   importNeumSnapshot,
   readNeumDatabaseSnapshot,
   SnapshotError,
+  validateSnapshotManifest,
   type NeumSnapshotManifest,
 } from "../src/lib/exchange";
 import { identityKey } from "../src/lib/identity";
@@ -56,7 +57,8 @@ test("complete database and image snapshots round-trip without semantic loss", a
       exportedAt: created,
     });
     assert.equal(exported.manifest.appId, "neum");
-    assert.equal(exported.manifest.schemaVersion, 1);
+    assert.equal(exported.manifest.schemaVersion, 2);
+    assert.equal(exported.manifest.entries[1].parentId, 11);
     assert.equal(exported.manifest.entries[1].code, "root: [still, editable");
     assert.equal(exported.manifest.trash[0].snapshot.entry.id, 99);
     assert.deepEqual((await readdir(path.join(firstBundle, "images"))).sort(), [
@@ -157,6 +159,41 @@ test("bundle validation rejects extra, corrupted, and traversal image files", as
     source.close();
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("legacy version 1 snapshots import existing entries as root pages", () => {
+  const manifest = {
+    appId: "neum",
+    schemaVersion: 1,
+    exportedAt: created,
+    folders: [
+      { id: 1, parentId: null, name: "Inbox", createdAt: created, updatedAt: created },
+    ],
+    entries: [
+      {
+        id: 1,
+        folderId: 1,
+        kind: "knowledge",
+        title: "Legacy page",
+        notesMd: "",
+        code: null,
+        language: null,
+        filename: null,
+        version: 1,
+        createdAt: created,
+        updatedAt: updated,
+        tagIds: [],
+        images: [],
+      },
+    ],
+    tags: [],
+    trash: [],
+    images: [],
+  };
+
+  const parsed = validateSnapshotManifest(manifest);
+  assert.equal(parsed.schemaVersion, 2);
+  assert.equal(parsed.entries[0].parentId, null);
 });
 
 test("import rejects non-pristine targets before writing files", async () => {
@@ -335,6 +372,7 @@ function createSchema(sqlite: BetterSqlite3.Database): void {
     CREATE UNIQUE INDEX folder_sibling_name_unique ON folder(parent_id, name_key) WHERE parent_id IS NOT NULL;
     CREATE TABLE entry (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      parent_id INTEGER REFERENCES entry(id) ON DELETE RESTRICT,
       folder_id INTEGER NOT NULL REFERENCES folder(id) ON DELETE RESTRICT,
       kind TEXT NOT NULL CHECK(kind IN ('knowledge', 'snippet')),
       title TEXT NOT NULL,
@@ -353,6 +391,7 @@ function createSchema(sqlite: BetterSqlite3.Database): void {
         (kind = 'snippet' AND code IS NOT NULL AND language IS NOT NULL AND length(trim(language)) > 0)
       )
     );
+    CREATE INDEX entry_parent_idx ON entry(parent_id);
     CREATE INDEX entry_folder_idx ON entry(folder_id);
     CREATE INDEX entry_kind_idx ON entry(kind);
     CREATE INDEX entry_title_idx ON entry(title);
@@ -429,10 +468,11 @@ function seedRichSource(sqlite: BetterSqlite3.Database): void {
   insertTag.run(5, "Älgorithms", identityKey("Älgorithms"));
   insertTag.run(6, "YAML", identityKey("YAML"));
   const insertEntry = sqlite.prepare(
-    'INSERT INTO "entry" ("id", "folder_id", "kind", "title", "notes_md", "code", "language", "filename", "version", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO "entry" ("id", "parent_id", "folder_id", "kind", "title", "notes_md", "code", "language", "filename", "version", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
   );
   insertEntry.run(
     11,
+    null,
     7,
     "knowledge",
     "Schedulers",
@@ -446,7 +486,8 @@ function seedRichSource(sqlite: BetterSqlite3.Database): void {
   );
   insertEntry.run(
     12,
-    8,
+    11,
+    7,
     "snippet",
     "Broken YAML is still useful",
     "A deliberately unfinished sample.",
@@ -465,7 +506,8 @@ function seedRichSource(sqlite: BetterSqlite3.Database): void {
   const trashSnapshot = {
     entry: {
       id: 99,
-      folderId: 8,
+      parentId: 12,
+      folderId: 7,
       kind: "snippet",
       title: "Deleted JSON",
       notesMd: "![old](/api/uploads/entries/deleted.gif)",
@@ -483,5 +525,5 @@ function seedRichSource(sqlite: BetterSqlite3.Database): void {
     .prepare(
       'INSERT INTO "trash_entry" ("id", "original_entry_id", "folder_id", "snapshot_json", "deleted_at") VALUES (?, ?, ?, ?, ?)',
     )
-    .run(21, 99, 8, JSON.stringify(trashSnapshot), deleted);
+    .run(21, 99, 7, JSON.stringify(trashSnapshot), deleted);
 }

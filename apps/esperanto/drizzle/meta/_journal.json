@@ -8,6 +8,13 @@
       "when": 1783669000000,
       "tag": "0000_esperanto_notes",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1783911742997,
+      "tag": "0001_jazzy_electro",
+      "breakpoints": true
     }
   ]
 }

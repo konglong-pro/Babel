@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
+    "db:check": "tsx scripts/check-database.ts",
     "db:checkpoint": "tsx scripts/checkpoint-database.ts",
     "test": "tsx --test tests/*.test.ts",
     "check": "npm run lint && npm run typecheck && npm run test && npm run build"

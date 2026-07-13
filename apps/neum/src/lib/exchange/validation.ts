@@ -9,6 +9,7 @@ import { identityKey } from "../identity";
 
 import { SnapshotError } from "./errors";
 import {
+  NEUM_LEGACY_SNAPSHOT_SCHEMA_VERSION,
   NEUM_SNAPSHOT_APP_ID,
   NEUM_SNAPSHOT_SCHEMA_VERSION,
   snapshotImageContentTypes,
@@ -65,9 +66,13 @@ export function validateSnapshotManifest(value: unknown): NeumSnapshotManifest {
   if (manifest.appId !== NEUM_SNAPSHOT_APP_ID) {
     invalid(`manifest.appId must be ${JSON.stringify(NEUM_SNAPSHOT_APP_ID)}.`);
   }
-  if (manifest.schemaVersion !== NEUM_SNAPSHOT_SCHEMA_VERSION) {
+  const sourceSchemaVersion = manifest.schemaVersion;
+  if (
+    sourceSchemaVersion !== NEUM_SNAPSHOT_SCHEMA_VERSION &&
+    sourceSchemaVersion !== NEUM_LEGACY_SNAPSHOT_SCHEMA_VERSION
+  ) {
     invalid(
-      `manifest.schemaVersion must be ${NEUM_SNAPSHOT_SCHEMA_VERSION}.`,
+      `manifest.schemaVersion must be ${NEUM_LEGACY_SNAPSHOT_SCHEMA_VERSION} or ${NEUM_SNAPSHOT_SCHEMA_VERSION}.`,
     );
   }
 
@@ -79,13 +84,13 @@ export function validateSnapshotManifest(value: unknown): NeumSnapshotManifest {
       folder(item, `manifest.folders[${index}]`),
     ),
     entries: array(manifest.entries, "manifest.entries").map((item, index) =>
-      entry(item, `manifest.entries[${index}]`),
+      entry(item, `manifest.entries[${index}]`, sourceSchemaVersion),
     ),
     tags: array(manifest.tags, "manifest.tags").map((item, index) =>
       tag(item, `manifest.tags[${index}]`),
     ),
     trash: array(manifest.trash, "manifest.trash").map((item, index) =>
-      trashEntry(item, `manifest.trash[${index}]`),
+      trashEntry(item, `manifest.trash[${index}]`, sourceSchemaVersion),
     ),
     images: array(manifest.images, "manifest.images").map((item, index) =>
       image(item, `manifest.images[${index}]`),
@@ -168,12 +173,17 @@ function tag(value: unknown, label: string): SnapshotTag {
   };
 }
 
-function entry(value: unknown, label: string): SnapshotEntry {
+function entry(
+  value: unknown,
+  label: string,
+  sourceSchemaVersion: number,
+): SnapshotEntry {
   const item = record(value, label);
   exactKeys(
     item,
     [
       "id",
+      ...(sourceSchemaVersion >= 2 ? ["parentId"] : []),
       "folderId",
       "kind",
       "title",
@@ -189,7 +199,7 @@ function entry(value: unknown, label: string): SnapshotEntry {
     ],
     label,
   );
-  const base = entryRecord(item, label, false);
+  const base = entryRecord(item, label, false, sourceSchemaVersion);
   const tagIds = array(item.tagIds, `${label}.tagIds`).map((tagId, index) =>
     positiveInteger(tagId, `${label}.tagIds[${index}]`),
   );
@@ -204,12 +214,14 @@ function entryRecord(
   value: Record<string, unknown>,
   label: string,
   checkKeys: boolean,
+  sourceSchemaVersion: number,
 ): SnapshotEntryRecord {
   if (checkKeys) {
     exactKeys(
       value,
       [
         "id",
+        ...(sourceSchemaVersion >= 2 ? ["parentId"] : []),
         "folderId",
         "kind",
         "title",
@@ -239,6 +251,10 @@ function entryRecord(
   }
   return {
     id: positiveInteger(value.id, `${label}.id`),
+    parentId:
+      sourceSchemaVersion < 2 || value.parentId === null
+        ? null
+        : positiveInteger(value.parentId, `${label}.parentId`),
     folderId: positiveInteger(value.folderId, `${label}.folderId`),
     kind,
     title: nonBlankString(value.title, `${label}.title`),
@@ -265,7 +281,11 @@ function entryImageReference(
   };
 }
 
-function trashEntry(value: unknown, label: string): SnapshotTrashEntry {
+function trashEntry(
+  value: unknown,
+  label: string,
+  sourceSchemaVersion: number,
+): SnapshotTrashEntry {
   const item = record(value, label);
   exactKeys(
     item,
@@ -279,12 +299,16 @@ function trashEntry(value: unknown, label: string): SnapshotTrashEntry {
       `${label}.originalEntryId`,
     ),
     folderId: positiveInteger(item.folderId, `${label}.folderId`),
-    snapshot: trashPayload(item.snapshot, `${label}.snapshot`),
+    snapshot: trashPayload(item.snapshot, `${label}.snapshot`, sourceSchemaVersion),
     deletedAt: timestamp(item.deletedAt, `${label}.deletedAt`),
   };
 }
 
-function trashPayload(value: unknown, label: string): SnapshotTrashPayload {
+function trashPayload(
+  value: unknown,
+  label: string,
+  sourceSchemaVersion: number,
+): SnapshotTrashPayload {
   const item = record(value, label);
   exactKeys(item, ["entry", "tags", "imagePaths"], label);
   const entryValue = record(item.entry, `${label}.entry`);
@@ -300,7 +324,7 @@ function trashPayload(value: unknown, label: string): SnapshotTrashPayload {
   );
   noDuplicates(imagePaths, `${label}.imagePaths`);
   return {
-    entry: entryRecord(entryValue, `${label}.entry`, true),
+    entry: entryRecord(entryValue, `${label}.entry`, true, sourceSchemaVersion),
     tags,
     imagePaths,
   };
@@ -368,11 +392,24 @@ function validateRelationships(manifest: NeumSnapshotManifest): void {
     "tag names",
   );
   const activeEntryIds = new Set(manifest.entries.map(({ id }) => id));
+  const activeEntriesById = new Map(manifest.entries.map((item) => [item.id, item]));
+  const trashEntryRecords = manifest.trash.map(({ snapshot }) => snapshot.entry);
+  const allEntriesById = new Map<number, SnapshotEntryRecord>([
+    ...manifest.entries.map((item) => [item.id, item] as const),
+    ...trashEntryRecords.map((item) => [item.id, item] as const),
+  ]);
   const activeImageIds: number[] = [];
   const referencedPaths: string[] = [];
   for (const item of manifest.entries) {
     if (!folderIds.has(item.folderId)) {
       invalid(`Entry ${item.id} references missing folder ${item.folderId}.`);
+    }
+    if (item.parentId !== null) {
+      const parent = activeEntriesById.get(item.parentId);
+      if (!parent) invalid(`Entry ${item.id} references missing active parent ${item.parentId}.`);
+      if (parent.folderId !== item.folderId) {
+        invalid(`Entry ${item.id} and parent ${item.parentId} must share a folder.`);
+      }
     }
     for (const tagId of item.tagIds) {
       if (!tagIds.has(tagId)) invalid(`Entry ${item.id} references missing tag ${tagId}.`);
@@ -402,6 +439,19 @@ function validateRelationships(manifest: NeumSnapshotManifest): void {
     if (activeEntryIds.has(item.originalEntryId)) {
       invalid(`Entry ${item.originalEntryId} exists in both active entries and trash.`);
     }
+    if (item.snapshot.entry.parentId !== null) {
+      const parent = allEntriesById.get(item.snapshot.entry.parentId);
+      if (!parent) {
+        invalid(
+          `Trash entry ${item.id} references missing parent ${item.snapshot.entry.parentId}.`,
+        );
+      }
+      if (parent.folderId !== item.folderId) {
+        invalid(
+          `Trash entry ${item.id} and parent ${item.snapshot.entry.parentId} must share a folder.`,
+        );
+      }
+    }
     assertMarkdownImageOwnership(
       item.snapshot.entry.notesMd,
       item.snapshot.imagePaths,
@@ -409,6 +459,7 @@ function validateRelationships(manifest: NeumSnapshotManifest): void {
     );
     referencedPaths.push(...item.snapshot.imagePaths);
   }
+  assertNoEntryCycles(allEntriesById);
   noDuplicates(referencedPaths, "managed image ownership paths");
 
   const declaredPaths = new Set(manifest.images.map(({ imagePath }) => imagePath));
@@ -454,6 +505,22 @@ function assertNoFolderCycles(foldersById: Map<number, SnapshotFolder>): void {
       if (pathIds.has(currentId)) invalid(`Folder hierarchy contains a cycle at ${currentId}.`);
       pathIds.add(currentId);
       currentId = foldersById.get(currentId)?.parentId ?? null;
+    }
+    for (const id of pathIds) done.add(id);
+  }
+}
+
+function assertNoEntryCycles(entriesById: Map<number, SnapshotEntryRecord>): void {
+  const done = new Set<number>();
+  for (const startingId of entriesById.keys()) {
+    const pathIds = new Set<number>();
+    let currentId: number | null = startingId;
+    while (currentId !== null && !done.has(currentId)) {
+      if (pathIds.has(currentId)) {
+        invalid(`Entry hierarchy contains a cycle at ${currentId}.`);
+      }
+      pathIds.add(currentId);
+      currentId = entriesById.get(currentId)?.parentId ?? null;
     }
     for (const id of pathIds) done.add(id);
   }

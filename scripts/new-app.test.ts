@@ -140,12 +140,22 @@ test("renders the repository mirror template as an independent app", async (t) =
   const manifest = await readJson<{
     name: string;
     dependencies: Record<string, string>;
+    scripts: Record<string, string>;
   }>(path.join(generatedRoot, "package.json"));
   assert.equal(manifest.name, "@babel-apps/mirror-notes");
   assert.equal(manifest.dependencies["@babel-apps/platform"], "0.1.0");
+  assert.equal(manifest.scripts["db:check"], "tsx scripts/check-database.ts");
   assert.match(
     await readFile(path.join(generatedRoot, "src", "app", "api", "health", "route.ts"), "utf8"),
-    /app: "Mirror Notes"/,
+    /assertAppDatabaseReady\(\)/,
+  );
+  await access(path.join(generatedRoot, "scripts", "check-database.ts"));
+  assert.match(
+    await readFile(
+      path.join(generatedRoot, "src", "lib", "db", "readiness.ts"),
+      "utf8",
+    ),
+    /requiredColumns: \{ note: \["parent_id"\] \}/,
   );
   await access(
     path.join(generatedRoot, "drizzle", "0000_mirror-notes_notes.sql"),
@@ -157,18 +167,57 @@ test("renders the repository mirror template as an independent app", async (t) =
   );
   assert.match(folderPanel, /aria-expanded=/);
   assert.match(folderPanel, /className="folder-disclosure"/);
-  assert.match(folderPanel, /className="folder-disclosure-spacer"/);
+  assert.doesNotMatch(folderPanel, /folder-disclosure-spacer/);
+  assert.match(folderPanel, /New subfolder/);
   await access(
     path.join(generatedRoot, "src", "components", "folder-tree-state.ts"),
   );
   await access(path.join(generatedRoot, "tests", "folder-tree-state.test.ts"));
+  const noteList = await readFile(
+    path.join(generatedRoot, "src", "components", "note-list.tsx"),
+    "utf8",
+  );
+  assert.match(noteList, /className="note-disclosure"/);
+  assert.match(noteList, /New subnote/);
+  await access(path.join(generatedRoot, "src", "components", "note-tree-state.ts"));
+  await access(path.join(generatedRoot, "tests", "note-tree-state.test.ts"));
+  assert.match(
+    await readFile(
+      path.join(generatedRoot, "drizzle", "0000_mirror-notes_notes.sql"),
+      "utf8",
+    ),
+    /`parent_id` integer/,
+  );
   const globalStyles = await readFile(
     path.join(generatedRoot, "src", "app", "globals.css"),
     "utf8",
   );
   assert.match(globalStyles, /\.folder-node-row/);
   assert.match(globalStyles, /\.folder-disclosure/);
-  assert.match(globalStyles, /\.folder-disclosure-spacer/);
+  assert.match(globalStyles, /\.note-disclosure/);
+  const generatedRepository = await readFile(
+    path.join(generatedRoot, "src", "lib", "repositories", "notes.ts"),
+    "utf8",
+  );
+  assert.match(generatedRepository, /assertNoteParent/);
+  assert.match(generatedRepository, /noteSubtreeIds/);
+  assert.match(generatedRepository, /NOT_EMPTY/);
+  const generatedCollectionRoute = await readFile(
+    path.join(generatedRoot, "src", "app", "api", "notes", "route.ts"),
+    "utf8",
+  );
+  const generatedItemRoute = await readFile(
+    path.join(generatedRoot, "src", "app", "api", "notes", "[id]", "route.ts"),
+    "utf8",
+  );
+  assert.match(generatedCollectionRoute, /parentId/);
+  assert.match(generatedItemRoute, /parentId/);
+  const generatedBackendTests = await readFile(
+    path.join(generatedRoot, "tests", "backend.test.ts"),
+    "utf8",
+  );
+  assert.match(generatedBackendTests, /guarded hierarchy/);
+  assert.match(generatedBackendTests, /reject cyclic or non-empty mutations/);
   await access(path.join(generatedRoot, "src", "lib", "repositories", "index.ts"));
 });
 

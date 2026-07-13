@@ -1,4 +1,4 @@
-import { asc, desc, eq, sql, type SQL } from "drizzle-orm";
+import { asc, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
 import { knowledgeExercises, knowledgeNotes } from "@/lib/db/schema";
@@ -23,6 +23,7 @@ type KnowledgeRow = typeof knowledgeNotes.$inferSelect;
 
 export interface CreateKnowledgeInput {
   folderId: number;
+  parentId?: number | null;
   title: string;
   contentMd?: string;
   tags?: readonly string[];
@@ -31,6 +32,7 @@ export interface CreateKnowledgeInput {
 
 export interface UpdateKnowledgeInput {
   folderId?: number;
+  parentId?: number | null;
   title?: string;
   contentMd?: string;
   tags?: readonly string[];
@@ -76,6 +78,10 @@ export function createKnowledge(
   input: CreateKnowledgeInput,
 ): KnowledgeDetailDto {
   requireFolder(input.folderId, "knowledge");
+  const parentId = input.parentId ?? null;
+  if (parentId !== null) {
+    requireKnowledgeParent(parentId, input.folderId);
+  }
   const title = normalizeRequiredText(input.title, "title");
   const contentMd = normalizeMarkdown(input.contentMd ?? "", "contentMd");
   const tags = tagsToJson(input.tags ?? []);
@@ -84,7 +90,7 @@ export function createKnowledge(
   const knowledge = db.transaction((transaction) => {
     const row = transaction
       .insert(knowledgeNotes)
-      .values({ folderId: input.folderId, title, contentMd, tags })
+      .values({ folderId: input.folderId, parentId, title, contentMd, tags })
       .returning()
       .get();
 
@@ -125,6 +131,7 @@ export function updateKnowledge(
 
   const changes: {
     folderId?: number;
+    parentId?: number | null;
     title?: string;
     contentMd?: string;
     tags?: string;
@@ -132,11 +139,27 @@ export function updateKnowledge(
   } = { updatedAt: sql`CURRENT_TIMESTAMP` };
   let hasChanges = false;
   let relatedExerciseIds: number[] | undefined;
+  const nextFolderId = input.folderId ?? current.folderId;
+  const folderChanged = nextFolderId !== current.folderId;
+  const nextParentId =
+    input.parentId !== undefined
+      ? input.parentId
+      : folderChanged
+        ? null
+        : current.parentId;
 
   if (input.folderId !== undefined) {
     requireFolder(input.folderId, "knowledge");
     changes.folderId = input.folderId;
     hasChanges = true;
+  }
+
+  if (input.parentId !== undefined || (folderChanged && current.parentId !== null)) {
+    assertValidKnowledgeParent(id, nextParentId, nextFolderId);
+    changes.parentId = nextParentId;
+    hasChanges = true;
+  } else if (nextParentId !== null) {
+    requireKnowledgeParent(nextParentId, nextFolderId);
   }
 
   if (input.title !== undefined) {
@@ -163,7 +186,18 @@ export function updateKnowledge(
     return toKnowledgeDetail(current);
   }
 
+  const descendantIdsToMove = folderChanged
+    ? knowledgeDescendantIds(id).filter((knowledgeId) => knowledgeId !== id)
+    : [];
   const updated = db.transaction((transaction) => {
+    if (descendantIdsToMove.length > 0) {
+      transaction
+        .update(knowledgeNotes)
+        .set({ folderId: nextFolderId, updatedAt: sql`CURRENT_TIMESTAMP` })
+        .where(inArray(knowledgeNotes.id, descendantIdsToMove))
+        .run();
+    }
+
     const row = transaction
       .update(knowledgeNotes)
       .set(changes)
@@ -198,6 +232,18 @@ export function updateKnowledge(
 
 export function deleteKnowledge(id: number): boolean {
   assertPositiveId(id, "id");
+  const child = db
+    .select({ id: knowledgeNotes.id })
+    .from(knowledgeNotes)
+    .where(eq(knowledgeNotes.parentId, id))
+    .get();
+  if (child) {
+    throw new RepositoryError(
+      "NOT_EMPTY",
+      "Knowledge notes with child pages cannot be deleted.",
+      { knowledgeId: id },
+    );
+  }
   return (
     db
       .delete(knowledgeNotes)
@@ -210,11 +256,109 @@ export function deleteKnowledge(id: number): boolean {
 function toKnowledgeSummary(row: KnowledgeRow): KnowledgeSummaryDto {
   return {
     id: row.id,
+    parentId: row.parentId,
     folderId: row.folderId,
     title: row.title,
     tags: tagsFromJson(row.tags),
     updatedAt: row.updatedAt,
   };
+}
+
+function requireKnowledgeParent(parentId: number, folderId: number): KnowledgeRow {
+  assertPositiveId(parentId, "parentId");
+  const parent = db
+    .select()
+    .from(knowledgeNotes)
+    .where(eq(knowledgeNotes.id, parentId))
+    .get();
+  if (!parent) {
+    throw new RepositoryError("NOT_FOUND", "Parent knowledge note not found.", { parentId });
+  }
+  if (parent.folderId !== folderId) {
+    throw new RepositoryError(
+      "VALIDATION",
+      "Parent and child knowledge notes must be in the same folder.",
+      { parentId, folderId, parentFolderId: parent.folderId },
+    );
+  }
+  return parent;
+}
+
+function assertValidKnowledgeParent(
+  knowledgeId: number,
+  parentId: number | null,
+  folderId: number,
+): void {
+  if (parentId === null) return;
+  if (parentId === knowledgeId) {
+    throw new RepositoryError("CONFLICT", "A knowledge note cannot be its own parent.", {
+      knowledgeId,
+      parentId,
+    });
+  }
+
+  const visited = new Set<number>();
+  let cursor: number | null = parentId;
+  let parent: KnowledgeRow | null = null;
+  while (cursor !== null) {
+    if (cursor === knowledgeId) {
+      throw new RepositoryError("CONFLICT", "Moving this knowledge note would create a cycle.", {
+        knowledgeId,
+        parentId,
+      });
+    }
+    if (visited.has(cursor)) {
+      throw new RepositoryError("CONFLICT", "The existing knowledge hierarchy contains a cycle.", {
+        knowledgeId,
+        parentId,
+      });
+    }
+    visited.add(cursor);
+    const current = db
+      .select()
+      .from(knowledgeNotes)
+      .where(eq(knowledgeNotes.id, cursor))
+      .get();
+    if (!current) {
+      throw new RepositoryError("NOT_FOUND", "Parent knowledge note not found.", { parentId });
+    }
+    parent ??= current;
+    cursor = current.parentId;
+  }
+
+  if (parent && parent.folderId !== folderId) {
+    throw new RepositoryError(
+      "VALIDATION",
+      "Parent and child knowledge notes must be in the same folder.",
+      { parentId, folderId, parentFolderId: parent.folderId },
+    );
+  }
+}
+
+function knowledgeDescendantIds(knowledgeId: number): number[] {
+  const rows = db
+    .select({ id: knowledgeNotes.id, parentId: knowledgeNotes.parentId })
+    .from(knowledgeNotes)
+    .all();
+  const grouped = new Map<number, number[]>();
+  for (const row of rows) {
+    if (row.parentId === null) continue;
+    const children = grouped.get(row.parentId) ?? [];
+    children.push(row.id);
+    grouped.set(row.parentId, children);
+  }
+
+  const result: number[] = [];
+  const visited = new Set<number>();
+  const stack = [knowledgeId];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (current === undefined || visited.has(current)) continue;
+    visited.add(current);
+    result.push(current);
+    stack.push(...(grouped.get(current) ?? []));
+  }
+  return result;
 }
 
 function toKnowledgeDetail(row: KnowledgeRow): KnowledgeDetailDto {

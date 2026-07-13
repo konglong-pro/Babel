@@ -40,6 +40,10 @@ export const notes = sqliteTable(
     folderId: integer("folder_id")
       .notNull()
       .references(() => folders.id, { onDelete: "restrict" }),
+    parentId: integer("parent_id").references(
+      (): AnySQLiteColumn => notes.id,
+      { onDelete: "restrict" },
+    ),
     title: text("title").notNull(),
     contentMd: text("content_md").notNull().default(""),
     tags: text("tags").notNull().default("[]"),
@@ -47,6 +51,7 @@ export const notes = sqliteTable(
   },
   (table) => [
     index("note_folder_idx").on(table.folderId),
+    index("note_parent_idx").on(table.parentId),
     index("note_title_idx").on(table.title),
     check("note_title_not_blank", sql`length(trim(${table.title})) > 0`),
   ],

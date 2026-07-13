@@ -1,4 +1,8 @@
-import { hasOwn, type JsonObject } from "@babel-apps/platform/http/request";
+import {
+  hasOwn,
+  normalizeLoopbackOrigin,
+  type JsonObject,
+} from "@babel-apps/platform/http/request";
 
 import { ApiError } from "@/lib/http/errors";
 import {
@@ -25,33 +29,16 @@ export interface NoteMultipartRequest {
 }
 
 export function assertSameOrigin(request: Request): void {
-  let requestUrl: URL;
-  try {
-    requestUrl = new URL(request.url);
-  } catch {
-    throw new ApiError(403, "FORBIDDEN_ORIGIN", "Cross-origin mutations are not allowed.");
-  }
-  if (!["localhost", "127.0.0.1", "[::1]", "::1"].includes(requestUrl.hostname)) {
+  const requestOrigin = normalizeLoopbackOrigin(request.url);
+  if (requestOrigin === undefined) {
     throw new ApiError(403, "FORBIDDEN_ORIGIN", "Cross-origin mutations are not allowed.");
   }
 
   const origin = request.headers.get("origin");
   if (origin === null) return;
 
-  let requestOrigin: string;
-  let suppliedOrigin: string;
-  try {
-    requestOrigin = requestUrl.origin;
-    suppliedOrigin = new URL(origin).origin;
-  } catch {
-    throw new ApiError(
-      403,
-      "FORBIDDEN_ORIGIN",
-      "Cross-origin mutations are not allowed.",
-    );
-  }
-
-  if (suppliedOrigin !== requestOrigin) {
+  const suppliedOrigin = normalizeLoopbackOrigin(origin);
+  if (suppliedOrigin === undefined || suppliedOrigin !== requestOrigin) {
     throw new ApiError(
       403,
       "FORBIDDEN_ORIGIN",

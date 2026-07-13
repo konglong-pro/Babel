@@ -21,6 +21,7 @@ import {
 } from "./entries";
 import { RepositoryError } from "./errors";
 import {
+  assertNoTrashedEntryChildren,
   assertPositiveId,
   normalizeEntryKind,
   normalizeTags,
@@ -58,11 +59,24 @@ export function moveEntryToTrash(
   const current = findEntryRow(id);
   if (!current) return null;
   assertExpectedVersion(expectedVersion, current.version, id);
+  const child = db
+    .select({ id: entries.id })
+    .from(entries)
+    .where(eq(entries.parentId, id))
+    .get();
+  if (child) {
+    throw new RepositoryError(
+      "NOT_EMPTY",
+      "Entries with subpages cannot be moved to trash.",
+      { entryId: id, childId: child.id },
+    );
+  }
   const tags = tagNamesForEntry(id);
   const imagePaths = listImagePaths(id);
   const detail = entryRowToDetail(current, tags);
   const snapshotEntry: SnapshotEntry = {
     id: detail.id,
+    parentId: detail.parentId,
     folderId: detail.folderId,
     kind: detail.kind,
     title: detail.title,
@@ -151,6 +165,16 @@ export function restoreTrashEntry(trashId: number): EntryDetailDto {
     );
   }
   requireFolder(snapshot.entry.folderId);
+  if (snapshot.entry.parentId !== null) {
+    const parent = findEntryRow(snapshot.entry.parentId);
+    if (!parent || parent.folderId !== snapshot.entry.folderId) {
+      throw new RepositoryError(
+        "CONFLICT",
+        "Restore the parent entry in the same folder before restoring this subpage.",
+        { trashId, parentId: snapshot.entry.parentId },
+      );
+    }
+  }
   const version = snapshot.entry.version + 1;
 
   return sqlite.transaction(() => {
@@ -158,6 +182,7 @@ export function restoreTrashEntry(trashId: number): EntryDetailDto {
       .insert(entries)
       .values({
         id: snapshot.entry.id,
+        parentId: snapshot.entry.parentId,
         folderId: snapshot.entry.folderId,
         kind: snapshot.entry.kind,
         title: snapshot.entry.title,
@@ -195,6 +220,7 @@ export function purgeTrashEntry(
   const trashRow = findTrashRow(trashId);
   if (!trashRow) return null;
   const snapshot = parseTrashSnapshot(trashRow);
+  assertNoTrashedEntryChildren(snapshot.entry.id);
   assertExpectedImages(snapshot.imagePaths, expectedImagePaths);
   db.delete(trashEntries).where(eq(trashEntries.id, trashId)).run();
   return { imagePaths: snapshot.imagePaths };
@@ -212,6 +238,10 @@ export function parseTrashSnapshot(row: TrashRow): TrashEntrySnapshot {
   const kind = normalizeSnapshotKind(entry.kind, row.id);
   const snapshotEntry: SnapshotEntry = {
     id: positiveSnapshotInteger(entry.id, "entry.id", row.id),
+    parentId:
+      entry.parentId === undefined || entry.parentId === null
+        ? null
+        : positiveSnapshotInteger(entry.parentId, "entry.parentId", row.id),
     folderId: positiveSnapshotInteger(entry.folderId, "entry.folderId", row.id),
     kind,
     title: snapshotString(entry.title, "entry.title", row.id, false),

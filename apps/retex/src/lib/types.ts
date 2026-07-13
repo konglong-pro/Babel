@@ -18,6 +18,7 @@ export interface RelatedItemDto {
 
 export interface KnowledgeSummaryDto {
   id: number;
+  parentId: number | null;
   folderId: number;
   title: string;
   tags: string[];

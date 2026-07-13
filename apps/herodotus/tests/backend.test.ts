@@ -133,7 +133,7 @@ test("Herodotus backend integration", async (t) => {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Origin: "http://localhost",
+            Origin: "http://127.0.0.1",
           },
           body: JSON.stringify({ name: "Origin checked", parentId: null }),
         }),
@@ -471,6 +471,104 @@ test("Herodotus backend integration", async (t) => {
       assert.equal(repositories.getNote(existing.id)?.contentMd, "unchanged");
       assert.deepEqual(await uploadFiles(), before);
       assert.ok(repositories.deleteNote(existing.id));
+    });
+
+    await t.test("notes support nested pages and expose parentId through the API", async () => {
+      const history = repositories.listFolders()[0];
+      const parentResponse = await noteCollectionRoute.POST(
+        new Request("http://localhost/api/notes", {
+          method: "POST",
+          body: noteForm({
+            folderId: history.id,
+            parentId: null,
+            title: "Parent page",
+            contentMd: "",
+            tags: [],
+          }),
+        }),
+      );
+      assert.equal(parentResponse.status, 201);
+      const parent = (await parentResponse.json()) as { id: number; parentId: number | null };
+      assert.equal(parent.parentId, null);
+
+      const childResponse = await noteCollectionRoute.POST(
+        new Request("http://localhost/api/notes", {
+          method: "POST",
+          body: noteForm({
+            folderId: history.id,
+            parentId: parent.id,
+            title: "Child page",
+            contentMd: "",
+            tags: [],
+          }),
+        }),
+      );
+      assert.equal(childResponse.status, 201);
+      const child = (await childResponse.json()) as { id: number; parentId: number | null };
+      assert.equal(child.parentId, parent.id);
+      assert.equal(repositories.getNote(child.id)?.parentId, parent.id);
+    });
+
+    await t.test("note hierarchy rejects cycles, moves subtrees, and protects parents", async () => {
+      const [history, literature] = repositories.listFolders();
+      const root = repositories.createNote({
+        folderId: history.id,
+        title: "Movable root",
+      });
+      const child = repositories.createNote({
+        folderId: history.id,
+        parentId: root.id,
+        title: "Movable child",
+      });
+      const grandchild = repositories.createNote({
+        folderId: history.id,
+        parentId: child.id,
+        title: "Movable grandchild",
+      });
+
+      assert.throws(
+        () => repositories.updateNote(root.id, { parentId: grandchild.id }),
+        (error: unknown) =>
+          error instanceof repositories.RepositoryError && error.code === "CONFLICT",
+      );
+      assert.throws(
+        () => repositories.createNote({
+          folderId: literature.id,
+          parentId: root.id,
+          title: "Wrong-folder child",
+        }),
+        (error: unknown) =>
+          error instanceof repositories.RepositoryError && error.code === "CONFLICT",
+      );
+
+      const leaf = repositories.createNote({
+        folderId: history.id,
+        parentId: root.id,
+        title: "Movable leaf",
+      });
+      const movedLeaf = repositories.updateNote(leaf.id, {
+        folderId: literature.id,
+      }).note;
+      assert.equal(movedLeaf.parentId, null);
+      assert.equal(movedLeaf.folderId, literature.id);
+
+      const moved = repositories.updateNote(child.id, { folderId: literature.id }).note;
+      assert.equal(moved.parentId, null);
+      assert.equal(moved.folderId, literature.id);
+      assert.equal(repositories.getNote(grandchild.id)?.folderId, literature.id);
+      assert.equal(repositories.getNote(grandchild.id)?.parentId, child.id);
+
+      assert.throws(
+        () => repositories.deleteNote(child.id),
+        (error: unknown) =>
+          error instanceof repositories.RepositoryError && error.code === "NOT_EMPTY",
+      );
+      const deleteResponse = await noteItemRoute.DELETE(
+        new Request(`http://localhost/api/notes/${child.id}`, { method: "DELETE" }),
+        { params: Promise.resolve({ id: String(child.id) }) },
+      );
+      assert.equal(deleteResponse.status, 409);
+      assert.equal((await deleteResponse.json() as { error: { code: string } }).error.code, "NOT_EMPTY");
     });
 
     await t.test("notes support recursive listing, moving, normalized tags, and search", () => {

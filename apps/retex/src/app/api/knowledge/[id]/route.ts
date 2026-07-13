@@ -10,6 +10,7 @@ import { ApiError, handleApi } from "@/lib/http/errors";
 import {
   assertPatchHasFields,
   optionalIdArray,
+  optionalNullablePositiveInteger,
   optionalPositiveInteger,
   optionalString,
   optionalStringArray,
@@ -44,11 +45,13 @@ export function PATCH(request: Request, context: RouteContext): Promise<Response
     const body = await readJsonObject(request);
     const patch: UpdateKnowledgeInput = {};
     const folderId = optionalPositiveInteger(body, "folderId");
+    const parentId = optionalNullablePositiveInteger(body, "parentId");
     const title = optionalString(body, "title");
     const contentMd = optionalString(body, "contentMd", { allowEmpty: true, trim: false });
     const tags = optionalStringArray(body, "tags");
     const exerciseIds = optionalIdArray(body, "exerciseIds", "relatedExerciseIds");
     if (folderId !== undefined) patch.folderId = folderId;
+    if (parentId !== undefined) patch.parentId = parentId;
     if (title !== undefined) patch.title = title;
     if (contentMd !== undefined) patch.contentMd = contentMd;
     if (tags !== undefined) patch.tags = tags;

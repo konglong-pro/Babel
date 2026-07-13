@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
+    "db:check": "tsx scripts/check-database.ts",
     "db:checkpoint": "tsx scripts/checkpoint-database.ts",
     "snapshot:export": "tsx scripts/export-snapshot.ts",
     "snapshot:import": "tsx scripts/import-snapshot.ts",

@@ -22,7 +22,7 @@ import {
   getErrorMessage,
   updateNote,
 } from "@/lib/api-client";
-import type { FolderDto, NoteDetailDto } from "@/lib/types";
+import type { FolderDto, NoteDetailDto, NoteSummaryDto } from "@/lib/types";
 
 export type NoteViewMode = "view" | "edit" | "create";
 
@@ -30,7 +30,9 @@ interface NoteDetailProps {
   detail: NoteDetailDto | null;
   mode: NoteViewMode;
   folderId: number | null;
+  parentId: number | null;
   folders: FolderDto[];
+  notes: NoteSummaryDto[];
   loading?: boolean;
   onEdit: () => void;
   onCancel: () => void;
@@ -45,7 +47,9 @@ export function NoteDetail({
   detail,
   mode,
   folderId,
+  parentId,
   folders,
+  notes,
   loading,
   onEdit,
   onCancel,
@@ -66,7 +70,9 @@ export function NoteDetail({
       <NoteForm
         detail={mode === "edit" ? detail : null}
         initialFolderId={folderId}
+        initialParentId={parentId}
         folders={folders}
+        notes={notes}
         onCancel={onCancel}
         onSaved={onSaved}
         onDirtyChange={onDirtyChange}
@@ -128,7 +134,9 @@ export function NoteDetail({
 interface NoteFormProps {
   detail: NoteDetailDto | null;
   initialFolderId: number | null;
+  initialParentId: number | null;
   folders: FolderDto[];
+  notes: NoteSummaryDto[];
   onCancel: () => void;
   onSaved: (detail: NoteDetailDto) => Promise<void> | void;
   onDirtyChange: (dirty: boolean) => void;
@@ -138,7 +146,9 @@ interface NoteFormProps {
 function NoteForm({
   detail,
   initialFolderId,
+  initialParentId,
   folders,
+  notes,
   onCancel,
   onSaved,
   onDirtyChange,
@@ -150,10 +160,12 @@ function NoteForm({
   const initialTags = detail?.tags.join(", ") ?? "";
   const initialContent = detail?.contentMd ?? "";
   const initialFolder = detail?.folderId ?? initialFolderId;
+  const initialParent = detail?.parentId ?? initialParentId;
   const [title, setTitle] = useState(initialTitle);
   const [tags, setTags] = useState(initialTags);
   const [content, setContent] = useState(initialContent);
   const [folderId, setFolderId] = useState<number | null>(initialFolder);
+  const [parentId, setParentId] = useState<number | null>(initialParent);
   const [stagedImages, setStagedImages] = useState<StagedImage[]>([]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -163,6 +175,15 @@ function NoteForm({
     () => folders.map((folder) => ({ id: folder.id, label: folderPathLabel(folder.id, folderMap) })),
     [folderMap, folders],
   );
+  const parentOptions = useMemo(() => {
+    if (folderId === null) return [];
+    const noteMap = new Map(notes.map((note) => [note.id, note]));
+    const excluded = detail ? noteDescendantIds(detail.id, notes) : new Set<number>();
+    if (detail) excluded.add(detail.id);
+    return notes
+      .filter((note) => note.folderId === folderId && !excluded.has(note.id))
+      .map((note) => ({ id: note.id, label: notePathLabel(note.id, noteMap) }));
+  }, [detail, folderId, notes]);
   const imagePreviews = useMemo(
     () => new Map(stagedImages.map((image) => [image.token, image.previewUrl])),
     [stagedImages],
@@ -172,6 +193,7 @@ function NoteForm({
     tags !== initialTags ||
     content !== initialContent ||
     folderId !== initialFolder ||
+    parentId !== initialParent ||
     stagedImages.length > 0;
 
   useEffect(() => {
@@ -208,6 +230,7 @@ function NoteForm({
     try {
       const input = {
         folderId,
+        parentId,
         title: title.trim(),
         contentMd: content,
         tags: parseTags(tags),
@@ -278,11 +301,27 @@ function NoteForm({
               name="folderId"
               required
               value={folderId ?? ""}
-              onChange={(event) => setFolderId(event.target.value ? Number(event.target.value) : null)}
+              onChange={(event) => {
+                setFolderId(event.target.value ? Number(event.target.value) : null);
+                setParentId(null);
+              }}
             >
               <option value="" disabled>Select a folder</option>
               {folderOptions.map((folder) => (
                 <option key={folder.id} value={folder.id}>{folder.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Parent page</span>
+            <select
+              name="parentId"
+              value={parentId ?? ""}
+              onChange={(event) => setParentId(event.target.value ? Number(event.target.value) : null)}
+            >
+              <option value="">Root page</option>
+              {parentOptions.map((note) => (
+                <option key={note.id} value={note.id}>{note.label}</option>
               ))}
             </select>
           </label>
@@ -312,4 +351,37 @@ function NoteForm({
       </form>
     </section>
   );
+}
+
+function noteDescendantIds(rootId: number, notes: readonly NoteSummaryDto[]): Set<number> {
+  const ids = new Set<number>();
+  let added = true;
+  while (added) {
+    added = false;
+    for (const note of notes) {
+      if (note.parentId === rootId || (note.parentId !== null && ids.has(note.parentId))) {
+        if (ids.has(note.id)) continue;
+        ids.add(note.id);
+        added = true;
+      }
+    }
+  }
+  return ids;
+}
+
+function notePathLabel(
+  id: number,
+  noteMap: ReadonlyMap<number, NoteSummaryDto>,
+): string {
+  const titles: string[] = [];
+  const visited = new Set<number>();
+  let cursor: number | null = id;
+  while (cursor !== null && !visited.has(cursor)) {
+    visited.add(cursor);
+    const note = noteMap.get(cursor);
+    if (!note) break;
+    titles.push(note.title);
+    cursor = note.parentId;
+  }
+  return titles.reverse().join(" / ");
 }

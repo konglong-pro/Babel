@@ -17,15 +17,59 @@ import {
   getErrorMessage,
   updateEntry,
 } from "@/lib/api-client";
-import type { EntryDetailDto, EntryKind, FolderDto } from "@/lib/types";
+import type {
+  EntryDetailDto,
+  EntryKind,
+  EntrySummaryDto,
+  FolderDto,
+} from "@/lib/types";
 
 export type EntryViewMode = "view" | "edit" | "create";
+
+function descendantEntryIds(
+  entryId: number,
+  entries: readonly EntrySummaryDto[],
+): Set<number> {
+  const result = new Set<number>();
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const entry of entries) {
+      if (
+        entry.parentId !== null &&
+        (entry.parentId === entryId || result.has(entry.parentId)) &&
+        !result.has(entry.id)
+      ) {
+        result.add(entry.id);
+        changed = true;
+      }
+    }
+  }
+  return result;
+}
+
+function entryPathLabel(
+  entryId: number,
+  entries: ReadonlyMap<number, EntrySummaryDto>,
+): string {
+  const labels: string[] = [];
+  const seen = new Set<number>();
+  let current = entries.get(entryId);
+  while (current && !seen.has(current.id)) {
+    labels.unshift(current.title);
+    seen.add(current.id);
+    current = current.parentId === null ? undefined : entries.get(current.parentId);
+  }
+  return labels.join(" / ");
+}
 
 interface EntryDetailProps {
   detail: EntryDetailDto | null;
   mode: EntryViewMode;
   folderId: number | null;
+  parentId: number | null;
   folders: FolderDto[];
+  entries: readonly EntrySummaryDto[];
   loading?: boolean;
   onEdit: () => void;
   onCancel: () => void;
@@ -40,7 +84,9 @@ export function EntryDetail({
   detail,
   mode,
   folderId,
+  parentId,
   folders,
+  entries,
   loading,
   onEdit,
   onCancel,
@@ -62,10 +108,12 @@ export function EntryDetail({
   if (mode === "create" || mode === "edit") {
     return (
       <EntryForm
-        key={mode === "edit" ? `edit-${detail?.id ?? "missing"}-${detail?.version ?? 0}` : `new-${folderId}`}
+        key={mode === "edit" ? `edit-${detail?.id ?? "missing"}-${detail?.version ?? 0}` : `new-${folderId}-${parentId ?? "root"}`}
         detail={mode === "edit" ? detail : null}
         initialFolderId={folderId}
+        initialParentId={parentId}
         folders={folders}
+        entries={entries}
         onCancel={onCancel}
         onSaved={onSaved}
         onDirtyChange={onDirtyChange}
@@ -145,7 +193,9 @@ export function EntryDetail({
 interface EntryFormProps {
   detail: EntryDetailDto | null;
   initialFolderId: number | null;
+  initialParentId: number | null;
   folders: FolderDto[];
+  entries: readonly EntrySummaryDto[];
   onCancel: () => void;
   onSaved: (detail: EntryDetailDto) => Promise<void> | void;
   onDirtyChange: (dirty: boolean) => void;
@@ -155,7 +205,9 @@ interface EntryFormProps {
 function EntryForm({
   detail,
   initialFolderId,
+  initialParentId,
   folders,
+  entries,
   onCancel,
   onSaved,
   onDirtyChange,
@@ -171,6 +223,7 @@ function EntryForm({
   const initialLanguage = detail?.language ?? "";
   const initialFilename = detail?.filename ?? "";
   const initialFolder = detail?.folderId ?? initialFolderId;
+  const initialParent = detail?.parentId ?? initialParentId;
   const [kind, setKind] = useState<EntryKind>(initialKind);
   const [title, setTitle] = useState(initialTitle);
   const [tags, setTags] = useState(initialTags);
@@ -179,6 +232,7 @@ function EntryForm({
   const [language, setLanguage] = useState(initialLanguage);
   const [filename, setFilename] = useState(initialFilename);
   const [folderId, setFolderId] = useState<number | null>(initialFolder);
+  const [parentId, setParentId] = useState<number | null>(initialParent);
   const [stagedImages, setStagedImages] = useState<StagedImage[]>([]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -190,6 +244,26 @@ function EntryForm({
   const folderOptions = useMemo(
     () => folders.map((folder) => ({ id: folder.id, label: folderPathLabel(folder.id, folderMap) })),
     [folderMap, folders],
+  );
+  const entryMap = useMemo(
+    () => new Map(entries.map((entry) => [entry.id, entry])),
+    [entries],
+  );
+  const unavailableParentIds = useMemo(
+    () => (detail ? descendantEntryIds(detail.id, entries) : new Set<number>()),
+    [detail, entries],
+  );
+  const parentOptions = useMemo(
+    () =>
+      entries
+        .filter(
+          (entry) =>
+            entry.folderId === folderId &&
+            entry.id !== detail?.id &&
+            !unavailableParentIds.has(entry.id),
+        )
+        .map((entry) => ({ id: entry.id, label: entryPathLabel(entry.id, entryMap) })),
+    [detail?.id, entries, entryMap, folderId, unavailableParentIds],
   );
   const imagePreviews = useMemo(
     () => new Map(stagedImages.map((image) => [image.token, image.previewUrl])),
@@ -204,6 +278,7 @@ function EntryForm({
     tags !== initialTags ||
     notesMd !== initialNotes ||
     folderId !== initialFolder ||
+    parentId !== initialParent ||
     snippetChanged ||
     stagedImages.length > 0;
 
@@ -245,6 +320,7 @@ function EntryForm({
     try {
       const input = {
         folderId,
+        parentId,
         kind,
         title: title.trim(),
         notesMd,
@@ -330,11 +406,32 @@ function EntryForm({
               name="folderId"
               required
               value={folderId ?? ""}
-              onChange={(event) => setFolderId(event.target.value ? Number(event.target.value) : null)}
+              onChange={(event) => {
+                const nextFolderId = event.target.value ? Number(event.target.value) : null;
+                setFolderId(nextFolderId);
+                setParentId((current) =>
+                  current !== null && entryMap.get(current)?.folderId === nextFolderId
+                    ? current
+                    : null,
+                );
+              }}
             >
               <option value="" disabled>Select a folder</option>
               {folderOptions.map((folder) => (
                 <option key={folder.id} value={folder.id}>{folder.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Parent page</span>
+            <select
+              name="parentId"
+              value={parentId ?? ""}
+              onChange={(event) => setParentId(event.target.value ? Number(event.target.value) : null)}
+            >
+              <option value="">Root page</option>
+              {parentOptions.map((entry) => (
+                <option key={entry.id} value={entry.id}>{entry.label}</option>
               ))}
             </select>
           </label>

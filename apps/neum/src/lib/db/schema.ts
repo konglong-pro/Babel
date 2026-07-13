@@ -45,6 +45,10 @@ export const entries = sqliteTable(
   "entry",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
+    parentId: integer("parent_id").references(
+      (): AnySQLiteColumn => entries.id,
+      { onDelete: "restrict" },
+    ),
     folderId: integer("folder_id")
       .notNull()
       .references(() => folders.id, { onDelete: "restrict" }),
@@ -58,6 +62,7 @@ export const entries = sqliteTable(
     ...timestamps,
   },
   (table) => [
+    index("entry_parent_idx").on(table.parentId),
     index("entry_folder_idx").on(table.folderId),
     index("entry_kind_idx").on(table.kind),
     index("entry_updated_idx").on(table.updatedAt, table.id),

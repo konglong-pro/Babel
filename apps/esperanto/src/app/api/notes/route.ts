@@ -6,6 +6,7 @@ import {
   assertSameOrigin,
   optionalString,
   optionalStringArray,
+  optionalNullablePositiveInteger,
   parsePositiveInteger,
   readNoteMultipart,
   requiredPositiveInteger,
@@ -32,7 +33,7 @@ export function POST(request: Request): Promise<Response> {
   return handleApi(async () => {
     assertSameOrigin(request);
     const { payload, uploads } = await readNoteMultipart(request);
-    assertOnlyFields(payload, ["folderId", "title", "contentMd", "tags"]);
+    assertOnlyFields(payload, ["folderId", "parentId", "title", "contentMd", "tags"]);
     const contentMd =
       optionalString(payload, "contentMd", { allowEmpty: true, trim: false }) ?? "";
     const staged = await stageNoteImages(contentMd, uploads);
@@ -40,6 +41,7 @@ export function POST(request: Request): Promise<Response> {
       const note = createNote(
         {
           folderId: requiredPositiveInteger(payload, "folderId"),
+          parentId: optionalNullablePositiveInteger(payload, "parentId") ?? null,
           title: requiredString(payload, "title"),
           contentMd: staged.contentMd,
           tags: optionalStringArray(payload, "tags") ?? [],

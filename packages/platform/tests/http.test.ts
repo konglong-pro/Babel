@@ -7,6 +7,7 @@ import {
 } from "../src/http/errors";
 import {
   assertPatchHasFields,
+  normalizeLoopbackOrigin,
   optionalNullablePositiveInteger,
   optionalString,
   parsePositiveInteger,
@@ -93,4 +94,20 @@ test("shared request helpers preserve validation and normalization", async () =>
       ),
     (error: unknown) => error instanceof ApiError && error.code === "INVALID_JSON",
   );
+});
+
+test("loopback origins normalize host aliases without relaxing protocol or port", () => {
+  for (const value of [
+    "http://localhost:3001/api/folders",
+    "http://127.0.0.1:3001/api/folders",
+    "http://[::1]:3001/api/folders",
+  ]) {
+    assert.equal(normalizeLoopbackOrigin(value), "http://localhost:3001");
+  }
+
+  assert.equal(normalizeLoopbackOrigin("https://127.0.0.1:3001"), "https://localhost:3001");
+  assert.equal(normalizeLoopbackOrigin("http://localhost:3002"), "http://localhost:3002");
+  assert.equal(normalizeLoopbackOrigin("http://127.0.0.2:3001"), undefined);
+  assert.equal(normalizeLoopbackOrigin("https://attacker.example:3001"), undefined);
+  assert.equal(normalizeLoopbackOrigin("not a URL"), undefined);
 });

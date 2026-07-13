@@ -5,6 +5,7 @@ import {
   assertOnlyFields,
   assertPatchHasFields,
   assertSameOrigin,
+  optionalNullablePositiveInteger,
   optionalNullableString,
   optionalPositiveInteger,
   optionalString,
@@ -55,6 +56,7 @@ export function PATCH(request: Request, context: RouteContext): Promise<Response
     assertOnlyFields(payload, [
       "expectedVersion",
       "folderId",
+      "parentId",
       "kind",
       "title",
       "notesMd",
@@ -68,6 +70,7 @@ export function PATCH(request: Request, context: RouteContext): Promise<Response
       expectedVersion: requiredPositiveInteger(payload, "expectedVersion"),
     };
     const folderId = optionalPositiveInteger(payload, "folderId");
+    const parentId = optionalNullablePositiveInteger(payload, "parentId");
     const kind = optionalEntryKind(payload);
     const title = optionalString(payload, "title");
     const notesMd = optionalString(payload, "notesMd", {
@@ -82,6 +85,7 @@ export function PATCH(request: Request, context: RouteContext): Promise<Response
     const filename = optionalNullableString(payload, "filename");
     const tags = optionalStringArray(payload, "tags");
     if (folderId !== undefined) patch.folderId = folderId;
+    if (parentId !== undefined) patch.parentId = parentId;
     if (kind !== undefined) patch.kind = kind;
     if (title !== undefined) patch.title = title;
     if (code !== undefined) patch.code = code;
@@ -106,6 +110,7 @@ export function PATCH(request: Request, context: RouteContext): Promise<Response
     assertPatchHasFields(
       {
         folderId,
+        parentId,
         kind,
         title,
         notesMd,

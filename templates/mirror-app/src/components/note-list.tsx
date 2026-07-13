@@ -1,7 +1,14 @@
 "use client";
 
-import { folderPath } from "@/components/shared";
-import { formatDate, Tags } from "@/components/shared";
+import { useMemo, useState } from "react";
+
+import {
+  type NoteExpansionState,
+  noteSelectionPath,
+  revealNoteSelection,
+  toggleNoteExpansion,
+} from "@/components/note-tree-state";
+import { folderPath, formatDate, Tags } from "@/components/shared";
 import type { FolderDto, NoteSummaryDto } from "@/lib/types";
 
 interface NoteListProps {
@@ -11,8 +18,20 @@ interface NoteListProps {
   selectedNoteId: number | null;
   loading?: boolean;
   onSelect: (id: number) => void;
-  onCreate: () => void;
+  onCreate: (parentId: number | null, folderId?: number) => void;
   onBack: () => void;
+}
+
+interface NoteBranchProps {
+  parentId: number | null;
+  grouped: ReadonlyMap<number | null, NoteSummaryDto[]>;
+  folders: ReadonlyMap<number, FolderDto>;
+  selectedFolderId: number | null;
+  selectedNoteId: number | null;
+  expandedIds: ReadonlySet<number>;
+  onSelect: (id: number) => void;
+  onToggle: (id: number) => void;
+  onCreate: (parentId: number, folderId: number) => void;
 }
 
 function relativePath(
@@ -21,12 +40,86 @@ function relativePath(
   folders: ReadonlyMap<number, FolderDto>,
 ): string {
   const path = folderPath(folderId, folders);
-  if (selectedFolderId === null) return path.map((folder) => folder.name).join(" / ") || "Unknown folder";
-
+  if (selectedFolderId === null) {
+    return path.map((folder) => folder.name).join(" / ") || "Unknown folder";
+  }
   const selectedIndex = path.findIndex((folder) => folder.id === selectedFolderId);
-  if (selectedIndex < 0) return path.map((folder) => folder.name).join(" / ") || "Unknown folder";
+  if (selectedIndex < 0) {
+    return path.map((folder) => folder.name).join(" / ") || "Unknown folder";
+  }
   const relative = path.slice(selectedIndex + 1).map((folder) => folder.name);
   return relative.length ? relative.join(" / ") : "This folder";
+}
+
+function NoteBranch({
+  parentId,
+  grouped,
+  folders,
+  selectedFolderId,
+  selectedNoteId,
+  expandedIds,
+  onSelect,
+  onToggle,
+  onCreate,
+}: NoteBranchProps) {
+  const children = grouped.get(parentId) ?? [];
+  if (children.length === 0) return null;
+
+  return (
+    <ul>
+      {children.map((note) => {
+        const expanded = expandedIds.has(note.id);
+        return (
+          <li key={note.id}>
+            <div className="note-node-row">
+              <button
+                type="button"
+                className="note-disclosure"
+                aria-expanded={expanded}
+                aria-label={`${expanded ? "Collapse" : "Expand"} ${note.title}`}
+                onClick={() => onToggle(note.id)}
+              />
+              <button
+                type="button"
+                className={selectedNoteId === note.id ? "note-card selected" : "note-card"}
+                aria-current={selectedNoteId === note.id ? "page" : undefined}
+                onClick={() => onSelect(note.id)}
+              >
+                <span className="note-path">
+                  {relativePath(note.folderId, selectedFolderId, folders)}
+                </span>
+                <strong>{note.title}</strong>
+                <Tags tags={note.tags} />
+                <time dateTime={note.updatedAt}>Updated {formatDate(note.updatedAt)}</time>
+              </button>
+            </div>
+            {expanded ? (
+              <>
+                <NoteBranch
+                  parentId={note.id}
+                  grouped={grouped}
+                  folders={folders}
+                  selectedFolderId={selectedFolderId}
+                  selectedNoteId={selectedNoteId}
+                  expandedIds={expandedIds}
+                  onSelect={onSelect}
+                  onToggle={onToggle}
+                  onCreate={onCreate}
+                />
+                <button
+                  type="button"
+                  className="tree-create-action note-tree-create"
+                  onClick={() => onCreate(note.id, note.folderId)}
+                >
+                  + New subnote
+                </button>
+              </>
+            ) : null}
+          </li>
+        );
+      })}
+    </ul>
+  );
 }
 
 export function NoteList({
@@ -40,6 +133,39 @@ export function NoteList({
   onBack,
 }: NoteListProps) {
   const selectedFolder = selectedFolderId === null ? undefined : folders.get(selectedFolderId);
+  const grouped = useMemo(() => {
+    const result = new Map<number | null, NoteSummaryDto[]>();
+    for (const note of notes) {
+      const siblings = result.get(note.parentId) ?? [];
+      siblings.push(note);
+      result.set(note.parentId, siblings);
+    }
+    return result;
+  }, [notes]);
+  const selectionPath = useMemo(
+    () => noteSelectionPath(notes, selectedNoteId),
+    [notes, selectedNoteId],
+  );
+  const [treeState, setTreeState] = useState<NoteExpansionState>(() => ({
+    expandedIds: new Set<number>(),
+    revealedPathKey: "root",
+  }));
+  const revealedTreeState = revealNoteSelection(treeState, selectionPath);
+  if (revealedTreeState !== treeState) setTreeState(revealedTreeState);
+
+  function toggleNote(noteId: number) {
+    setTreeState((current) => {
+      const revealed = revealNoteSelection(current, selectionPath);
+      return {
+        ...revealed,
+        expandedIds: toggleNoteExpansion(revealed.expandedIds, noteId),
+      };
+    });
+  }
+
+  const selectedNote = selectedNoteId === null
+    ? undefined
+    : notes.find((note) => note.id === selectedNoteId);
 
   return (
     <aside className="workspace-panel note-panel" aria-label="Notes list">
@@ -52,19 +178,28 @@ export function NoteList({
           <h2>{selectedFolder?.name ?? "All Notes"}</h2>
           <p>{notes.length} {notes.length === 1 ? "note" : "notes"}</p>
         </div>
-        <button
-          type="button"
-          className="primary-button"
-          disabled={selectedFolderId === null}
-          title={selectedFolderId === null ? "Select a folder before creating a note" : undefined}
-          onClick={onCreate}
-        >
-          New Note
-        </button>
+        <div className="note-create-actions">
+          <button
+            type="button"
+            className="primary-button"
+            disabled={selectedFolderId === null}
+            title={selectedFolderId === null ? "Select a folder before creating a note" : undefined}
+            onClick={() => onCreate(null)}
+          >
+            New Note
+          </button>
+          <button
+            type="button"
+            disabled={!selectedNote}
+            onClick={() => selectedNote && onCreate(selectedNote.id, selectedNote.folderId)}
+          >
+            New subnote
+          </button>
+        </div>
       </div>
 
       {selectedFolderId === null ? (
-        <p className="panel-hint">Select a folder to create a note. All Notes remains a read-only collection view.</p>
+        <p className="panel-hint">Select a folder to create a root note. You can still add a subnote below any page.</p>
       ) : null}
       {loading ? <p className="panel-status">Loading notes…</p> : null}
       {!loading && notes.length === 0 ? (
@@ -75,23 +210,19 @@ export function NoteList({
         </div>
       ) : null}
 
-      <ul className="note-list">
-        {notes.map((note) => (
-          <li key={note.id}>
-            <button
-              type="button"
-              className={selectedNoteId === note.id ? "note-card selected" : "note-card"}
-              aria-current={selectedNoteId === note.id ? "page" : undefined}
-              onClick={() => onSelect(note.id)}
-            >
-              <span className="note-path">{relativePath(note.folderId, selectedFolderId, folders)}</span>
-              <strong>{note.title}</strong>
-              <Tags tags={note.tags} />
-              <time dateTime={note.updatedAt}>Updated {formatDate(note.updatedAt)}</time>
-            </button>
-          </li>
-        ))}
-      </ul>
+      <nav className="note-tree" aria-label="Page tree">
+        <NoteBranch
+          parentId={null}
+          grouped={grouped}
+          folders={folders}
+          selectedFolderId={selectedFolderId}
+          selectedNoteId={selectedNoteId}
+          expandedIds={revealedTreeState.expandedIds}
+          onSelect={onSelect}
+          onToggle={toggleNote}
+          onCreate={(parentId, folderId) => onCreate(parentId, folderId)}
+        />
+      </nav>
     </aside>
   );
 }

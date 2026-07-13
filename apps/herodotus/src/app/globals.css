@@ -375,7 +375,7 @@ a {
 }
 
 .folder-tree ul,
-.note-list,
+.note-tree ul,
 .tag-list,
 .search-result-list {
   list-style: none;
@@ -383,32 +383,36 @@ a {
   padding: 0;
 }
 
-.folder-tree ul ul {
+.folder-tree ul ul,
+.note-tree ul ul {
   margin-left: 0.66rem;
   border-left: 1px solid var(--ink);
   padding-left: 0.38rem;
 }
 
-.folder-node-row {
+.folder-node-row,
+.note-node-row {
   display: flex;
   min-width: 0;
   align-items: stretch;
 }
 
-.folder-node-row .folder-node {
+.folder-node-row .folder-node,
+.note-node-row .note-card {
   width: auto;
   min-width: 0;
   flex: 1;
 }
 
 .folder-disclosure,
-.folder-disclosure-spacer {
+.note-disclosure {
   width: 1.45rem;
   min-height: 0;
   flex: 0 0 1.45rem;
 }
 
-.folder-disclosure {
+.folder-disclosure,
+.note-disclosure {
   display: grid;
   border: 0;
   border-radius: 4px;
@@ -419,7 +423,8 @@ a {
   place-items: center;
 }
 
-.folder-disclosure::before {
+.folder-disclosure::before,
+.note-disclosure::before {
   width: 0.4rem;
   height: 0.4rem;
   border-right: 1.5px solid currentColor;
@@ -429,17 +434,21 @@ a {
   transition: transform 120ms ease;
 }
 
-.folder-disclosure[aria-expanded="true"]::before {
+.folder-disclosure[aria-expanded="true"]::before,
+.note-disclosure[aria-expanded="true"]::before {
   transform: rotate(45deg);
 }
 
-.folder-disclosure:focus-visible {
+.folder-disclosure:focus-visible,
+.note-disclosure:focus-visible {
   background: rgb(255 255 255 / 34%);
   color: var(--ink);
 }
 
 .folder-disclosure:hover:not(:disabled),
-.folder-disclosure:active:not(:disabled) {
+.folder-disclosure:active:not(:disabled),
+.note-disclosure:hover:not(:disabled),
+.note-disclosure:active:not(:disabled) {
   border-color: transparent;
   background: rgb(255 255 255 / 34%);
   box-shadow: none;
@@ -557,10 +566,21 @@ a {
   white-space: nowrap;
 }
 
-.note-list {
+.note-tree > ul {
   display: grid;
   gap: 0.45rem;
   padding: 0 4px 4px 0;
+}
+
+.tree-inline-create {
+  width: calc(100% - 1.45rem);
+  min-height: 30px;
+  margin: 0.24rem 0 0.4rem 1.45rem;
+  border-style: dashed;
+  background: transparent;
+  box-shadow: none;
+  padding: 0.25rem 0.5rem;
+  text-align: left;
 }
 
 .note-card {

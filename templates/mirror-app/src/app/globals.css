@@ -321,6 +321,7 @@ a {
 }
 
 .folder-tree ul,
+.note-tree ul,
 .note-list,
 .tag-list,
 .search-result-list {
@@ -329,13 +330,15 @@ a {
   padding: 0;
 }
 
-.folder-tree ul ul {
+.folder-tree ul ul,
+.note-tree ul ul {
   margin-left: 0.66rem;
   border-left: 1px solid #cfc3b1;
   padding-left: 0.38rem;
 }
 
-.folder-node-row {
+.folder-node-row,
+.note-node-row {
   display: flex;
   align-items: stretch;
 }
@@ -387,6 +390,12 @@ a {
 }
 
 .folder-node-row .folder-node {
+  width: auto;
+  min-width: 0;
+  flex: 1;
+}
+
+.note-node-row .note-card {
   width: auto;
   min-width: 0;
   flex: 1;
@@ -466,6 +475,60 @@ a {
 
 .note-list-heading .primary-button {
   white-space: nowrap;
+}
+
+.note-create-actions {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.note-create-actions button {
+  white-space: nowrap;
+}
+
+.note-disclosure {
+  display: grid;
+  width: 1.45rem;
+  min-height: 0;
+  flex: 0 0 1.45rem;
+  place-items: center;
+  border-color: transparent;
+  background: transparent;
+  padding: 0;
+}
+
+.note-disclosure::before {
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid currentColor;
+  content: "";
+  opacity: 0.68;
+  transition: transform 120ms ease;
+}
+
+.note-disclosure[aria-expanded="true"]::before {
+  transform: rotate(90deg);
+}
+
+.note-disclosure:hover:not(:disabled) {
+  border-color: transparent;
+  background: rgb(23 63 98 / 7%);
+}
+
+.tree-create-action {
+  margin: 0.2rem 0 0.4rem 1.85rem;
+  border-color: transparent;
+  background: transparent;
+  color: var(--blue);
+  padding: 0.28rem 0.45rem;
+  font-size: 0.72rem;
+}
+
+.tree-create-action:hover:not(:disabled) {
+  border-color: transparent;
+  background: rgb(23 63 98 / 7%);
 }
 
 .note-list {

@@ -8,6 +8,7 @@ export interface FolderDto {
 
 export interface NoteSummaryDto {
   id: number;
+  parentId: number | null;
   folderId: number;
   title: string;
   tags: string[];

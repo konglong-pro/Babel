@@ -10,6 +10,7 @@ export interface FolderDto {
 
 export interface EntrySummaryDto {
   id: number;
+  parentId: number | null;
   folderId: number;
   kind: EntryKind;
   title: string;

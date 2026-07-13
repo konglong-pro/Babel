@@ -37,6 +37,10 @@ export const notes = sqliteTable(
   "note",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
+    parentId: integer("parent_id").references(
+      (): AnySQLiteColumn => notes.id,
+      { onDelete: "restrict" },
+    ),
     folderId: integer("folder_id")
       .notNull()
       .references(() => folders.id, { onDelete: "restrict" }),
@@ -46,6 +50,7 @@ export const notes = sqliteTable(
     ...timestamps,
   },
   (table) => [
+    index("note_parent_idx").on(table.parentId),
     index("note_folder_idx").on(table.folderId),
     index("note_title_idx").on(table.title),
     check("note_title_not_blank", sql`length(trim(${table.title})) > 0`),

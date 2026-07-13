@@ -4,6 +4,7 @@ import { createKnowledge, listKnowledge } from "@/lib/repositories";
 import { handleApi } from "@/lib/http/errors";
 import {
   optionalIdArray,
+  optionalNullablePositiveInteger,
   optionalString,
   optionalStringArray,
   parsePositiveInteger,
@@ -31,6 +32,7 @@ export function POST(request: Request): Promise<Response> {
 
     const note = createKnowledge({
       folderId: requiredPositiveInteger(body, "folderId"),
+      parentId: optionalNullablePositiveInteger(body, "parentId"),
       title: requiredString(body, "title"),
       contentMd: optionalString(body, "contentMd", { allowEmpty: true, trim: false }) ?? "",
       tags: optionalStringArray(body, "tags") ?? [],

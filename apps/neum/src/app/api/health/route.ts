@@ -1,14 +1,20 @@
 import { constants } from "node:fs";
 import { access, lstat } from "node:fs/promises";
 
-import { getNeumDatabase } from "@/lib/db/client";
-import { assertCurrentNeumSchema } from "@/lib/db/readiness";
-import { entryUploadDirectory } from "@/lib/storage";
+import {
+  assertAppDatabaseReady,
+  assertCurrentNeumSchema,
+} from "@/lib/db/readiness";
 
 export const runtime = "nodejs";
 
 export async function GET(): Promise<Response> {
   try {
+    assertAppDatabaseReady();
+    const [{ getNeumDatabase }, { entryUploadDirectory }] = await Promise.all([
+      import("@/lib/db/client"),
+      import("@/lib/storage"),
+    ]);
     const { sqlite } = getNeumDatabase();
     assertCurrentNeumSchema(sqlite);
     const uploadDirectory = entryUploadDirectory();

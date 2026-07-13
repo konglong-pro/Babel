@@ -448,6 +448,14 @@ function Get-BabelApps {
             throw "Babel app '$name' workspace package name must be '$expectedPackageName'."
         }
 
+        $databaseCheckArguments = @()
+        if (
+            (Test-ObjectProperty -InputObject $workspaceManifest -Name "scripts") -and
+            (Test-ObjectProperty -InputObject $workspaceManifest.scripts -Name "db:check")
+        ) {
+            $databaseCheckArguments = @("run", "db:check", "-w", $expectedPackageName)
+        }
+
         $environment = @{}
         foreach ($property in @($definition.env.PSObject.Properties)) {
             if ($property.Name -notmatch "^[A-Za-z_][A-Za-z0-9_]*$") {
@@ -480,7 +488,8 @@ function Get-BabelApps {
 
         $buildMarker = Join-Path $workspace ".next\BUILD_ID"
         $nextEntrypoint = Join-Path $RootPath "node_modules\next\dist\bin\next"
-        $baseUrl = "http://127.0.0.1:$port"
+        $internalBaseUrl = "http://127.0.0.1:$port"
+        $publicBaseUrl = "http://localhost:$port"
         $buildInputPaths = @(
             (Join-Path $workspace "src"),
             (Join-Path $workspace "public"),
@@ -509,9 +518,10 @@ function Get-BabelApps {
             Name = $name
             Id = $id
             Port = $port
-            Url = $baseUrl
-            HealthUrl = $baseUrl + $healthPath
-            IdentityUrl = $baseUrl + $identityPath
+            Url = $internalBaseUrl
+            HealthUrl = $internalBaseUrl + $healthPath
+            IdentityHealthUrl = $internalBaseUrl + $identityPath
+            IdentityUrl = $publicBaseUrl + $identityPath
             IdentityText = $identityText
             ReadyTimeoutSeconds = $readyTimeoutSeconds
             RequiredPaths = $requiredDataPaths
@@ -528,6 +538,10 @@ function Get-BabelApps {
             BuildCommand = $nodeRuntime.NpmPath
             BuildArguments = @("run", "build", "-w", $expectedPackageName)
             BuildWorkingDirectory = $RootPath
+            PackageName = $expectedPackageName
+            DatabaseCheckCommand = $nodeRuntime.NpmPath
+            DatabaseCheckArguments = $databaseCheckArguments
+            DatabaseCheckWorkingDirectory = $RootPath
             StartCommand = $nodeRuntime.NodePath
             StartArguments = @(
                 $nextEntrypoint,
@@ -597,7 +611,7 @@ function Test-AppHealth {
         }
 
         $identityResponse = Invoke-WebRequest `
-            -Uri $App.IdentityUrl `
+            -Uri $App.IdentityHealthUrl `
             -UseBasicParsing `
             -TimeoutSec 2
 
@@ -707,6 +721,38 @@ function Restore-Environment {
             $Snapshot[$name],
             [EnvironmentVariableTarget]::Process
         )
+    }
+}
+
+function Assert-AppDatabaseReady {
+    param(
+        [Parameter(Mandatory = $true)]
+        [pscustomobject]$App
+    )
+
+    if ($App.DatabaseCheckArguments.Count -eq 0) {
+        return
+    }
+
+    $command = Get-Command $App.DatabaseCheckCommand -ErrorAction SilentlyContinue
+    if ($null -eq $command) {
+        throw "Cannot find '$($App.DatabaseCheckCommand)' required to check $($App.Name)'s database."
+    }
+
+    $exitCode = 1
+    $environmentSnapshot = Set-TemporaryEnvironment -Environment $App.Environment
+    Push-Location -LiteralPath $App.DatabaseCheckWorkingDirectory
+
+    try {
+        & $command.Source @($App.DatabaseCheckArguments) | Out-Host
+        $exitCode = $LASTEXITCODE
+    } finally {
+        Pop-Location
+        Restore-Environment -Snapshot $environmentSnapshot
+    }
+
+    if ($exitCode -ne 0) {
+        throw "$($App.Name) database readiness check failed. Review the diagnostic output above and retry."
     }
 }
 
@@ -885,6 +931,7 @@ function Start-OrReuseApp {
     }
 
     Assert-AppPreflight -App $App
+    Assert-AppDatabaseReady -App $App
     Ensure-AppBuild -App $App
 
     Write-Host "[start] Starting $($App.Name) on port $($App.Port)..."

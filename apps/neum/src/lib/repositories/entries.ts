@@ -28,6 +28,7 @@ import { RepositoryError } from "./errors";
 import {
   assertPositiveId,
   descendantFolderIds,
+  moveTrashedEntryDescendantsToFolder,
   normalizeEntryKind,
   normalizeOptionalText,
   normalizeRequiredText,
@@ -45,12 +46,14 @@ export interface EntryListOptions {
   includeDescendants?: boolean;
   kind?: EntryKind;
   tag?: string;
+  completeTree?: boolean;
   limit?: number;
   offset?: number;
 }
 
 export interface CreateEntryInput {
   folderId: number;
+  parentId?: number | null;
   kind: EntryKind;
   title: string;
   notesMd?: string;
@@ -63,6 +66,7 @@ export interface CreateEntryInput {
 export interface UpdateEntryInput {
   expectedVersion: number;
   folderId?: number;
+  parentId?: number | null;
   kind?: EntryKind;
   title?: string;
   notesMd?: string;
@@ -79,7 +83,14 @@ export interface UpdatedEntryResult {
 
 type NormalizedEntryFields = Pick<
   EntryRow,
-  "folderId" | "kind" | "title" | "notesMd" | "code" | "language" | "filename"
+  | "parentId"
+  | "folderId"
+  | "kind"
+  | "title"
+  | "notesMd"
+  | "code"
+  | "language"
+  | "filename"
 >;
 
 export function listEntries(
@@ -152,7 +163,9 @@ export function updateEntry(
   }
   assertExpectedVersion(input.expectedVersion, current.version, id);
 
-  const fields = normalizeUpdateFields(current, input);
+  const fields = normalizeUpdateFields(id, current, input);
+  const movedDescendantIds =
+    fields.folderId === current.folderId ? [] : descendantEntryIds(id);
   const imagePaths = normalizeNewImagePaths(newImagePaths);
   const ownedImagePaths = listEntryImagePaths(id);
   const referencedImagePaths = assertManagedImageOwnership(
@@ -175,6 +188,22 @@ export function updateEntry(
       .returning()
       .get();
     if (!row) throw versionConflict(id, input.expectedVersion);
+    if (movedDescendantIds.length > 0) {
+      db.update(entries)
+        .set({
+          folderId: fields.folderId,
+          version: sql`${entries.version} + 1`,
+          updatedAt: nowSql,
+        })
+        .where(inArray(entries.id, movedDescendantIds))
+        .run();
+    }
+    if (fields.folderId !== current.folderId) {
+      moveTrashedEntryDescendantsToFolder(
+        [id, ...movedDescendantIds],
+        fields.folderId,
+      );
+    }
     if (normalizedTags !== undefined) replaceEntryTags(id, normalizedTags);
     if (removedImagePaths.length > 0) {
       db.delete(entryImages)
@@ -209,6 +238,7 @@ export function entryRowToSummary(
 ): EntrySummaryDto {
   return {
     id: row.id,
+    parentId: row.parentId,
     folderId: row.folderId,
     kind: row.kind,
     title: row.title,
@@ -294,20 +324,20 @@ function queryEntries(
   const where = conditions.length === 0 ? undefined : and(...conditions);
   const total =
     db.select({ value: count() }).from(entries).where(where).get()?.value ?? 0;
-  const rows = db
+  const orderedQuery = db
     .select()
     .from(entries)
     .where(where)
-    .orderBy(desc(entries.updatedAt), desc(entries.id))
-    .limit(limit)
-    .offset(offset)
-    .all();
+    .orderBy(desc(entries.updatedAt), desc(entries.id));
+  const rows = options.completeTree === true
+    ? orderedQuery.all()
+    : orderedQuery.limit(limit).offset(offset).all();
   const tagMap = tagsByEntryIds(rows.map((row) => row.id));
   return {
     items: rows.map((row) => entryRowToSummary(row, tagMap.get(row.id) ?? [])),
     total,
-    limit,
-    offset,
+    limit: options.completeTree === true ? total : limit,
+    offset: options.completeTree === true ? 0 : offset,
   };
 }
 
@@ -338,8 +368,11 @@ function escapeLike(value: string): string {
 
 function normalizeCreateFields(input: CreateEntryInput): NormalizedEntryFields {
   requireFolder(input.folderId);
+  const parentId = input.parentId ?? null;
+  assertValidEntryParent(null, parentId, input.folderId);
   const kind = normalizeEntryKind(input.kind);
   return normalizeFields({
+    parentId,
     folderId: input.folderId,
     kind,
     title: normalizeRequiredText(input.title, "title"),
@@ -351,12 +384,21 @@ function normalizeCreateFields(input: CreateEntryInput): NormalizedEntryFields {
 }
 
 function normalizeUpdateFields(
+  entryId: number,
   current: EntryRow,
   input: UpdateEntryInput,
 ): NormalizedEntryFields {
   const folderId = input.folderId ?? current.folderId;
   if (input.folderId !== undefined) requireFolder(input.folderId);
+  const parentId =
+    input.parentId === undefined
+      ? folderId === current.folderId
+        ? current.parentId
+        : null
+      : input.parentId;
+  assertValidEntryParent(entryId, parentId, folderId);
   return normalizeFields({
+    parentId,
     folderId,
     kind: input.kind === undefined ? current.kind : normalizeEntryKind(input.kind),
     title:
@@ -377,6 +419,72 @@ function normalizeUpdateFields(
         ? current.filename
         : normalizeOptionalText(input.filename, "filename"),
   });
+}
+
+function assertValidEntryParent(
+  entryId: number | null,
+  parentId: number | null,
+  folderId: number,
+): void {
+  if (parentId === null) return;
+  assertPositiveId(parentId, "parentId");
+
+  const { db } = getNeumDatabase();
+  const rows = db
+    .select({ id: entries.id, parentId: entries.parentId, folderId: entries.folderId })
+    .from(entries)
+    .all();
+  const byId = new Map(rows.map((row) => [row.id, row]));
+  const parent = byId.get(parentId);
+  if (!parent) {
+    throw new RepositoryError("NOT_FOUND", "Parent entry not found.", { parentId });
+  }
+  if (parent.folderId !== folderId) {
+    throw new RepositoryError(
+      "CONFLICT",
+      "Parent and child entries must belong to the same folder.",
+      { parentId, folderId },
+    );
+  }
+  if (entryId === null) return;
+
+  const seen = new Set<number>();
+  let cursor: number | null = parentId;
+  while (cursor !== null) {
+    if (cursor === entryId) {
+      throw new RepositoryError("CONFLICT", "An entry cannot be moved below itself.", {
+        entryId,
+        parentId,
+      });
+    }
+    if (seen.has(cursor)) break;
+    seen.add(cursor);
+    cursor = byId.get(cursor)?.parentId ?? null;
+  }
+}
+
+function descendantEntryIds(entryId: number): number[] {
+  const { db } = getNeumDatabase();
+  const rows = db
+    .select({ id: entries.id, parentId: entries.parentId })
+    .from(entries)
+    .all();
+  const descendants = new Set<number>();
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const row of rows) {
+      if (
+        row.parentId !== null &&
+        (row.parentId === entryId || descendants.has(row.parentId)) &&
+        !descendants.has(row.id)
+      ) {
+        descendants.add(row.id);
+        changed = true;
+      }
+    }
+  }
+  return [...descendants];
 }
 
 function normalizeFields(fields: NormalizedEntryFields): NormalizedEntryFields {

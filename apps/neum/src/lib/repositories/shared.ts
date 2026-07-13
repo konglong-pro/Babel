@@ -1,7 +1,7 @@
 import { asc, eq, inArray, sql } from "drizzle-orm";
 
 import { getNeumDatabase } from "@/lib/db/client";
-import { entries, entryTags, folders, tags } from "@/lib/db/schema";
+import { entries, entryTags, folders, tags, trashEntries } from "@/lib/db/schema";
 import { identityKey } from "@/lib/identity";
 import type { EntryKind, FolderDto } from "@/lib/types";
 
@@ -189,6 +189,107 @@ export function isSqliteConstraint(error: unknown): boolean {
     typeof (error as { code?: unknown }).code === "string" &&
     (error as { code: string }).code.startsWith("SQLITE_CONSTRAINT")
   );
+}
+
+interface TrashHierarchyRow {
+  trashId: number;
+  originalEntryId: number;
+  parentId: number | null;
+  snapshot: Record<string, unknown>;
+  snapshotEntry: Record<string, unknown>;
+}
+
+export function moveTrashedEntryDescendantsToFolder(
+  activeEntryIds: readonly number[],
+  folderId: number,
+): void {
+  const { db } = getNeumDatabase();
+  const rows = trashHierarchyRows();
+  const movedIds = new Set(activeEntryIds);
+  const movedTrashRows: TrashHierarchyRow[] = [];
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const row of rows) {
+      if (
+        row.parentId !== null &&
+        movedIds.has(row.parentId) &&
+        !movedIds.has(row.originalEntryId)
+      ) {
+        movedIds.add(row.originalEntryId);
+        movedTrashRows.push(row);
+        changed = true;
+      }
+    }
+  }
+
+  for (const row of movedTrashRows) {
+    row.snapshotEntry.folderId = folderId;
+    db.update(trashEntries)
+      .set({ folderId, snapshotJson: JSON.stringify(row.snapshot) })
+      .where(eq(trashEntries.id, row.trashId))
+      .run();
+  }
+}
+
+export function assertNoTrashedEntryChildren(parentEntryId: number): void {
+  const child = trashHierarchyRows().find(({ parentId }) => parentId === parentEntryId);
+  if (!child) return;
+  throw new RepositoryError(
+    "NOT_EMPTY",
+    "Trash entries with child pages cannot be permanently deleted.",
+    { entryId: parentEntryId, childEntryId: child.originalEntryId },
+  );
+}
+
+function trashHierarchyRows(): TrashHierarchyRow[] {
+  const { db } = getNeumDatabase();
+  return db
+    .select({
+      trashId: trashEntries.id,
+      originalEntryId: trashEntries.originalEntryId,
+      snapshotJson: trashEntries.snapshotJson,
+    })
+    .from(trashEntries)
+    .all()
+    .map((row) => {
+      let snapshot: unknown;
+      try {
+        snapshot = JSON.parse(row.snapshotJson) as unknown;
+      } catch {
+        throw invalidTrashHierarchy(row.trashId);
+      }
+      if (!isRecord(snapshot) || !isRecord(snapshot.entry)) {
+        throw invalidTrashHierarchy(row.trashId);
+      }
+      const rawParentId = snapshot.entry.parentId;
+      const parentId = rawParentId === undefined || rawParentId === null
+        ? null
+        : rawParentId;
+      if (
+        parentId !== null &&
+        (!Number.isSafeInteger(parentId) || (parentId as number) <= 0)
+      ) {
+        throw invalidTrashHierarchy(row.trashId);
+      }
+      return {
+        trashId: row.trashId,
+        originalEntryId: row.originalEntryId,
+        parentId: parentId as number | null,
+        snapshot,
+        snapshotEntry: snapshot.entry,
+      };
+    });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function invalidTrashHierarchy(trashId: number): RepositoryError {
+  return new RepositoryError("CONFLICT", "The trash entry snapshot is invalid.", {
+    trashId,
+  });
 }
 
 export const nowSql = sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`;

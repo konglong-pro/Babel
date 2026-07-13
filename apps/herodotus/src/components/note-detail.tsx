@@ -30,7 +30,7 @@ import {
   NOTE_SAVE_MAX_BYTES,
   utf8ByteLength,
 } from "@/lib/note-limits";
-import type { FolderDto, NoteDetailDto } from "@/lib/types";
+import type { FolderDto, NoteDetailDto, NoteSummaryDto } from "@/lib/types";
 
 export type NoteViewMode = "view" | "edit" | "create";
 
@@ -44,15 +44,55 @@ function estimatedPersistedMarkdownBytes(contentMd: string): number {
   );
 }
 
+function noteSubtreeIds(rootId: number, notes: readonly NoteSummaryDto[]): Set<number> {
+  const grouped = new Map<number, number[]>();
+  for (const note of notes) {
+    if (note.parentId === null) continue;
+    const children = grouped.get(note.parentId) ?? [];
+    children.push(note.id);
+    grouped.set(note.parentId, children);
+  }
+  const result = new Set([rootId]);
+  const stack = [rootId];
+  while (stack.length > 0) {
+    const id = stack.pop();
+    if (id === undefined) continue;
+    for (const childId of grouped.get(id) ?? []) {
+      if (result.has(childId)) continue;
+      result.add(childId);
+      stack.push(childId);
+    }
+  }
+  return result;
+}
+
+function notePathLabel(
+  noteId: number,
+  notes: ReadonlyMap<number, NoteSummaryDto>,
+): string {
+  const titles: string[] = [];
+  const seen = new Set<number>();
+  let current = notes.get(noteId);
+  while (current && !seen.has(current.id)) {
+    titles.unshift(current.title);
+    seen.add(current.id);
+    current = current.parentId === null ? undefined : notes.get(current.parentId);
+  }
+  return titles.join(" / ");
+}
+
 interface NoteDetailProps {
   detail: NoteDetailDto | null;
   importDraft: MarkdownImportDraft | null;
   draftKey: number;
   mode: NoteViewMode;
   folderId: number | null;
+  parentId: number | null;
   folders: FolderDto[];
+  notes: NoteSummaryDto[];
   loading?: boolean;
   onEdit: () => void;
+  onCreateSubnote: () => void;
   onCancel: () => void;
   onSaved: (detail: NoteDetailDto) => Promise<void> | void;
   onDeleted: () => Promise<void> | void;
@@ -68,9 +108,12 @@ export function NoteDetail({
   draftKey,
   mode,
   folderId,
+  parentId,
   folders,
+  notes,
   loading,
   onEdit,
+  onCreateSubnote,
   onCancel,
   onSaved,
   onDeleted,
@@ -92,7 +135,9 @@ export function NoteDetail({
         detail={mode === "edit" ? detail : null}
         importDraft={mode === "create" ? importDraft : null}
         initialFolderId={folderId}
+        initialParentId={parentId}
         folders={folders}
+        notes={notes}
         onCancel={onCancel}
         onSaved={onSaved}
         onDirtyChange={onDirtyChange}
@@ -130,6 +175,7 @@ export function NoteDetail({
           </p>
         </div>
         <div className="document-actions">
+          <button type="button" onClick={onCreateSubnote}>New subnote</button>
           <button type="button" onClick={onEdit}>Edit</button>
           <ConfirmButton
             className="danger-ghost"
@@ -156,7 +202,9 @@ interface NoteFormProps {
   detail: NoteDetailDto | null;
   importDraft: MarkdownImportDraft | null;
   initialFolderId: number | null;
+  initialParentId: number | null;
   folders: FolderDto[];
+  notes: NoteSummaryDto[];
   onCancel: () => void;
   onSaved: (detail: NoteDetailDto) => Promise<void> | void;
   onDirtyChange: (dirty: boolean) => void;
@@ -168,7 +216,9 @@ function NoteForm({
   detail,
   importDraft,
   initialFolderId,
+  initialParentId,
   folders,
+  notes,
   onCancel,
   onSaved,
   onDirtyChange,
@@ -188,6 +238,7 @@ function NoteForm({
   const [tags, setTags] = useState(initialTags);
   const [content, setContent] = useState(initialContent);
   const [folderId, setFolderId] = useState<number | null>(initialFolder);
+  const [parentId, setParentId] = useState<number | null>(initialParentId);
   const [stagedImages, setStagedImages] = useState<StagedImage[]>([]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -196,6 +247,24 @@ function NoteForm({
   const folderOptions = useMemo(
     () => folders.map((folder) => ({ id: folder.id, label: folderPathLabel(folder.id, folderMap) })),
     [folderMap, folders],
+  );
+  const unavailableParentIds = useMemo(
+    () => detail === null ? new Set<number>() : noteSubtreeIds(detail.id, notes),
+    [detail, notes],
+  );
+  const noteMap = useMemo(
+    () => new Map(notes.map((note) => [note.id, note])),
+    [notes],
+  );
+  const parentOptions = useMemo(
+    () =>
+      notes
+        .filter(
+          (note) =>
+            note.folderId === folderId && !unavailableParentIds.has(note.id),
+        )
+        .map((note) => ({ id: note.id, label: notePathLabel(note.id, noteMap) })),
+    [folderId, noteMap, notes, unavailableParentIds],
   );
   const imagePreviews = useMemo(
     () => new Map(stagedImages.map((image) => [image.token, image.previewUrl])),
@@ -239,6 +308,7 @@ function NoteForm({
     tags !== initialTags ||
     content !== initialContent ||
     folderId !== initialFolder ||
+    parentId !== initialParentId ||
     stagedImages.length > 0;
 
   useEffect(() => {
@@ -294,6 +364,7 @@ function NoteForm({
     try {
       const input = {
         folderId,
+        parentId,
         title: title.trim(),
         contentMd: content,
         tags: parseTags(tags),
@@ -412,12 +483,31 @@ function NoteForm({
               onChange={(event) => {
                 if (!pendingRef.current) {
                   setFolderId(event.target.value ? Number(event.target.value) : null);
+                  setParentId(null);
                 }
               }}
             >
               <option value="" disabled>Select a folder</option>
               {folderOptions.map((folder) => (
                 <option key={folder.id} value={folder.id}>{folder.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Parent page</span>
+            <select
+              name="parentId"
+              disabled={pending || folderId === null}
+              value={parentId ?? ""}
+              onChange={(event) => {
+                if (!pendingRef.current) {
+                  setParentId(event.target.value ? Number(event.target.value) : null);
+                }
+              }}
+            >
+              <option value="">No parent (root page)</option>
+              {parentOptions.map((note) => (
+                <option key={note.id} value={note.id}>{note.label}</option>
               ))}
             </select>
           </label>

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 
 import {
   createKnowledge,
@@ -10,8 +10,13 @@ import {
   listExercises,
   updateKnowledge,
 } from "@/lib/api-client";
-import type { ExerciseSummaryDto, KnowledgeDetailDto } from "@/lib/types";
+import type {
+  ExerciseSummaryDto,
+  KnowledgeDetailDto,
+  KnowledgeSummaryDto,
+} from "@/lib/types";
 import { MarkdownEditor, MarkdownRenderer } from "@/components/markdown";
+import { pageDescendantIds } from "@/components/page-tree-state";
 import {
   ConfirmButton,
   formatDate,
@@ -24,19 +29,40 @@ interface KnowledgeDetailProps {
   detail: KnowledgeDetailDto | null;
   mode: "view" | "edit" | "create";
   folderId: number | null;
+  pages: KnowledgeSummaryDto[];
+  createParentId: number | null;
   loading?: boolean;
   onEdit: () => void;
+  onCreateChild: () => void;
   onCancel: () => void;
   onSaved: (detail: KnowledgeDetailDto) => void;
   onDeleted: () => void;
+}
+
+function pagePathLabel(
+  pageId: number,
+  pages: ReadonlyMap<number, KnowledgeSummaryDto>,
+): string {
+  const titles: string[] = [];
+  const seen = new Set<number>();
+  let current = pages.get(pageId);
+  while (current && !seen.has(current.id)) {
+    titles.unshift(current.title);
+    seen.add(current.id);
+    current = current.parentId === null ? undefined : pages.get(current.parentId);
+  }
+  return titles.join(" / ");
 }
 
 export function KnowledgeDetail({
   detail,
   mode,
   folderId,
+  pages,
+  createParentId,
   loading,
   onEdit,
+  onCreateChild,
   onCancel,
   onSaved,
   onDeleted,
@@ -48,8 +74,11 @@ export function KnowledgeDetail({
   if (mode === "create" || mode === "edit") {
     return (
       <KnowledgeForm
+        key={mode === "edit" ? `edit:${detail?.id ?? "none"}` : `new:${createParentId ?? "root"}`}
         detail={mode === "edit" ? detail : null}
         folderId={folderId}
+        pages={pages}
+        createParentId={createParentId}
         onCancel={onCancel}
         onSaved={onSaved}
       />
@@ -76,6 +105,9 @@ export function KnowledgeDetail({
           <p className="document-meta">Updated {formatDate(detail.updatedAt)}</p>
         </div>
         <div className="document-actions">
+          <button type="button" onClick={onCreateChild}>
+            New subnote
+          </button>
           <button type="button" onClick={onEdit}>
             Edit
           </button>
@@ -118,14 +150,24 @@ export function KnowledgeDetail({
 interface KnowledgeFormProps {
   detail: KnowledgeDetailDto | null;
   folderId: number | null;
+  pages: KnowledgeSummaryDto[];
+  createParentId: number | null;
   onCancel: () => void;
   onSaved: (detail: KnowledgeDetailDto) => void;
 }
 
-function KnowledgeForm({ detail, folderId, onCancel, onSaved }: KnowledgeFormProps) {
+function KnowledgeForm({
+  detail,
+  folderId,
+  pages,
+  createParentId,
+  onCancel,
+  onSaved,
+}: KnowledgeFormProps) {
   const [title, setTitle] = useState(detail?.title ?? "");
   const [tags, setTags] = useState(detail?.tags.join(", ") ?? "");
   const [content, setContent] = useState(detail?.contentMd ?? "");
+  const [parentId, setParentId] = useState<number | null>(detail?.parentId ?? createParentId);
   const [exerciseIds, setExerciseIds] = useState(
     detail?.relatedExercises.map((item) => item.id) ?? [],
   );
@@ -133,6 +175,27 @@ function KnowledgeForm({ detail, folderId, onCancel, onSaved }: KnowledgeFormPro
   const [relationsLoading, setRelationsLoading] = useState(true);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const pageMap = useMemo(
+    () => new Map(pages.map((page) => [page.id, page])),
+    [pages],
+  );
+  const unavailableParentIds = useMemo(
+    () => detail ? pageDescendantIds(pages, detail.id) : new Set<number>(),
+    [detail, pages],
+  );
+  const parentPages = useMemo(
+    () =>
+      pages
+        .filter(
+          (page) =>
+            page.folderId === folderId &&
+            page.id !== detail?.id &&
+            !unavailableParentIds.has(page.id),
+        )
+        .map((page) => ({ id: page.id, label: pagePathLabel(page.id, pageMap) }))
+        .sort((a, b) => a.label.localeCompare(b.label, "en-US")),
+    [detail?.id, folderId, pageMap, pages, unavailableParentIds],
+  );
 
   useEffect(() => {
     let active = true;
@@ -162,6 +225,7 @@ function KnowledgeForm({ detail, folderId, onCancel, onSaved }: KnowledgeFormPro
     try {
       const input = {
         folderId,
+        parentId,
         title: title.trim(),
         contentMd: content,
         tags: parseTags(tags),
@@ -226,6 +290,22 @@ function KnowledgeForm({ detail, folderId, onCancel, onSaved }: KnowledgeFormPro
             <small>Separate tags with commas.</small>
           </label>
         </div>
+
+        <label className="field">
+          <span>Parent page</span>
+          <select
+            name="parentId"
+            value={parentId ?? ""}
+            onChange={(event) => setParentId(event.target.value ? Number(event.target.value) : null)}
+          >
+            <option value="">Knowledge root</option>
+            {parentPages.map((page) => (
+              <option key={page.id} value={page.id}>
+                {page.label}
+              </option>
+            ))}
+          </select>
+        </label>
 
         <MarkdownEditor
           label="Content"

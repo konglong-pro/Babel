@@ -109,6 +109,7 @@ export interface EntryListFilters {
   includeDescendants?: boolean;
   kind?: EntryKind;
   tag?: string;
+  completeTree?: boolean;
   limit?: number;
   offset?: number;
 }
@@ -123,6 +124,7 @@ function entryFilterQuery(filters: EntryListFilters): Record<string, string | nu
         : "direct",
     kind: filters.kind,
     tag: filters.tag,
+    completeTree: filters.completeTree === true ? "true" : undefined,
     limit: filters.limit,
     offset: filters.offset,
   };
@@ -138,6 +140,7 @@ export function getEntry(id: number): Promise<EntryDetailDto> {
 
 export interface EntryInput {
   folderId: number;
+  parentId: number | null;
   kind: EntryKind;
   title: string;
   notesMd: string;

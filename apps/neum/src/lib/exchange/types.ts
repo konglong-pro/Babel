@@ -1,5 +1,6 @@
 export const NEUM_SNAPSHOT_APP_ID = "neum" as const;
-export const NEUM_SNAPSHOT_SCHEMA_VERSION = 1 as const;
+export const NEUM_SNAPSHOT_SCHEMA_VERSION = 2 as const;
+export const NEUM_LEGACY_SNAPSHOT_SCHEMA_VERSION = 1 as const;
 
 export const snapshotImageContentTypes = [
   "image/png",
@@ -27,6 +28,7 @@ export interface SnapshotTag {
 
 export interface SnapshotEntryRecord {
   id: number;
+  parentId: number | null;
   folderId: number;
   kind: SnapshotEntryKind;
   title: string;

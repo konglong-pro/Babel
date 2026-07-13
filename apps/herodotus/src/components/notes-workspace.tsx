@@ -91,6 +91,7 @@ export function NotesWorkspace({
   const [selectedNoteId, setSelectedNoteId] = useState<number | null>(initialNoteId);
   const [detail, setDetail] = useState<NoteDetailDto | null>(null);
   const [importDraft, setImportDraft] = useState<MarkdownImportDraft | null>(null);
+  const [draftParentId, setDraftParentId] = useState<number | null>(null);
   const [draftVersion, setDraftVersion] = useState(0);
   const [mode, setMode] = useState<NoteViewMode>("view");
   const [stage, setStage] = useState<ResponsiveStage>(
@@ -238,6 +239,7 @@ export function NotesWorkspace({
     setSelectedNoteId(null);
     setDetail(null);
     setImportDraft(null);
+    setDraftParentId(null);
     setDetailError("");
     setDetailLoading(false);
     setDetailRequestVersion(0);
@@ -365,6 +367,7 @@ export function NotesWorkspace({
     setSelectedNoteId(null);
     setDetail(null);
     setImportDraft(null);
+    setDraftParentId(null);
     setDetailError("");
     setDetailLoading(false);
     setDetailRequestVersion(0);
@@ -379,6 +382,7 @@ export function NotesWorkspace({
     setSelectedNoteId(id);
     setDetail(null);
     setImportDraft(null);
+    setDraftParentId(null);
     setDetailError("");
     setDetailLoading(true);
     setDetailRequestVersion(0);
@@ -397,6 +401,7 @@ export function NotesWorkspace({
     setSelectedNoteId(null);
     setDetail(null);
     setImportDraft(null);
+    setDraftParentId(null);
     setMode("view");
     setDetailLoading(false);
     setDetailRequestVersion(0);
@@ -424,6 +429,7 @@ export function NotesWorkspace({
     setSelectedNoteId(null);
     setDetail(null);
     setImportDraft(null);
+    setDraftParentId(null);
     setMode("view");
     setDetailLoading(false);
     setDetailRequestVersion(0);
@@ -438,6 +444,7 @@ export function NotesWorkspace({
     selectedFolderIdRef.current = nextFolderId;
     setDetail(saved);
     setImportDraft(null);
+    setDraftParentId(null);
     setSelectedNoteId(saved.id);
     setSelectedFolderId(nextFolderId);
     setMode("view");
@@ -523,6 +530,7 @@ export function NotesWorkspace({
       setSelectedNoteId(null);
       setDetail(null);
       setImportDraft(draft);
+      setDraftParentId(null);
       setDetailError("");
       setDetailLoading(false);
       setDetailRequestVersion(0);
@@ -574,19 +582,26 @@ export function NotesWorkspace({
         loading={indexLoading}
         onSelect={selectNote}
         onImport={handleImportMarkdown}
-        onCreate={() => {
-          if (selectedFolderId === null || !confirmDiscard()) return;
+        onCreate={(parentId) => {
+          if ((selectedFolderId === null && parentId === null) || !confirmDiscard()) return;
+          const targetFolderId = parentId === null
+            ? selectedFolderId!
+            : notes.find((note) => note.id === parentId)?.folderId;
+          if (targetFolderId === undefined) return;
           invalidateImportRequest();
+          selectedFolderIdRef.current = targetFolderId;
+          setSelectedFolderId(targetFolderId);
           setSelectedNoteId(null);
           setDetail(null);
           setImportDraft(null);
+          setDraftParentId(parentId);
           setDetailError("");
           setDetailLoading(false);
           setDetailRequestVersion(0);
           setDraftVersion((version) => version + 1);
           setMode("create");
           setStage("note");
-          replaceLocation(selectedFolderId, null);
+          replaceLocation(targetFolderId, null);
         }}
         onBack={backToLibrary}
       />
@@ -615,12 +630,31 @@ export function NotesWorkspace({
           draftKey={draftVersion}
           mode={mode}
           folderId={detail?.folderId ?? selectedFolderId}
+          parentId={mode === "create" ? draftParentId : detail?.parentId ?? null}
           folders={folders}
+          notes={notes}
           loading={detailLoading}
           onEdit={() => {
             invalidateImportRequest();
             setImportDraft(null);
             setMode("edit");
+          }}
+          onCreateSubnote={() => {
+            if (!detail || !confirmDiscard()) return;
+            invalidateImportRequest();
+            setSelectedFolderId(detail.folderId);
+            selectedFolderIdRef.current = detail.folderId;
+            setSelectedNoteId(null);
+            setDetail(null);
+            setImportDraft(null);
+            setDraftParentId(detail.id);
+            setDetailError("");
+            setDetailLoading(false);
+            setDetailRequestVersion(0);
+            setDraftVersion((version) => version + 1);
+            setMode("create");
+            setStage("note");
+            replaceLocation(detail.folderId, null);
           }}
           onCancel={cancelEditing}
           onSaved={handleSaved}

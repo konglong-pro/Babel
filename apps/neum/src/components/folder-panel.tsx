@@ -31,6 +31,7 @@ interface FolderBranchProps {
   expandedIds: ReadonlySet<number>;
   onSelect: (id: number) => void;
   onToggle: (id: number) => void;
+  onCreateChild: (parentId: number) => void;
 }
 
 function FolderBranch({
@@ -40,6 +41,7 @@ function FolderBranch({
   expandedIds,
   onSelect,
   onToggle,
+  onCreateChild,
 }: FolderBranchProps) {
   const children = grouped.get(parentId) ?? [];
   if (children.length === 0) return null;
@@ -47,23 +49,18 @@ function FolderBranch({
   return (
     <ul>
       {children.map((folder) => {
-        const hasChildren = (grouped.get(folder.id)?.length ?? 0) > 0;
-        const expanded = hasChildren && expandedIds.has(folder.id);
+        const expanded = expandedIds.has(folder.id);
 
         return (
           <li key={folder.id}>
             <div className="folder-node-row">
-              {hasChildren ? (
-                <button
-                  type="button"
-                  className="folder-disclosure"
-                  aria-expanded={expanded}
-                  aria-label={`${expanded ? "Collapse" : "Expand"} ${folder.name}`}
-                  onClick={() => onToggle(folder.id)}
-                />
-              ) : (
-                <span className="folder-disclosure-spacer" aria-hidden="true" />
-              )}
+              <button
+                type="button"
+                className="folder-disclosure"
+                aria-expanded={expanded}
+                aria-label={`${expanded ? "Collapse" : "Expand"} ${folder.name}`}
+                onClick={() => onToggle(folder.id)}
+              />
               <button
                 type="button"
                 className={selectedId === folder.id ? "folder-node selected" : "folder-node"}
@@ -75,14 +72,24 @@ function FolderBranch({
               </button>
             </div>
             {expanded ? (
-              <FolderBranch
-                parentId={folder.id}
-                grouped={grouped}
-                selectedId={selectedId}
-                expandedIds={expandedIds}
-                onSelect={onSelect}
-                onToggle={onToggle}
-              />
+              <div className="folder-children">
+                <FolderBranch
+                  parentId={folder.id}
+                  grouped={grouped}
+                  selectedId={selectedId}
+                  expandedIds={expandedIds}
+                  onSelect={onSelect}
+                  onToggle={onToggle}
+                  onCreateChild={onCreateChild}
+                />
+                <button
+                  type="button"
+                  className="folder-inline-create"
+                  onClick={() => onCreateChild(folder.id)}
+                >
+                  + New subfolder
+                </button>
+              </div>
             ) : null}
           </li>
         );
@@ -124,6 +131,7 @@ export function FolderPanel({
   const [dialogMode, setDialogMode] = useState<DialogMode>("create");
   const [name, setName] = useState("");
   const [targetId, setTargetId] = useState("");
+  const [createParentId, setCreateParentId] = useState<number | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [expansionState, setExpansionState] = useState<FolderExpansionState>(() => ({
@@ -175,9 +183,10 @@ export function FolderPanel({
     });
   }
 
-  function openDialog(mode: DialogMode) {
+  function openDialog(mode: DialogMode, parentId: number | null = selectedId) {
     setDialogMode(mode);
     setError("");
+    setCreateParentId(parentId);
     setTargetId(selectedFolder?.parentId?.toString() ?? "");
     setName(mode === "rename" ? selectedFolder?.name ?? "" : "");
     dialogRef.current?.showModal();
@@ -189,7 +198,7 @@ export function FolderPanel({
     setError("");
     try {
       if (dialogMode === "create") {
-        await onCreate(name.trim(), selectedId);
+        await onCreate(name.trim(), createParentId);
       } else if (dialogMode === "rename" && selectedId !== null) {
         await onRename(selectedId, name.trim());
       } else if (dialogMode === "move" && selectedId !== null) {
@@ -253,6 +262,7 @@ export function FolderPanel({
             expandedIds={visibleExpandedIds}
             onSelect={onSelect}
             onToggle={handleToggle}
+            onCreateChild={(parentId) => openDialog("create", parentId)}
           />
         )}
         <button
