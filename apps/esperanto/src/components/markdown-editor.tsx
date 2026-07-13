@@ -1,91 +1,29 @@
 "use client";
 
 import {
+  MarkdownRenderer,
+  type ResolvedWikilink,
+  useWikilinkAutocomplete,
+  WikilinkAutocomplete,
+} from "@babel-apps/markdown/react";
+import type { Wikilink } from "@babel-apps/markdown/core";
+import {
   type ChangeEvent,
   type ClipboardEvent,
   useDeferredValue,
   useId,
-  useMemo,
   useRef,
 } from "react";
-import ReactMarkdown, { defaultUrlTransform, type Components } from "react-markdown";
-import remarkGfm from "remark-gfm";
 
-const MARKDOWN_COMPONENTS: Components = {
-  h1: "h2",
-  h2: "h3",
-  h3: "h4",
-  h4: "h5",
-  h5: "h6",
-  img: ({ alt, ...props }) => {
-    // Markdown may contain local, external, or unsaved blob URLs with unknown dimensions.
-    // eslint-disable-next-line @next/next/no-img-element
-    return <img {...props} alt={alt ?? ""} loading="lazy" />;
-  },
-};
+import { listNoteTitles } from "@/lib/api-client";
 
-const REMARK_PLUGINS = [remarkGfm];
 const ACCEPTED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-const PENDING_IMAGE_PATTERN = /esperanto-upload:\/\/([A-Za-z0-9._-]+)/g;
 
 export interface StagedImage {
   token: string;
   file: File;
   previewUrl: string;
-}
-
-function previewUrlTransform(value: string): string {
-  return value.startsWith("blob:") ? value : defaultUrlTransform(value);
-}
-
-function withImagePreviews(content: string, previews?: ReadonlyMap<string, string>): string {
-  if (!previews?.size) return content;
-  return content.replace(PENDING_IMAGE_PATTERN, (placeholder, token: string) => {
-    return previews.get(token) ?? placeholder;
-  });
-}
-
-function newImageToken(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-function imageAlt(file: File, pasted: boolean): string {
-  if (pasted) return "Pasted image";
-  const name = file.name.trim() || "Image";
-  return name.replace(/[\[\]]/g, "");
-}
-
-interface MarkdownRendererProps {
-  content: string;
-  emptyText?: string;
-  imagePreviews?: ReadonlyMap<string, string>;
-}
-
-export function MarkdownRenderer({
-  content,
-  emptyText = "No content yet.",
-  imagePreviews,
-}: MarkdownRendererProps) {
-  const renderedContent = useMemo(
-    () => withImagePreviews(content, imagePreviews),
-    [content, imagePreviews],
-  );
-
-  if (!content.trim()) return <p className="empty-copy">{emptyText}</p>;
-
-  return (
-    <div className="markdown-body">
-      <ReactMarkdown
-        components={MARKDOWN_COMPONENTS}
-        remarkPlugins={REMARK_PLUGINS}
-        urlTransform={previewUrlTransform}
-      >
-        {renderedContent}
-      </ReactMarkdown>
-    </div>
-  );
 }
 
 interface MarkdownEditorProps {
@@ -96,6 +34,9 @@ interface MarkdownEditorProps {
   onStageImage: (image: StagedImage) => void;
   onImageError: (message: string) => void;
   imagePreviews: ReadonlyMap<string, string>;
+  resolveWikilink?: (titleKey: string) => ResolvedWikilink | null;
+  onNavigateWikilink?: (target: ResolvedWikilink, wikilink: Wikilink) => void;
+  onCreateFromWikilink?: (wikilink: Wikilink) => void;
   rows?: number;
 }
 
@@ -107,6 +48,9 @@ export function MarkdownEditor({
   onStageImage,
   onImageError,
   imagePreviews,
+  resolveWikilink,
+  onNavigateWikilink,
+  onCreateFromWikilink,
   rows = 20,
 }: MarkdownEditorProps) {
   const id = useId();
@@ -114,6 +58,10 @@ export function MarkdownEditor({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const deferredValue = useDeferredValue(value);
+  const autocomplete = useWikilinkAutocomplete(textareaRef, listNoteTitles, {
+    fetchScope: "esperanto:notes",
+    onTextChange: onChange,
+  });
 
   function stageFiles(files: readonly File[], pasted: boolean) {
     const accepted: Array<{ image: StagedImage; markdown: string }> = [];
@@ -179,7 +127,7 @@ export function MarkdownEditor({
       <div className="field-heading">
         <div>
           <label htmlFor={id}>{label}</label>
-          <p id={hintId}>Write Markdown with GFM tables, task lists, links, and images.</p>
+          <p id={hintId}>Write Markdown with GFM tables, task lists, links, images, and [[note links]].</p>
         </div>
         <div className="editor-tools">
           <input
@@ -216,9 +164,25 @@ export function MarkdownEditor({
             content={deferredValue}
             emptyText="Your preview will appear here."
             imagePreviews={imagePreviews}
+            uploadScheme="esperanto-upload"
+            resolveWikilink={resolveWikilink}
+            onNavigateWikilink={onNavigateWikilink}
+            onCreateFromWikilink={onCreateFromWikilink}
           />
         </div>
       </div>
+      <WikilinkAutocomplete autocomplete={autocomplete} />
     </section>
   );
+}
+
+function newImageToken(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function imageAlt(file: File, pasted: boolean): string {
+  if (pasted) return "Pasted image";
+  const name = file.name.trim() || "Image";
+  return name.replace(/[\[\]]/g, "");
 }

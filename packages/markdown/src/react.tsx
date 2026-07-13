@@ -353,6 +353,23 @@ export function useWikilinkAutocomplete(
   useEffect(() => {
     const textarea = textareaElement;
     if (textarea === null) return;
+    const view = textarea.ownerDocument.defaultView;
+    let pendingInputRefresh: number | null = null;
+
+    const onInput = () => {
+      if (view === null) {
+        refresh();
+        return;
+      }
+      if (pendingInputRefresh !== null) view.clearTimeout(pendingInputRefresh);
+      // React handles controlled textarea input from a delegated listener.
+      // Refresh after that handler commits so we do not render the old value
+      // over the browser's edit before the app's onChange can observe it.
+      pendingInputRefresh = view.setTimeout(() => {
+        pendingInputRefresh = null;
+        refresh();
+      }, 0);
+    };
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (activeQueryRef.current === null || event.isComposing || event.keyCode === 229) return;
@@ -389,7 +406,7 @@ export function useWikilinkAutocomplete(
       isComposingRef.current = false;
     };
 
-    textarea.addEventListener("input", refresh);
+    textarea.addEventListener("input", onInput);
     textarea.addEventListener("click", refresh);
     textarea.addEventListener("select", refresh);
     textarea.addEventListener("keydown", onKeyDown);
@@ -398,13 +415,14 @@ export function useWikilinkAutocomplete(
     textarea.ownerDocument.addEventListener("pointerdown", onDocumentPointerDown);
     refresh();
     return () => {
-      textarea.removeEventListener("input", refresh);
+      textarea.removeEventListener("input", onInput);
       textarea.removeEventListener("click", refresh);
       textarea.removeEventListener("select", refresh);
       textarea.removeEventListener("keydown", onKeyDown);
       textarea.removeEventListener("compositionstart", onCompositionStart);
       textarea.removeEventListener("compositionend", onCompositionEnd);
       textarea.ownerDocument.removeEventListener("pointerdown", onDocumentPointerDown);
+      if (pendingInputRefresh !== null) view?.clearTimeout(pendingInputRefresh);
     };
   }, [close, listboxId, refresh, selectSuggestion, textareaElement]);
 

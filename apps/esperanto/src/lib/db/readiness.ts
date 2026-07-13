@@ -18,8 +18,11 @@ const databasePathOptions = {
 export const appDatabaseReadinessOptions = {
   appName: "Esperanto",
   packageName: "@babel-apps/esperanto",
-  expectedMigration: 1_783_911_742_997,
-  requiredColumns: { note: ["parent_id"] },
+  expectedMigration: 1_783_933_005_010,
+  requiredColumns: {
+    note: ["parent_id"],
+    note_link: ["source_note_id", "target_title_key", "target_note_id"],
+  },
 } as const;
 
 export function resolveAppDatabasePath(): string {

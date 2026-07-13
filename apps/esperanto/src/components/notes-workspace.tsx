@@ -10,15 +10,22 @@ import { FolderPanel } from "@/components/folder-panel";
 import { NoteDetail, type NoteViewMode } from "@/components/note-detail";
 import { NoteList } from "@/components/note-list";
 import {
+  createNote,
   createFolder,
   deleteFolder,
   getErrorMessage,
   getNote,
+  listBacklinks,
   listFolders,
   listNotes,
   updateFolder,
 } from "@/lib/api-client";
-import type { FolderDto, NoteDetailDto, NoteSummaryDto } from "@/lib/types";
+import type {
+  BacklinkDto,
+  FolderDto,
+  NoteDetailDto,
+  NoteSummaryDto,
+} from "@/lib/types";
 
 type ResponsiveStage = "library" | "notes" | "note";
 
@@ -85,6 +92,7 @@ export function NotesWorkspace({
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(initialFolderId);
   const [selectedNoteId, setSelectedNoteId] = useState<number | null>(initialNoteId);
   const [detail, setDetail] = useState<NoteDetailDto | null>(null);
+  const [backlinks, setBacklinks] = useState<BacklinkDto[]>([]);
   const [createTarget, setCreateTarget] = useState<{
     folderId: number;
     parentId: number | null;
@@ -99,6 +107,7 @@ export function NotesWorkspace({
   const [error, setError] = useState("");
   const [detailError, setDetailError] = useState("");
   const [dirty, setDirty] = useState(false);
+  const selectionVersionRef = useRef(0);
   const dirtyRef = useRef(false);
   const saveActionRef = useRef<(() => void) | null>(null);
   const guardedUrlRef = useRef("");
@@ -112,6 +121,12 @@ export function NotesWorkspace({
     setFolders(nextFolders);
     setNotes(nextNotes);
     return { folders: nextFolders, notes: nextNotes };
+  }, []);
+
+  const setActiveNoteId = useCallback((id: number | null): number => {
+    selectionVersionRef.current += 1;
+    setSelectedNoteId(id);
+    return selectionVersionRef.current;
   }, []);
 
   useEffect(() => {
@@ -145,15 +160,17 @@ export function NotesWorkspace({
     if (detail?.id === selectedNoteId && detailRequestVersion === 0) return;
 
     let active = true;
-    getNote(selectedNoteId)
-      .then((nextDetail) => {
+    Promise.all([getNote(selectedNoteId), listBacklinks(selectedNoteId)])
+      .then(([nextDetail, nextBacklinks]) => {
         if (!active) return;
         setDetail(nextDetail);
+        setBacklinks(nextBacklinks);
         setDetailRequestVersion(0);
       })
       .catch((caught) => {
         if (!active) return;
         setDetail(null);
+        setBacklinks([]);
         setDetailError(getErrorMessage(caught));
       })
       .finally(() => {
@@ -191,15 +208,16 @@ export function NotesWorkspace({
   const resetToLibraryRoot = useCallback(() => {
     setDirtyState(false);
     setSelectedFolderId(null);
-    setSelectedNoteId(null);
+    setActiveNoteId(null);
     setDetail(null);
+    setBacklinks([]);
     setCreateTarget(null);
     setDetailError("");
     setDetailLoading(false);
     setDetailRequestVersion(0);
     setMode("view");
     setStage("library");
-  }, [setDirtyState]);
+  }, [setActiveNoteId, setDirtyState]);
 
   useEffect(() => {
     guardedUrlRef.current = currentRelativeUrl();
@@ -314,8 +332,9 @@ export function NotesWorkspace({
   function selectFolder(id: number | null) {
     if (!confirmDiscard()) return;
     setSelectedFolderId(id);
-    setSelectedNoteId(null);
+    setActiveNoteId(null);
     setDetail(null);
+    setBacklinks([]);
     setCreateTarget(null);
     setDetailError("");
     setDetailLoading(false);
@@ -325,17 +344,20 @@ export function NotesWorkspace({
     replaceLocation(id, null);
   }
 
-  function selectNote(id: number) {
+  function openNote(id: number, folderId?: number) {
     if (!confirmDiscard()) return;
-    setSelectedNoteId(id);
+    const targetFolderId = folderId ?? notes.find((note) => note.id === id)?.folderId ?? null;
+    setSelectedFolderId(targetFolderId);
+    setActiveNoteId(id);
     setDetail(null);
+    setBacklinks([]);
     setCreateTarget(null);
     setDetailError("");
     setDetailLoading(true);
     setDetailRequestVersion(0);
     setMode("view");
     setStage("note");
-    replaceLocation(selectedFolderId, id);
+    replaceLocation(targetFolderId, id);
   }
 
   async function handleCreateFolder(name: string, parentId: number | null) {
@@ -343,8 +365,9 @@ export function NotesWorkspace({
     const created = await createFolder({ name, parentId });
     await refreshIndex();
     setSelectedFolderId(created.id);
-    setSelectedNoteId(null);
+    setActiveNoteId(null);
     setDetail(null);
+    setBacklinks([]);
     setCreateTarget(null);
     setMode("view");
     setDetailLoading(false);
@@ -368,8 +391,9 @@ export function NotesWorkspace({
     await deleteFolder(id);
     await refreshIndex();
     setSelectedFolderId(null);
-    setSelectedNoteId(null);
+    setActiveNoteId(null);
     setDetail(null);
+    setBacklinks([]);
     setCreateTarget(null);
     setMode("view");
     setDetailLoading(false);
@@ -382,8 +406,9 @@ export function NotesWorkspace({
     const folderChanged = detail !== null && saved.folderId !== detail.folderId;
     const nextFolderId = detail === null || folderChanged ? saved.folderId : selectedFolderId;
     setDetail(saved);
+    setBacklinks([]);
     setCreateTarget(null);
-    setSelectedNoteId(saved.id);
+    const selectionVersion = setActiveNoteId(saved.id);
     setSelectedFolderId(nextFolderId);
     setMode("view");
     setStage("note");
@@ -392,15 +417,39 @@ export function NotesWorkspace({
     setDirtyState(false);
     replaceLocation(nextFolderId, saved.id);
     try {
-      await refreshIndex();
+      const [nextBacklinks] = await Promise.all([
+        listBacklinks(saved.id),
+        refreshIndex(),
+      ]);
+      if (selectionVersionRef.current === selectionVersion) {
+        setBacklinks(nextBacklinks);
+      }
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+    }
+  }
+
+  async function handleCreateWikilink(title: string, folderId: number) {
+    if (!confirmDiscard()) return;
+    setError("");
+    try {
+      const saved = await createNote({
+        folderId,
+        parentId: null,
+        title,
+        contentMd: "",
+        tags: [],
+      });
+      await handleSaved(saved);
     } catch (caught) {
       setError(getErrorMessage(caught));
     }
   }
 
   async function handleDeleted() {
-    setSelectedNoteId(null);
+    setActiveNoteId(null);
     setDetail(null);
+    setBacklinks([]);
     setCreateTarget(null);
     setMode("view");
     setStage("notes");
@@ -431,8 +480,9 @@ export function NotesWorkspace({
   function startCreateNote(parentId: number | null, folderId?: number) {
     const targetFolderId = folderId ?? selectedFolderId;
     if (targetFolderId === null || !confirmDiscard()) return;
-    setSelectedNoteId(null);
+    setActiveNoteId(null);
     setDetail(null);
+    setBacklinks([]);
     setCreateTarget({ folderId: targetFolderId, parentId });
     setDetailError("");
     setDetailLoading(false);
@@ -467,7 +517,7 @@ export function NotesWorkspace({
         selectedFolderId={selectedFolderId}
         selectedNoteId={selectedNoteId}
         loading={indexLoading}
-        onSelect={selectNote}
+        onSelect={openNote}
         onCreate={startCreateNote}
         onBack={() => setStage("library")}
       />
@@ -497,11 +547,14 @@ export function NotesWorkspace({
           parentId={detail?.parentId ?? createTarget?.parentId ?? null}
           folders={folders}
           notes={notes}
+          backlinks={backlinks}
           loading={detailLoading}
           onEdit={() => setMode("edit")}
           onCancel={cancelEditing}
           onSaved={handleSaved}
           onDeleted={handleDeleted}
+          onNavigateNote={openNote}
+          onCreateWikilink={handleCreateWikilink}
           onDirtyChange={setDirtyState}
           onRegisterSave={registerSave}
           onBack={backToNotes}
