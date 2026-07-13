@@ -18,8 +18,11 @@ const databasePathOptions = {
 export const appDatabaseReadinessOptions = {
   appName: "Herodotus",
   packageName: "@babel-apps/herodotus",
-  expectedMigration: 1_783_911_803_345,
-  requiredColumns: { note: ["parent_id"] },
+  expectedMigration: 1_783_935_760_283,
+  requiredColumns: {
+    note: ["parent_id"],
+    note_link: ["source_note_id", "target_title_key", "target_note_id"],
+  },
 } as const;
 
 export function resolveAppDatabasePath(): string {

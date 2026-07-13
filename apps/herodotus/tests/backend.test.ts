@@ -10,6 +10,8 @@ import type * as FolderCollectionRoute from "@/app/api/folders/route";
 import type * as FolderItemRoute from "@/app/api/folders/[id]/route";
 import type * as NoteCollectionRoute from "@/app/api/notes/route";
 import type * as NoteItemRoute from "@/app/api/notes/[id]/route";
+import type * as NoteBacklinksRoute from "@/app/api/notes/[id]/backlinks/route";
+import type * as NoteTitlesRoute from "@/app/api/notes/titles/route";
 import type * as UploadRoute from "@/app/api/uploads/notes/[filename]/route";
 import type * as DatabaseModule from "@/lib/db/client";
 import type * as HttpRequestModule from "@/lib/http/request";
@@ -27,6 +29,8 @@ let folderCollectionRoute: typeof FolderCollectionRoute;
 let folderItemRoute: typeof FolderItemRoute;
 let noteCollectionRoute: typeof NoteCollectionRoute;
 let noteItemRoute: typeof NoteItemRoute;
+let noteBacklinksRoute: typeof NoteBacklinksRoute;
+let noteTitlesRoute: typeof NoteTitlesRoute;
 let uploadRoute: typeof UploadRoute;
 
 before(async () => {
@@ -44,6 +48,8 @@ before(async () => {
     folderItemRoute,
     noteCollectionRoute,
     noteItemRoute,
+    noteBacklinksRoute,
+    noteTitlesRoute,
     uploadRoute,
   ] =
     await Promise.all([
@@ -54,6 +60,8 @@ before(async () => {
       import("@/app/api/folders/[id]/route"),
       import("@/app/api/notes/route"),
       import("@/app/api/notes/[id]/route"),
+      import("@/app/api/notes/[id]/backlinks/route"),
+      import("@/app/api/notes/titles/route"),
       import("@/app/api/uploads/notes/[filename]/route"),
     ]);
 });
@@ -597,6 +605,232 @@ test("Herodotus backend integration", async (t) => {
         (error: unknown) =>
           error instanceof repositories.RepositoryError && error.code === "NOT_EMPTY",
       );
+    });
+
+    await t.test("wikilink indexes, APIs, and lifecycle stay deterministic", async () => {
+      const folderId = repositories.listFolders()[0].id;
+      const firstTarget = repositories.createNote({
+        folderId,
+        title: "M3 Wiki Target",
+      });
+      const secondTarget = repositories.createNote({
+        folderId,
+        title: "M3   WIKI target",
+      });
+      assert.ok(firstTarget.id < secondTarget.id);
+
+      const source = repositories.createNote({
+        folderId,
+        title: "M3 Link Source",
+        contentMd: [
+          "[[ M3   wiki TARGET |Primary alias]] and [[m3 wiki target]]",
+          "[[M3 Missing Target]]",
+          "`[[M3 Inline Hidden]]`",
+          "```md",
+          "[[M3 Fence Hidden]]",
+          "```",
+        ].join("\r\n"),
+      });
+      const expectedLinks = [
+        { titleKey: "m3 missing target", targetId: null },
+        { titleKey: "m3 wiki target", targetId: firstTarget.id },
+      ];
+      assert.deepEqual(source.links, expectedLinks);
+      assert.deepEqual(repositories.listOutgoingNoteLinks(source.id), expectedLinks);
+
+      const detailResponse = await noteItemRoute.GET(
+        new Request(`http://localhost/api/notes/${source.id}`),
+        { params: Promise.resolve({ id: String(source.id) }) },
+      );
+      assert.equal(detailResponse.status, 200);
+      const detail = (await detailResponse.json()) as {
+        id: number;
+        links: Array<{ titleKey: string; targetId: number | null }>;
+      };
+      assert.equal(detail.id, source.id);
+      assert.deepEqual(detail.links, expectedLinks);
+
+      const backlinksResponse = await noteBacklinksRoute.GET(
+        new Request(`http://localhost/api/notes/${firstTarget.id}/backlinks`),
+        { params: Promise.resolve({ id: String(firstTarget.id) }) },
+      );
+      assert.equal(backlinksResponse.status, 200);
+      assert.deepEqual(await backlinksResponse.json(), [
+        { id: source.id, title: source.title, folderId },
+      ]);
+      assert.deepEqual(repositories.listBacklinks(secondTarget.id), []);
+
+      const titlesResponse = await noteTitlesRoute.GET(
+        new Request("http://localhost/api/notes/titles?q=m3%20wiki%20target&limit=10"),
+      );
+      assert.equal(titlesResponse.status, 200);
+      const titles = (await titlesResponse.json()) as Array<{ id: number; title: string }>;
+      assert.deepEqual(
+        new Set(titles.map(({ id }) => id)),
+        new Set([firstTarget.id, secondTarget.id]),
+      );
+      const limitedTitles = await noteTitlesRoute.GET(
+        new Request("http://localhost/api/notes/titles?q=m3&limit=1"),
+      );
+      assert.equal(limitedTitles.status, 200);
+      assert.equal(((await limitedTitles.json()) as unknown[]).length, 1);
+
+      repositories.updateNote(firstTarget.id, { title: "M3 Alternate Target" });
+      assert.deepEqual(repositories.listOutgoingNoteLinks(source.id), [
+        expectedLinks[0],
+        { titleKey: "m3 wiki target", targetId: secondTarget.id },
+      ]);
+
+      repositories.updateNote(firstTarget.id, { title: "M3 Wiki Target" });
+      assert.equal(
+        repositories.listOutgoingNoteLinks(source.id)[1]?.targetId,
+        firstTarget.id,
+      );
+
+      repositories.deleteNote(firstTarget.id);
+      assert.equal(
+        repositories.listOutgoingNoteLinks(source.id)[1]?.targetId,
+        secondTarget.id,
+      );
+
+      repositories.updateNote(secondTarget.id, { title: "M3 Renamed Target" });
+      assert.equal(repositories.listOutgoingNoteLinks(source.id)[1]?.targetId, null);
+
+      repositories.updateNote(secondTarget.id, { title: "M3 Wiki Target" });
+      assert.equal(
+        repositories.listOutgoingNoteLinks(source.id)[1]?.targetId,
+        secondTarget.id,
+      );
+
+      repositories.deleteNote(secondTarget.id);
+      assert.equal(repositories.listOutgoingNoteLinks(source.id)[1]?.targetId, null);
+      const replacement = repositories.createNote({
+        folderId,
+        title: "m3 wiki target",
+      });
+      assert.equal(
+        repositories.listOutgoingNoteLinks(source.id)[1]?.targetId,
+        replacement.id,
+      );
+
+      const firstRebuild = repositories.rebuildAllNoteLinks();
+      assert.deepEqual(firstRebuild, {
+        sources: repositories.listNotes().length,
+        links: 2,
+        unresolved: [
+          {
+            sourceId: source.id,
+            sourceTitle: source.title,
+            targetTitleKey: "m3 missing target",
+          },
+        ],
+      });
+      assert.deepEqual(repositories.rebuildAllNoteLinks(), firstRebuild);
+
+      repositories.deleteNote(source.id);
+      assert.deepEqual(repositories.listOutgoingNoteLinks(source.id), []);
+      assert.deepEqual(repositories.listBacklinks(replacement.id), []);
+
+      const missingBacklinks = await noteBacklinksRoute.GET(
+        new Request("http://localhost/api/notes/999999/backlinks"),
+        { params: Promise.resolve({ id: "999999" }) },
+      );
+      assert.equal(missingBacklinks.status, 404);
+    });
+
+    await t.test("wikilink replacement and write failures are atomic", () => {
+      const folderId = repositories.listFolders()[1].id;
+      const targetA = repositories.createNote({
+        folderId,
+        title: "M3 Atomic Target A",
+      });
+      const targetB = repositories.createNote({
+        folderId,
+        title: "M3 Atomic Target B",
+      });
+      const source = repositories.createNote({
+        folderId,
+        title: "M3 Atomic Source",
+        contentMd: "Before [[M3 Atomic Target A]]",
+      });
+
+      assert.deepEqual(repositories.listOutgoingNoteLinks(source.id), [
+        { titleKey: "m3 atomic target a", targetId: targetA.id },
+      ]);
+      assert.deepEqual(repositories.listBacklinks(targetA.id), [
+        { id: source.id, title: source.title, folderId },
+      ]);
+
+      const replaced = repositories.updateNote(source.id, {
+        contentMd: "After [[M3 Atomic Target B]]",
+      }).note;
+      assert.deepEqual(replaced.links, [
+        { titleKey: "m3 atomic target b", targetId: targetB.id },
+      ]);
+      assert.deepEqual(repositories.listBacklinks(targetA.id), []);
+      assert.deepEqual(repositories.listBacklinks(targetB.id), [
+        { id: source.id, title: source.title, folderId },
+      ]);
+
+      const triggerName = "test_note_link_insert_failure";
+      const imageCountBefore = database.sqlite
+        .prepare("SELECT count(*) FROM note_image")
+        .pluck()
+        .get();
+      const noteCountBefore = repositories.listNotes().length;
+      database.sqlite.exec(`
+        CREATE TRIGGER ${triggerName}
+        BEFORE INSERT ON note_link
+        BEGIN
+          SELECT RAISE(ABORT, 'forced note_link insert failure');
+        END;
+      `);
+      try {
+        assert.throws(
+          () => repositories.updateNote(
+            source.id,
+            { contentMd: "Failed [[M3 Atomic Target A]] ![Rollback](/api/uploads/notes/m3-update-rollback.png)" },
+            ["data/uploads/notes/m3-update-rollback.png"],
+          ),
+          /forced note_link insert failure/,
+        );
+        assert.deepEqual(repositories.getNote(source.id), replaced);
+        assert.deepEqual(repositories.listBacklinks(targetA.id), []);
+        assert.deepEqual(repositories.listBacklinks(targetB.id), [
+          { id: source.id, title: source.title, folderId },
+        ]);
+        assert.equal(
+          database.sqlite.prepare("SELECT count(*) FROM note_image").pluck().get(),
+          imageCountBefore,
+        );
+
+        assert.throws(
+          () => repositories.createNote(
+            {
+              folderId,
+              title: "M3 Failed Atomic Create",
+              contentMd: "[[M3 Atomic Target A]] ![Rollback](/api/uploads/notes/m3-create-rollback.png)",
+            },
+            ["data/uploads/notes/m3-create-rollback.png"],
+          ),
+          /forced note_link insert failure/,
+        );
+        assert.equal(repositories.listNotes().length, noteCountBefore);
+        assert.equal(
+          repositories.listNotes().some(({ title }) => title === "M3 Failed Atomic Create"),
+          false,
+        );
+        assert.equal(
+          database.sqlite.prepare("SELECT count(*) FROM note_image").pluck().get(),
+          imageCountBefore,
+        );
+      } finally {
+        database.sqlite.exec(`DROP TRIGGER IF EXISTS ${triggerName}`);
+      }
+
+      repositories.deleteNote(source.id);
+      repositories.deleteNote(targetA.id);
+      repositories.deleteNote(targetB.id);
     });
 
     await t.test("partial concurrent image staging rolls back successful siblings", async () => {

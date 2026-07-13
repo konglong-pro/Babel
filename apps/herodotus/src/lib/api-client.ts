@@ -1,7 +1,9 @@
 import type {
+  BacklinkDto,
   FolderDto,
   NoteDetailDto,
   NoteSummaryDto,
+  NoteTitleDto,
   SearchResultsDto,
 } from "@/lib/types";
 
@@ -95,6 +97,17 @@ export function listNotes(folderId?: number): Promise<NoteSummaryDto[]> {
 
 export function getNote(id: number): Promise<NoteDetailDto> {
   return request(`/api/notes/${id}`);
+}
+
+export function listBacklinks(id: number): Promise<BacklinkDto[]> {
+  return request(`/api/notes/${id}/backlinks`);
+}
+
+export function listNoteTitles(
+  query: string,
+  signal?: AbortSignal,
+): Promise<NoteTitleDto[]> {
+  return request(`/api/notes/titles?q=${encodeURIComponent(query)}&limit=20`, { signal });
 }
 
 export interface NoteInput {

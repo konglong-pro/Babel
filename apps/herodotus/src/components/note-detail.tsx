@@ -1,7 +1,13 @@
 "use client";
 
+import type { Wikilink } from "@babel-apps/markdown/core";
+import {
+  MarkdownRenderer,
+  type ResolvedWikilink,
+} from "@babel-apps/markdown/react";
 import {
   type FormEvent,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -9,7 +15,7 @@ import {
 } from "react";
 
 import { ImportedImageMatcher } from "@/components/imported-image-matcher";
-import { MarkdownEditor, MarkdownRenderer, type StagedImage } from "@/components/markdown";
+import { MarkdownEditor, type StagedImage } from "@/components/markdown-editor";
 import {
   ConfirmButton,
   folderPathLabel,
@@ -30,7 +36,12 @@ import {
   NOTE_SAVE_MAX_BYTES,
   utf8ByteLength,
 } from "@/lib/note-limits";
-import type { FolderDto, NoteDetailDto, NoteSummaryDto } from "@/lib/types";
+import type {
+  BacklinkDto,
+  FolderDto,
+  NoteDetailDto,
+  NoteSummaryDto,
+} from "@/lib/types";
 
 export type NoteViewMode = "view" | "edit" | "create";
 
@@ -90,12 +101,15 @@ interface NoteDetailProps {
   parentId: number | null;
   folders: FolderDto[];
   notes: NoteSummaryDto[];
+  backlinks: BacklinkDto[];
   loading?: boolean;
   onEdit: () => void;
   onCreateSubnote: () => void;
   onCancel: () => void;
   onSaved: (detail: NoteDetailDto) => Promise<void> | void;
   onDeleted: () => Promise<void> | void;
+  onNavigateNote: (id: number, folderId?: number) => void;
+  onCreateWikilink: (title: string, folderId: number) => Promise<void> | void;
   onDirtyChange: (dirty: boolean) => void;
   onPendingChange: (pending: boolean) => void;
   onRegisterSave: (action: (() => void) | null) => void;
@@ -111,18 +125,41 @@ export function NoteDetail({
   parentId,
   folders,
   notes,
+  backlinks,
   loading,
   onEdit,
   onCreateSubnote,
   onCancel,
   onSaved,
   onDeleted,
+  onNavigateNote,
+  onCreateWikilink,
   onDirtyChange,
   onPendingChange,
   onRegisterSave,
   onBack,
 }: NoteDetailProps) {
   const folderMap = useMemo(() => new Map(folders.map((folder) => [folder.id, folder])), [folders]);
+  const wikilinkTargets = useMemo(() => new Map(
+    (detail?.links ?? [])
+      .filter((link): link is { titleKey: string; targetId: number } => link.targetId !== null)
+      .map((link) => [link.titleKey, { id: link.targetId }]),
+  ), [detail?.links]);
+  const resolveWikilink = useCallback(
+    (titleKey: string): ResolvedWikilink | null => wikilinkTargets.get(titleKey) ?? null,
+    [wikilinkTargets],
+  );
+  const navigateWikilink = useCallback(
+    (target: ResolvedWikilink) => onNavigateNote(target.id),
+    [onNavigateNote],
+  );
+  const createFromWikilink = useCallback((wikilink: Wikilink) => {
+    const targetFolderId = detail?.folderId ?? folderId;
+    const title = wikilink.titleRaw.trim().replace(/\s+/gu, " ");
+    if (targetFolderId === null || !title) return;
+    if (!window.confirm(`Create note “${title}”?`)) return;
+    void onCreateWikilink(title, targetFolderId);
+  }, [detail?.folderId, folderId, onCreateWikilink]);
 
   if (loading) {
     return <section className="detail-panel panel-status detail-loading">Loading note…</section>;
@@ -143,6 +180,9 @@ export function NoteDetail({
         onDirtyChange={onDirtyChange}
         onPendingChange={onPendingChange}
         onRegisterSave={onRegisterSave}
+        resolveWikilink={resolveWikilink}
+        onNavigateWikilink={navigateWikilink}
+        onCreateWikilink={onCreateWikilink}
       />
     );
   }
@@ -192,7 +232,32 @@ export function NoteDetail({
       </header>
 
       <section className="document-content" aria-label="Note content">
-        <MarkdownRenderer content={detail.contentMd} />
+        <MarkdownRenderer
+          content={detail.contentMd}
+          uploadScheme="herodotus-upload"
+          resolveWikilink={resolveWikilink}
+          onNavigateWikilink={navigateWikilink}
+          onCreateFromWikilink={createFromWikilink}
+        />
+      </section>
+      <section className="linked-mentions" aria-labelledby="linked-mentions-heading">
+        <h2 id="linked-mentions-heading">Linked mentions ({backlinks.length})</h2>
+        {backlinks.length === 0 ? (
+          <p className="empty-copy">No notes link here yet.</p>
+        ) : (
+          <ul>
+            {backlinks.map((backlink) => (
+              <li key={backlink.id}>
+                <button
+                  type="button"
+                  onClick={() => onNavigateNote(backlink.id, backlink.folderId)}
+                >
+                  {backlink.title}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
     </article>
   );
@@ -210,6 +275,9 @@ interface NoteFormProps {
   onDirtyChange: (dirty: boolean) => void;
   onPendingChange: (pending: boolean) => void;
   onRegisterSave: (action: (() => void) | null) => void;
+  resolveWikilink: (titleKey: string) => ResolvedWikilink | null;
+  onNavigateWikilink: (target: ResolvedWikilink) => void;
+  onCreateWikilink: (title: string, folderId: number) => Promise<void> | void;
 }
 
 function NoteForm({
@@ -224,6 +292,9 @@ function NoteForm({
   onDirtyChange,
   onPendingChange,
   onRegisterSave,
+  resolveWikilink,
+  onNavigateWikilink,
+  onCreateWikilink,
 }: NoteFormProps) {
   const formRef = useRef<HTMLFormElement>(null);
   const stagedRef = useRef<StagedImage[]>([]);
@@ -429,6 +500,13 @@ function NoteForm({
     });
   }
 
+  function createFromWikilink(wikilink: Wikilink) {
+    const title = wikilink.titleRaw.trim().replace(/\s+/gu, " ");
+    if (folderId === null || !title) return;
+    if (!window.confirm(`Create note “${title}”?`)) return;
+    void onCreateWikilink(title, folderId);
+  }
+
   return (
     <section className="detail-panel form-view">
       <form ref={formRef} onSubmit={submit}>
@@ -548,6 +626,9 @@ function NoteForm({
               setStagedImages((current) => [...current, image]);
             }
           }}
+          resolveWikilink={resolveWikilink}
+          onNavigateWikilink={onNavigateWikilink}
+          onCreateFromWikilink={createFromWikilink}
         />
         <p className="editor-footnote">Images remain in this browser until you save the note.</p>
       </form>

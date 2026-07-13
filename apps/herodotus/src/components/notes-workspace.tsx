@@ -10,10 +10,12 @@ import { FolderPanel } from "@/components/folder-panel";
 import { NoteDetail, type NoteViewMode } from "@/components/note-detail";
 import { NoteList } from "@/components/note-list";
 import {
+  createNote,
   createFolder,
   deleteFolder,
   getErrorMessage,
   getNote,
+  listBacklinks,
   listFolders,
   listNotes,
   updateFolder,
@@ -23,7 +25,12 @@ import {
   type MarkdownImportDraft,
 } from "@/lib/markdown-import";
 import { NOTE_CONTENT_MAX_BYTES } from "@/lib/note-limits";
-import type { FolderDto, NoteDetailDto, NoteSummaryDto } from "@/lib/types";
+import type {
+  BacklinkDto,
+  FolderDto,
+  NoteDetailDto,
+  NoteSummaryDto,
+} from "@/lib/types";
 
 type ResponsiveStage = "library" | "notes" | "note";
 
@@ -90,6 +97,7 @@ export function NotesWorkspace({
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(initialFolderId);
   const [selectedNoteId, setSelectedNoteId] = useState<number | null>(initialNoteId);
   const [detail, setDetail] = useState<NoteDetailDto | null>(null);
+  const [backlinks, setBacklinks] = useState<BacklinkDto[]>([]);
   const [importDraft, setImportDraft] = useState<MarkdownImportDraft | null>(null);
   const [draftParentId, setDraftParentId] = useState<number | null>(null);
   const [draftVersion, setDraftVersion] = useState(0);
@@ -103,6 +111,7 @@ export function NotesWorkspace({
   const [error, setError] = useState("");
   const [detailError, setDetailError] = useState("");
   const [dirty, setDirty] = useState(false);
+  const selectionVersionRef = useRef(0);
   const dirtyRef = useRef(false);
   const savingRef = useRef(false);
   const mountedRef = useRef(false);
@@ -151,6 +160,12 @@ export function NotesWorkspace({
     return { folders: nextFolders, notes: nextNotes };
   }, []);
 
+  const setActiveNoteId = useCallback((id: number | null): number => {
+    selectionVersionRef.current += 1;
+    setSelectedNoteId(id);
+    return selectionVersionRef.current;
+  }, []);
+
   useEffect(() => {
     let active = true;
     Promise.all([listFolders(), listNotes()])
@@ -184,15 +199,17 @@ export function NotesWorkspace({
     if (detail?.id === selectedNoteId && detailRequestVersion === 0) return;
 
     let active = true;
-    getNote(selectedNoteId)
-      .then((nextDetail) => {
+    Promise.all([getNote(selectedNoteId), listBacklinks(selectedNoteId)])
+      .then(([nextDetail, nextBacklinks]) => {
         if (!active) return;
         setDetail(nextDetail);
+        setBacklinks(nextBacklinks);
         setDetailRequestVersion(0);
       })
       .catch((caught) => {
         if (!active) return;
         setDetail(null);
+        setBacklinks([]);
         setDetailError(getErrorMessage(caught));
       })
       .finally(() => {
@@ -236,8 +253,9 @@ export function NotesWorkspace({
     selectedFolderIdRef.current = null;
     setDirtyState(false);
     setSelectedFolderId(null);
-    setSelectedNoteId(null);
+    setActiveNoteId(null);
     setDetail(null);
+    setBacklinks([]);
     setImportDraft(null);
     setDraftParentId(null);
     setDetailError("");
@@ -245,7 +263,7 @@ export function NotesWorkspace({
     setDetailRequestVersion(0);
     setMode("view");
     setStage("library");
-  }, [invalidateImportRequest, setDirtyState]);
+  }, [invalidateImportRequest, setActiveNoteId, setDirtyState]);
 
   useEffect(() => {
     guardedUrlRef.current = currentRelativeUrl();
@@ -364,8 +382,9 @@ export function NotesWorkspace({
     invalidateImportRequest();
     selectedFolderIdRef.current = id;
     setSelectedFolderId(id);
-    setSelectedNoteId(null);
+    setActiveNoteId(null);
     setDetail(null);
+    setBacklinks([]);
     setImportDraft(null);
     setDraftParentId(null);
     setDetailError("");
@@ -376,11 +395,15 @@ export function NotesWorkspace({
     replaceLocation(id, null);
   }
 
-  function selectNote(id: number) {
+  function openNote(id: number, folderId?: number) {
     if (!confirmDiscard()) return;
     invalidateImportRequest();
-    setSelectedNoteId(id);
+    const targetFolderId = folderId ?? notes.find((note) => note.id === id)?.folderId ?? null;
+    selectedFolderIdRef.current = targetFolderId;
+    setSelectedFolderId(targetFolderId);
+    setActiveNoteId(id);
     setDetail(null);
+    setBacklinks([]);
     setImportDraft(null);
     setDraftParentId(null);
     setDetailError("");
@@ -388,7 +411,7 @@ export function NotesWorkspace({
     setDetailRequestVersion(0);
     setMode("view");
     setStage("note");
-    replaceLocation(selectedFolderId, id);
+    replaceLocation(targetFolderId, id);
   }
 
   async function handleCreateFolder(name: string, parentId: number | null) {
@@ -398,8 +421,9 @@ export function NotesWorkspace({
     await refreshIndex();
     selectedFolderIdRef.current = created.id;
     setSelectedFolderId(created.id);
-    setSelectedNoteId(null);
+    setActiveNoteId(null);
     setDetail(null);
+    setBacklinks([]);
     setImportDraft(null);
     setDraftParentId(null);
     setMode("view");
@@ -426,8 +450,9 @@ export function NotesWorkspace({
     await refreshIndex();
     selectedFolderIdRef.current = null;
     setSelectedFolderId(null);
-    setSelectedNoteId(null);
+    setActiveNoteId(null);
     setDetail(null);
+    setBacklinks([]);
     setImportDraft(null);
     setDraftParentId(null);
     setMode("view");
@@ -443,9 +468,10 @@ export function NotesWorkspace({
     const nextFolderId = detail === null || folderChanged ? saved.folderId : selectedFolderId;
     selectedFolderIdRef.current = nextFolderId;
     setDetail(saved);
+    setBacklinks([]);
     setImportDraft(null);
     setDraftParentId(null);
-    setSelectedNoteId(saved.id);
+    const selectionVersion = setActiveNoteId(saved.id);
     setSelectedFolderId(nextFolderId);
     setMode("view");
     setStage("note");
@@ -454,16 +480,44 @@ export function NotesWorkspace({
     setDirtyState(false);
     replaceLocation(nextFolderId, saved.id);
     try {
-      await refreshIndex();
+      const [nextBacklinks] = await Promise.all([
+        listBacklinks(saved.id),
+        refreshIndex(),
+      ]);
+      if (selectionVersionRef.current === selectionVersion) {
+        setBacklinks(nextBacklinks);
+      }
     } catch (caught) {
       setError(getErrorMessage(caught));
     }
   }
 
+  async function handleCreateWikilink(title: string, folderId: number) {
+    if (!confirmDiscard()) return;
+    invalidateImportRequest();
+    setSavingState(true);
+    setError("");
+    try {
+      const saved = await createNote({
+        folderId,
+        parentId: null,
+        title,
+        contentMd: "",
+        tags: [],
+      });
+      await handleSaved(saved);
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+    } finally {
+      setSavingState(false);
+    }
+  }
+
   async function handleDeleted() {
     invalidateImportRequest();
-    setSelectedNoteId(null);
+    setActiveNoteId(null);
     setDetail(null);
+    setBacklinks([]);
     setImportDraft(null);
     setMode("view");
     setStage("notes");
@@ -527,8 +581,9 @@ export function NotesWorkspace({
       }
       setError("");
       setSelectedFolderId(targetFolderId);
-      setSelectedNoteId(null);
+      setActiveNoteId(null);
       setDetail(null);
+      setBacklinks([]);
       setImportDraft(draft);
       setDraftParentId(null);
       setDetailError("");
@@ -580,7 +635,7 @@ export function NotesWorkspace({
         selectedFolderId={selectedFolderId}
         selectedNoteId={selectedNoteId}
         loading={indexLoading}
-        onSelect={selectNote}
+        onSelect={openNote}
         onImport={handleImportMarkdown}
         onCreate={(parentId) => {
           if ((selectedFolderId === null && parentId === null) || !confirmDiscard()) return;
@@ -591,8 +646,9 @@ export function NotesWorkspace({
           invalidateImportRequest();
           selectedFolderIdRef.current = targetFolderId;
           setSelectedFolderId(targetFolderId);
-          setSelectedNoteId(null);
+          setActiveNoteId(null);
           setDetail(null);
+          setBacklinks([]);
           setImportDraft(null);
           setDraftParentId(parentId);
           setDetailError("");
@@ -633,6 +689,7 @@ export function NotesWorkspace({
           parentId={mode === "create" ? draftParentId : detail?.parentId ?? null}
           folders={folders}
           notes={notes}
+          backlinks={backlinks}
           loading={detailLoading}
           onEdit={() => {
             invalidateImportRequest();
@@ -644,8 +701,9 @@ export function NotesWorkspace({
             invalidateImportRequest();
             setSelectedFolderId(detail.folderId);
             selectedFolderIdRef.current = detail.folderId;
-            setSelectedNoteId(null);
+            setActiveNoteId(null);
             setDetail(null);
+            setBacklinks([]);
             setImportDraft(null);
             setDraftParentId(detail.id);
             setDetailError("");
@@ -659,6 +717,8 @@ export function NotesWorkspace({
           onCancel={cancelEditing}
           onSaved={handleSaved}
           onDeleted={handleDeleted}
+          onNavigateNote={openNote}
+          onCreateWikilink={handleCreateWikilink}
           onDirtyChange={setDirtyState}
           onPendingChange={setSavingState}
           onRegisterSave={registerSave}

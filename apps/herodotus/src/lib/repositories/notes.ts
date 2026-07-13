@@ -7,6 +7,12 @@ import type { NoteDetailDto, NoteSummaryDto } from "@/lib/types";
 
 import { RepositoryError } from "./errors";
 import {
+  listOutgoingNoteLinks,
+  reconcileNoteTitleChange,
+  replaceSourceNoteLinks,
+  resolveIncomingLinksForTitle,
+} from "./links";
+import {
   assertPositiveId,
   normalizeMarkdown,
   normalizeRequiredText,
@@ -85,7 +91,7 @@ export function listNotes(folderId?: number): NoteSummaryDto[] {
 export function getNote(id: number): NoteDetailDto | null {
   assertPositiveId(id, "id");
   const row = db.select().from(notes).where(eq(notes.id, id)).get();
-  return row ? toNoteDetail(row) : null;
+  return row ? toNoteDetail(row, listOutgoingNoteLinks(id)) : null;
 }
 
 export function listNoteImagePaths(noteId: number): string[] {
@@ -111,7 +117,7 @@ export function createNote(
   const imagePaths = normalizeNewImagePaths(newImagePaths);
   assertManagedImageOwnership(contentMd, [], imagePaths);
 
-  const row = db.transaction((transaction) => {
+  return db.transaction((transaction) => {
     const inserted = transaction
       .insert(notes)
       .values({ folderId: input.folderId, parentId, title, contentMd, tags })
@@ -123,10 +129,13 @@ export function createNote(
         .values(imagePaths.map((imagePath) => ({ noteId: inserted.id, imagePath })))
         .run();
     }
-    return inserted;
+    replaceSourceNoteLinks(transaction, inserted.id, contentMd);
+    resolveIncomingLinksForTitle(transaction, title);
+    return toNoteDetail(
+      inserted,
+      listOutgoingNoteLinks(inserted.id, transaction),
+    );
   });
-
-  return toNoteDetail(row);
 }
 
 export function updateNote(
@@ -188,7 +197,7 @@ export function updateNote(
     changes.tags = tagsToJson(input.tags);
     changed = true;
   }
-  if (!changed) return { note: toNoteDetail(current), removedImagePaths: [] };
+  if (!changed) return { note: getNote(id)!, removedImagePaths: [] };
 
   const ownedImagePaths = listNoteImagePaths(id);
   const contentMd = changes.contentMd ?? current.contentMd;
@@ -233,10 +242,14 @@ export function updateNote(
         .values(imagePaths.map((imagePath) => ({ noteId: id, imagePath })))
         .run();
     }
-    return row;
+    replaceSourceNoteLinks(transaction, id, contentMd);
+    if (input.title !== undefined) {
+      reconcileNoteTitleChange(transaction, id, current.title, changes.title!);
+    }
+    return toNoteDetail(row, listOutgoingNoteLinks(id, transaction));
   });
 
-  return { note: toNoteDetail(updated), removedImagePaths };
+  return { note: updated, removedImagePaths };
 }
 
 export function deleteNote(
@@ -244,7 +257,11 @@ export function deleteNote(
   expectedImagePaths?: readonly string[],
 ): DeletedNoteResult | null {
   assertPositiveId(id, "id");
-  const current = db.select({ id: notes.id }).from(notes).where(eq(notes.id, id)).get();
+  const current = db
+    .select({ id: notes.id, title: notes.title })
+    .from(notes)
+    .where(eq(notes.id, id))
+    .get();
   if (!current) return null;
   const child = db
     .select({ id: notes.id })
@@ -258,7 +275,10 @@ export function deleteNote(
   }
   const imagePaths = listNoteImagePaths(id);
   assertPreparedImageRemoval(imagePaths, expectedImagePaths);
-  db.delete(notes).where(eq(notes.id, id)).run();
+  db.transaction((transaction) => {
+    transaction.delete(notes).where(eq(notes.id, id)).run();
+    resolveIncomingLinksForTitle(transaction, current.title);
+  });
   return { imagePaths };
 }
 
@@ -400,10 +420,14 @@ function assertValidParent(noteId: number, parentId: number | null, folderId: nu
   }
 }
 
-function toNoteDetail(row: NoteRow): NoteDetailDto {
+function toNoteDetail(
+  row: NoteRow,
+  links: NoteDetailDto["links"],
+): NoteDetailDto {
   return {
     ...toNoteSummary(row),
     contentMd: row.contentMd,
     createdAt: row.createdAt,
+    links,
   };
 }

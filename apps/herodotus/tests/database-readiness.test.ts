@@ -12,7 +12,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { assertAppDatabaseReady } from "@/lib/db/readiness";
 import { GET as getHealth } from "@/app/api/health/route";
 
-const latestMigration = 1_783_911_803_345;
+const latestMigration = 1_783_935_760_283;
 const migrationsFolder = path.resolve(process.cwd(), "drizzle");
 
 test("Herodotus database readiness", async (t) => {
@@ -35,6 +35,16 @@ test("Herodotus database readiness", async (t) => {
     assert.throws(
       () => assertAppDatabaseReady(databasePath),
       /missing required column: note\.parent_id/i,
+    );
+  });
+
+  await t.test("rejects a latest-looking database without the link index", () => {
+    const databasePath = path.join(root, "missing-note-link.db");
+    createLatestLookingDatabase(databasePath, true);
+
+    assert.throws(
+      () => assertAppDatabaseReady(databasePath),
+      /missing required column: note_link\.source_note_id/i,
     );
   });
 
@@ -67,11 +77,17 @@ test("Herodotus database readiness", async (t) => {
   });
 });
 
-function createLatestLookingDatabase(databasePath: string): void {
+function createLatestLookingDatabase(
+  databasePath: string,
+  includeParentId = false,
+): void {
   const sqlite = new BetterSqlite3(databasePath);
   try {
     sqlite.exec(`
-      CREATE TABLE note (id integer PRIMARY KEY);
+      CREATE TABLE note (
+        id integer PRIMARY KEY
+        ${includeParentId ? ", parent_id integer" : ""}
+      );
       CREATE TABLE __drizzle_migrations (
         id integer PRIMARY KEY AUTOINCREMENT,
         hash text NOT NULL,

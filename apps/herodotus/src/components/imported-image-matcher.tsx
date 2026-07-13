@@ -4,7 +4,7 @@ import { type ChangeEvent, useMemo, useRef, useState } from "react";
 
 import {
   imageFileError, stageImageFile, type StagedImage,
-} from "@/components/markdown";
+} from "@/components/markdown-editor";
 import {
   matchImportedImagesByBasename,
   type ImportedImageReference,

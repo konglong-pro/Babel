@@ -57,6 +57,29 @@ export const notes = sqliteTable(
   ],
 );
 
+export const noteLinks = sqliteTable(
+  "note_link",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    sourceNoteId: integer("source_note_id")
+      .notNull()
+      .references(() => notes.id, { onDelete: "cascade" }),
+    targetTitleKey: text("target_title_key").notNull(),
+    targetNoteId: integer("target_note_id").references(() => notes.id, {
+      onDelete: "set null",
+    }),
+    createdAt: text("created_at").notNull().default(timestampDefault),
+  },
+  (table) => [
+    uniqueIndex("note_link_source_title_unique").on(
+      table.sourceNoteId,
+      table.targetTitleKey,
+    ),
+    index("note_link_target_idx").on(table.targetNoteId),
+    index("note_link_title_key_idx").on(table.targetTitleKey),
+  ],
+);
+
 export const noteImages = sqliteTable(
   "note_image",
   {
