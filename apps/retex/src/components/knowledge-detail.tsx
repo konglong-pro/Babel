@@ -306,13 +306,19 @@ function KnowledgeForm({
     }
   }
 
-  function createFromWikilink(wikilink: Wikilink) {
+  async function createFromWikilink(wikilink: Wikilink) {
+    if (pending) return;
     const targetTitle = normalizedWikilinkTitle(wikilink);
     if (folderId === null || !targetTitle) return;
     if (!window.confirm(
       `Create Knowledge note “${targetTitle}”, discard unsaved changes, and open it?`,
     )) return;
-    void Promise.resolve(onCreateWikilink(targetTitle, folderId)).catch(() => undefined);
+    setPending(true);
+    try {
+      await Promise.resolve(onCreateWikilink(targetTitle, folderId)).catch(() => undefined);
+    } finally {
+      setPending(false);
+    }
   }
 
   function navigateFromPreview(target: ResolvedWikilink) {

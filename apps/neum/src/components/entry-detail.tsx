@@ -432,6 +432,7 @@ function EntryForm({
   }
 
   function createFromWikilink(wikilink: Wikilink) {
+    if (pending) return;
     if (folderId === null || onCreateWikilink === undefined) return;
     const title = wikilink.titleRaw.trim().replace(/\s+/gu, " ");
     if (!title) return;

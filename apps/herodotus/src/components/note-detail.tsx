@@ -500,11 +500,32 @@ function NoteForm({
     });
   }
 
-  function createFromWikilink(wikilink: Wikilink) {
+  async function createFromWikilink(wikilink: Wikilink) {
+    if (pendingRef.current) return;
     const title = wikilink.titleRaw.trim().replace(/\s+/gu, " ");
     if (folderId === null || !title) return;
     if (!window.confirm(`Create note “${title}”?`)) return;
-    void onCreateWikilink(title, folderId);
+
+    const operationGeneration = submissionGenerationRef.current + 1;
+    submissionGenerationRef.current = operationGeneration;
+    pendingRef.current = true;
+    setPending(true);
+    try {
+      const creation = onCreateWikilink(title, folderId);
+      await creation;
+    } catch (caught) {
+      if (
+        mountedRef.current &&
+        submissionGenerationRef.current === operationGeneration
+      ) {
+        setError(getErrorMessage(caught));
+      }
+    } finally {
+      if (submissionGenerationRef.current === operationGeneration) {
+        pendingRef.current = false;
+        if (mountedRef.current) setPending(false);
+      }
+    }
   }
 
   return (

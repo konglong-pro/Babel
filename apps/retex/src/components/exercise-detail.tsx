@@ -308,6 +308,7 @@ function ExerciseForm({
   }
 
   function createFromWikilink(wikilink: Wikilink) {
+    if (pending) return;
     const targetTitle = normalizedWikilinkTitle(wikilink);
     if (!targetTitle) return;
     if (!window.confirm(

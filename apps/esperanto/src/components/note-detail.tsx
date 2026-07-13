@@ -330,11 +330,17 @@ function NoteForm({
     });
   }
 
-  function createFromWikilink(wikilink: Wikilink) {
+  async function createFromWikilink(wikilink: Wikilink) {
+    if (pending) return;
     const normalizedTitle = wikilink.titleRaw.trim().replace(/\s+/gu, " ");
     if (folderId === null || !normalizedTitle) return;
     if (!window.confirm(`Create note “${normalizedTitle}”?`)) return;
-    void onCreateWikilink(normalizedTitle, folderId);
+    setPending(true);
+    try {
+      await onCreateWikilink(normalizedTitle, folderId);
+    } finally {
+      setPending(false);
+    }
   }
 
   return (
