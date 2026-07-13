@@ -15,9 +15,26 @@ export interface NoteSummaryDto {
   updatedAt: string;
 }
 
+export interface NoteLinkDto {
+  titleKey: string;
+  targetId: number | null;
+}
+
+export interface BacklinkDto {
+  id: number;
+  title: string;
+  folderId: number;
+}
+
+export interface NoteTitleDto {
+  id: number;
+  title: string;
+}
+
 export interface NoteDetailDto extends NoteSummaryDto {
   contentMd: string;
   createdAt: string;
+  links: NoteLinkDto[];
 }
 
 export interface SearchResultsDto {

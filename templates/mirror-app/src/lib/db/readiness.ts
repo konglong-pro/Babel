@@ -19,7 +19,10 @@ export const appDatabaseReadinessOptions = {
   appName: "__APP_NAME__",
   packageName: "@babel-apps/__APP_ID__",
   expectedMigration: 1_783_669_000_000,
-  requiredColumns: { note: ["parent_id"] },
+  requiredColumns: {
+    note: ["parent_id"],
+    note_link: ["source_note_id", "target_title_key", "target_note_id"],
+  },
 } as const;
 
 export function resolveAppDatabasePath(): string {

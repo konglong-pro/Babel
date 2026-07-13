@@ -38,6 +38,16 @@ test("__APP_NAME__ database readiness", async (t) => {
     );
   });
 
+  await t.test("rejects a latest-looking database without the link index", () => {
+    const databasePath = path.join(root, "missing-note-link.db");
+    createLatestLookingDatabase(databasePath, true);
+
+    assert.throws(
+      () => assertAppDatabaseReady(databasePath),
+      /missing required column: note_link\.source_note_id/i,
+    );
+  });
+
   await t.test("health reports current and incompatible schemas", async () => {
     const originalPath = process.env.__APP_ENV_PREFIX___DATABASE_PATH;
     process.env.__APP_ENV_PREFIX___DATABASE_PATH = path.join(root, "current.db");
@@ -60,11 +70,17 @@ test("__APP_NAME__ database readiness", async (t) => {
   });
 });
 
-function createLatestLookingDatabase(databasePath: string): void {
+function createLatestLookingDatabase(
+  databasePath: string,
+  includeParentId = false,
+): void {
   const sqlite = new BetterSqlite3(databasePath);
   try {
     sqlite.exec(`
-      CREATE TABLE note (id integer PRIMARY KEY);
+      CREATE TABLE note (
+        id integer PRIMARY KEY
+        ${includeParentId ? ", parent_id integer" : ""}
+      );
       CREATE TABLE __drizzle_migrations (
         id integer PRIMARY KEY AUTOINCREMENT,
         hash text NOT NULL,

@@ -132,6 +132,17 @@ test("the launcher checks database migrations after preflight and before startin
   );
 });
 
+test("shared Markdown changes invalidate application builds", () => {
+  const buildInputPathsSource =
+    workerSource.match(/\$buildInputPaths\s*=\s*@\(([\s\S]*?)\r?\n\s*\)/i)?.[1] ?? "";
+
+  assert.match(
+    buildInputPathsSource,
+    /Join-Path\s+\$RootPath\s+["']packages\\markdown["']/i,
+    "the launcher must rebuild apps after the shared Markdown package changes",
+  );
+});
+
 test("the launcher can minimize to the system tray and restore safely", () => {
   const missingContracts: string[] = [];
   if (!/x:Name=["']MinimizeToTrayButton["']/i.test(xamlSource)) {

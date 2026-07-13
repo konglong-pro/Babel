@@ -143,24 +143,91 @@ test("renders the repository mirror template as an independent app", async (t) =
     scripts: Record<string, string>;
   }>(path.join(generatedRoot, "package.json"));
   assert.equal(manifest.name, "@babel-apps/mirror-notes");
+  assert.equal(manifest.dependencies["@babel-apps/markdown"], "0.1.0");
   assert.equal(manifest.dependencies["@babel-apps/platform"], "0.1.0");
+  assert.equal(manifest.dependencies["react-markdown"], undefined);
+  assert.equal(manifest.dependencies["remark-gfm"], undefined);
+  assert.equal(manifest.scripts["db:backfill-links"], "tsx scripts/backfill-links.ts");
   assert.equal(manifest.scripts["db:check"], "tsx scripts/check-database.ts");
+  assert.match(
+    await readFile(path.join(generatedRoot, "next.config.ts"), "utf8"),
+    /transpilePackages:\s*\[[^\]]*["']@babel-apps\/markdown["']/,
+  );
   assert.match(
     await readFile(path.join(generatedRoot, "src", "app", "api", "health", "route.ts"), "utf8"),
     /assertAppDatabaseReady\(\)/,
   );
   await access(path.join(generatedRoot, "scripts", "check-database.ts"));
+  const generatedBackfill = await readFile(
+    path.join(generatedRoot, "scripts", "backfill-links.ts"),
+    "utf8",
+  );
+  assert.match(generatedBackfill, /Mirror Notes link index rebuilt/);
+  assert.doesNotMatch(generatedBackfill, /__APP_|Esperanto/);
+  const readinessSource = await readFile(
+    path.join(generatedRoot, "src", "lib", "db", "readiness.ts"),
+    "utf8",
+  );
+  assert.match(
+    readinessSource,
+    /note:\s*\["parent_id"\]/,
+  );
+  assert.match(
+    readinessSource,
+    /note_link:\s*\[[\s\S]*?"source_note_id"[\s\S]*?"target_title_key"[\s\S]*?"target_note_id"[\s\S]*?\]/,
+  );
+  const initialMigration = await readFile(
+    path.join(generatedRoot, "drizzle", "0000_mirror-notes_notes.sql"),
+    "utf8",
+  );
+  assert.match(initialMigration, /CREATE TABLE `note_link`/);
+  assert.match(
+    initialMigration,
+    /FOREIGN KEY \(`source_note_id`\) REFERENCES `note`\(`id`\).*ON DELETE cascade/i,
+  );
+  assert.match(
+    initialMigration,
+    /FOREIGN KEY \(`target_note_id`\) REFERENCES `note`\(`id`\).*ON DELETE set null/i,
+  );
+  assert.match(initialMigration, /CREATE UNIQUE INDEX `note_link_source_title_unique`/);
+  assert.match(initialMigration, /CREATE INDEX `note_link_target_idx`/);
+  assert.match(initialMigration, /CREATE INDEX `note_link_title_key_idx`/);
+
+  const markdownEditor = await readFile(
+    path.join(generatedRoot, "src", "components", "markdown-editor.tsx"),
+    "utf8",
+  );
+  assert.match(markdownEditor, /from "@babel-apps\/markdown\/react"/);
+  assert.match(markdownEditor, /fetchScope:\s*"mirror-notes:notes"/);
+  assert.match(markdownEditor, /mirror-notes-upload:\/\/\$\{token\}/);
+  assert.match(markdownEditor, /uploadScheme="mirror-notes-upload"/);
+  assert.doesNotMatch(markdownEditor, /__APP_|Esperanto/i);
+  await assert.rejects(
+    access(path.join(generatedRoot, "src", "components", "markdown.tsx")),
+    { code: "ENOENT" },
+  );
   assert.match(
     await readFile(
-      path.join(generatedRoot, "src", "lib", "db", "readiness.ts"),
+      path.join(generatedRoot, "src", "lib", "repositories", "links.ts"),
       "utf8",
     ),
-    /requiredColumns: \{ note: \["parent_id"\] \}/,
+    /from "@babel-apps\/markdown\/core"/,
   );
   await access(
-    path.join(generatedRoot, "drizzle", "0000_mirror-notes_notes.sql"),
+    path.join(generatedRoot, "src", "app", "api", "notes", "titles", "route.ts"),
   );
-  await access(path.join(generatedRoot, "src", "components", "markdown.tsx"));
+  await access(
+    path.join(
+      generatedRoot,
+      "src",
+      "app",
+      "api",
+      "notes",
+      "[id]",
+      "backlinks",
+      "route.ts",
+    ),
+  );
   const folderPanel = await readFile(
     path.join(generatedRoot, "src", "components", "folder-panel.tsx"),
     "utf8",
@@ -181,13 +248,7 @@ test("renders the repository mirror template as an independent app", async (t) =
   assert.match(noteList, /New subnote/);
   await access(path.join(generatedRoot, "src", "components", "note-tree-state.ts"));
   await access(path.join(generatedRoot, "tests", "note-tree-state.test.ts"));
-  assert.match(
-    await readFile(
-      path.join(generatedRoot, "drizzle", "0000_mirror-notes_notes.sql"),
-      "utf8",
-    ),
-    /`parent_id` integer/,
-  );
+  assert.match(initialMigration, /`parent_id` integer/);
   const globalStyles = await readFile(
     path.join(generatedRoot, "src", "app", "globals.css"),
     "utf8",

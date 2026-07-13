@@ -52,6 +52,28 @@
         "note_title_not_blank": { "name": "note_title_not_blank", "value": "length(trim(\"note\".\"title\")) > 0" }
       }
     },
+    "note_link": {
+      "name": "note_link",
+      "columns": {
+        "id": { "name": "id", "type": "integer", "primaryKey": true, "notNull": true, "autoincrement": true },
+        "source_note_id": { "name": "source_note_id", "type": "integer", "primaryKey": false, "notNull": true, "autoincrement": false },
+        "target_title_key": { "name": "target_title_key", "type": "text", "primaryKey": false, "notNull": true, "autoincrement": false },
+        "target_note_id": { "name": "target_note_id", "type": "integer", "primaryKey": false, "notNull": false, "autoincrement": false },
+        "created_at": { "name": "created_at", "type": "text", "primaryKey": false, "notNull": true, "autoincrement": false, "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))" }
+      },
+      "indexes": {
+        "note_link_source_title_unique": { "name": "note_link_source_title_unique", "columns": ["source_note_id", "target_title_key"], "isUnique": true },
+        "note_link_target_idx": { "name": "note_link_target_idx", "columns": ["target_note_id"], "isUnique": false },
+        "note_link_title_key_idx": { "name": "note_link_title_key_idx", "columns": ["target_title_key"], "isUnique": false }
+      },
+      "foreignKeys": {
+        "note_link_source_note_id_note_id_fk": { "name": "note_link_source_note_id_note_id_fk", "tableFrom": "note_link", "tableTo": "note", "columnsFrom": ["source_note_id"], "columnsTo": ["id"], "onDelete": "cascade", "onUpdate": "no action" },
+        "note_link_target_note_id_note_id_fk": { "name": "note_link_target_note_id_note_id_fk", "tableFrom": "note_link", "tableTo": "note", "columnsFrom": ["target_note_id"], "columnsTo": ["id"], "onDelete": "set null", "onUpdate": "no action" }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "note_image": {
       "name": "note_image",
       "columns": {
