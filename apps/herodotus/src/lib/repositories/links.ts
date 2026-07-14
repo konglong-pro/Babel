@@ -1,11 +1,14 @@
 import { extractWikilinks, normalizeTitleKey } from "@babel-apps/markdown/core";
-import { and, asc, desc, eq, isNull, ne } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, ne, sql } from "drizzle-orm";
 
-import { db } from "@/lib/db/client";
+import { db, sqlite } from "@/lib/db/client";
 import { noteLinks, notes } from "@/lib/db/schema";
 import type { BacklinkDto, NoteLinkDto, NoteTitleDto } from "@/lib/types";
 
 import { assertPositiveId } from "./shared";
+
+// SQLite NOCASE is ASCII-only; the BINARY title index cannot preserve this normalizer.
+sqlite.function("babel_normalize_title_key", { deterministic: true }, normalizeTitleKey);
 
 export type NoteLinkTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -49,20 +52,18 @@ export function listBacklinks(noteId: number): BacklinkDto[] {
 }
 
 export function listNoteTitles(query: string, limit = 20): NoteTitleDto[] {
-  const queryKey = normalizeTitleKey(query);
-  const rows = db
+  const pattern = `${escapeLike(normalizeTitleKey(query))}%`;
+  return db
     .select({ id: notes.id, title: notes.title })
     .from(notes)
-    .orderBy(asc(notes.id))
+    .where(sql`babel_normalize_title_key(${notes.title}) LIKE ${pattern} ESCAPE ${"\\"}`)
+    .orderBy(sql`${notes.title} COLLATE NOCASE`, asc(notes.id))
+    .limit(limit)
     .all();
+}
 
-  return rows
-    .filter(({ title }) => normalizeTitleKey(title).includes(queryKey))
-    .sort((left, right) =>
-      left.title.localeCompare(right.title, "en-US", { sensitivity: "base" }) ||
-      left.id - right.id
-    )
-    .slice(0, limit);
+function escapeLike(value: string): string {
+  return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
 }
 
 export function replaceSourceNoteLinks(

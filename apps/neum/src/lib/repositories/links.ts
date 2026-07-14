@@ -34,6 +34,9 @@ export interface RebuildEntryLinksResult {
   unresolved: UnresolvedEntryLink[];
 }
 
+// SQLite NOCASE is ASCII-only; the BINARY title index cannot preserve this normalizer.
+const titleDatabases = new WeakSet<BetterSqlite3.Database>();
+
 export function listOutgoingEntryLinks(
   entryId: number,
   sqlite: BetterSqlite3.Database = getNeumDatabase().sqlite,
@@ -69,19 +72,25 @@ export function listEntryBacklinks(entryId: number): EntryBacklinkDto[] {
 }
 
 export function listEntryTitles(query: string, limit = 20): EntryTitleDto[] {
-  const queryKey = normalizeTitleKey(query);
-  const rows = getNeumDatabase().sqlite
-    .prepare('SELECT "id", "kind", "title" FROM "entry" ORDER BY "id"')
-    .all() as EntryTitleRow[];
-
-  return rows
-    .filter(({ title }) => normalizeTitleKey(title).includes(queryKey))
-    .sort(
-      (left, right) =>
-        left.title.localeCompare(right.title, "en-US", { sensitivity: "base" }) ||
-        left.id - right.id,
+  const pattern = `${escapeLike(normalizeTitleKey(query))}%`;
+  const sqlite = getNeumDatabase().sqlite;
+  if (!titleDatabases.has(sqlite)) {
+    sqlite.function("babel_normalize_title_key", { deterministic: true }, normalizeTitleKey);
+    titleDatabases.add(sqlite);
+  }
+  return sqlite
+    .prepare(
+      `SELECT "id", "kind", "title"
+       FROM "entry"
+       WHERE babel_normalize_title_key("title") LIKE ? ESCAPE '\\'
+       ORDER BY "title" COLLATE NOCASE, "id"
+       LIMIT ?`,
     )
-    .slice(0, limit);
+    .all(pattern, limit) as EntryTitleRow[];
+}
+
+function escapeLike(value: string): string {
+  return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
 }
 
 export function replaceSourceEntryLinks(

@@ -1,188 +1,38 @@
 "use client";
 
 import {
-  MarkdownRenderer,
-  type ResolvedWikilink,
-  useWikilinkAutocomplete,
-  WikilinkAutocomplete,
+  MarkdownEditor as SharedMarkdownEditor,
+  type MarkdownEditorProps as SharedMarkdownEditorProps,
 } from "@babel-apps/markdown/react";
-import type { Wikilink } from "@babel-apps/markdown/core";
-import {
-  type ChangeEvent,
-  type ClipboardEvent,
-  useDeferredValue,
-  useId,
-  useRef,
-} from "react";
 
 import { listNoteTitles } from "@/lib/api-client";
 
-const ACCEPTED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+export type { StagedImage } from "@babel-apps/markdown/react";
 
-export interface StagedImage {
-  token: string;
-  file: File;
-  previewUrl: string;
-}
+const REMARK_FEATURES = ["gfm"] as const;
 
-interface MarkdownEditorProps {
-  label: string;
-  name: string;
-  value: string;
-  onChange: (value: string) => void;
-  onStageImage: (image: StagedImage) => void;
-  onImageError: (message: string) => void;
-  imagePreviews: ReadonlyMap<string, string>;
-  resolveWikilink?: (titleKey: string) => ResolvedWikilink | null;
-  onNavigateWikilink?: (target: ResolvedWikilink, wikilink: Wikilink) => void;
-  onCreateFromWikilink?: (wikilink: Wikilink) => void;
-  rows?: number;
-}
+type MarkdownEditorProps = Omit<
+  SharedMarkdownEditorProps,
+  | "emptyPreviewText"
+  | "fetchScope"
+  | "fetchTitles"
+  | "hintText"
+  | "placeholder"
+  | "remarkFeatures"
+  | "uploadScheme"
+>;
 
-export function MarkdownEditor({
-  label,
-  name,
-  value,
-  onChange,
-  onStageImage,
-  onImageError,
-  imagePreviews,
-  resolveWikilink,
-  onNavigateWikilink,
-  onCreateFromWikilink,
-  rows = 20,
-}: MarkdownEditorProps) {
-  const id = useId();
-  const hintId = `${id}-hint`;
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const deferredValue = useDeferredValue(value);
-  const autocomplete = useWikilinkAutocomplete(textareaRef, listNoteTitles, {
-    fetchScope: "esperanto:notes",
-    onTextChange: onChange,
-  });
-
-  function stageFiles(files: readonly File[], pasted: boolean) {
-    const accepted: Array<{ image: StagedImage; markdown: string }> = [];
-
-    for (const file of files) {
-      if (!ACCEPTED_IMAGE_TYPES.has(file.type)) {
-        onImageError(`${file.name || "This file"} is not a PNG, JPEG, WebP, or GIF image.`);
-        continue;
-      }
-      if (file.size > MAX_IMAGE_BYTES) {
-        onImageError(`${file.name || "This image"} is larger than 10 MB.`);
-        continue;
-      }
-
-      const token = newImageToken();
-      const image = { token, file, previewUrl: URL.createObjectURL(file) };
-      accepted.push({
-        image,
-        markdown: `![${imageAlt(file, pasted)}](esperanto-upload://${token})`,
-      });
-      onStageImage(image);
-    }
-
-    if (accepted.length === 0) return;
-
-    const textarea = textareaRef.current;
-    const start = textarea?.selectionStart ?? value.length;
-    const end = textarea?.selectionEnd ?? start;
-    const before = value.slice(0, start);
-    const after = value.slice(end);
-    const leadingBreak = before && !before.endsWith("\n") ? "\n" : "";
-    const trailingBreak = after && !after.startsWith("\n") ? "\n" : "";
-    const insertion = accepted.map((entry) => entry.markdown).join("\n\n");
-    const next = `${before}${leadingBreak}${insertion}${trailingBreak}${after}`;
-    const cursor = before.length + leadingBreak.length + insertion.length + trailingBreak.length;
-
-    onImageError("");
-    onChange(next);
-    requestAnimationFrame(() => {
-      textareaRef.current?.focus();
-      textareaRef.current?.setSelectionRange(cursor, cursor);
-    });
-  }
-
-  function chooseImages(event: ChangeEvent<HTMLInputElement>) {
-    stageFiles(Array.from(event.target.files ?? []), false);
-    event.target.value = "";
-  }
-
-  function pasteImages(event: ClipboardEvent<HTMLTextAreaElement>) {
-    const files = Array.from(event.clipboardData.items)
-      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
-      .map((item) => item.getAsFile())
-      .filter((file): file is File => file !== null);
-
-    if (files.length === 0) return;
-    event.preventDefault();
-    stageFiles(files, true);
-  }
-
+export function MarkdownEditor(props: MarkdownEditorProps) {
   return (
-    <section className="editor-field">
-      <div className="field-heading">
-        <div>
-          <label htmlFor={id}>{label}</label>
-          <p id={hintId}>Write Markdown with GFM tables, task lists, links, images, and [[note links]].</p>
-        </div>
-        <div className="editor-tools">
-          <input
-            ref={fileInputRef}
-            className="sr-only"
-            type="file"
-            accept="image/png,image/jpeg,image/webp,image/gif"
-            multiple
-            tabIndex={-1}
-            onChange={chooseImages}
-          />
-          <button type="button" onClick={() => fileInputRef.current?.click()}>
-            Add image
-          </button>
-          <span className="live-badge">Live preview</span>
-        </div>
-      </div>
-      <div className="editor-grid">
-        <textarea
-          ref={textareaRef}
-          id={id}
-          name={name}
-          autoComplete="off"
-          rows={rows}
-          value={value}
-          placeholder="Write a definition, example, observation, or question…"
-          aria-describedby={hintId}
-          spellCheck
-          onPaste={pasteImages}
-          onChange={(event) => onChange(event.target.value)}
-        />
-        <div className="preview-pane" aria-label={`${label} preview`}>
-          <MarkdownRenderer
-            content={deferredValue}
-            emptyText="Your preview will appear here."
-            imagePreviews={imagePreviews}
-            uploadScheme="esperanto-upload"
-            resolveWikilink={resolveWikilink}
-            onNavigateWikilink={onNavigateWikilink}
-            onCreateFromWikilink={onCreateFromWikilink}
-          />
-        </div>
-      </div>
-      <WikilinkAutocomplete autocomplete={autocomplete} />
-    </section>
+    <SharedMarkdownEditor
+      {...props}
+      emptyPreviewText="Your preview will appear here."
+      fetchScope="esperanto:notes"
+      fetchTitles={listNoteTitles}
+      hintText="Write Markdown with GFM tables, task lists, links, images, and [[note links]]."
+      placeholder="Write a definition, example, observation, or question…"
+      remarkFeatures={REMARK_FEATURES}
+      uploadScheme="esperanto-upload"
+    />
   );
-}
-
-function newImageToken(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-function imageAlt(file: File, pasted: boolean): string {
-  if (pasted) return "Pasted image";
-  const name = file.name.trim() || "Image";
-  return name.replace(/[\[\]]/g, "");
 }

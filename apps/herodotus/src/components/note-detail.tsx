@@ -3,6 +3,7 @@
 import type { Wikilink } from "@babel-apps/markdown/core";
 import {
   MarkdownRenderer,
+  OutlinePanel,
   type ResolvedWikilink,
 } from "@babel-apps/markdown/react";
 import {
@@ -45,6 +46,7 @@ import type {
 
 export type NoteViewMode = "view" | "edit" | "create";
 
+const NOTE_HEADING_ID_PREFIX = "herodotus-note-heading-";
 const PENDING_IMAGE_URL_PATTERN = /herodotus-upload:\/\/[A-Za-z0-9._-]+/g;
 const MAX_MANAGED_IMAGE_URL =
   "/api/uploads/notes/00000000-0000-0000-0000-000000000000.webp";
@@ -231,15 +233,23 @@ export function NoteDetail({
         </div>
       </header>
 
-      <section className="document-content" aria-label="Note content">
-        <MarkdownRenderer
+      <div className="document-outline-layout">
+        <section className="document-content" aria-label="Note content">
+          <MarkdownRenderer
+            content={detail.contentMd}
+            uploadScheme="herodotus-upload"
+            resolveWikilink={resolveWikilink}
+            onNavigateWikilink={navigateWikilink}
+            onCreateFromWikilink={createFromWikilink}
+            headingIdPrefix={NOTE_HEADING_ID_PREFIX}
+          />
+        </section>
+        <OutlinePanel
           content={detail.contentMd}
-          uploadScheme="herodotus-upload"
-          resolveWikilink={resolveWikilink}
-          onNavigateWikilink={navigateWikilink}
-          onCreateFromWikilink={createFromWikilink}
+          mode="read"
+          headingIdPrefix={NOTE_HEADING_ID_PREFIX}
         />
-      </section>
+      </div>
       <section className="linked-mentions" aria-labelledby="linked-mentions-heading">
         <h2 id="linked-mentions-heading">Linked mentions ({backlinks.length})</h2>
         {backlinks.length === 0 ? (
@@ -297,6 +307,7 @@ function NoteForm({
   onCreateWikilink,
 }: NoteFormProps) {
   const formRef = useRef<HTMLFormElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const stagedRef = useRef<StagedImage[]>([]);
   const mountedRef = useRef(false);
   const pendingRef = useRef(false);
@@ -634,24 +645,38 @@ function NoteForm({
           onError={setError}
         />
 
-        <MarkdownEditor
-          label="Content"
-          name="contentMd"
-          value={content}
-          disabled={pending}
-          imagePreviews={imagePreviews}
-          onChange={changeContent}
-          onImageError={setError}
-          onStageImage={(image) => {
-            if (!pendingRef.current) {
-              setStagedImages((current) => [...current, image]);
-            }
-          }}
-          resolveWikilink={resolveWikilink}
-          onNavigateWikilink={onNavigateWikilink}
-          onCreateFromWikilink={createFromWikilink}
-        />
-        <p className="editor-footnote">Images remain in this browser until you save the note.</p>
+        <div className="editor-outline-layout">
+          <MarkdownEditor
+            label="Content"
+            name="contentMd"
+            value={content}
+            disabled={pending}
+            imagePreviews={imagePreviews}
+            onChange={changeContent}
+            onImageError={setError}
+            onStageImage={(image) => {
+              if (!pendingRef.current) {
+                setStagedImages((current) => [...current, image]);
+              }
+            }}
+            resolveWikilink={resolveWikilink}
+            onNavigateWikilink={onNavigateWikilink}
+            onCreateFromWikilink={createFromWikilink}
+            textareaRef={textareaRef}
+            headingIdPrefix={NOTE_HEADING_ID_PREFIX}
+            footerExtras={(
+              <p className="editor-footnote">
+                Images remain in this browser until you save the note.
+              </p>
+            )}
+          />
+          <OutlinePanel
+            content={content}
+            mode="edit"
+            textareaRef={textareaRef}
+            headingIdPrefix={NOTE_HEADING_ID_PREFIX}
+          />
+        </div>
       </form>
     </section>
   );

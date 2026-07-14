@@ -1,9 +1,23 @@
 "use client";
 
 import {
+  Children,
+  cloneElement,
+  createContext,
+  createElement,
   type CSSProperties,
+  type ChangeEvent,
+  type ClipboardEvent,
+  type DragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type InputHTMLAttributes,
+  type ReactElement,
+  type ReactNode,
   type RefObject,
+  isValidElement,
   useCallback,
+  useContext,
+  useDeferredValue,
   useEffect,
   useId,
   useMemo,
@@ -26,13 +40,34 @@ import {
   preprocessWikilinks,
   type Wikilink,
 } from "./core";
+import {
+  continueFenceOnEnter,
+  continueListOnEnter,
+  indentListItem,
+  linkFromPastedUrl,
+  outdentListItem,
+  toggleTaskCheckbox,
+  toggleTaskListSelection,
+  wrapInlineSelection,
+  type InlineMarker,
+  type TextEditResult,
+} from "./editing";
+import { extractOutline, outlineSlugs } from "./outline";
 
 export type RemarkFeature = "gfm" | "math";
+
+const DEFAULT_REMARK_FEATURES: readonly RemarkFeature[] = ["gfm"];
 
 export interface ResolvedWikilink {
   id: number;
   kind?: string;
 }
+
+type TaskInputProps = InputHTMLAttributes<HTMLInputElement> & {
+  "data-source-line"?: number;
+};
+
+const TaskToggleContext = createContext<((line: number) => void) | undefined>(undefined);
 
 export interface MarkdownRendererProps {
   content: string;
@@ -46,15 +81,11 @@ export interface MarkdownRendererProps {
   resolveWikilink?: (titleKey: string) => ResolvedWikilink | null;
   onNavigateWikilink?: (target: ResolvedWikilink, wikilink: Wikilink) => void;
   onCreateFromWikilink?: (wikilink: Wikilink) => void;
+  /** Enables editor previews to write task checkbox changes back by source line. */
+  onToggleTask?: (line: number) => void;
+  /** Optional namespace when a page renders more than one Markdown document. */
+  headingIdPrefix?: string;
 }
-
-const HEADING_COMPONENTS: Components = {
-  h1: "h2",
-  h2: "h3",
-  h3: "h4",
-  h4: "h5",
-  h5: "h6",
-};
 
 export function MarkdownRenderer({
   content,
@@ -66,10 +97,21 @@ export function MarkdownRenderer({
   resolveWikilink,
   onNavigateWikilink,
   onCreateFromWikilink,
+  onToggleTask,
+  headingIdPrefix = "",
 }: MarkdownRendererProps) {
   const renderedContent = useMemo(() => {
     return withImagePreviews(content, uploadScheme, imagePreviews);
   }, [content, imagePreviews, uploadScheme]);
+
+  const headingIds = useMemo(() => {
+    const outline = extractOutline(renderedContent);
+    const slugs = outlineSlugs(outline);
+    return new Map(outline.map((item, index) => [
+      `${item.line}:${item.level}`,
+      `${headingIdPrefix}${slugs[index]}`,
+    ]));
+  }, [headingIdPrefix, renderedContent]);
 
   const targetsByKey = useMemo(() => {
     const nextTargets = new Map<string, ResolvedWikilink | null>();
@@ -97,7 +139,14 @@ export function MarkdownRenderer({
 
   const components = useMemo<Components>(() => {
     const nextComponents: Components = {
-      ...HEADING_COMPONENTS,
+      h1: createHeadingComponent("h2", 1, headingIds),
+      h2: createHeadingComponent("h3", 2, headingIds),
+      h3: createHeadingComponent("h4", 3, headingIds),
+      h4: createHeadingComponent("h5", 4, headingIds),
+      h5: createHeadingComponent("h6", 5, headingIds),
+      h6: createHeadingComponent("h6", 6, headingIds),
+      // A module-level component must survive preview focus changes during a pointer click.
+      li: MarkdownListItem,
       a: ({ href, children, className, node, ...props }) => {
         const parsed = parseWikilinkHref(href);
         if (parsed === null) {
@@ -141,17 +190,25 @@ export function MarkdownRenderer({
     };
 
     if (uploadScheme !== undefined) {
-      nextComponents.img = ({ alt, node, ...props }) => {
+      nextComponents.img = ({ alt, node, src, ...props }) => {
         void node;
+        if (typeof src === "string" && src.startsWith(`${uploadScheme}://`)) {
+          return (
+            <span className="markdown-image-pending">
+              Image awaiting file: {alt?.trim() || "Untitled image"}
+            </span>
+          );
+        }
         // Markdown images may be local, remote, or unsaved blob URLs with unknown dimensions.
         // eslint-disable-next-line @next/next/no-img-element
-        return <img {...props} alt={alt ?? ""} loading="lazy" />;
+        return <img {...props} src={src} alt={alt ?? ""} loading="lazy" />;
       };
     }
     return nextComponents;
   }, [
     onCreateFromWikilink,
     onNavigateWikilink,
+    headingIds,
     targetsByKey,
     uploadScheme,
     wikilinksByOffset,
@@ -159,22 +216,32 @@ export function MarkdownRenderer({
 
   const useGfm = remarkFeatures.includes("gfm");
   const useMath = remarkFeatures.includes("math");
+  const urlTransform = useMemo<UrlTransform>(() => {
+    if (uploadScheme === undefined) return wikilinkUrlTransform;
+    const placeholderPrefix = `${uploadScheme}://`;
+    return (value, key, node) => {
+      if (key === "src" && value.startsWith(placeholderPrefix)) return value;
+      return wikilinkUrlTransform(value, key, node);
+    };
+  }, [uploadScheme]);
 
   if (!content.trim()) return <p className="empty-copy">{emptyText}</p>;
 
   return (
     <div className="markdown-body">
-      <ReactMarkdown
-        components={components}
-        remarkPlugins={[
-          ...(useGfm ? [remarkGfm] : []),
-          ...(useMath ? [remarkMath] : []),
-        ]}
-        rehypePlugins={useMath ? [rehypeKatex] : []}
-        urlTransform={wikilinkUrlTransform}
-      >
-        {preprocessedContent}
-      </ReactMarkdown>
+      <TaskToggleContext.Provider value={onToggleTask}>
+        <ReactMarkdown
+          components={components}
+          remarkPlugins={[
+            ...(useGfm ? [remarkGfm] : []),
+            ...(useMath ? [remarkMath] : []),
+          ]}
+          rehypePlugins={useMath ? [rehypeKatex] : []}
+          urlTransform={urlTransform}
+        >
+          {preprocessedContent}
+        </ReactMarkdown>
+      </TaskToggleContext.Provider>
     </div>
   );
 }
@@ -193,7 +260,7 @@ export type FetchWikilinkTitles = (
 ) => Promise<readonly WikilinkTitleSuggestion[]>;
 
 export interface UseWikilinkAutocompleteOptions {
-  /** Required for a controlled textarea; otherwise the hook dispatches a native input event. */
+  /** @deprecated Controlled textareas are now updated through a native input event. */
   onTextChange?: (nextText: string) => void;
   /** Change this when the app, entity kind, or workspace queried by fetchTitles changes. */
   fetchScope?: string | number;
@@ -235,7 +302,6 @@ export function useWikilinkAutocomplete(
   const suggestionsRef = useRef(suggestions);
   const activeIndexRef = useRef(activeIndex);
   const dismissedQueryRef = useRef<string | null>(null);
-  const onTextChangeRef = useRef(options.onTextChange);
   const fetchTitlesRef = useRef(fetchTitles);
   const isComposingRef = useRef(false);
   const hasFetchTitles = fetchTitles != null;
@@ -254,13 +320,11 @@ export function useWikilinkAutocomplete(
     activeQueryRef.current = activeQuery;
     suggestionsRef.current = visibleSuggestions;
     activeIndexRef.current = activeIndex;
-    onTextChangeRef.current = options.onTextChange;
     fetchTitlesRef.current = fetchTitles;
   }, [
     activeIndex,
     activeQuery,
     fetchTitles,
-    options.onTextChange,
     visibleSuggestions,
   ]);
 
@@ -339,11 +403,7 @@ export function useWikilinkAutocomplete(
     setActiveQuery(null);
     setSuggestions([]);
     setIsLoading(false);
-    if (onTextChangeRef.current !== undefined) {
-      onTextChangeRef.current(nextText);
-    } else {
-      setNativeTextareaValue(textarea, nextText);
-    }
+    setNativeTextareaValue(textarea, nextText);
     requestAnimationFrame(() => {
       textarea.focus();
       textarea.setSelectionRange(nextCursor, nextCursor);
@@ -582,6 +642,400 @@ export function WikilinkAutocomplete({
   );
 }
 
+export const ACCEPTED_IMAGE_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+]);
+export const MARKDOWN_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+
+export interface StagedImage {
+  token: string;
+  file: File;
+  previewUrl: string;
+}
+
+export function imageFileError(file: File): string | null {
+  if (!ACCEPTED_IMAGE_TYPES.has(file.type)) {
+    return `${file.name || "This file"} is not a PNG, JPEG, WebP, or GIF image.`;
+  }
+  if (file.size > MARKDOWN_IMAGE_MAX_BYTES) {
+    return `${file.name || "This image"} is larger than 10 MB.`;
+  }
+  if (file.size === 0) return `${file.name || "This image"} is empty.`;
+  return null;
+}
+
+export function stageImageFile(file: File, token = newImageToken()): StagedImage {
+  return { token, file, previewUrl: URL.createObjectURL(file) };
+}
+
+export interface MarkdownEditorProps {
+  label: string;
+  name: string;
+  value: string;
+  onChange: (value: string) => void;
+  uploadScheme?: string;
+  imagePreviews?: ReadonlyMap<string, string>;
+  onStageImage?: (image: StagedImage) => void;
+  onImageError?: (message: string) => void;
+  remarkFeatures?: readonly RemarkFeature[];
+  fetchTitles?: FetchWikilinkTitles | null;
+  fetchScope?: string | number;
+  defaultWikilinkKind?: string;
+  resolveWikilink?: (titleKey: string) => ResolvedWikilink | null;
+  onNavigateWikilink?: (target: ResolvedWikilink, wikilink: Wikilink) => void;
+  onCreateFromWikilink?: (wikilink: Wikilink) => void;
+  toolbarExtras?: ReactNode;
+  footerExtras?: ReactNode;
+  hintText?: string;
+  placeholder?: string;
+  emptyPreviewText?: string;
+  rows?: number;
+  disabled?: boolean;
+  textareaRef?: RefObject<HTMLTextAreaElement | null>;
+  headingIdPrefix?: string;
+}
+
+export function MarkdownEditor({
+  label,
+  name,
+  value,
+  onChange,
+  uploadScheme,
+  imagePreviews,
+  onStageImage,
+  onImageError,
+  remarkFeatures = DEFAULT_REMARK_FEATURES,
+  fetchTitles,
+  fetchScope,
+  defaultWikilinkKind,
+  resolveWikilink,
+  onNavigateWikilink,
+  onCreateFromWikilink,
+  toolbarExtras,
+  footerExtras,
+  hintText = "Write Markdown with tables, task lists, links, images, and [[note links]].",
+  placeholder = "Write Markdown…",
+  emptyPreviewText = "Your preview will appear here.",
+  rows = 20,
+  disabled = false,
+  textareaRef: suppliedTextareaRef,
+  headingIdPrefix = "",
+}: MarkdownEditorProps) {
+  const id = useId();
+  const hintId = `${id}-hint`;
+  const fallbackTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const textareaRef = suppliedTextareaRef ?? fallbackTextareaRef;
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const deferredValue = useDeferredValue(value);
+  const autocomplete = useWikilinkAutocomplete(textareaRef, fetchTitles, { fetchScope });
+  const closeAutocomplete = autocomplete.close;
+  const canStageImages = uploadScheme !== undefined && onStageImage !== undefined;
+
+  useEffect(() => {
+    if (disabled) closeAutocomplete();
+  }, [closeAutocomplete, disabled]);
+
+  function commit(edit: TextEditResult | null) {
+    const textarea = textareaRef.current;
+    if (textarea === null || edit === null || disabled) return;
+    setNativeTextareaValue(textarea, edit.text);
+    focusTextarea(textarea, edit.selectionStart, edit.selectionEnd);
+  }
+
+  function stageFiles(files: readonly File[], pasted: boolean) {
+    const textarea = textareaRef.current;
+    if (textarea === null || !canStageImages || disabled) return;
+    const accepted: Array<{ image: StagedImage; markdown: string }> = [];
+
+    for (const file of files) {
+      const error = imageFileError(file);
+      if (error !== null) {
+        onImageError?.(error);
+        continue;
+      }
+      const image = stageImageFile(file);
+      accepted.push({
+        image,
+        markdown: `![${imageAlt(file, pasted)}](${uploadScheme}://${image.token})`,
+      });
+      onStageImage(image);
+    }
+    if (accepted.length === 0) return;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const current = textarea.value;
+    const before = current.slice(0, start);
+    const after = current.slice(end);
+    const leadingBreak = before && !before.endsWith("\n") ? "\n" : "";
+    const trailingBreak = after && !after.startsWith("\n") ? "\n" : "";
+    const insertion = accepted.map(({ markdown }) => markdown).join("\n\n");
+    const nextText = `${before}${leadingBreak}${insertion}${trailingBreak}${after}`;
+    const cursor = before.length + leadingBreak.length + insertion.length + trailingBreak.length;
+    onImageError?.("");
+    commit({ text: nextText, selectionStart: cursor, selectionEnd: cursor });
+  }
+
+  function chooseImages(event: ChangeEvent<HTMLInputElement>) {
+    stageFiles(Array.from(event.target.files ?? []), false);
+    event.target.value = "";
+  }
+
+  function paste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    if (disabled) return;
+    const files = Array.from(event.clipboardData.items)
+      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => file !== null);
+    if (files.length > 0 && canStageImages) {
+      event.preventDefault();
+      stageFiles(files, true);
+      return;
+    }
+
+    const textarea = textareaRef.current;
+    if (textarea === null) return;
+    const edit = linkFromPastedUrl(
+      textarea.value,
+      textarea.selectionStart,
+      textarea.selectionEnd,
+      event.clipboardData.getData("text/plain"),
+    );
+    if (edit === null) return;
+    event.preventDefault();
+    commit(edit);
+  }
+
+  function drop(event: DragEvent<HTMLTextAreaElement>) {
+    const files = Array.from(event.dataTransfer.files);
+    if (files.length === 0 || !canStageImages || disabled) return;
+    event.preventDefault();
+    stageFiles(files, false);
+  }
+
+  function keyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
+    if (
+      disabled ||
+      event.defaultPrevented ||
+      event.nativeEvent.isComposing ||
+      event.keyCode === 229
+    ) {
+      return;
+    }
+    if (event.key === "Enter" && autocomplete.isOpen) return;
+    const textarea = event.currentTarget;
+    let edit: TextEditResult | null = null;
+    if (event.key === "Enter" && !event.altKey && !event.ctrlKey && !event.metaKey) {
+      edit = continueFenceOnEnter(
+        textarea.value,
+        textarea.selectionStart,
+        textarea.selectionEnd,
+      ) ?? continueListOnEnter(
+        textarea.value,
+        textarea.selectionStart,
+        textarea.selectionEnd,
+      );
+    } else if (event.key === "Tab") {
+      edit = event.shiftKey
+        ? outdentListItem(textarea.value, textarea.selectionStart, textarea.selectionEnd)
+        : indentListItem(textarea.value, textarea.selectionStart, textarea.selectionEnd);
+    }
+    if (edit === null) return;
+    event.preventDefault();
+    commit(edit);
+  }
+
+  function format(marker: InlineMarker) {
+    const textarea = textareaRef.current;
+    if (textarea === null) return;
+    commit(wrapInlineSelection(
+      textarea.value,
+      textarea.selectionStart,
+      textarea.selectionEnd,
+      marker,
+    ));
+  }
+
+  function toggleTasks() {
+    const textarea = textareaRef.current;
+    if (textarea === null) return;
+    commit(toggleTaskListSelection(
+      textarea.value,
+      textarea.selectionStart,
+      textarea.selectionEnd,
+    ));
+  }
+
+  function togglePreviewTask(line: number) {
+    const textarea = textareaRef.current;
+    if (textarea === null) return;
+    const edit = toggleTaskCheckbox(textarea.value, line);
+    if (edit === null) return;
+    commit({
+      ...edit,
+      selectionStart: textarea.selectionStart,
+      selectionEnd: textarea.selectionEnd,
+    });
+  }
+
+  return (
+    <section className="editor-field">
+      <div className="field-heading">
+        <div>
+          <label htmlFor={id}>{label}</label>
+          <p id={hintId}>{hintText}</p>
+        </div>
+        <div className="editor-tools">
+          <div className="editor-format-tools" aria-label="Markdown formatting">
+            <button type="button" disabled={disabled} aria-label="Bold" onClick={() => format("**")}>
+              <strong>B</strong>
+            </button>
+            <button type="button" disabled={disabled} aria-label="Italic" onClick={() => format("*")}>
+              <em>I</em>
+            </button>
+            <button type="button" disabled={disabled} aria-label="Inline code" onClick={() => format("`") }>
+              <code>&lt;/&gt;</code>
+            </button>
+            <button type="button" disabled={disabled} aria-label="Task list" onClick={toggleTasks}>
+              ☑
+            </button>
+          </div>
+          {canStageImages ? (
+            <>
+              <input
+                ref={fileInputRef}
+                className="sr-only"
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                multiple
+                tabIndex={-1}
+                disabled={disabled}
+                onChange={chooseImages}
+              />
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                Add image
+              </button>
+            </>
+          ) : null}
+          {toolbarExtras}
+          <span className="live-badge">Live preview</span>
+        </div>
+      </div>
+      <div className="editor-grid">
+        <textarea
+          ref={textareaRef}
+          id={id}
+          name={name}
+          autoComplete="off"
+          rows={rows}
+          value={value}
+          placeholder={placeholder}
+          aria-describedby={hintId}
+          spellCheck
+          disabled={disabled}
+          onPaste={paste}
+          onDrop={drop}
+          onDragOver={(event) => {
+            if (canStageImages && !disabled && event.dataTransfer.types.includes("Files")) {
+              event.preventDefault();
+            }
+          }}
+          onKeyDown={keyDown}
+          onChange={(event) => onChange(event.target.value)}
+        />
+        <div className="preview-pane" aria-label={`${label} preview`}>
+          <MarkdownRenderer
+            content={deferredValue}
+            emptyText={emptyPreviewText}
+            imagePreviews={imagePreviews}
+            uploadScheme={uploadScheme}
+            remarkFeatures={remarkFeatures}
+            defaultWikilinkKind={defaultWikilinkKind}
+            resolveWikilink={resolveWikilink}
+            onNavigateWikilink={disabled ? undefined : onNavigateWikilink}
+            onCreateFromWikilink={disabled ? undefined : onCreateFromWikilink}
+            onToggleTask={disabled ? undefined : togglePreviewTask}
+            headingIdPrefix={headingIdPrefix}
+          />
+        </div>
+      </div>
+      {footerExtras}
+      {disabled ? null : <WikilinkAutocomplete autocomplete={autocomplete} />}
+    </section>
+  );
+}
+
+export interface OutlinePanelProps {
+  content: string;
+  mode: "edit" | "read";
+  textareaRef?: RefObject<HTMLTextAreaElement | null>;
+  headingIdPrefix?: string;
+  className?: string;
+  title?: string;
+}
+
+export function OutlinePanel({
+  content,
+  mode,
+  textareaRef,
+  headingIdPrefix = "",
+  className,
+  title = "Outline",
+}: OutlinePanelProps) {
+  const outline = useMemo(() => extractOutline(content), [content]);
+  const slugs = useMemo(() => outlineSlugs(outline), [outline]);
+  if (outline.length === 0) return null;
+
+  function navigate(index: number) {
+    const item = outline[index];
+    if (item === undefined) return;
+    if (mode === "edit") {
+      const textarea = textareaRef?.current;
+      if (textarea === undefined || textarea === null) return;
+      textarea.focus();
+      textarea.setSelectionRange(item.offset, item.offset);
+      const view = textarea.ownerDocument.defaultView;
+      const computedLineHeight = view === null
+        ? Number.NaN
+        : Number.parseFloat(view.getComputedStyle(textarea).lineHeight);
+      const lineHeight = Number.isFinite(computedLineHeight) ? computedLineHeight : 24;
+      textarea.scrollTo({
+        top: Math.max(0, (item.line - 1) * lineHeight - textarea.clientHeight / 3),
+      });
+      return;
+    }
+    const ownerDocument = textareaRef?.current?.ownerDocument ??
+      (typeof document === "undefined" ? null : document);
+    ownerDocument
+      ?.getElementById(`${headingIdPrefix}${slugs[index]}`)
+      ?.scrollIntoView({ block: "start" });
+  }
+
+  return (
+    <nav className={["outline-panel", className].filter(Boolean).join(" ")} aria-label={title}>
+      <details open>
+        <summary>{title}</summary>
+        <ol>
+          {outline.map((item, index) => (
+            <li key={`${item.offset}:${item.level}`} className={`outline-level-${item.level}`}>
+              <button type="button" onClick={() => navigate(index)}>
+                {item.text || "Untitled heading"}
+              </button>
+            </li>
+          ))}
+        </ol>
+      </details>
+    </nav>
+  );
+}
+
 function withImagePreviews(
   content: string,
   uploadScheme?: string,
@@ -595,6 +1049,79 @@ function withImagePreviews(
   return content.replace(pattern, (placeholder, token: string) => {
     return previews.get(token) ?? placeholder;
   });
+}
+
+function createHeadingComponent(
+  tag: "h2" | "h3" | "h4" | "h5" | "h6",
+  sourceLevel: number,
+  headingIds: ReadonlyMap<string, string>,
+): NonNullable<Components["h1"]> {
+  return function MarkdownHeading({ node, ...props }) {
+    const line = node?.position?.start.line;
+    const id = line === undefined ? undefined : headingIds.get(`${line}:${sourceLevel}`);
+    return createElement(tag, { ...props, id });
+  };
+}
+
+const MarkdownListItem: NonNullable<Components["li"]> = function MarkdownListItem({
+  node,
+  children,
+  ...props
+}) {
+  const onToggleTask = useContext(TaskToggleContext);
+  const sourceLine = node?.position?.start.line;
+  const editable = sourceLine !== undefined && onToggleTask !== undefined;
+  const nextChildren = editable
+    ? enableTaskCheckboxes(children, sourceLine, onToggleTask)
+    : children;
+  return <li {...props}>{nextChildren}</li>;
+};
+
+function enableTaskCheckboxes(
+  children: ReactNode,
+  sourceLine: number,
+  onToggleTask: (line: number) => void,
+): ReactNode {
+  return Children.map(children, (child) => {
+    if (!isValidElement<TaskInputProps & { children?: ReactNode }>(child)) return child;
+    if (child.type === "input" && child.props.type === "checkbox") {
+      return cloneElement(child as ReactElement<TaskInputProps>, {
+        disabled: false,
+        readOnly: false,
+        "data-source-line": sourceLine,
+        onChange: () => onToggleTask(sourceLine),
+      });
+    }
+    if (child.props.children === undefined) return child;
+    return cloneElement(child, {
+      children: enableTaskCheckboxes(child.props.children, sourceLine, onToggleTask),
+    });
+  });
+}
+
+function newImageToken(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function imageAlt(file: File, pasted: boolean): string {
+  if (pasted) return "Pasted image";
+  const name = file.name.trim() || "Image";
+  return name.replace(/[\[\]]/gu, "");
+}
+
+function focusTextarea(
+  textarea: HTMLTextAreaElement,
+  selectionStart: number,
+  selectionEnd: number,
+): void {
+  const focus = () => {
+    textarea.focus();
+    textarea.setSelectionRange(selectionStart, selectionEnd);
+  };
+  const view = textarea.ownerDocument.defaultView;
+  if (view === null) focus();
+  else view.requestAnimationFrame(focus);
 }
 
 const wikilinkUrlTransform: UrlTransform = (value, key) => {
@@ -625,6 +1152,28 @@ function parseWikilinkHref(href: string | undefined): { titleKey: string; kind?:
 }
 
 function setNativeTextareaValue(textarea: HTMLTextAreaElement, value: string): void {
+  const current = textarea.value;
+  if (current === value) return;
+  let start = 0;
+  while (start < current.length && start < value.length && current[start] === value[start]) {
+    start += 1;
+  }
+  let currentEnd = current.length;
+  let valueEnd = value.length;
+  while (
+    currentEnd > start &&
+    valueEnd > start &&
+    current[currentEnd - 1] === value[valueEnd - 1]
+  ) {
+    currentEnd -= 1;
+    valueEnd -= 1;
+  }
+
+  textarea.focus();
+  textarea.setSelectionRange(start, currentEnd);
+  const replacement = value.slice(start, valueEnd);
+  if (textarea.ownerDocument.execCommand("insertText", false, replacement)) return;
+
   const view = textarea.ownerDocument.defaultView;
   const prototype = view?.HTMLTextAreaElement.prototype;
   const setter = prototype === undefined

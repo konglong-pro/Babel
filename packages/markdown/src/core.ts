@@ -32,6 +32,7 @@ interface ContainerState {
 }
 
 interface FenceState {
+  character: "`" | "~";
   length: number;
   containers: FenceContainer[];
 }
@@ -60,9 +61,15 @@ export function normalizeTitleKey(title: string): string {
  * Returns one byte per UTF-16 code unit. A value of 1 marks fenced or inline code.
  */
 export function maskCodeRegions(markdown: string): Uint8Array {
+  const mask = maskFencedCodeRegions(markdown);
+  markInlineCode(markdown, mask);
+  return mask;
+}
+
+/** Returns one byte per UTF-16 code unit, marking fenced code only. */
+export function maskFencedCodeRegions(markdown: string): Uint8Array {
   const mask = new Uint8Array(markdown.length);
   markFencedCode(markdown, mask);
-  markInlineCode(markdown, mask);
   return mask;
 }
 
@@ -121,9 +128,10 @@ function markFencedCode(markdown: string, mask: Uint8Array): void {
     if (fence !== null) {
       const contentOffset = matchFenceContainers(line, fence.containers);
       if (contentOffset !== null) {
-        const closingMarker = /^ {0,3}(`{3,})[ \t]*$/u.exec(
+        const closingMarker = fenceClosingMarker(
           line.slice(contentOffset),
-        )?.[1];
+          fence.character,
+        );
         const closesFence = closingMarker !== undefined && closingMarker.length >= fence.length;
         mask.fill(1, lineStart, newline === -1 ? lineEnd : lineEnd + 1);
         if (closesFence) fence = null;
@@ -137,7 +145,7 @@ function markFencedCode(markdown: string, mask: Uint8Array): void {
     const contentOffset = containerContentOffset(line, state, { paragraphOpen });
     const contentLine = line.slice(contentOffset);
     const explicitOpening = parseExplicitFenceOpening(line, paragraphOpen);
-    const stateMarker = /^ {0,3}(`{3,})(?:[^`]*)$/u.exec(contentLine)?.[1];
+    const stateMarker = fenceOpeningMarker(contentLine);
     const marker = explicitOpening?.marker ?? stateMarker;
     if (marker !== undefined) {
       const stateContainers: FenceContainer[] = state.containers.map(
@@ -148,6 +156,7 @@ function markFencedCode(markdown: string, mask: Uint8Array): void {
       const useImplicitContainers = stateMarker !== undefined && stateContainers.length > 0;
       mask.fill(1, lineStart, newline === -1 ? lineEnd : lineEnd + 1);
       fence = {
+        character: marker[0] as "`" | "~",
         length: marker.length,
         containers: useImplicitContainers
           ? stateContainers
@@ -195,8 +204,18 @@ function parseExplicitFenceOpening(
     break;
   }
 
-  const marker = /^ {0,3}(`{3,})(?:[^`]*)$/u.exec(line.slice(offset))?.[1];
+  const marker = fenceOpeningMarker(line.slice(offset));
   return marker === undefined ? null : { marker, containers };
+}
+
+function fenceOpeningMarker(value: string): string | undefined {
+  return /^ {0,3}(`{3,})(?:[^`]*)$/u.exec(value)?.[1] ??
+    /^ {0,3}(~{3,}).*$/u.exec(value)?.[1];
+}
+
+function fenceClosingMarker(value: string, character: "`" | "~"): string | undefined {
+  const match = /^ {0,3}(`{3,}|~{3,})[ \t]*$/u.exec(value)?.[1];
+  return match?.[0] === character ? match : undefined;
 }
 
 function matchFenceContainers(line: string, containers: readonly FenceContainer[]): number | null {
@@ -315,13 +334,13 @@ function parseListOpening(value: string): ParsedListOpening | null {
 
 function canLazyContinueBlockquote(line: string): boolean {
   return !/^[ \t]*$/u.test(line) &&
-    !/^ {0,3}(?:#{1,6}(?:[ \t]+|$)|>|`{3,}|(?:[*+-]|1[.)])(?=[ \t]))/u.test(line) &&
+    !/^ {0,3}(?:#{1,6}(?:[ \t]+|$)|>|`{3,}|~{3,}|(?:[*+-]|1[.)])(?=[ \t]))/u.test(line) &&
     !/^ {0,3}(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})$/u.test(line);
 }
 
 function canLazyContinueList(line: string): boolean {
   return !/^[ \t]*$/u.test(line) &&
-    !/^ {0,3}(?:#{1,6}(?:[ \t]+|$)|>|`{3,}|(?:[*+-]|\d{1,9}[.)])(?=[ \t]))/u.test(line) &&
+    !/^ {0,3}(?:#{1,6}(?:[ \t]+|$)|>|`{3,}|~{3,}|(?:[*+-]|\d{1,9}[.)])(?=[ \t]))/u.test(line) &&
     !/^ {0,3}(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})$/u.test(line);
 }
 

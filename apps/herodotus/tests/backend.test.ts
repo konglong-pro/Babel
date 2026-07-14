@@ -621,7 +621,7 @@ test("Herodotus backend integration", async (t) => {
 
       const source = repositories.createNote({
         folderId,
-        title: "M3 Link Source",
+        title: "Link Source M3",
         contentMd: [
           "[[ M3   wiki TARGET |Primary alias]] and [[m3 wiki target]]",
           "[[M3 Missing Target]]",
@@ -661,7 +661,7 @@ test("Herodotus backend integration", async (t) => {
       assert.deepEqual(repositories.listBacklinks(secondTarget.id), []);
 
       const titlesResponse = await noteTitlesRoute.GET(
-        new Request("http://localhost/api/notes/titles?q=m3%20wiki%20target&limit=10"),
+        new Request("http://localhost/api/notes/titles?q=m3&limit=10"),
       );
       assert.equal(titlesResponse.status, 200);
       const titles = (await titlesResponse.json()) as Array<{ id: number; title: string }>;
@@ -736,6 +736,40 @@ test("Herodotus backend integration", async (t) => {
         { params: Promise.resolve({ id: "999999" }) },
       );
       assert.equal(missingBacklinks.status, 404);
+    });
+
+    await t.test("title suggestions use escaped SQL prefixes and bounded results", () => {
+      const folderId = repositories.listFolders()[0].id;
+      const literal = repositories.createNote({
+        folderId,
+        title: "M3 %_ literal prefix",
+      });
+      repositories.createNote({
+        folderId,
+        title: "Before M3 %_ literal prefix",
+      });
+      const slash = repositories.createNote({
+        folderId,
+        title: "M3 slash\\ literal prefix",
+      });
+      const unicode = repositories.createNote({
+        folderId,
+        title: "Ĉapitro   Du",
+      });
+
+      assert.deepEqual(repositories.listNoteTitles("m3 %_", 20), [
+        { id: literal.id, title: literal.title },
+      ]);
+      assert.deepEqual(repositories.listNoteTitles("m3 slash\\", 20), [
+        { id: slash.id, title: slash.title },
+      ]);
+      assert.deepEqual(repositories.listNoteTitles("ĉa", 20), [
+        { id: unicode.id, title: unicode.title },
+      ]);
+      assert.deepEqual(repositories.listNoteTitles("ĉapitro du", 20), [
+        { id: unicode.id, title: unicode.title },
+      ]);
+      assert.equal(repositories.listNoteTitles("", 1).length, 1);
     });
 
     await t.test("wikilink replacement and write failures are atomic", () => {

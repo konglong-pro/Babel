@@ -625,6 +625,82 @@ a {
   max-width: 900px;
 }
 
+.document-outline-layout,
+.editor-outline-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  align-items: start;
+  gap: clamp(1rem, 2.2vw, 2rem);
+}
+
+.document-outline-layout {
+  max-width: 1160px;
+}
+
+.document-outline-layout > .document-content,
+.editor-outline-layout > .editor-field {
+  min-width: 0;
+}
+
+.document-outline-layout > .document-content:only-child,
+.editor-outline-layout > .editor-field:only-child {
+  grid-column: 1 / -1;
+}
+
+.outline-panel {
+  position: sticky;
+  top: 0;
+  min-width: 0;
+  border-left: 1px solid var(--line);
+  padding-left: 1rem;
+}
+
+.outline-panel summary {
+  cursor: pointer;
+  color: var(--rust);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.outline-panel ol {
+  display: grid;
+  gap: 0.16rem;
+  margin: 0.65rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.outline-panel li {
+  min-width: 0;
+}
+
+.outline-panel button {
+  width: 100%;
+  min-height: 30px;
+  overflow-wrap: anywhere;
+  border-color: transparent;
+  background: transparent;
+  color: var(--ink-soft);
+  padding: 0.28rem 0.38rem;
+  font-size: 0.76rem;
+  line-height: 1.35;
+  text-align: left;
+}
+
+.outline-panel button:hover {
+  border-color: var(--blue-line);
+  background: var(--blue-soft);
+  color: var(--blue-hover);
+}
+
+.outline-panel .outline-level-2 { padding-left: 0.4rem; }
+.outline-panel .outline-level-3 { padding-left: 0.8rem; }
+.outline-panel .outline-level-4,
+.outline-panel .outline-level-5,
+.outline-panel .outline-level-6 { padding-left: 1.2rem; }
+
 .markdown-body {
   overflow-wrap: anywhere;
   font-family: var(--serif);
@@ -800,7 +876,9 @@ a {
 
 .editor-tools {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 0.65rem;
 }
 
@@ -809,6 +887,21 @@ a {
   padding: 0.28rem 0.58rem;
   color: var(--blue);
   font-size: 0.75rem;
+}
+
+.editor-format-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.28rem;
+}
+
+.editor-format-tools button {
+  min-width: 30px;
+  padding-inline: 0.4rem;
+}
+
+.editor-format-tools code {
+  font-family: var(--mono);
 }
 
 .live-badge {
@@ -847,6 +940,10 @@ a {
   min-width: 0;
   overflow: auto;
   padding: 1rem 1.2rem;
+}
+
+.preview-pane .markdown-body input[type="checkbox"]:not(:disabled) {
+  cursor: pointer;
 }
 
 .wikilink-autocomplete {
@@ -1108,6 +1205,21 @@ a {
   padding: 0.8rem;
 }
 
+@media (max-width: 1499px) {
+  .document-outline-layout,
+  .editor-outline-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .outline-panel {
+    position: static;
+    order: -1;
+    border-bottom: 1px solid var(--line);
+    border-left: 0;
+    padding: 0 0 0.8rem;
+  }
+}
+
 @media (max-width: 1099px) {
   .notes-workspace {
     grid-template-columns: 245px minmax(0, 1fr);
@@ -1237,7 +1349,7 @@ a {
   }
 
   .editor-tools {
-    justify-content: space-between;
+    justify-content: flex-start;
   }
 
   .search-page {

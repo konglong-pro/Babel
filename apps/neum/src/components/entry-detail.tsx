@@ -3,6 +3,7 @@
 import type { Wikilink } from "@babel-apps/markdown/core";
 import {
   MarkdownRenderer,
+  OutlinePanel,
   type ResolvedWikilink,
 } from "@babel-apps/markdown/react";
 import {
@@ -38,6 +39,8 @@ import type {
 } from "@/lib/types";
 
 export type EntryViewMode = "view" | "edit" | "create";
+
+const ENTRY_HEADING_ID_PREFIX = "neum-entry-heading-";
 
 function descendantEntryIds(
   entryId: number,
@@ -216,28 +219,36 @@ export function EntryDetail({
         </div>
       </header>
 
-      <section className="document-content" aria-label="Entry content">
-        {detail.notesMd ? (
-          <MarkdownRenderer
-            content={detail.notesMd}
-            uploadScheme="neum-upload"
-            resolveWikilink={resolveWikilink}
-            onNavigateWikilink={navigateWikilink}
-            onCreateFromWikilink={onCreateWikilink === undefined ? undefined : createFromWikilink}
-          />
-        ) : (
-          <p className="empty-copy">No explanatory notes yet.</p>
-        )}
-        {detail.kind === "snippet" ? (
-          <section className="snippet-view" aria-label="Code snippet">
-            <p className="code-meta">
-              <strong>{detail.language}</strong>
-              {detail.filename ? <span>{detail.filename}</span> : null}
-            </p>
-            <pre className="code-block"><code>{detail.code}</code></pre>
-          </section>
-        ) : null}
-      </section>
+      <div className="document-outline-layout">
+        <section className="document-content" aria-label="Entry content">
+          {detail.notesMd ? (
+            <MarkdownRenderer
+              content={detail.notesMd}
+              uploadScheme="neum-upload"
+              resolveWikilink={resolveWikilink}
+              onNavigateWikilink={navigateWikilink}
+              onCreateFromWikilink={onCreateWikilink === undefined ? undefined : createFromWikilink}
+              headingIdPrefix={ENTRY_HEADING_ID_PREFIX}
+            />
+          ) : (
+            <p className="empty-copy">No explanatory notes yet.</p>
+          )}
+          {detail.kind === "snippet" ? (
+            <section className="snippet-view" aria-label="Code snippet">
+              <p className="code-meta">
+                <strong>{detail.language}</strong>
+                {detail.filename ? <span>{detail.filename}</span> : null}
+              </p>
+              <pre className="code-block"><code>{detail.code}</code></pre>
+            </section>
+          ) : null}
+        </section>
+        <OutlinePanel
+          content={detail.notesMd}
+          mode="read"
+          headingIdPrefix={ENTRY_HEADING_ID_PREFIX}
+        />
+      </div>
       <section className="linked-mentions" aria-labelledby="linked-mentions-heading">
         <h2 id="linked-mentions-heading">Linked mentions ({backlinks.length})</h2>
         {backlinks.length === 0 ? (
@@ -292,6 +303,7 @@ function EntryForm({
   onCreateWikilink,
 }: EntryFormProps) {
   const formRef = useRef<HTMLFormElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const stagedRef = useRef<StagedImage[]>([]);
   const initialKind = detail?.kind ?? "knowledge";
   const initialTitle = detail?.title ?? "";
@@ -535,61 +547,78 @@ function EntryForm({
           </label>
         </div>
 
-        <MarkdownEditor
-          label="Notes"
-          name="notesMd"
-          value={notesMd}
-          imagePreviews={imagePreviews}
-          onChange={changeNotes}
-          onImageError={setError}
-          onStageImage={(image) => setStagedImages((current) => [...current, image])}
-          resolveWikilink={resolveWikilink}
-          onNavigateWikilink={onNavigateWikilink}
-          onCreateFromWikilink={onCreateWikilink === undefined ? undefined : createFromWikilink}
-        />
-        <p className="editor-footnote">Images remain in this browser until you save the entry.</p>
-
-        {kind === "snippet" ? (
-          <section className="snippet-fields" aria-label="Code snippet fields">
-            <div className="form-row form-columns snippet-meta-fields">
-              <label className="field">
-                <span>Language</span>
-                <input
-                  name="language"
-                  autoComplete="off"
-                  required
-                  maxLength={80}
-                  value={language}
-                  placeholder="json, yaml, bash, typescript"
-                  onChange={(event) => setLanguage(event.target.value)}
-                />
-              </label>
-              <label className="field">
-                <span>Display filename (optional)</span>
-                <input
-                  name="filename"
-                  autoComplete="off"
-                  maxLength={240}
-                  value={filename}
-                  placeholder="docker-compose.yml"
-                  onChange={(event) => setFilename(event.target.value)}
-                />
-              </label>
-            </div>
-            <label className="field code-field">
-              <span>Code</span>
-              <textarea
-                name="code"
-                rows={18}
-                value={code}
-                spellCheck={false}
-                placeholder="Paste the snippet exactly as you want to preserve it."
-                onChange={(event) => setCode(event.target.value)}
-              />
-            </label>
-            <p className="editor-footnote">JSON and YAML are stored as written, even when incomplete.</p>
-          </section>
-        ) : null}
+        <div className="editor-outline-layout">
+          <MarkdownEditor
+            label="Notes"
+            name="notesMd"
+            value={notesMd}
+            imagePreviews={imagePreviews}
+            onChange={changeNotes}
+            onImageError={setError}
+            onStageImage={(image) => setStagedImages((current) => [...current, image])}
+            resolveWikilink={resolveWikilink}
+            onNavigateWikilink={onNavigateWikilink}
+            onCreateFromWikilink={onCreateWikilink === undefined ? undefined : createFromWikilink}
+            textareaRef={textareaRef}
+            headingIdPrefix={ENTRY_HEADING_ID_PREFIX}
+            footerExtras={(
+              <>
+                <p className="editor-footnote">
+                  Images remain in this browser until you save the entry.
+                </p>
+                {kind === "snippet" ? (
+                  <section className="snippet-fields" aria-label="Code snippet fields">
+                    <div className="form-row form-columns snippet-meta-fields">
+                      <label className="field">
+                        <span>Language</span>
+                        <input
+                          name="language"
+                          autoComplete="off"
+                          required
+                          maxLength={80}
+                          value={language}
+                          placeholder="json, yaml, bash, typescript"
+                          onChange={(event) => setLanguage(event.target.value)}
+                        />
+                      </label>
+                      <label className="field">
+                        <span>Display filename (optional)</span>
+                        <input
+                          name="filename"
+                          autoComplete="off"
+                          maxLength={240}
+                          value={filename}
+                          placeholder="docker-compose.yml"
+                          onChange={(event) => setFilename(event.target.value)}
+                        />
+                      </label>
+                    </div>
+                    <label className="field code-field">
+                      <span>Code</span>
+                      <textarea
+                        name="code"
+                        rows={18}
+                        value={code}
+                        spellCheck={false}
+                        placeholder="Paste the snippet exactly as you want to preserve it."
+                        onChange={(event) => setCode(event.target.value)}
+                      />
+                    </label>
+                    <p className="editor-footnote">
+                      JSON and YAML are stored as written, even when incomplete.
+                    </p>
+                  </section>
+                ) : null}
+              </>
+            )}
+          />
+          <OutlinePanel
+            content={notesMd}
+            mode="edit"
+            textareaRef={textareaRef}
+            headingIdPrefix={ENTRY_HEADING_ID_PREFIX}
+          />
+        </div>
       </form>
     </section>
   );

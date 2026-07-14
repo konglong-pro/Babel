@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   extractWikilinks,
   maskCodeRegions,
+  maskFencedCodeRegions,
   normalizeTitleKey,
   preprocessWikilinks,
 } from "@babel-apps/markdown/core";
@@ -30,6 +31,24 @@ test("marks fenced and inline code without changing source offsets", () => {
   assert.equal(mask[markdown.indexOf("[[two]]")], 1);
   assert.equal(mask[markdown.indexOf("[[three]]")], 1);
   assert.equal(mask[markdown.indexOf("[[four]]")], 0);
+  const fenceMask = maskFencedCodeRegions(markdown);
+  assert.equal(fenceMask[markdown.indexOf("[[two]]")], 0);
+  assert.equal(fenceMask[markdown.indexOf("[[three]]")], 1);
+});
+
+test("marks tilde fences inside Markdown containers", () => {
+  const markdown = [
+    "> - ~~~md",
+    ">   # hidden",
+    ">   - hidden item",
+    ">   ~~~",
+    "# visible",
+  ].join("\n");
+  const mask = maskFencedCodeRegions(markdown);
+
+  assert.equal(mask[markdown.indexOf("# hidden")], 1);
+  assert.equal(mask[markdown.indexOf("- hidden item")], 1);
+  assert.equal(mask[markdown.indexOf("# visible")], 0);
 });
 
 test("an unmatched backtick does not hide later links", () => {

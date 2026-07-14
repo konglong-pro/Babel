@@ -198,10 +198,24 @@ test("renders the repository mirror template as an independent app", async (t) =
     "utf8",
   );
   assert.match(markdownEditor, /from "@babel-apps\/markdown\/react"/);
-  assert.match(markdownEditor, /fetchScope:\s*"mirror-notes:notes"/);
-  assert.match(markdownEditor, /mirror-notes-upload:\/\/\$\{token\}/);
+  assert.match(markdownEditor, /MarkdownEditor as SharedMarkdownEditor/);
+  assert.match(markdownEditor, /MarkdownEditorProps as SharedMarkdownEditorProps/);
+  assert.match(markdownEditor, /export type \{ StagedImage \} from "@babel-apps\/markdown\/react"/);
+  assert.match(markdownEditor, /fetchScope="mirror-notes:notes"/);
   assert.match(markdownEditor, /uploadScheme="mirror-notes-upload"/);
+  assert.doesNotMatch(
+    markdownEditor,
+    /ACCEPTED_IMAGE_TYPES|MAX_IMAGE_BYTES|stageFiles|newImageToken|useWikilinkAutocomplete|WikilinkAutocomplete|MarkdownRenderer|URL\.createObjectURL/,
+  );
   assert.doesNotMatch(markdownEditor, /__APP_|Esperanto/i);
+  const noteDetail = await readFile(
+    path.join(generatedRoot, "src", "components", "note-detail.tsx"),
+    "utf8",
+  );
+  assert.match(noteDetail, /OutlinePanel/);
+  assert.match(noteDetail, /const NOTE_HEADING_ID_PREFIX = "mirror-notes-note-heading-"/);
+  assert.match(noteDetail, /textareaRef=\{textareaRef\}/);
+  assert.match(noteDetail, /footerExtras=/);
   await assert.rejects(
     access(path.join(generatedRoot, "src", "components", "markdown.tsx")),
     { code: "ENOENT" },
@@ -256,6 +270,9 @@ test("renders the repository mirror template as an independent app", async (t) =
   assert.match(globalStyles, /\.folder-node-row/);
   assert.match(globalStyles, /\.folder-disclosure/);
   assert.match(globalStyles, /\.note-disclosure/);
+  assert.match(globalStyles, /\.document-outline-layout/);
+  assert.match(globalStyles, /\.outline-panel/);
+  assert.match(globalStyles, /\.editor-format-tools/);
   const generatedRepository = await readFile(
     path.join(generatedRoot, "src", "lib", "repositories", "notes.ts"),
     "utf8",

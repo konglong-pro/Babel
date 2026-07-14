@@ -328,6 +328,46 @@ test("Neum core persistence", async (t) => {
     assert.equal(repository.getEntry(restoredSource.id)?.links[0]?.targetId, firstTarget.id);
   });
 
+  await t.test("title suggestions use escaped SQL prefixes and bounded results", () => {
+    const folderId = repository.listFolders()[0].id;
+    const literal = repository.createEntry({
+      folderId,
+      kind: "knowledge",
+      title: "Neum %_ literal prefix",
+    });
+    repository.createEntry({
+      folderId,
+      kind: "snippet",
+      title: "Before Neum %_ literal prefix",
+      code: "const infix = true;",
+      language: "typescript",
+    });
+    const slash = repository.createEntry({
+      folderId,
+      kind: "knowledge",
+      title: "Neum slash\\ literal prefix",
+    });
+    const unicode = repository.createEntry({
+      folderId,
+      kind: "knowledge",
+      title: "Ĉapitro   Du",
+    });
+
+    assert.deepEqual(repository.listEntryTitles("neum %_", 20), [
+      { id: literal.id, kind: literal.kind, title: literal.title },
+    ]);
+    assert.deepEqual(repository.listEntryTitles("neum slash\\", 20), [
+      { id: slash.id, kind: slash.kind, title: slash.title },
+    ]);
+    assert.deepEqual(repository.listEntryTitles("ĉa", 20), [
+      { id: unicode.id, kind: unicode.kind, title: unicode.title },
+    ]);
+    assert.deepEqual(repository.listEntryTitles("ĉapitro du", 20), [
+      { id: unicode.id, kind: unicode.kind, title: unicode.title },
+    ]);
+    assert.equal(repository.listEntryTitles("", 1).length, 1);
+  });
+
   await t.test("entries form guarded page trees and move as a branch", () => {
     const source = repository.createFolder({ name: "Page tree source" });
     const target = repository.createFolder({ name: "Page tree target" });
