@@ -15,6 +15,7 @@ import {
   useState,
 } from "react";
 
+import { ImportedImageMatcher } from "@/components/imported-image-matcher";
 import { MarkdownEditor, type StagedImage } from "@/components/markdown-editor";
 import {
   ConfirmButton,
@@ -30,6 +31,15 @@ import {
   getErrorMessage,
   updateEntry,
 } from "@/lib/api-client";
+import { entryUnitLabel } from "@/lib/entry-routes";
+import {
+  ENTRY_CODE_MAX_BYTES,
+  ENTRY_NEW_IMAGE_MAX_COUNT,
+  ENTRY_NOTES_MAX_BYTES,
+  ENTRY_SAVE_MAX_BYTES,
+  utf8ByteLength,
+} from "@/lib/entry-limits";
+import type { MarkdownImportDraft } from "@/lib/markdown-import";
 import type {
   EntryBacklinkDto,
   EntryDetailDto,
@@ -41,6 +51,15 @@ import type {
 export type EntryViewMode = "view" | "edit" | "create";
 
 const ENTRY_HEADING_ID_PREFIX = "neum-entry-heading-";
+const PENDING_IMAGE_URL_PATTERN = /neum-upload:\/\/[A-Za-z0-9._-]+/g;
+const MAX_MANAGED_IMAGE_URL =
+  "/api/uploads/entries/00000000-0000-0000-0000-000000000000.webp";
+
+function estimatedPersistedMarkdownBytes(notesMd: string): number {
+  return utf8ByteLength(
+    notesMd.replace(PENDING_IMAGE_URL_PATTERN, MAX_MANAGED_IMAGE_URL),
+  );
+}
 
 function descendantEntryIds(
   entryId: number,
@@ -80,7 +99,10 @@ function entryPathLabel(
 }
 
 interface EntryDetailProps {
+  kind: EntryKind;
   detail: EntryDetailDto | null;
+  importDraft: MarkdownImportDraft | null;
+  draftKey: number;
   mode: EntryViewMode;
   folderId: number | null;
   parentId: number | null;
@@ -92,7 +114,12 @@ interface EntryDetailProps {
   onCancel: () => void;
   onSaved: (detail: EntryDetailDto) => Promise<void> | void;
   onDeleted: () => Promise<void> | void;
-  onNavigateEntry: (id: number, folderId?: number, exactFolder?: boolean) => void;
+  onNavigateEntry: (
+    id: number,
+    kind: EntryKind,
+    folderId?: number,
+    exactFolder?: boolean,
+  ) => void;
   onCreateWikilink?: (title: string, folderId: number) => Promise<void> | void;
   onDirtyChange: (dirty: boolean) => void;
   onRegisterSave: (action: (() => void) | null) => void;
@@ -100,7 +127,10 @@ interface EntryDetailProps {
 }
 
 export function EntryDetail({
+  kind,
   detail,
+  importDraft,
+  draftKey,
   mode,
   folderId,
   parentId,
@@ -134,10 +164,10 @@ export function EntryDetail({
     (titleKey: string): ResolvedWikilink | null => wikilinkTargets.get(titleKey) ?? null,
     [wikilinkTargets],
   );
-  const navigateWikilink = useCallback(
-    (target: ResolvedWikilink) => onNavigateEntry(target.id, undefined, true),
-    [onNavigateEntry],
-  );
+  const navigateWikilink = useCallback((target: ResolvedWikilink) => {
+    if (target.kind !== "knowledge" && target.kind !== "snippet") return;
+    onNavigateEntry(target.id, target.kind, undefined, true);
+  }, [onNavigateEntry]);
   const createFromWikilink = useCallback((wikilink: Wikilink) => {
     if (onCreateWikilink === undefined) return;
     const targetFolderId = detail?.folderId ?? folderId;
@@ -154,8 +184,12 @@ export function EntryDetail({
   if (mode === "create" || mode === "edit") {
     return (
       <EntryForm
-        key={mode === "edit" ? `edit-${detail?.id ?? "missing"}-${detail?.version ?? 0}` : `new-${folderId}-${parentId ?? "root"}`}
+        key={mode === "edit"
+          ? `edit-${detail?.id ?? "missing"}-${detail?.version ?? 0}`
+          : `new-${folderId}-${parentId ?? "root"}-${draftKey}`}
         detail={mode === "edit" ? detail : null}
+        importDraft={mode === "create" ? importDraft : null}
+        kind={kind}
         initialFolderId={folderId}
         initialParentId={parentId}
         folders={folders}
@@ -175,7 +209,7 @@ export function EntryDetail({
     return (
       <section className="detail-panel empty-state" aria-label="Entry details">
         <button className="content-back" type="button" onClick={onBack}>
-          <span aria-hidden="true">←</span> Entries
+          <span aria-hidden="true">←</span> {entryUnitLabel(kind)}
         </button>
         <span className="empty-monogram" aria-hidden="true">N</span>
         <h2>Build your technical memory</h2>
@@ -187,7 +221,7 @@ export function EntryDetail({
   return (
     <article className="detail-panel document-view">
       <button className="content-back" type="button" onClick={onBack}>
-        <span aria-hidden="true">←</span> Entries
+        <span aria-hidden="true">←</span> {entryUnitLabel(kind)}
       </button>
       <header className="document-header">
         <div>
@@ -203,7 +237,7 @@ export function EntryDetail({
           </p>
         </div>
         <div className="document-actions">
-          <button type="button" onClick={onEdit}>Edit</button>
+          <button data-babel-command="edit" type="button" onClick={onEdit}>Edit</button>
           <ConfirmButton
             className="danger-ghost"
             title="Move entry to trash"
@@ -259,7 +293,12 @@ export function EntryDetail({
               <li key={backlink.id}>
                 <button
                   type="button"
-                  onClick={() => onNavigateEntry(backlink.id, backlink.folderId, true)}
+                  onClick={() => onNavigateEntry(
+                    backlink.id,
+                    backlink.kind,
+                    backlink.folderId,
+                    true,
+                  )}
                 >
                   <span>{backlink.title}</span>
                   <small>{entryKindLabel(backlink.kind)}</small>
@@ -274,7 +313,9 @@ export function EntryDetail({
 }
 
 interface EntryFormProps {
+  kind: EntryKind;
   detail: EntryDetailDto | null;
+  importDraft: MarkdownImportDraft | null;
   initialFolderId: number | null;
   initialParentId: number | null;
   folders: FolderDto[];
@@ -289,7 +330,9 @@ interface EntryFormProps {
 }
 
 function EntryForm({
+  kind,
   detail,
+  importDraft,
   initialFolderId,
   initialParentId,
   folders,
@@ -305,16 +348,14 @@ function EntryForm({
   const formRef = useRef<HTMLFormElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const stagedRef = useRef<StagedImage[]>([]);
-  const initialKind = detail?.kind ?? "knowledge";
-  const initialTitle = detail?.title ?? "";
+  const initialTitle = detail?.title ?? importDraft?.title ?? "";
   const initialTags = detail?.tags.join(", ") ?? "";
-  const initialNotes = detail?.notesMd ?? "";
+  const initialNotes = detail?.notesMd ?? importDraft?.contentMd ?? "";
   const initialCode = detail?.code ?? "";
   const initialLanguage = detail?.language ?? "";
   const initialFilename = detail?.filename ?? "";
   const initialFolder = detail?.folderId ?? initialFolderId;
   const initialParent = detail?.parentId ?? initialParentId;
-  const [kind, setKind] = useState<EntryKind>(initialKind);
   const [title, setTitle] = useState(initialTitle);
   const [tags, setTags] = useState(initialTags);
   const [notesMd, setNotesMd] = useState(initialNotes);
@@ -349,21 +390,57 @@ function EntryForm({
         .filter(
           (entry) =>
             entry.folderId === folderId &&
+            entry.kind === kind &&
             entry.id !== detail?.id &&
             !unavailableParentIds.has(entry.id),
         )
         .map((entry) => ({ id: entry.id, label: entryPathLabel(entry.id, entryMap) })),
-    [detail?.id, entries, entryMap, folderId, unavailableParentIds],
+    [detail?.id, entries, entryMap, folderId, kind, unavailableParentIds],
   );
   const imagePreviews = useMemo(
     () => new Map(stagedImages.map((image) => [image.token, image.previewUrl])),
     [stagedImages],
   );
+  const activeImportedReferences = useMemo(
+    () => (importDraft?.imageReferences ?? []).filter((reference) =>
+      notesMd.includes(`neum-upload://${reference.token}`),
+    ),
+    [importDraft?.imageReferences, notesMd],
+  );
+  const stagedTokens = useMemo(
+    () => new Set(stagedImages.map((image) => image.token)),
+    [stagedImages],
+  );
+  const unresolvedImportedImages = activeImportedReferences.filter(
+    (reference) => !stagedTokens.has(reference.token),
+  );
+  const referencedStagedImages = stagedImages.filter((image) =>
+    notesMd.includes(`neum-upload://${image.token}`),
+  );
+  const notesBytes = utf8ByteLength(notesMd);
+  const persistedNotesBytes = estimatedPersistedMarkdownBytes(notesMd);
+  const codeBytes = kind === "snippet" ? utf8ByteLength(code) : 0;
+  const saveBytes = referencedStagedImages.reduce(
+    (total, image) => total + image.file.size,
+    persistedNotesBytes + codeBytes,
+  );
+  const limitError = Math.max(notesBytes, persistedNotesBytes) > ENTRY_NOTES_MAX_BYTES
+    ? "Markdown notes must not exceed 10 MiB."
+    : codeBytes > ENTRY_CODE_MAX_BYTES
+      ? "Code content must not exceed 10 MiB."
+      : referencedStagedImages.length > ENTRY_NEW_IMAGE_MAX_COUNT
+        ? `An entry can upload at most ${ENTRY_NEW_IMAGE_MAX_COUNT} new images at once.`
+        : saveBytes > ENTRY_SAVE_MAX_BYTES
+          ? "Markdown notes, code, and new images must not exceed 100 MiB in one save."
+          : "";
+  const saveBlockMessage = unresolvedImportedImages.length > 0
+    ? "Match or remove every imported local image before saving."
+    : limitError;
   const snippetChanged = kind === "snippet"
     ? code !== initialCode || language !== initialLanguage || filename !== initialFilename
-    : initialKind === "snippet";
+    : false;
   const dirty =
-    kind !== initialKind ||
+    importDraft !== null ||
     title !== initialTitle ||
     tags !== initialTags ||
     notesMd !== initialNotes ||
@@ -402,6 +479,10 @@ function EntryForm({
     }
     if (kind === "snippet" && !language.trim()) {
       setError("A code snippet needs a language identifier.");
+      return;
+    }
+    if (saveBlockMessage) {
+      setError(saveBlockMessage);
       return;
     }
 
@@ -443,6 +524,26 @@ function EntryForm({
     });
   }
 
+  function resolveImportedImages(images: readonly StagedImage[]) {
+    if (pending) return;
+    setStagedImages((current) => {
+      const replacements = new Map(images.map((image) => [image.token, image]));
+      const next: StagedImage[] = [];
+      for (const image of current) {
+        const replacement = replacements.get(image.token);
+        if (replacement === undefined) {
+          next.push(image);
+          continue;
+        }
+        if (replacement.previewUrl !== image.previewUrl) {
+          URL.revokeObjectURL(image.previewUrl);
+        }
+      }
+      next.push(...replacements.values());
+      return next;
+    });
+  }
+
   function createFromWikilink(wikilink: Wikilink) {
     if (pending) return;
     if (folderId === null || onCreateWikilink === undefined) return;
@@ -457,16 +558,21 @@ function EntryForm({
       <form ref={formRef} onSubmit={submit}>
         <header className="document-header form-header">
           <div>
-            <span className="eyebrow">{detail ? "Edit entry" : "New entry"}</span>
-            <h1>{detail ? detail.title : "Capture technical knowledge"}</h1>
+            <span className="eyebrow">
+              {detail ? "Edit entry" : importDraft ? "Import Markdown" : "New entry"}
+            </span>
+            <h1>
+              {detail ? detail.title : importDraft ? importDraft.title : "Capture technical knowledge"}
+            </h1>
           </div>
           <div className="document-actions">
-            <button type="button" onClick={onCancel}>Cancel</button>
+            <button data-babel-command="cancel" type="button" onClick={onCancel}>Cancel</button>
             <button
+              data-babel-command="save"
               className="primary-button"
               type="submit"
-              disabled={pending || folderId === null || !title.trim() || (kind === "snippet" && !language.trim())}
-              title="Save entry (Ctrl/Cmd+S)"
+              disabled={pending || folderId === null || !title.trim() || (kind === "snippet" && !language.trim()) || Boolean(saveBlockMessage)}
+              title={saveBlockMessage || "Save entry"}
             >
               {pending ? "Saving…" : "Save"}
             </button>
@@ -474,6 +580,7 @@ function EntryForm({
         </header>
 
         {error ? <p className="form-error" role="alert">{error}</p> : null}
+        {!error && limitError ? <p className="form-error" role="alert">{limitError}</p> : null}
 
         <div className="form-row form-columns">
           <label className="field title-field">
@@ -487,17 +594,6 @@ function EntryForm({
               placeholder="A precise concept or snippet name"
               onChange={(event) => setTitle(event.target.value)}
             />
-          </label>
-          <label className="field">
-            <span>Kind</span>
-            <select
-              name="kind"
-              value={kind}
-              onChange={(event) => setKind(event.target.value as EntryKind)}
-            >
-              <option value="knowledge">Knowledge note</option>
-              <option value="snippet">Code snippet</option>
-            </select>
           </label>
           <label className="field">
             <span>Folder</span>
@@ -546,6 +642,16 @@ function EntryForm({
             <small>Separate tags with commas. Matching is case-insensitive.</small>
           </label>
         </div>
+
+        {kind === "knowledge" ? (
+          <ImportedImageMatcher
+            references={activeImportedReferences}
+            stagedImages={stagedImages}
+            disabled={pending}
+            onResolve={resolveImportedImages}
+            onError={setError}
+          />
+        ) : null}
 
         <div className="editor-outline-layout">
           <MarkdownEditor

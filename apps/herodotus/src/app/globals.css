@@ -742,8 +742,12 @@ a {
 .outline-panel ol {
   display: grid;
   gap: 0.16rem;
+  max-height: min(60dvh, 36rem);
   margin: 0.65rem 0 0;
-  padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 0.35rem 0 0;
+  scrollbar-gutter: stable;
   list-style: none;
 }
 
@@ -986,21 +990,9 @@ a {
   font-family: var(--mono);
 }
 
-.live-badge {
-  border: 1px solid var(--ink);
-  border-radius: 3px;
-  background: var(--ink);
-  color: var(--lavender);
-  font-size: 0.67rem;
-  font-weight: 750;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  padding: 0.18rem 0.38rem;
-}
-
 .editor-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   min-height: 440px;
   overflow: hidden;
   border: 2px solid var(--line-strong);
@@ -1019,22 +1011,11 @@ a {
   min-height: 100%;
   resize: vertical;
   border: 0;
-  border-right: 2px solid var(--ink);
   background: #f2e8ff;
   padding: 1rem;
   font-family: var(--mono);
   font-size: 0.83rem;
   line-height: 1.72;
-}
-
-.preview-pane {
-  min-width: 0;
-  overflow: auto;
-  padding: 1rem 1.2rem;
-}
-
-.preview-pane .markdown-body input[type="checkbox"]:not(:disabled) {
-  cursor: pointer;
 }
 
 .wikilink-autocomplete {
@@ -1411,7 +1392,7 @@ a {
   padding: 0.8rem;
 }
 
-@media (max-width: 1499px) {
+@media (max-width: 760px) {
   .document-outline-layout,
   .editor-outline-layout {
     grid-template-columns: minmax(0, 1fr);
@@ -1423,6 +1404,10 @@ a {
     border-bottom: 2px solid var(--ink);
     border-left: 0;
     padding: 0 0 0.8rem;
+  }
+
+  .outline-panel ol {
+    max-height: min(40dvh, 22rem);
   }
 }
 
@@ -1537,7 +1522,6 @@ a {
   }
 
   .form-columns,
-  .editor-grid,
   .search-result-list {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1547,12 +1531,6 @@ a {
   }
 
   .editor-grid textarea {
-    min-height: 320px;
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
-  }
-
-  .preview-pane {
     min-height: 320px;
   }
 

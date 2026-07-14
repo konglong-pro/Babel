@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 
 import { ApiError, handleApi } from "@/lib/http/errors";
+import { assertSameOrigin } from "@/lib/http/request";
 import { saveExerciseImage } from "@/lib/storage";
 
 export const runtime = "nodejs";
 
 export function POST(request: Request): Promise<Response> {
   return handleApi(async () => {
+    assertSameOrigin(request);
     let formData: FormData;
     try {
       formData = await request.formData();

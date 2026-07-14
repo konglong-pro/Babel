@@ -230,6 +230,7 @@ export function listTags(): Promise<TagSummaryDto[]> {
 }
 
 export function listTrash(input: {
+  kind?: EntryKind;
   limit?: number;
   offset?: number;
 } = {}): Promise<PaginatedDto<TrashEntryDto>> {

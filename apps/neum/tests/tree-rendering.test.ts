@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createElement } from "react";
+import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { EntryList } from "@/components/entry-list";
 import { FolderPanel } from "@/components/folder-panel";
 import type { EntrySummaryDto, FolderDto } from "@/lib/types";
+
+const testGlobal = globalThis as typeof globalThis & { React: typeof React };
+testGlobal.React = React;
+const { createElement } = React;
 
 const timestamp = "2026-07-13T00:00:00.000Z";
 const folders: FolderDto[] = [
@@ -28,7 +32,7 @@ const entries: EntrySummaryDto[] = [
     id: 11,
     parentId: 10,
     folderId: 2,
-    kind: "snippet",
+    kind: "knowledge",
     title: "Leaf page",
     tags: [],
     version: 1,
@@ -59,6 +63,7 @@ test("folder leaves retain disclosure controls and selected ancestors reveal", (
 test("entry leaves retain disclosure controls and selected ancestors reveal", () => {
   const markup = renderToStaticMarkup(
     createElement(EntryList, {
+      kind: "knowledge",
       entries,
       total: entries.length,
       folders: new Map(folders.map((folder) => [folder.id, folder])),

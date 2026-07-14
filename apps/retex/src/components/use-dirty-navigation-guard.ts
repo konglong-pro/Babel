@@ -181,13 +181,6 @@ export function useDirtyNavigationGuard(): DirtyNavigationGuard {
       event.returnValue = true;
     }
 
-    function saveShortcut(event: KeyboardEvent) {
-      if (!(event.ctrlKey || event.metaKey) || event.key.toLocaleLowerCase() !== "s") return;
-      if (saveActionRef.current === null) return;
-      event.preventDefault();
-      saveActionRef.current();
-    }
-
     function beforeNavigate(event: Event) {
       const navigationEvent = event as CustomEvent<BeforeNavigateDetail>;
       const proceed = navigationEvent.detail?.proceed;
@@ -248,12 +241,10 @@ export function useDirtyNavigationGuard(): DirtyNavigationGuard {
     }
 
     window.addEventListener("beforeunload", beforeUnload);
-    window.addEventListener("keydown", saveShortcut);
     window.addEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
     window.addEventListener("popstate", popState, true);
     return () => {
       window.removeEventListener("beforeunload", beforeUnload);
-      window.removeEventListener("keydown", saveShortcut);
       window.removeEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
       window.removeEventListener("popstate", popState, true);
       if (collapseFallbackTimerRef.current !== null) {

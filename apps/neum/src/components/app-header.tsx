@@ -1,14 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { type FormEvent, type MouseEvent, useState } from "react";
+
+import { entryUnitPath } from "@/lib/entry-routes";
+import type { EntryKind } from "@/lib/types";
 
 export const BEFORE_NAVIGATE_EVENT = "neum:before-navigate";
 
 export interface BeforeNavigateDetail {
   destination: string;
 }
+
+const UNIT_TABS: readonly { kind: EntryKind; label: string }[] = [
+  { kind: "knowledge", label: "Knowledge" },
+  { kind: "snippet", label: "Code" },
+];
 
 const cartesianMark = (
   <svg
@@ -42,12 +50,13 @@ function navigationAllowed(destination: string): boolean {
 }
 
 export function AppHeader() {
+  const pathname = usePathname();
   const router = useRouter();
   const [query, setQuery] = useState("");
 
-  function visitHome(event: MouseEvent<HTMLAnchorElement>) {
+  function visit(event: MouseEvent<HTMLAnchorElement>, destination: string) {
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    if (!navigationAllowed("/entries")) event.preventDefault();
+    if (!navigationAllowed(destination)) event.preventDefault();
   }
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {
@@ -61,10 +70,33 @@ export function AppHeader() {
 
   return (
     <header className="app-header">
-      <Link className="brand" href="/entries" aria-label="Neum knowledge library" onClick={visitHome}>
+      <Link
+        className="brand"
+        href="/knowledge"
+        aria-label="Neum knowledge library"
+        onClick={(event) => visit(event, "/knowledge")}
+      >
         {cartesianMark}
         <strong>Neum</strong>
       </Link>
+
+      <nav className="unit-tabs" aria-label="Neum units">
+        {UNIT_TABS.map(({ kind, label }) => {
+          const href = entryUnitPath(kind);
+          const active = pathname === href;
+          return (
+            <Link
+              key={kind}
+              href={href}
+              className={active ? "active" : undefined}
+              aria-current={active ? "page" : undefined}
+              onClick={(event) => visit(event, href)}
+            >
+              {label}
+            </Link>
+          );
+        })}
+      </nav>
 
       <form className="global-search" role="search" onSubmit={submitSearch}>
         <label className="sr-only" htmlFor="global-search-input">
@@ -72,6 +104,7 @@ export function AppHeader() {
         </label>
         <input
           id="global-search-input"
+          data-babel-command="search"
           name="q"
           type="search"
           autoComplete="off"

@@ -17,6 +17,8 @@ import {
 import { withEntryMutationLock } from "@/lib/mutation-lock";
 import { createEntry, listEntries } from "@/lib/repositories/entries";
 import {
+  assertEntrySaveLimits,
+  ensureEntryImageStorageRecovered,
   finalizeQuarantinedEntryImages,
   quarantineEntryImages,
   stageEntryImages,
@@ -30,57 +32,62 @@ export function GET(request: Request): Promise<Response> {
 }
 
 export function POST(request: Request): Promise<Response> {
-  return handleApi(() => withEntryMutationLock(async () => {
+  return handleApi(async () => {
     assertSameOrigin(request);
-    const { payload, uploads } = await readEntryMultipart(request);
-    assertOnlyFields(payload, [
-      "folderId",
-      "parentId",
-      "kind",
-      "title",
-      "notesMd",
-      "code",
-      "language",
-      "filename",
-      "tags",
-    ]);
+    await ensureEntryImageStorageRecovered();
+    return withEntryMutationLock(async () => {
+      const { payload, uploads } = await readEntryMultipart(request);
+      assertOnlyFields(payload, [
+        "folderId",
+        "parentId",
+        "kind",
+        "title",
+        "notesMd",
+        "code",
+        "language",
+        "filename",
+        "tags",
+      ]);
 
-    const notesMd =
-      optionalString(payload, "notesMd", { allowEmpty: true, trim: false }) ?? "";
-    const staged = await stageEntryImages(notesMd, uploads);
-    try {
-      const entry = createEntry(
-        {
-          folderId: requiredPositiveInteger(payload, "folderId"),
-          parentId: optionalNullablePositiveInteger(payload, "parentId"),
-          kind: requiredEntryKind(payload),
-          title: requiredString(payload, "title"),
-          notesMd: staged.notesMd,
-          code: optionalNullableString(payload, "code", {
-            allowEmpty: true,
-            trim: false,
-          }),
-          language: optionalNullableString(payload, "language"),
-          filename: optionalNullableString(payload, "filename"),
-          tags: optionalStringArray(payload, "tags") ?? [],
-        },
-        staged.imagePaths,
-      );
-      return NextResponse.json(entry, { status: 201 });
-    } catch (error) {
-      let quarantine;
+      const notesMd =
+        optionalString(payload, "notesMd", { allowEmpty: true, trim: false }) ?? "";
+      const code = optionalNullableString(payload, "code", {
+        allowEmpty: true,
+        trim: false,
+      });
+      assertEntrySaveLimits(notesMd, code ?? null, uploads);
+      const staged = await stageEntryImages(notesMd, uploads, code ?? null);
       try {
-        quarantine = await quarantineEntryImages(staged.imagePaths);
-      } catch (cleanupError) {
-        throw new AggregateError(
-          [error, cleanupError],
-          "Entry creation failed and staged images could not be quarantined.",
+        const entry = createEntry(
+          {
+            folderId: requiredPositiveInteger(payload, "folderId"),
+            parentId: optionalNullablePositiveInteger(payload, "parentId"),
+            kind: requiredEntryKind(payload),
+            title: requiredString(payload, "title"),
+            notesMd: staged.notesMd,
+            code,
+            language: optionalNullableString(payload, "language"),
+            filename: optionalNullableString(payload, "filename"),
+            tags: optionalStringArray(payload, "tags") ?? [],
+          },
+          staged.imagePaths,
         );
+        return NextResponse.json(entry, { status: 201 });
+      } catch (error) {
+        let quarantine;
+        try {
+          quarantine = await quarantineEntryImages(staged.imagePaths);
+        } catch (cleanupError) {
+          throw new AggregateError(
+            [error, cleanupError],
+            "Entry creation failed and staged images could not be quarantined.",
+          );
+        }
+        await finalizeQuarantinedEntryImages(quarantine);
+        throw error;
       }
-      await finalizeQuarantinedEntryImages(quarantine);
-      throw error;
-    }
-  }));
+    });
+  });
 }
 
 function requiredEntryKind(body: JsonObject): EntryKind {

@@ -1,16 +1,19 @@
 import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
-import { mkdtemp, readdir } from "node:fs/promises";
+import { mkdtemp, readdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
 
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 
+import type { NoteImageUpload } from "../src/lib/storage";
+
 let temporaryDirectory = "";
 let database: typeof import("../src/lib/db/client");
 let repositories: typeof import("../src/lib/repositories");
 let noteImageStorage: typeof import("../src/lib/storage/note-images");
+let storage: typeof import("../src/lib/storage");
 let collectionRoute: typeof import("../src/app/api/knowledge/route");
 let itemRoute: typeof import("../src/app/api/knowledge/[id]/route");
 
@@ -20,9 +23,10 @@ before(async () => {
   process.env.RETEX_NOTE_UPLOAD_DIRECTORY = path.join(temporaryDirectory, "uploads");
   database = await import("../src/lib/db/client");
   migrate(database.db, { migrationsFolder: path.join(process.cwd(), "drizzle") });
-  [repositories, noteImageStorage, collectionRoute, itemRoute] = await Promise.all([
+  [repositories, noteImageStorage, storage, collectionRoute, itemRoute] = await Promise.all([
     import("../src/lib/repositories"),
     import("../src/lib/storage/note-images"),
+    import("../src/lib/storage"),
     import("../src/app/api/knowledge/route"),
     import("../src/app/api/knowledge/[id]/route"),
   ]);
@@ -73,6 +77,75 @@ test("knowledge API accepts parent pages and rejects cycles and non-empty deleti
   );
   assert.equal(deleteResponse.status, 409);
   assert.equal((await deleteResponse.json() as { error: { code: string } }).error.code, "NOT_EMPTY");
+});
+
+test("knowledge mutations reject foreign origins and oversized Markdown", async () => {
+  const folder = repositories.createFolder({ type: "knowledge", name: "API limits" });
+  const foreign = await collectionRoute.POST(
+    new Request("http://localhost/api/knowledge", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "https://attacker.example",
+      },
+      body: JSON.stringify({
+        folderId: folder.id,
+        title: "Foreign knowledge",
+        contentMd: "must not be saved",
+      }),
+    }),
+  );
+  assert.equal(foreign.status, 403);
+  assert.equal(
+    repositories.listKnowledge().some(({ title }) => title === "Foreign knowledge"),
+    false,
+  );
+
+  const oversized = await collectionRoute.POST(
+    jsonRequest("http://localhost/api/knowledge", "POST", {
+      folderId: folder.id,
+      title: "Oversized knowledge",
+      contentMd: "x".repeat(10 * 1024 * 1024 + 1),
+    }),
+  );
+  assert.equal(oversized.status, 413);
+  assert.equal((await oversized.json()).error.code, "CONTENT_TOO_LARGE");
+});
+
+test("storage recovery restores owned quarantine and removes generated orphans", async () => {
+  const folder = repositories.createFolder({ type: "knowledge", name: "API recovery" });
+  const staged = await noteImageStorage.stageNoteImages(
+    "![Recovered](retex-upload://recovered)",
+    new Map([["recovered", noteUpload(png, "image/png")]]),
+  );
+  const note = repositories.createKnowledge(
+    {
+      folderId: folder.id,
+      title: "Recovered knowledge",
+      contentMd: staged.contentMd,
+    },
+    staged.imagePaths,
+  );
+  await noteImageStorage.quarantineNoteImages(staged.imagePaths);
+  await assert.rejects(noteImageStorage.readNoteImage(staged.imagePaths[0]), {
+    code: "NOT_FOUND",
+  });
+
+  await storage.recoverNoteImageStorage();
+  assert.deepEqual((await noteImageStorage.readNoteImage(staged.imagePaths[0])).data, png);
+
+  const orphanPath = await noteImageStorage.saveNoteImage(noteUpload(png, "image/png"));
+  const arbitraryPath = path.join(process.env.RETEX_NOTE_UPLOAD_DIRECTORY!, "personal.png");
+  await writeFile(arbitraryPath, png);
+  await storage.recoverNoteImageStorage();
+  await assert.rejects(noteImageStorage.readNoteImage(orphanPath), { code: "NOT_FOUND" });
+  assert.deepEqual((await noteImageStorage.readNoteImage("personal.png")).data, png);
+
+  const deleted = await itemRoute.DELETE(
+    new Request(`http://localhost/api/knowledge/${note.id}`, { method: "DELETE" }),
+    { params: Promise.resolve({ id: String(note.id) }) },
+  );
+  assert.equal(deleted.status, 204);
 });
 
 test("knowledge Markdown images stage, enforce ownership, and clean up atomically", async () => {
@@ -286,6 +359,16 @@ test("knowledge Markdown images stage, enforce ownership, and clean up atomicall
 });
 
 const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01]);
+
+function noteUpload(data: Buffer, type: string): NoteImageUpload {
+  return {
+    type,
+    size: data.byteLength,
+    async arrayBuffer() {
+      return Uint8Array.from(data).buffer;
+    },
+  };
+}
 
 function noteForm(
   payload: Record<string, unknown>,

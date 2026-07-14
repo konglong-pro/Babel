@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { folders } from "@/lib/db/schema";
 import type { FolderDto } from "@/lib/types";
+import { NOTE_CONTENT_MAX_BYTES, utf8ByteLength } from "@/lib/note-limits";
 
 import { RepositoryError } from "./errors";
 
@@ -38,6 +39,13 @@ export function normalizeMarkdown(value: unknown, label: string): string {
     throw new RepositoryError("VALIDATION", `${label} must be a string.`, {
       field: label,
     });
+  }
+  if (utf8ByteLength(value) > NOTE_CONTENT_MAX_BYTES) {
+    throw new RepositoryError(
+      "CONTENT_TOO_LARGE",
+      "Markdown content must not exceed 10 MiB.",
+      { field: label, maxBytes: NOTE_CONTENT_MAX_BYTES },
+    );
   }
   return value;
 }

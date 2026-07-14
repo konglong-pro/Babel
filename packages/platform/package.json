@@ -4,6 +4,11 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./shortcuts/core": "./src/shortcuts/core.ts",
+    "./shortcuts/server": "./src/shortcuts/server.ts",
+    "./shortcuts/react": "./src/shortcuts/react.tsx",
+    "./shortcuts.css": "./src/shortcuts/shortcuts.css",
+    "./shortcuts.defaults.json": "./shortcuts.defaults.json",
     "./db/checkpoint": "./src/db/checkpoint.ts",
     "./db/client": "./src/db/client.ts",
     "./db/migrate": "./src/db/migrate.ts",
@@ -21,6 +26,10 @@
   "dependencies": {
     "better-sqlite3": "^12.11.1",
     "drizzle-orm": "^0.45.2",
-    "next": "^16.2.10"
+    "next": "^16.2.10",
+    "react": "^19.2.7"
+  },
+  "devDependencies": {
+    "react-dom": "^19.2.7"
   }
 }

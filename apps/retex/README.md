@@ -21,3 +21,11 @@ Use `$f(x)=x^2$` for inline math and `$$...$$` for display math. Run schema
 generation or migration only for an explicit database task and only while ReTex
 is stopped. Use the root `npm.cmd run data:backup` workflow for normal backups;
 never commit notebook data to the public Babel repository.
+
+Knowledge can import UTF-8 `.md` files and match referenced local PNG, JPEG,
+WebP, or GIF files before saving. Markdown editors use the full writing area;
+rendered math remains available in read views, with a separately scrollable
+Outline at the right on desktop and tablet layouts. A Markdown save is limited
+to 10 MiB of content, 50 new images, 100 MiB logically, and 160 MiB on the
+multipart wire. ReTex serializes managed-note image mutations and reconciles
+interrupted image transactions during health checks and before later writes.

@@ -40,12 +40,15 @@ export function parseSearchQuery(request: Request): SearchQueryOptions {
 
 export function parseTrashQuery(request: Request): Pick<
   EntryQueryOptions,
-  "limit" | "offset"
+  "kind" | "limit" | "offset"
 > {
   const params = new URL(request.url).searchParams;
-  const allowed = new Set(["limit", "offset"]);
+  const allowed = new Set(["kind", "limit", "offset"]);
   assertOnlyQueryFields(params, allowed);
-  return parsePagination(params);
+  return {
+    ...parseKind(params),
+    ...parsePagination(params),
+  };
 }
 
 function parseFilters(
@@ -60,19 +63,7 @@ function parseFilters(
     });
   }
 
-  const kindValue = params.get("kind");
-  let kind: EntryKind | undefined;
-  if (kindValue !== null) {
-    if (kindValue !== "knowledge" && kindValue !== "snippet") {
-      throw new ApiError(
-        400,
-        "VALIDATION_ERROR",
-        "kind must be knowledge or snippet.",
-        { field: "kind" },
-      );
-    }
-    kind = kindValue;
-  }
+  const { kind } = parseKind(params);
 
   const rawTag = params.get("tag");
   const tag = rawTag?.trim();
@@ -100,6 +91,20 @@ function parseFilters(
     completeTree: rawCompleteTree === "true",
     ...parsePagination(params),
   };
+}
+
+function parseKind(params: URLSearchParams): { kind?: EntryKind } {
+  const value = params.get("kind");
+  if (value === null) return {};
+  if (value !== "knowledge" && value !== "snippet") {
+    throw new ApiError(
+      400,
+      "VALIDATION_ERROR",
+      "kind must be knowledge or snippet.",
+      { field: "kind" },
+    );
+  }
+  return { kind: value };
 }
 
 function parsePagination(params: URLSearchParams): { limit: number; offset: number } {

@@ -149,6 +149,7 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
             Clear
           </ConfirmButton>
           <button
+            data-babel-command="save"
             className="primary-button"
             type="button"
             disabled={saving}

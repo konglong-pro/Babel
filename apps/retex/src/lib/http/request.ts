@@ -1,10 +1,15 @@
 import {
   hasOwn,
+  normalizeLoopbackOrigin,
   readJsonObject,
   type JsonObject,
 } from "@babel-apps/platform/http/request";
 
 import { ApiError } from "@/lib/http/errors";
+import {
+  NOTE_MULTIPART_WIRE_MAX_BYTES,
+  NOTE_NEW_IMAGE_MAX_COUNT,
+} from "@/lib/note-limits";
 import {
   assertUploadToken,
   type NoteImageUpload,
@@ -55,6 +60,25 @@ export interface NoteMutationRequest {
   uploads: Map<string, NoteImageUpload>;
 }
 
+export function assertSameOrigin(request: Request): void {
+  const requestOrigin = normalizeLoopbackOrigin(request.url);
+  if (requestOrigin === undefined) {
+    throw new ApiError(403, "FORBIDDEN_ORIGIN", "Cross-origin mutations are not allowed.");
+  }
+
+  const origin = request.headers.get("origin");
+  if (origin === null) return;
+
+  const suppliedOrigin = normalizeLoopbackOrigin(origin);
+  if (suppliedOrigin === undefined || suppliedOrigin !== requestOrigin) {
+    throw new ApiError(
+      403,
+      "FORBIDDEN_ORIGIN",
+      "Cross-origin mutations are not allowed.",
+    );
+  }
+}
+
 export async function readNoteMutationRequest(
   request: Request,
   onPayloadDecoded?: (payload: JsonObject) => void,
@@ -69,10 +93,38 @@ export async function readNoteMutationRequest(
     return { payload, uploads: new Map() };
   }
 
+  assertMultipartWireSize(
+    request.headers.get("content-length"),
+    NOTE_MULTIPART_WIRE_MAX_BYTES,
+  );
+
   let formData: FormData;
+  let sizeError: ApiError | undefined;
   try {
-    formData = await request.formData();
+    if (request.body === undefined || request.body === null) {
+      formData = await request.formData();
+    } else {
+      let receivedBytes = 0;
+      const countedBody = request.body.pipeThrough(
+        new TransformStream<Uint8Array, Uint8Array>({
+          transform(chunk, controller) {
+            receivedBytes += chunk.byteLength;
+            if (receivedBytes > NOTE_MULTIPART_WIRE_MAX_BYTES) {
+              sizeError = multipartWireSizeError(NOTE_MULTIPART_WIRE_MAX_BYTES);
+              controller.error(sizeError);
+              return;
+            }
+            controller.enqueue(chunk);
+          },
+        }),
+      );
+      const headers = new Headers();
+      const contentType = request.headers.get("content-type");
+      if (contentType !== null) headers.set("content-type", contentType);
+      formData = await new Response(countedBody, { headers }).formData();
+    }
   } catch {
+    if (sizeError !== undefined) throw sizeError;
     throw new ApiError(
       400,
       "INVALID_MULTIPART",
@@ -127,6 +179,13 @@ export async function readNoteMutationRequest(
         { field },
       );
     }
+    if (uploads.size >= NOTE_NEW_IMAGE_MAX_COUNT) {
+      throw new ApiError(
+        413,
+        "TOO_MANY_IMAGES",
+        "A note save may include at most 50 new images.",
+      );
+    }
     const token = field.slice("image:".length);
     assertUploadToken(token);
     if (uploads.has(token)) {
@@ -149,6 +208,37 @@ export async function readNoteMutationRequest(
   }
 
   return { payload, uploads };
+}
+
+function multipartWireSizeError(wireLimitBytes: number): ApiError {
+  const mebibyte = 1024 * 1024;
+  const displayLimit = wireLimitBytes % mebibyte === 0
+    ? `${wireLimitBytes / mebibyte} MiB`
+    : `${wireLimitBytes} bytes`;
+  return new ApiError(
+    413,
+    "REQUEST_TOO_LARGE",
+    `The multipart request body must not exceed ${displayLimit}.`,
+  );
+}
+
+function assertMultipartWireSize(
+  contentLength: string | null,
+  wireLimitBytes: number,
+): void {
+  if (contentLength === null) return;
+  const normalized = contentLength.trim();
+  if (!/^\d+$/.test(normalized)) return;
+
+  let parsed: bigint;
+  try {
+    parsed = BigInt(normalized);
+  } catch {
+    return;
+  }
+  if (parsed > BigInt(wireLimitBytes)) {
+    throw multipartWireSizeError(wireLimitBytes);
+  }
 }
 
 export function optionalStringArray(

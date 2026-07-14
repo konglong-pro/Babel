@@ -9,10 +9,13 @@ import {
   deleteNoteImages,
   finalizeQuarantinedNoteImages,
   ImageStorageError,
+  assertMarkdownSaveLimits,
   managedImagePathsInMarkdown,
   normalizeStoredNoteImagePath,
   NOTE_IMAGE_DIRECTORY,
   NOTE_IMAGE_MAX_BYTES,
+  NOTE_CONTENT_MAX_BYTES,
+  NOTE_NEW_IMAGE_MAX_COUNT,
   type NoteImageUpload,
   quarantineNoteImages,
   readNoteImage,
@@ -20,6 +23,7 @@ import {
   saveNoteImage,
   stageNoteImages,
   stageNoteImagesInMarkdown,
+  withNoteImageMutationLock,
 } from "../src/lib/storage";
 
 let temporaryRoot = "";
@@ -53,6 +57,78 @@ const webp = Buffer.concat([
 const invalidPng = Buffer.from("not a png");
 
 test("ReTex note image storage and GET route", async (t) => {
+  await t.test("enforces Markdown, image count, and logical save limits", () => {
+    assert.throws(
+      () => assertMarkdownSaveLimits(
+        ["x".repeat(NOTE_CONTENT_MAX_BYTES), "y"],
+        new Map(),
+      ),
+      hasStorageCode("CONTENT_TOO_LARGE"),
+    );
+
+    const tinyUpload: NoteImageUpload = {
+      type: "image/png",
+      size: 1,
+      async arrayBuffer() {
+        throw new Error("Limit checks must not read image bodies.");
+      },
+    };
+    assert.throws(
+      () => assertMarkdownSaveLimits(
+        [""],
+        new Map(Array.from(
+          { length: NOTE_NEW_IMAGE_MAX_COUNT + 1 },
+          (_, index) => [`image-${index}`, tinyUpload] as const,
+        )),
+      ),
+      hasStorageCode("TOO_MANY_IMAGES"),
+    );
+
+    const maximumImage: NoteImageUpload = {
+      ...tinyUpload,
+      size: NOTE_IMAGE_MAX_BYTES,
+    };
+    assert.throws(
+      () => assertMarkdownSaveLimits(
+        ["x"],
+        new Map(Array.from(
+          { length: 10 },
+          (_, index) => [`image-${index}`, maximumImage] as const,
+        )),
+      ),
+      hasStorageCode("REQUEST_TOO_LARGE"),
+    );
+  });
+
+  await t.test("serializes image mutation critical sections", async () => {
+    const events: string[] = [];
+    let signalStarted!: () => void;
+    let releaseFirst!: () => void;
+    const started = new Promise<void>((resolve) => {
+      signalStarted = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+
+    const first = withNoteImageMutationLock(async () => {
+      events.push("first-start");
+      signalStarted();
+      await gate;
+      events.push("first-end");
+    });
+    await started;
+    const second = withNoteImageMutationLock(async () => {
+      events.push("second-start");
+    });
+    await Promise.resolve();
+    assert.deepEqual(events, ["first-start"]);
+
+    releaseFirst();
+    await Promise.all([first, second]);
+    assert.deepEqual(events, ["first-start", "first-end", "second-start"]);
+  });
+
   await t.test("stores every supported signature and serves safe immutable responses", async () => {
     const fixtures = [
       { data: png, type: "image/png", extension: "png" },

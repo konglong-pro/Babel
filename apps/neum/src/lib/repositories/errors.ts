@@ -1,6 +1,8 @@
 export type RepositoryErrorCode =
   | "NOT_FOUND"
   | "VALIDATION"
+  | "CONTENT_TOO_LARGE"
+  | "CODE_TOO_LARGE"
   | "CONFLICT"
   | "VERSION_CONFLICT"
   | "NOT_EMPTY";

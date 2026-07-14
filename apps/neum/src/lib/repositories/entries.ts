@@ -13,6 +13,11 @@ import {
 import { getNeumDatabase } from "@/lib/db/client";
 import { entries, entryImages, entryTags, tags } from "@/lib/db/schema";
 import {
+  ENTRY_CODE_MAX_BYTES,
+  ENTRY_NOTES_MAX_BYTES,
+  utf8ByteLength,
+} from "@/lib/entry-limits";
+import {
   managedImagePathsInMarkdown,
   normalizeStoredEntryImagePath,
 } from "@/lib/storage";
@@ -390,14 +395,14 @@ function escapeLike(value: string): string {
 function normalizeCreateFields(input: CreateEntryInput): NormalizedEntryFields {
   requireFolder(input.folderId);
   const parentId = input.parentId ?? null;
-  assertValidEntryParent(null, parentId, input.folderId);
   const kind = normalizeEntryKind(input.kind);
+  assertValidEntryParent(null, parentId, input.folderId, kind);
   return normalizeFields({
     parentId,
     folderId: input.folderId,
     kind,
     title: normalizeRequiredText(input.title, "title"),
-    notesMd: normalizeVerbatimText(input.notesMd ?? "", "notesMd"),
+    notesMd: normalizeNotesMarkdown(input.notesMd ?? ""),
     code: normalizeNullableCode(input.code),
     language: normalizeOptionalText(input.language ?? null, "language"),
     filename: normalizeOptionalText(input.filename ?? null, "filename"),
@@ -409,6 +414,16 @@ function normalizeUpdateFields(
   current: EntryRow,
   input: UpdateEntryInput,
 ): NormalizedEntryFields {
+  if (
+    input.kind !== undefined &&
+    normalizeEntryKind(input.kind) !== current.kind
+  ) {
+    throw new RepositoryError(
+      "CONFLICT",
+      "Entry kind cannot be changed after creation.",
+      { entryId, kind: current.kind },
+    );
+  }
   const folderId = input.folderId ?? current.folderId;
   if (input.folderId !== undefined) requireFolder(input.folderId);
   const parentId =
@@ -417,11 +432,11 @@ function normalizeUpdateFields(
         ? current.parentId
         : null
       : input.parentId;
-  assertValidEntryParent(entryId, parentId, folderId);
+  assertValidEntryParent(entryId, parentId, folderId, current.kind);
   return normalizeFields({
     parentId,
     folderId,
-    kind: input.kind === undefined ? current.kind : normalizeEntryKind(input.kind),
+    kind: current.kind,
     title:
       input.title === undefined
         ? current.title
@@ -429,7 +444,7 @@ function normalizeUpdateFields(
     notesMd:
       input.notesMd === undefined
         ? current.notesMd
-        : normalizeVerbatimText(input.notesMd, "notesMd"),
+        : normalizeNotesMarkdown(input.notesMd),
     code: input.code === undefined ? current.code : normalizeNullableCode(input.code),
     language:
       input.language === undefined
@@ -446,13 +461,19 @@ function assertValidEntryParent(
   entryId: number | null,
   parentId: number | null,
   folderId: number,
+  kind: EntryKind,
 ): void {
   if (parentId === null) return;
   assertPositiveId(parentId, "parentId");
 
   const { db } = getNeumDatabase();
   const rows = db
-    .select({ id: entries.id, parentId: entries.parentId, folderId: entries.folderId })
+    .select({
+      id: entries.id,
+      parentId: entries.parentId,
+      folderId: entries.folderId,
+      kind: entries.kind,
+    })
     .from(entries)
     .all();
   const byId = new Map(rows.map((row) => [row.id, row]));
@@ -465,6 +486,13 @@ function assertValidEntryParent(
       "CONFLICT",
       "Parent and child entries must belong to the same folder.",
       { parentId, folderId },
+    );
+  }
+  if (parent.kind !== kind) {
+    throw new RepositoryError(
+      "CONFLICT",
+      "Parent and child entries must belong to the same unit.",
+      { parentId, kind },
     );
   }
   if (entryId === null) return;
@@ -536,9 +564,28 @@ function normalizeFields(fields: NormalizedEntryFields): NormalizedEntryFields {
 }
 
 function normalizeNullableCode(value: unknown): string | null {
-  return value === undefined || value === null
-    ? null
-    : normalizeVerbatimText(value, "code");
+  if (value === undefined || value === null) return null;
+  const code = normalizeVerbatimText(value, "code");
+  if (utf8ByteLength(code) > ENTRY_CODE_MAX_BYTES) {
+    throw new RepositoryError(
+      "CODE_TOO_LARGE",
+      "Code content must not exceed 10 MiB.",
+      { field: "code", maxBytes: ENTRY_CODE_MAX_BYTES },
+    );
+  }
+  return code;
+}
+
+function normalizeNotesMarkdown(value: unknown): string {
+  const notesMd = normalizeVerbatimText(value, "notesMd");
+  if (utf8ByteLength(notesMd) > ENTRY_NOTES_MAX_BYTES) {
+    throw new RepositoryError(
+      "CONTENT_TOO_LARGE",
+      "Markdown notes must not exceed 10 MiB.",
+      { field: "notesMd", maxBytes: ENTRY_NOTES_MAX_BYTES },
+    );
+  }
+  return notesMd;
 }
 
 function normalizeNewImagePaths(imagePaths: readonly string[]): string[] {

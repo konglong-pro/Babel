@@ -305,10 +305,11 @@ export function FolderPanel({
 
           {error ? <p className="form-error" role="alert">{error}</p> : null}
           <div className="dialog-actions">
-            <button type="button" onClick={() => dialogRef.current?.close()}>
+            <button data-babel-command="cancel" type="button" onClick={() => dialogRef.current?.close()}>
               Cancel
             </button>
             <button
+              data-babel-command="confirm"
               type="submit"
               className={dialogMode === "delete" ? "danger-button" : "primary-button"}
               disabled={pending || ((dialogMode === "create" || dialogMode === "rename") && !name.trim())}

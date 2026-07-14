@@ -149,6 +149,7 @@ test("renders the repository mirror template as an independent app", async (t) =
   assert.equal(manifest.dependencies["remark-gfm"], undefined);
   assert.equal(manifest.scripts["db:backfill-links"], "tsx scripts/backfill-links.ts");
   assert.equal(manifest.scripts["db:check"], "tsx scripts/check-database.ts");
+  assert.equal(manifest.scripts.build, "tsx scripts/build.ts");
   assert.match(
     await readFile(path.join(generatedRoot, "next.config.ts"), "utf8"),
     /transpilePackages:\s*\[[^\]]*["']@babel-apps\/markdown["']/,
@@ -158,6 +159,10 @@ test("renders the repository mirror template as an independent app", async (t) =
     /assertAppDatabaseReady\(\)/,
   );
   await access(path.join(generatedRoot, "scripts", "check-database.ts"));
+  await access(path.join(generatedRoot, "scripts", "build.ts"));
+  await access(path.join(generatedRoot, "src", "lib", "markdown-import.ts"));
+  await access(path.join(generatedRoot, "src", "lib", "note-limits.ts"));
+  await access(path.join(generatedRoot, "src", "lib", "storage", "recovery.ts"));
   const generatedBackfill = await readFile(
     path.join(generatedRoot, "scripts", "backfill-links.ts"),
     "utf8",
@@ -200,12 +205,16 @@ test("renders the repository mirror template as an independent app", async (t) =
   assert.match(markdownEditor, /from "@babel-apps\/markdown\/react"/);
   assert.match(markdownEditor, /MarkdownEditor as SharedMarkdownEditor/);
   assert.match(markdownEditor, /MarkdownEditorProps as SharedMarkdownEditorProps/);
-  assert.match(markdownEditor, /export type \{ StagedImage \} from "@babel-apps\/markdown\/react"/);
+  assert.match(markdownEditor, /ACCEPTED_IMAGE_TYPES/);
+  assert.match(markdownEditor, /imageFileError/);
+  assert.match(markdownEditor, /stageImageFile/);
+  assert.match(markdownEditor, /type StagedImage/);
   assert.match(markdownEditor, /fetchScope="mirror-notes:notes"/);
   assert.match(markdownEditor, /uploadScheme="mirror-notes-upload"/);
+  assert.doesNotMatch(markdownEditor, /emptyPreviewText=|preview will appear/i);
   assert.doesNotMatch(
     markdownEditor,
-    /ACCEPTED_IMAGE_TYPES|MAX_IMAGE_BYTES|stageFiles|newImageToken|useWikilinkAutocomplete|WikilinkAutocomplete|MarkdownRenderer|URL\.createObjectURL/,
+    /MAX_IMAGE_BYTES|stageFiles|newImageToken|useWikilinkAutocomplete|WikilinkAutocomplete|MarkdownRenderer|URL\.createObjectURL/,
   );
   assert.doesNotMatch(markdownEditor, /__APP_|Esperanto/i);
   const noteDetail = await readFile(
@@ -272,13 +281,19 @@ test("renders the repository mirror template as an independent app", async (t) =
   assert.match(globalStyles, /\.note-disclosure/);
   assert.match(globalStyles, /\.document-outline-layout/);
   assert.match(globalStyles, /\.outline-panel/);
+  assert.match(globalStyles, /\.outline-panel ol \{[\s\S]*?overflow-y:\s*auto/);
   assert.match(globalStyles, /\.editor-format-tools/);
+  assert.match(globalStyles, /\.editor-grid \{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\)/);
+  assert.match(
+    globalStyles,
+    /@media \(max-width: 760px\) \{[\s\S]*?\.document-outline-layout,[\s\S]*?\.editor-outline-layout[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\)/,
+  );
   const generatedRepository = await readFile(
     path.join(generatedRoot, "src", "lib", "repositories", "notes.ts"),
     "utf8",
   );
-  assert.match(generatedRepository, /assertNoteParent/);
-  assert.match(generatedRepository, /noteSubtreeIds/);
+  assert.match(generatedRepository, /requireNoteParent/);
+  assert.match(generatedRepository, /noteDescendantIds/);
   assert.match(generatedRepository, /NOT_EMPTY/);
   const generatedCollectionRoute = await readFile(
     path.join(generatedRoot, "src", "app", "api", "notes", "route.ts"),
@@ -294,8 +309,16 @@ test("renders the repository mirror template as an independent app", async (t) =
     path.join(generatedRoot, "tests", "backend.test.ts"),
     "utf8",
   );
-  assert.match(generatedBackendTests, /guarded hierarchy/);
-  assert.match(generatedBackendTests, /reject cyclic or non-empty mutations/);
+  assert.match(
+    generatedBackendTests,
+    /folder hierarchy prevents cycles and non-empty deletion/,
+  );
+  assert.match(
+    generatedBackendTests,
+    /note hierarchy rejects cycles, moves subtrees, and protects parents/,
+  );
+  assert.match(generatedBackendTests, /wire size is rejected before multipart parsing/);
+  assert.match(generatedBackendTests, /storage recovery waits for an active image mutation/);
   await access(path.join(generatedRoot, "src", "lib", "repositories", "index.ts"));
 });
 

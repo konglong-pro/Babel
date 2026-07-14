@@ -1,7 +1,9 @@
 # Vali
 
-Vali is Babel's structured local vault for categories, entries, aliases,
-reflections, and deleted-entry snapshots. SQLite is the sole source of truth.
+Vali is Babel's local, single-user notebook. Its Notes unit organizes Markdown
+documents in nested folders, while Reflection stores one Markdown document per
+calendar day. Search, wikilinks, backlinks, outlines, and managed images work
+across both units.
 
 From the Babel root:
 
@@ -10,24 +12,32 @@ npm.cmd run dev:vali
 npm.cmd run check -w @babel-apps/vali
 ```
 
-Open `http://127.0.0.1:3002`. Private data lives in `data/vali/sqlite.db` in the
-independent private `data/` repository. The launcher supplies an absolute
-`VALI_DATABASE_PATH`.
+Open `http://127.0.0.1:3002`. Private data lives in
+`data/vali/sqlite.db` and `data/vali/uploads/notes/` in the independent
+private `data/` repository. The launcher supplies absolute
+`VALI_DATABASE_PATH` and `VALI_UPLOAD_DIRECTORY` values.
 
-## Markdown and JSON exchange
+The editor uses the full writing area for GitHub Flavored Markdown. PNG, JPEG,
+WebP, and GIF images up to 10 MB can be selected or pasted; images are committed
+to storage only when the document is saved. Notes can also import a strict UTF-8
+`.md` file and match its safe relative image references by filename. Reflection
+does not expose Markdown-file import.
 
-Vali can import and export its legacy Markdown/JSON vault format. This is a
-canonical semantic round trip: content and domain metadata are preserved while
-line endings and JSON formatting may be normalized. Exported files are exchange
-artifacts, not the live editing store.
+Notes and Reflection share the same save limits: Markdown is capped at 10 MiB,
+one save can add at most 50 images, Markdown plus referenced new images is capped
+at 100 MiB, and multipart requests are capped at 160 MiB on the wire. Image and
+database mutations are serialized. Startup recovery restores quarantined files
+that are still owned by either unit and deletes only generated, unowned files.
 
-Run the scripts from the Vali workspace through the root installation. Import
-targets must contain no vault data, and export destinations must be new or empty.
-Keep an external backup and run a dry-run before importing.
+To verify the app without opening the formal notebook database, point the build
+at temporary paths before running the workspace gate:
 
-## Database maintenance
+```powershell
+$env:VALI_DATABASE_PATH = Join-Path $env:TEMP "vali-check.sqlite.db"
+$env:VALI_UPLOAD_DIRECTORY = Join-Path $env:TEMP "vali-check-uploads"
+npm.cmd run check -w @babel-apps/vali
+```
 
-Run schema migration only for an explicit database task and only while Vali is
-stopped. Use the root `npm.cmd run data:backup` workflow for routine backups.
-During recovery, move the current database and every sidecar aside together,
-copy a verified checkpoint to `sqlite.db`, and never overwrite a live database.
+Run schema generation or migration only for an explicit database task and only
+while Vali is stopped. Use the root `npm.cmd run data:backup` workflow for
+normal backups; never commit notebook data to the public Babel repository.

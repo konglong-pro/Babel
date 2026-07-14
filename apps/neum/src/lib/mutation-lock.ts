@@ -1,7 +1,4 @@
-type MutationLockState = {
-  held: boolean;
-  waiters: Array<() => void>;
-};
+type MutationLockState = { tail: Promise<void> };
 
 const globalForMutationLock = globalThis as typeof globalThis & {
   __neumEntryMutationLock?: MutationLockState;
@@ -9,8 +6,7 @@ const globalForMutationLock = globalThis as typeof globalThis & {
 
 function lockState(): MutationLockState {
   const state = globalForMutationLock.__neumEntryMutationLock ?? {
-    held: false,
-    waiters: [],
+    tail: Promise.resolve(),
   };
   globalForMutationLock.__neumEntryMutationLock = state;
   return state;
@@ -19,17 +15,16 @@ function lockState(): MutationLockState {
 /** Serializes database + managed-image mutations within a Neum server process. */
 export async function withEntryMutationLock<T>(operation: () => Promise<T>): Promise<T> {
   const state = lockState();
-  if (state.held) {
-    await new Promise<void>((resolve) => state.waiters.push(resolve));
-  } else {
-    state.held = true;
-  }
+  const previous = state.tail;
+  let release!: () => void;
+  state.tail = new Promise<void>((resolve) => {
+    release = resolve;
+  });
 
+  await previous;
   try {
     return await operation();
   } finally {
-    const next = state.waiters.shift();
-    if (next) next();
-    else state.held = false;
+    release();
   }
 }

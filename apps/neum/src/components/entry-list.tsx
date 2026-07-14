@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { type ChangeEvent, useMemo, useRef, useState } from "react";
 
 import {
   type EntryExpansionState,
@@ -9,9 +9,11 @@ import {
   toggleEntryExpansion,
 } from "@/components/entry-tree-state";
 import { entryKindLabel, folderPath, formatDate, Tags } from "@/components/shared";
-import type { EntrySummaryDto, FolderDto } from "@/lib/types";
+import { entryUnitLabel } from "@/lib/entry-routes";
+import type { EntryKind, EntrySummaryDto, FolderDto } from "@/lib/types";
 
 interface EntryListProps {
+  kind: EntryKind;
   entries: readonly EntrySummaryDto[];
   total: number;
   folders: ReadonlyMap<number, FolderDto>;
@@ -21,6 +23,7 @@ interface EntryListProps {
   loadingMore?: boolean;
   onSelect: (id: number) => void;
   onLoadMore: () => Promise<void>;
+  onImport?: (file: File) => Promise<void> | void;
   onCreate: () => void;
   onCreateChild: (parentId: number) => void;
   onBack: () => void;
@@ -129,6 +132,7 @@ function EntryBranch({
 }
 
 export function EntryList({
+  kind,
   entries,
   total,
   folders,
@@ -138,10 +142,13 @@ export function EntryList({
   loadingMore,
   onSelect,
   onLoadMore,
+  onImport,
   onCreate,
   onCreateChild,
   onBack,
 }: EntryListProps) {
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const unitLabel = entryUnitLabel(kind);
   const selectedFolder = selectedFolderId === null ? undefined : folders.get(selectedFolderId);
   const [expansionState, setExpansionState] = useState<EntryExpansionState>(() => ({
     expandedIds: new Set(),
@@ -179,20 +186,50 @@ export function EntryList({
     });
   }
 
+  function chooseMarkdown(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (file && onImport) void onImport(file);
+  }
+
   return (
-    <aside className="workspace-panel entry-panel" aria-label="Entries list">
+    <aside className="workspace-panel entry-panel" aria-label={`${unitLabel} entries`}>
       <button className="mobile-back" type="button" onClick={onBack}>
         <span aria-hidden="true">←</span> Library
       </button>
       <div className="panel-heading entry-list-heading">
         <div>
-          <span className="eyebrow">Entries</span>
+          <span className="eyebrow">{unitLabel}</span>
           <h2>{selectedFolder?.name ?? "All entries"}</h2>
           <p>{total} {total === 1 ? "entry" : "entries"}</p>
         </div>
         <div className="entry-list-actions">
+          {kind === "knowledge" && onImport ? (
+            <>
+              <input
+                ref={importInputRef}
+                className="sr-only"
+                type="file"
+                accept=".md,text/markdown,text/plain"
+                tabIndex={-1}
+                onChange={chooseMarkdown}
+              />
+              <button
+                type="button"
+                disabled={selectedFolderId === null}
+                title={selectedFolderId === null
+                  ? "Select a folder before importing Markdown"
+                  : undefined}
+                onClick={() => importInputRef.current?.click()}
+              >
+                Import .md
+              </button>
+            </>
+          ) : null}
           <button
             type="button"
+            data-babel-command="new"
+            data-babel-priority="10"
             disabled={selectedEntryId === null}
             title={selectedEntryId === null ? "Select an entry before creating a subnote" : undefined}
             onClick={() => selectedEntryId !== null && onCreateChild(selectedEntryId)}
@@ -201,12 +238,13 @@ export function EntryList({
           </button>
           <button
             type="button"
+            data-babel-command="new"
             className="primary-button"
             disabled={selectedFolderId === null}
             title={selectedFolderId === null ? "Select a folder before creating an entry" : undefined}
             onClick={onCreate}
           >
-            New entry
+            {kind === "snippet" ? "New code" : "New note"}
           </button>
         </div>
       </div>
@@ -223,8 +261,10 @@ export function EntryList({
           <h3>No entries here</h3>
           <p>
             {selectedFolderId === null
-              ? "Your knowledge base is waiting for its first entry."
-              : "Capture a concept or code snippet in this folder."}
+              ? `Your ${unitLabel.toLocaleLowerCase()} unit is waiting for its first entry.`
+              : kind === "snippet"
+                ? "Capture a code snippet in this folder."
+                : "Capture a concept in this folder."}
           </p>
         </div>
       ) : null}

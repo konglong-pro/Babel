@@ -8,17 +8,17 @@ import {
 import { listNoteTitles } from "@/lib/api-client";
 
 export type { StagedImage } from "@babel-apps/markdown/react";
-
-const REMARK_FEATURES = ["gfm", "math"] as const;
+export {
+  ACCEPTED_IMAGE_TYPES,
+  imageFileError,
+  stageImageFile,
+} from "@babel-apps/markdown/react";
 
 type MarkdownEditorProps = Omit<
   SharedMarkdownEditorProps,
-  | "defaultWikilinkKind"
-  | "emptyPreviewText"
   | "fetchScope"
   | "fetchTitles"
   | "hintText"
-  | "remarkFeatures"
   | "uploadScheme"
 > & {
   enableWikilinkAutocomplete?: boolean;
@@ -35,13 +35,10 @@ export function MarkdownEditor({
   return (
     <SharedMarkdownEditor
       {...props}
-      defaultWikilinkKind="knowledge"
-      emptyPreviewText="Your preview will appear here."
       fetchScope="retex:notes"
       fetchTitles={enableWikilinkAutocomplete ? listNoteTitles : null}
       hintText={hint}
       placeholder={placeholder}
-      remarkFeatures={REMARK_FEATURES}
       rows={rows}
       uploadScheme="retex-upload"
     />

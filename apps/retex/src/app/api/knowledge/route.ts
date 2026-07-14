@@ -12,8 +12,13 @@ import {
   readNoteMutationRequest,
   requiredPositiveInteger,
   requiredString,
+  assertSameOrigin,
 } from "@/lib/http/request";
-import { stageNoteImages } from "@/lib/storage/note-images";
+import {
+  ensureNoteImageStorageRecovered,
+  stageNoteImages,
+  withNoteImageMutationLock,
+} from "@/lib/storage";
 
 export const runtime = "nodejs";
 
@@ -28,6 +33,8 @@ export function GET(request: Request): Promise<Response> {
 
 export function POST(request: Request): Promise<Response> {
   return handleApi(async () => {
+    assertSameOrigin(request);
+    await ensureNoteImageStorageRecovered();
     const { payload, uploads } = await readNoteMutationRequest(request);
     const exerciseIds =
       optionalIdArray(payload, "exerciseIds", "relatedExerciseIds") ?? [];
@@ -44,25 +51,26 @@ export function POST(request: Request): Promise<Response> {
         { field: "contentMd" },
       );
     }
-    const staged = await stageNoteImages(contentMd ?? "", uploads);
+    return withNoteImageMutationLock(async () => {
+      const staged = await stageNoteImages(contentMd ?? "", uploads);
+      let note;
+      try {
+        note = createKnowledge(
+          {
+            folderId: requiredPositiveInteger(payload, "folderId"),
+            parentId: optionalNullablePositiveInteger(payload, "parentId"),
+            title: requiredString(payload, "title"),
+            contentMd: staged.contentMd,
+            tags: optionalStringArray(payload, "tags") ?? [],
+            exerciseIds,
+          },
+          staged.imagePaths,
+        );
+      } catch (error) {
+        await rollbackNoteImageMutation(error, undefined, staged.imagePaths);
+      }
 
-    let note;
-    try {
-      note = createKnowledge(
-        {
-          folderId: requiredPositiveInteger(payload, "folderId"),
-          parentId: optionalNullablePositiveInteger(payload, "parentId"),
-          title: requiredString(payload, "title"),
-          contentMd: staged.contentMd,
-          tags: optionalStringArray(payload, "tags") ?? [],
-          exerciseIds,
-        },
-        staged.imagePaths,
-      );
-    } catch (error) {
-      await rollbackNoteImageMutation(error, undefined, staged.imagePaths);
-    }
-
-    return NextResponse.json(note, { status: 201 });
+      return NextResponse.json(note, { status: 201 });
+    });
   });
 }

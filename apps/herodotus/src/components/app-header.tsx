@@ -55,6 +55,7 @@ export function AppHeader() {
         </label>
         <input
           id="global-search-input"
+          data-babel-command="search"
           name="q"
           type="search"
           autoComplete="off"

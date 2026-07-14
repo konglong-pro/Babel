@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 
 import { entryKindLabel, formatDate, Tags } from "@/components/shared";
 import { getErrorMessage, searchEntries } from "@/lib/api-client";
+import { entryWorkspaceHref } from "@/lib/entry-routes";
 import type { EntrySummaryDto } from "@/lib/types";
 
 export function SearchResults({ query }: { query: string }) {
@@ -66,7 +67,10 @@ export function SearchResults({ query }: { query: string }) {
         <ul className="search-result-list" aria-label="Search results">
           {items.map((entry) => (
             <li key={entry.id}>
-              <Link href={`/entries?folder=${entry.folderId}&entry=${entry.id}`}>
+              <Link href={entryWorkspaceHref(entry.kind, {
+                folderId: entry.folderId,
+                entryId: entry.id,
+              })}>
                 <span className="eyebrow">{entryKindLabel(entry.kind)}</span>
                 <strong>{entry.title}</strong>
                 <Tags tags={entry.tags} />

@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "commands": [
+    {
+      "command": "save",
+      "label": "Save",
+      "defaultBinding": "Ctrl+S"
+    },
+    {
+      "command": "new",
+      "label": "New",
+      "defaultBinding": "Ctrl+Alt+N"
+    },
+    {
+      "command": "edit",
+      "label": "Edit",
+      "defaultBinding": "Ctrl+Alt+E"
+    },
+    {
+      "command": "confirm",
+      "label": "Confirm",
+      "defaultBinding": "Ctrl+Enter"
+    },
+    {
+      "command": "cancel",
+      "label": "Cancel",
+      "defaultBinding": "Escape"
+    },
+    {
+      "command": "search",
+      "label": "Search",
+      "defaultBinding": "Ctrl+F"
+    },
+    {
+      "command": "delete",
+      "label": "Delete",
+      "defaultBinding": "Ctrl+Delete"
+    },
+    {
+      "command": "commandPalette",
+      "label": "Command Palette",
+      "defaultBinding": "Ctrl+K"
+    }
+  ]
+}

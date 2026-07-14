@@ -67,6 +67,13 @@ the Windows notification area without stopping its worker; tray `Exit` follows
 the same graceful shutdown path. The launcher starts backends only and writes
 each notebook URL to the Session Log; it does not open a browser.
 
+`SHORTCUTS` opens the global shortcut editor. Babel stores the user override in
+`%LOCALAPPDATA%\Babel\shortcuts.json`, outside both the public repository and the
+private notebook-data repository. The defaults are `Ctrl+S` (save),
+`Ctrl+Alt+N` (new), `Ctrl+Alt+E` (edit), `Ctrl+Enter` (confirm), `Escape`
+(cancel), `Ctrl+F` (search), `Ctrl+Delete` (delete), and `Ctrl+K` (command
+palette). Reload an open notebook page after saving changes in the launcher.
+
 The command-line launcher remains available for scripts and recovery work:
 
 ```powershell

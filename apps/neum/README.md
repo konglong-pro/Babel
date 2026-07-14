@@ -11,14 +11,22 @@ npm.cmd run dev:neum
 npm.cmd run check -w @babel-apps/neum
 ```
 
-Open `http://127.0.0.1:3003/entries`. Private data lives in
+Open `http://127.0.0.1:3003/knowledge` for notes or `/code` for snippets.
+Legacy `/entries` URLs redirect to the matching unit. Private data lives in
 `data/neum/sqlite.db` and `data/neum/uploads/entries/` inside the independent
 private `data/` repository. The launcher supplies absolute `NEUM_DATABASE_PATH`
 and `NEUM_UPLOAD_DIRECTORY` values.
 
 The editor preserves incomplete JSON, YAML, and other snippets exactly as typed.
-PNG, JPEG, WebP, and GIF images up to 10 MB can be embedded in an entry's Markdown
-notes and are committed only when the entry save succeeds.
+Knowledge folders can import UTF-8 `.md` files and match referenced local images
+by filename; the Code unit intentionally has no Markdown-file import action.
+Markdown notes and code are each limited to 10 MiB. A save may add at most 50
+PNG, JPEG, WebP, or GIF images (10 MiB each), with a 100 MiB logical-save limit
+and a 160 MiB multipart wire limit. Images are committed only when the entry
+save succeeds.
+
+The App build runs against temporary database and upload paths, so `npm.cmd run
+build -w @babel-apps/neum` does not open or modify the configured notebook data.
 
 With Neum stopped, create a lossless snapshot bundle or validate/restore one:
 

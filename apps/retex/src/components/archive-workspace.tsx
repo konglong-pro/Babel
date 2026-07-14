@@ -28,6 +28,11 @@ import {
   listKnowledge,
   updateFolder,
 } from "@/lib/api-client";
+import {
+  parseMarkdownImport,
+  type MarkdownImportDraft,
+} from "@/lib/markdown-import";
+import { NOTE_CONTENT_MAX_BYTES } from "@/lib/note-limits";
 import type {
   BacklinksDto,
   ExerciseDetailDto,
@@ -68,6 +73,8 @@ export function ArchiveWorkspace({
   const [selectedItemId, setSelectedItemId] = useState<number | null>(initialItemId);
   const [detail, setDetail] = useState<ArchiveDetail | null>(null);
   const [backlinks, setBacklinks] = useState<BacklinksDto>(emptyBacklinks);
+  const [importDraft, setImportDraft] = useState<MarkdownImportDraft | null>(null);
+  const [draftVersion, setDraftVersion] = useState(0);
   const [mode, setMode] = useState<ViewMode>("view");
   const [createParentId, setCreateParentId] = useState<number | null>(null);
   const [indexLoading, setIndexLoading] = useState(true);
@@ -83,6 +90,7 @@ export function ArchiveWorkspace({
   const folderRequestGenerationRef = useRef(0);
   const wikilinkCreateGenerationRef = useRef(0);
   const wikilinkCreatePendingRef = useRef(false);
+  const importRequestGenerationRef = useRef(0);
   const {
     dirty,
     setDirty,
@@ -95,8 +103,10 @@ export function ArchiveWorkspace({
   const basePath = type === "knowledge" ? "/knowledge" : "/exercise";
   const beginNavigation = useCallback(() => {
     setNavigationError("");
+    setImportDraft(null);
     navigationGenerationRef.current += 1;
     wikilinkCreateGenerationRef.current += 1;
+    importRequestGenerationRef.current += 1;
     return navigationGenerationRef.current;
   }, []);
 
@@ -106,6 +116,7 @@ export function ArchiveWorkspace({
       selectionGenerationRef.current += 1;
       folderRequestGenerationRef.current += 1;
       wikilinkCreateGenerationRef.current += 1;
+      importRequestGenerationRef.current += 1;
     };
   }, []);
 
@@ -443,6 +454,7 @@ export function ArchiveWorkspace({
     setSelectedItemId(null);
     setDetail(null);
     setBacklinks(emptyBacklinks());
+    setDraftVersion((version) => version + 1);
     setMode("create");
   }
 
@@ -456,6 +468,43 @@ export function ArchiveWorkspace({
     setDirty(false);
     beginNavigation();
     setMode("view");
+  }
+
+  async function handleImportMarkdown(file: File) {
+    if (type !== "knowledge" || selectedFolderId === null) return;
+    if (file.size > NOTE_CONTENT_MAX_BYTES) {
+      setNavigationError("Markdown files must not exceed 10 MB.");
+      return;
+    }
+
+    const requestGeneration = importRequestGenerationRef.current + 1;
+    importRequestGenerationRef.current = requestGeneration;
+    const targetFolderId = selectedFolderId;
+    try {
+      const draft = parseMarkdownImport(
+        file.name,
+        new Uint8Array(await file.arrayBuffer()),
+      );
+      if (importRequestGenerationRef.current !== requestGeneration) return;
+      if (!confirmDiscard()) return;
+
+      setDirty(false);
+      beginNavigation();
+      selectionGenerationRef.current += 1;
+      setSelectedFolderId(targetFolderId);
+      setSelectedItemId(null);
+      setDetail(null);
+      setBacklinks(emptyBacklinks());
+      setCreateParentId(null);
+      setImportDraft(draft);
+      setDraftVersion((version) => version + 1);
+      setMode("create");
+      replaceLocation(targetFolderId, null);
+    } catch (caught) {
+      if (importRequestGenerationRef.current === requestGeneration) {
+        setNavigationError(getErrorMessage(caught));
+      }
+    }
   }
 
   return (
@@ -483,6 +532,7 @@ export function ArchiveWorkspace({
           loading={indexLoading}
           onSelect={selectItem}
           onCreate={beginCreate}
+          onImport={type === "knowledge" ? handleImportMarkdown : undefined}
         />
 
         {error ? (
@@ -506,6 +556,8 @@ export function ArchiveWorkspace({
         ) : type === "knowledge" ? (
           <KnowledgeDetail
             detail={detail as KnowledgeDetailDto | null}
+            importDraft={importDraft}
+            draftKey={draftVersion}
             mode={mode}
             folderId={effectiveFolderId}
             pages={items as KnowledgeSummaryDto[]}
@@ -648,10 +700,11 @@ function KnowledgeFolderDialog({
         ) : null}
         {error ? <p className="form-error" role="alert">{error}</p> : null}
         <div className="dialog-actions">
-          <button type="button" disabled={pending} onClick={() => dialogRef.current?.close()}>
+          <button data-babel-command="cancel" type="button" disabled={pending} onClick={() => dialogRef.current?.close()}>
             Cancel
           </button>
           <button
+            data-babel-command="confirm"
             className="primary-button"
             type="submit"
             disabled={pending || loading || Boolean(loadError) || folderOptions.length === 0}

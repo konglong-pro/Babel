@@ -206,6 +206,7 @@ export function NoteList({
           </button>
           <button
             type="button"
+            data-babel-command="new"
             className="primary-button"
             disabled={selectedFolderId === null}
             aria-describedby={folderActionHintId}

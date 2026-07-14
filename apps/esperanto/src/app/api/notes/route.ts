@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { handleApi } from "@/lib/http/errors";
+import { ApiError, handleApi } from "@/lib/http/errors";
 import {
   assertOnlyFields,
   assertSameOrigin,
@@ -12,11 +12,14 @@ import {
   requiredPositiveInteger,
   requiredString,
 } from "@/lib/http/request";
-import { createNote, listNotes } from "@/lib/repositories";
+import { createNote, getFolder, listNotes } from "@/lib/repositories";
 import {
+  assertNoteSaveLimits,
+  ensureNoteImageStorageRecovered,
   finalizeQuarantinedNoteImages,
   quarantineNoteImages,
   stageNoteImages,
+  withNoteImageMutationLock,
 } from "@/lib/storage";
 
 export const runtime = "nodejs";
@@ -32,35 +35,46 @@ export function GET(request: Request): Promise<Response> {
 export function POST(request: Request): Promise<Response> {
   return handleApi(async () => {
     assertSameOrigin(request);
+    await ensureNoteImageStorageRecovered();
     const { payload, uploads } = await readNoteMultipart(request);
     assertOnlyFields(payload, ["folderId", "parentId", "title", "contentMd", "tags"]);
+    const folderId = requiredPositiveInteger(payload, "folderId");
+    const parentId = optionalNullablePositiveInteger(payload, "parentId") ?? null;
+    const title = requiredString(payload, "title");
     const contentMd =
       optionalString(payload, "contentMd", { allowEmpty: true, trim: false }) ?? "";
-    const staged = await stageNoteImages(contentMd, uploads);
-    try {
-      const note = createNote(
-        {
-          folderId: requiredPositiveInteger(payload, "folderId"),
-          parentId: optionalNullablePositiveInteger(payload, "parentId") ?? null,
-          title: requiredString(payload, "title"),
-          contentMd: staged.contentMd,
-          tags: optionalStringArray(payload, "tags") ?? [],
-        },
-        staged.imagePaths,
-      );
-      return NextResponse.json(note, { status: 201 });
-    } catch (error) {
-      let quarantine;
-      try {
-        quarantine = await quarantineNoteImages(staged.imagePaths);
-      } catch (cleanupError) {
-        throw new AggregateError(
-          [error, cleanupError],
-          "Note creation failed and staged images could not be quarantined.",
-        );
+    const tags = optionalStringArray(payload, "tags") ?? [];
+    return withNoteImageMutationLock(async () => {
+      if (!getFolder(folderId)) {
+        throw new ApiError(404, "FOLDER_NOT_FOUND", "Folder not found.", { folderId });
       }
-      await finalizeQuarantinedNoteImages(quarantine);
-      throw error;
-    }
+      assertNoteSaveLimits(contentMd, uploads);
+      const staged = await stageNoteImages(contentMd, uploads);
+      try {
+        const note = createNote(
+          {
+            folderId,
+            parentId,
+            title,
+            contentMd: staged.contentMd,
+            tags,
+          },
+          staged.imagePaths,
+        );
+        return NextResponse.json(note, { status: 201 });
+      } catch (error) {
+        let quarantine;
+        try {
+          quarantine = await quarantineNoteImages(staged.imagePaths);
+        } catch (cleanupError) {
+          throw new AggregateError(
+            [error, cleanupError],
+            "Note creation failed and staged images could not be quarantined.",
+          );
+        }
+        await finalizeQuarantinedNoteImages(quarantine);
+        throw error;
+      }
+    });
   });
 }

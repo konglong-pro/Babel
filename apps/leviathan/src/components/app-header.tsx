@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, type MouseEvent, useState } from "react";
 
-import { DavidPixelLogo } from "@/components/david-pixel-logo";
+import { RomanTempleLogo } from "@/components/roman-temple-logo";
 
 export const BEFORE_NAVIGATE_EVENT = "leviathan:before-navigate";
 
@@ -42,7 +42,7 @@ export function AppHeader() {
   return (
     <header className="app-header">
       <Link className="brand" href="/notes" aria-label="Leviathan notes home" onClick={visitHome}>
-        <DavidPixelLogo className="brand-mark" />
+        <RomanTempleLogo className="brand-mark" />
         <span className="brand-copy">
           <strong>Leviathan</strong>
           <small>Politics &amp; economics</small>
@@ -55,6 +55,7 @@ export function AppHeader() {
         </label>
         <input
           id="global-search-input"
+          data-babel-command="search"
           name="q"
           type="search"
           autoComplete="off"

@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -H 127.0.0.1 -p __APP_PORT__",
-    "build": "next build",
+    "build": "tsx scripts/build.ts",
     "start": "next start -H 127.0.0.1 -p __APP_PORT__",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",

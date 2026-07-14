@@ -55,6 +55,7 @@ export function ConfirmButton({
     <>
       <button
         className={className}
+        data-babel-command="delete"
         type="button"
         disabled={disabled}
         onClick={() => dialogRef.current?.showModal()}
@@ -71,10 +72,10 @@ export function ConfirmButton({
             </p>
           ) : null}
           <div className="dialog-actions">
-            <button type="button" onClick={() => dialogRef.current?.close()}>
+            <button data-babel-command="cancel" type="button" onClick={() => dialogRef.current?.close()}>
               Cancel
             </button>
-            <button className="danger-button" type="button" disabled={pending} onClick={confirm}>
+            <button data-babel-command="confirm" className="danger-button" type="button" disabled={pending} onClick={confirm}>
               {pending ? "Working…" : confirmLabel}
             </button>
           </div>

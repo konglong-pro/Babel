@@ -14,8 +14,6 @@ export {
   type StagedImage,
 } from "@babel-apps/markdown/react";
 
-const REMARK_FEATURES = ["gfm"] as const;
-
 type MarkdownEditorProps = Omit<
   SharedMarkdownEditorProps,
   | "emptyPreviewText"
@@ -31,12 +29,10 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
   return (
     <SharedMarkdownEditor
       {...props}
-      emptyPreviewText="Your preview will appear here."
       fetchScope="leviathan:notes"
       fetchTitles={listNoteTitles}
       hintText="Write Markdown with GFM tables, task lists, links, images, and [[note links]]."
       placeholder="Write a political or economic note, quotation, interpretation, or question…"
-      remarkFeatures={REMARK_FEATURES}
       uploadScheme="leviathan-upload"
     />
   );

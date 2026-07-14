@@ -17,7 +17,6 @@ import {
   isValidElement,
   useCallback,
   useContext,
-  useDeferredValue,
   useEffect,
   useId,
   useMemo,
@@ -46,7 +45,6 @@ import {
   indentListItem,
   linkFromPastedUrl,
   outdentListItem,
-  toggleTaskCheckbox,
   toggleTaskListSelection,
   wrapInlineSelection,
   type InlineMarker,
@@ -55,8 +53,6 @@ import {
 import { extractOutline, outlineSlugs } from "./outline";
 
 export type RemarkFeature = "gfm" | "math";
-
-const DEFAULT_REMARK_FEATURES: readonly RemarkFeature[] = ["gfm"];
 
 export interface ResolvedWikilink {
   id: number;
@@ -81,7 +77,7 @@ export interface MarkdownRendererProps {
   resolveWikilink?: (titleKey: string) => ResolvedWikilink | null;
   onNavigateWikilink?: (target: ResolvedWikilink, wikilink: Wikilink) => void;
   onCreateFromWikilink?: (wikilink: Wikilink) => void;
-  /** Enables editor previews to write task checkbox changes back by source line. */
+  /** Enables task checkbox changes to be written back by source line. */
   onToggleTask?: (line: number) => void;
   /** Optional namespace when a page renders more than one Markdown document. */
   headingIdPrefix?: string;
@@ -677,24 +673,32 @@ export interface MarkdownEditorProps {
   value: string;
   onChange: (value: string) => void;
   uploadScheme?: string;
+  /** @deprecated The editor no longer renders a preview. Retained for source compatibility. */
   imagePreviews?: ReadonlyMap<string, string>;
   onStageImage?: (image: StagedImage) => void;
   onImageError?: (message: string) => void;
+  /** @deprecated The editor no longer renders a preview. Retained for source compatibility. */
   remarkFeatures?: readonly RemarkFeature[];
   fetchTitles?: FetchWikilinkTitles | null;
   fetchScope?: string | number;
+  /** @deprecated The editor no longer renders a preview. Retained for source compatibility. */
   defaultWikilinkKind?: string;
+  /** @deprecated The editor no longer renders a preview. Retained for source compatibility. */
   resolveWikilink?: (titleKey: string) => ResolvedWikilink | null;
+  /** @deprecated The editor no longer renders a preview. Retained for source compatibility. */
   onNavigateWikilink?: (target: ResolvedWikilink, wikilink: Wikilink) => void;
+  /** @deprecated The editor no longer renders a preview. Retained for source compatibility. */
   onCreateFromWikilink?: (wikilink: Wikilink) => void;
   toolbarExtras?: ReactNode;
   footerExtras?: ReactNode;
   hintText?: string;
   placeholder?: string;
+  /** @deprecated The editor no longer renders a preview. Retained for source compatibility. */
   emptyPreviewText?: string;
   rows?: number;
   disabled?: boolean;
   textareaRef?: RefObject<HTMLTextAreaElement | null>;
+  /** @deprecated The editor no longer renders a preview. Retained for source compatibility. */
   headingIdPrefix?: string;
 }
 
@@ -704,32 +708,23 @@ export function MarkdownEditor({
   value,
   onChange,
   uploadScheme,
-  imagePreviews,
   onStageImage,
   onImageError,
-  remarkFeatures = DEFAULT_REMARK_FEATURES,
   fetchTitles,
   fetchScope,
-  defaultWikilinkKind,
-  resolveWikilink,
-  onNavigateWikilink,
-  onCreateFromWikilink,
   toolbarExtras,
   footerExtras,
   hintText = "Write Markdown with tables, task lists, links, images, and [[note links]].",
   placeholder = "Write Markdown…",
-  emptyPreviewText = "Your preview will appear here.",
   rows = 20,
   disabled = false,
   textareaRef: suppliedTextareaRef,
-  headingIdPrefix = "",
 }: MarkdownEditorProps) {
   const id = useId();
   const hintId = `${id}-hint`;
   const fallbackTextareaRef = useRef<HTMLTextAreaElement>(null);
   const textareaRef = suppliedTextareaRef ?? fallbackTextareaRef;
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const deferredValue = useDeferredValue(value);
   const autocomplete = useWikilinkAutocomplete(textareaRef, fetchTitles, { fetchScope });
   const closeAutocomplete = autocomplete.close;
   const canStageImages = uploadScheme !== undefined && onStageImage !== undefined;
@@ -869,18 +864,6 @@ export function MarkdownEditor({
     ));
   }
 
-  function togglePreviewTask(line: number) {
-    const textarea = textareaRef.current;
-    if (textarea === null) return;
-    const edit = toggleTaskCheckbox(textarea.value, line);
-    if (edit === null) return;
-    commit({
-      ...edit,
-      selectionStart: textarea.selectionStart,
-      selectionEnd: textarea.selectionEnd,
-    });
-  }
-
   return (
     <section className="editor-field">
       <div className="field-heading">
@@ -925,7 +908,6 @@ export function MarkdownEditor({
             </>
           ) : null}
           {toolbarExtras}
-          <span className="live-badge">Live preview</span>
         </div>
       </div>
       <div className="editor-grid">
@@ -950,21 +932,6 @@ export function MarkdownEditor({
           onKeyDown={keyDown}
           onChange={(event) => onChange(event.target.value)}
         />
-        <div className="preview-pane" aria-label={`${label} preview`}>
-          <MarkdownRenderer
-            content={deferredValue}
-            emptyText={emptyPreviewText}
-            imagePreviews={imagePreviews}
-            uploadScheme={uploadScheme}
-            remarkFeatures={remarkFeatures}
-            defaultWikilinkKind={defaultWikilinkKind}
-            resolveWikilink={resolveWikilink}
-            onNavigateWikilink={disabled ? undefined : onNavigateWikilink}
-            onCreateFromWikilink={disabled ? undefined : onCreateFromWikilink}
-            onToggleTask={disabled ? undefined : togglePreviewTask}
-            headingIdPrefix={headingIdPrefix}
-          />
-        </div>
       </div>
       {footerExtras}
       {disabled ? null : <WikilinkAutocomplete autocomplete={autocomplete} />}

@@ -331,7 +331,7 @@
                             Margin="1,0,0,8"
                             Foreground="#777068"
                             FontSize="11"
-                            Text="Keys: S / A / T / V / M" />
+                            Text="Keys: S / A / T / V / K / M" />
                         <Button
                             x:Name="StartSelectedButton"
                             Content="START SELECTED (_S)"
@@ -353,6 +353,11 @@
                             Content="VERIFY ALL (_V)"
                             Style="{StaticResource ActionButtonStyle}"
                             AutomationProperties.Name="Verify all applications" />
+                        <Button
+                            x:Name="ShortcutsButton"
+                            Content="SHORTCUTS (_K)"
+                            Style="{StaticResource ActionButtonStyle}"
+                            AutomationProperties.Name="Configure global application shortcuts" />
                         <Button
                             x:Name="MinimizeToTrayButton"
                             Content="MINIMIZE TO TRAY (_M)"

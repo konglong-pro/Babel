@@ -24,6 +24,8 @@ import {
 } from "@/lib/repositories/entries";
 import { moveEntryToTrash } from "@/lib/repositories/trash";
 import {
+  assertEntrySaveLimits,
+  ensureEntryImageStorageRecovered,
   finalizeQuarantinedEntryImages,
   managedImagePathsInMarkdown,
   quarantineEntryImages,
@@ -46,11 +48,13 @@ export function GET(_request: Request, context: RouteContext): Promise<Response>
 }
 
 export function PATCH(request: Request, context: RouteContext): Promise<Response> {
-  return handleApi(() => withEntryMutationLock(async () => {
+  return handleApi(async () => {
     assertSameOrigin(request);
-    const id = await routeId(context);
-    const current = getEntry(id);
-    if (!current) throw entryNotFound();
+    await ensureEntryImageStorageRecovered();
+    return withEntryMutationLock(async () => {
+      const id = await routeId(context);
+      const current = getEntry(id);
+      if (!current) throw entryNotFound();
 
     const { payload, uploads } = await readEntryMultipart(request);
     assertOnlyFields(payload, [
@@ -101,10 +105,13 @@ export function PATCH(request: Request, context: RouteContext): Promise<Response
         { field: "notesMd" },
       );
     }
-    const staged =
-      notesMd === undefined
-        ? { notesMd: undefined, imagePaths: [] }
-        : await stageEntryImages(notesMd, uploads);
+    const nextCode = code === undefined ? current.code : code;
+    if (notesMd !== undefined || code !== undefined || uploads.size > 0) {
+      assertEntrySaveLimits(notesMd ?? current.notesMd, nextCode, uploads);
+    }
+    const staged = notesMd === undefined
+      ? { notesMd: undefined, imagePaths: [] }
+      : await stageEntryImages(notesMd, uploads, nextCode);
     if (staged.notesMd !== undefined) patch.notesMd = staged.notesMd;
 
     assertPatchHasFields(
@@ -139,22 +146,26 @@ export function PATCH(request: Request, context: RouteContext): Promise<Response
       await rollbackImageMutation(error, quarantine, staged.imagePaths);
     }
     await finalizeQuarantinedEntryImages(quarantine!);
-    return NextResponse.json(result!.entry);
-  }));
+      return NextResponse.json(result!.entry);
+    });
+  });
 }
 
 export function DELETE(request: Request, context: RouteContext): Promise<Response> {
-  return handleApi(() => withEntryMutationLock(async () => {
+  return handleApi(async () => {
     assertSameOrigin(request);
-    const body = await readJsonObject(request);
-    assertOnlyFields(body, ["expectedVersion"]);
-    const deleted = moveEntryToTrash(
-      await routeId(context),
-      requiredPositiveInteger(body, "expectedVersion"),
-    );
-    if (!deleted) throw entryNotFound();
-    return new Response(null, { status: 204 });
-  }));
+    await ensureEntryImageStorageRecovered();
+    return withEntryMutationLock(async () => {
+      const body = await readJsonObject(request);
+      assertOnlyFields(body, ["expectedVersion"]);
+      const deleted = moveEntryToTrash(
+        await routeId(context),
+        requiredPositiveInteger(body, "expectedVersion"),
+      );
+      if (!deleted) throw entryNotFound();
+      return new Response(null, { status: 204 });
+    });
+  });
 }
 
 async function routeId(context: RouteContext): Promise<number> {

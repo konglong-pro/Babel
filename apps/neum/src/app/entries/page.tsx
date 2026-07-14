@@ -1,16 +1,13 @@
-import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 
-import { EntriesWorkspace } from "@/components/entries-workspace";
-
-export const metadata: Metadata = {
-  title: "Entries",
-};
+import { entryWorkspaceHref } from "@/lib/entry-routes";
+import type { EntryKind } from "@/lib/types";
 
 interface EntriesPageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
-function numberParam(value: string | string[] | undefined): number | null {
+function positiveIntegerParam(value: string | string[] | undefined): number | null {
   const candidate = Array.isArray(value) ? value[0] : value;
   if (!candidate) return null;
   const parsed = Number(candidate);
@@ -19,20 +16,14 @@ function numberParam(value: string | string[] | undefined): number | null {
 
 export default async function EntriesPage({ searchParams }: EntriesPageProps) {
   const params = await searchParams;
-  const folderId = numberParam(params.folder);
-  const entryId = numberParam(params.entry);
+  const requestedKind = Array.isArray(params.kind) ? params.kind[0] : params.kind;
+  const kind: EntryKind = requestedKind === "snippet" ? "snippet" : "knowledge";
+  const folderId = positiveIntegerParam(params.folder);
+  const entryId = positiveIntegerParam(params.entry);
   const view = Array.isArray(params.view) ? params.view[0] : params.view;
-  const initialTrash = view === "trash";
-  const trashId = initialTrash ? numberParam(params.trash) : null;
-  return (
-    <EntriesWorkspace
-      key={initialTrash
-        ? `trash:${trashId ?? "none"}`
-        : `folder:${folderId ?? "all"}:entry:${entryId ?? "none"}`}
-      initialFolderId={folderId}
-      initialEntryId={entryId}
-      initialTrash={initialTrash}
-      initialTrashId={trashId}
-    />
-  );
+  const trashId = view === "trash" ? positiveIntegerParam(params.trash) : undefined;
+
+  redirect(entryWorkspaceHref(kind, view === "trash"
+    ? { trashId: trashId ?? null }
+    : { folderId, entryId }));
 }

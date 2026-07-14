@@ -1,12 +1,13 @@
-import { handleRoute } from "@/lib/http/errors";
-import { getValiVault } from "@/lib/vali/runtime";
+import { NextResponse } from "next/server";
+
+import { handleApi } from "@/lib/http/errors";
+import { searchDocuments } from "@/lib/repositories";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
-export async function GET(request: Request): Promise<Response> {
-  return handleRoute(() => {
+export function GET(request: Request): Promise<Response> {
+  return handleApi(() => {
     const query = new URL(request.url).searchParams.get("q") ?? "";
-    return Response.json(getValiVault().entries.search(query));
+    return NextResponse.json(searchDocuments(query));
   });
 }

@@ -1,12 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { type ChangeEvent, useMemo, useRef, useState } from "react";
 
 import {
-  type NoteExpansionState,
   noteSelectionPath,
   revealNoteSelection,
   toggleNoteExpansion,
+  type NoteExpansionState,
 } from "@/components/note-tree-state";
 import { folderPath, formatDate, Tags } from "@/components/shared";
 import type { FolderDto, NoteSummaryDto } from "@/lib/types";
@@ -18,7 +18,8 @@ interface NoteListProps {
   selectedNoteId: number | null;
   loading?: boolean;
   onSelect: (id: number) => void;
-  onCreate: (parentId: number | null, folderId?: number) => void;
+  onCreate: (parentId: number | null) => void;
+  onImport: (file: File) => Promise<void> | void;
   onBack: () => void;
 }
 
@@ -31,7 +32,7 @@ interface NoteBranchProps {
   expandedIds: ReadonlySet<number>;
   onSelect: (id: number) => void;
   onToggle: (id: number) => void;
-  onCreate: (parentId: number, folderId: number) => void;
+  onCreate: (parentId: number) => void;
 }
 
 function relativePath(
@@ -94,7 +95,7 @@ function NoteBranch({
               </button>
             </div>
             {expanded ? (
-              <>
+              <div className="note-children">
                 <NoteBranch
                   parentId={note.id}
                   grouped={grouped}
@@ -108,12 +109,12 @@ function NoteBranch({
                 />
                 <button
                   type="button"
-                  className="tree-create-action note-tree-create"
-                  onClick={() => onCreate(note.id, note.folderId)}
+                  className="tree-inline-create"
+                  onClick={() => onCreate(note.id)}
                 >
                   + New subnote
                 </button>
-              </>
+              </div>
             ) : null}
           </li>
         );
@@ -130,9 +131,14 @@ export function NoteList({
   loading,
   onSelect,
   onCreate,
+  onImport,
   onBack,
 }: NoteListProps) {
+  const importInputRef = useRef<HTMLInputElement>(null);
   const selectedFolder = selectedFolderId === null ? undefined : folders.get(selectedFolderId);
+  const folderActionHintId = selectedFolderId === null
+    ? "note-list-folder-action-hint"
+    : undefined;
   const grouped = useMemo(() => {
     const result = new Map<number | null, NoteSummaryDto[]>();
     for (const note of notes) {
@@ -153,6 +159,12 @@ export function NoteList({
   const revealedTreeState = revealNoteSelection(treeState, selectionPath);
   if (revealedTreeState !== treeState) setTreeState(revealedTreeState);
 
+  function chooseMarkdown(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (file) void onImport(file);
+  }
+
   function toggleNote(noteId: number) {
     setTreeState((current) => {
       const revealed = revealNoteSelection(current, selectionPath);
@@ -162,10 +174,6 @@ export function NoteList({
       };
     });
   }
-
-  const selectedNote = selectedNoteId === null
-    ? undefined
-    : notes.find((note) => note.id === selectedNoteId);
 
   return (
     <aside className="workspace-panel note-panel" aria-label="Notes list">
@@ -178,28 +186,42 @@ export function NoteList({
           <h2>{selectedFolder?.name ?? "All Notes"}</h2>
           <p>{notes.length} {notes.length === 1 ? "note" : "notes"}</p>
         </div>
-        <div className="note-create-actions">
+        <div className="note-list-actions">
+          <input
+            ref={importInputRef}
+            className="sr-only"
+            type="file"
+            accept=".md,text/markdown,text/plain"
+            tabIndex={-1}
+            onChange={chooseMarkdown}
+          />
           <button
             type="button"
+            disabled={selectedFolderId === null}
+            aria-describedby={folderActionHintId}
+            title={selectedFolderId === null ? "Select a folder before importing Markdown" : undefined}
+            onClick={() => importInputRef.current?.click()}
+          >
+            Import .md
+          </button>
+          <button
+            type="button"
+            data-babel-command="new"
             className="primary-button"
             disabled={selectedFolderId === null}
+            aria-describedby={folderActionHintId}
             title={selectedFolderId === null ? "Select a folder before creating a note" : undefined}
             onClick={() => onCreate(null)}
           >
             New Note
           </button>
-          <button
-            type="button"
-            disabled={!selectedNote}
-            onClick={() => selectedNote && onCreate(selectedNote.id, selectedNote.folderId)}
-          >
-            New subnote
-          </button>
         </div>
       </div>
 
       {selectedFolderId === null ? (
-        <p className="panel-hint">Select a folder to create a root note. You can still add a subnote below any page.</p>
+        <p className="panel-hint" id={folderActionHintId}>
+          Select a folder to create a note. All Notes remains a read-only collection view.
+        </p>
       ) : null}
       {loading ? <p className="panel-status">Loading notes…</p> : null}
       {!loading && notes.length === 0 ? (
@@ -220,7 +242,7 @@ export function NoteList({
           expandedIds={revealedTreeState.expandedIds}
           onSelect={onSelect}
           onToggle={toggleNote}
-          onCreate={(parentId, folderId) => onCreate(parentId, folderId)}
+          onCreate={onCreate}
         />
       </nav>
     </aside>

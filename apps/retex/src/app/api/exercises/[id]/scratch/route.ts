@@ -8,6 +8,7 @@ import {
 } from "@/lib/repositories";
 import { ApiError, handleApi } from "@/lib/http/errors";
 import {
+  assertSameOrigin,
   optionalString,
   parsePositiveInteger,
   readJsonObject,
@@ -40,6 +41,7 @@ export function GET(_request: Request, context: RouteContext): Promise<Response>
 
 export function PUT(request: Request, context: RouteContext): Promise<Response> {
   return handleApi(async () => {
+    assertSameOrigin(request);
     const id = await exerciseId(context);
     const body = await readJsonObject(request);
     const contentMd = optionalString(body, "contentMd", {
@@ -56,8 +58,9 @@ export function PUT(request: Request, context: RouteContext): Promise<Response> 
   });
 }
 
-export function DELETE(_request: Request, context: RouteContext): Promise<Response> {
+export function DELETE(request: Request, context: RouteContext): Promise<Response> {
   return handleApi(async () => {
+    assertSameOrigin(request);
     const id = await exerciseId(context);
     assertExerciseExists(id);
     deleteScratch(id);

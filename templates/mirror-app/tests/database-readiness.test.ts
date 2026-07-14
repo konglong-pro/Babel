@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -50,8 +50,13 @@ test("__APP_NAME__ database readiness", async (t) => {
 
   await t.test("health reports current and incompatible schemas", async () => {
     const originalPath = process.env.__APP_ENV_PREFIX___DATABASE_PATH;
+    const originalUploads = process.env.__APP_ENV_PREFIX___UPLOAD_DIRECTORY;
     process.env.__APP_ENV_PREFIX___DATABASE_PATH = path.join(root, "current.db");
+    process.env.__APP_ENV_PREFIX___UPLOAD_DIRECTORY = path.join(root, "uploads");
+    await mkdir(process.env.__APP_ENV_PREFIX___UPLOAD_DIRECTORY, { recursive: true });
     assert.equal((await getHealth()).status, 200);
+    const { sqlite } = await import("@/lib/db/client");
+    sqlite.close();
 
     process.env.__APP_ENV_PREFIX___DATABASE_PATH = path.join(root, "missing-parent.db");
     const originalConsoleError = console.error;
@@ -66,6 +71,8 @@ test("__APP_NAME__ database readiness", async (t) => {
       console.error = originalConsoleError;
       if (originalPath === undefined) delete process.env.__APP_ENV_PREFIX___DATABASE_PATH;
       else process.env.__APP_ENV_PREFIX___DATABASE_PATH = originalPath;
+      if (originalUploads === undefined) delete process.env.__APP_ENV_PREFIX___UPLOAD_DIRECTORY;
+      else process.env.__APP_ENV_PREFIX___UPLOAD_DIRECTORY = originalUploads;
     }
   });
 });

@@ -18,10 +18,13 @@ private `data/` repository. The launcher supplies absolute
 `LEVIATHAN_DATABASE_PATH` and `LEVIATHAN_UPLOAD_DIRECTORY` values.
 
 The three-column workspace keeps the folder tree, note list, and reader/editor
-visible together. The editor previews GitHub Flavored Markdown. PNG, JPEG, WebP,
-and GIF images up to 10 MB can be selected or pasted; images are committed to
-storage only when the note is saved. A save accepts up to 10 MiB of Markdown,
-50 new images, and 100 MiB of Markdown plus new images in total.
+visible together. The editor uses the full writing area; rendered GitHub Flavored
+Markdown remains available in reading mode. PNG, JPEG, WebP, and GIF images up to
+10 MiB can be selected or pasted; images are committed to storage only when the
+note is saved. A save accepts up to 10 MiB of Markdown, 50 new images, and 100 MiB
+of Markdown plus new images in total; multipart transport is limited to 160 MiB.
+Image mutations are serialized, and interrupted transactions are reconciled
+during health checks and before later writes.
 
 Select a concrete folder to import a UTF-8 `.md` file as a new draft. Relative
 GFM image references can be matched to local image files before saving; remote

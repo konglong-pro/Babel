@@ -1,4 +1,4 @@
-import { and, count, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq, sql, type SQL } from "drizzle-orm";
 
 import { getNeumDatabase } from "@/lib/db/client";
 import { entries, entryImages, trashEntries } from "@/lib/db/schema";
@@ -46,6 +46,7 @@ export interface TrashEntrySnapshot {
 }
 
 export interface TrashListOptions {
+  kind?: EntryKind;
   limit?: number;
   offset?: number;
 }
@@ -135,10 +136,21 @@ export function listTrashEntries(
 ): PaginatedDto<TrashEntryDto> {
   const { db } = getNeumDatabase();
   const { limit, offset } = normalizePagination(options.limit, options.offset);
-  const total = db.select({ value: count() }).from(trashEntries).get()?.value ?? 0;
+  const conditions: SQL[] = [];
+  if (options.kind !== undefined) {
+    const kind = normalizeEntryKind(options.kind);
+    conditions.push(sql`json_extract(${trashEntries.snapshotJson}, '$.entry.kind') = ${kind}`);
+  }
+  const where = conditions.length === 0 ? undefined : and(...conditions);
+  const total = db
+    .select({ value: count() })
+    .from(trashEntries)
+    .where(where)
+    .get()?.value ?? 0;
   const rows = db
     .select()
     .from(trashEntries)
+    .where(where)
     .orderBy(desc(trashEntries.deletedAt), desc(trashEntries.id))
     .limit(limit)
     .offset(offset)
@@ -173,10 +185,14 @@ export function restoreTrashEntry(trashId: number): EntryDetailDto {
   requireFolder(snapshot.entry.folderId);
   if (snapshot.entry.parentId !== null) {
     const parent = findEntryRow(snapshot.entry.parentId);
-    if (!parent || parent.folderId !== snapshot.entry.folderId) {
+    if (
+      !parent ||
+      parent.folderId !== snapshot.entry.folderId ||
+      parent.kind !== snapshot.entry.kind
+    ) {
       throw new RepositoryError(
         "CONFLICT",
-        "Restore the parent entry in the same folder before restoring this subpage.",
+        "Restore the parent entry in the same folder and unit before restoring this subpage.",
         { trashId, parentId: snapshot.entry.parentId },
       );
     }

@@ -30,6 +30,18 @@ $babelRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $registryPath = Join-Path $babelRoot "babel.apps.json"
 $xamlPath = Join-Path $PSScriptRoot "Babel.xaml"
 $workerScriptPath = Join-Path $PSScriptRoot "Babel.ps1"
+$shortcutHelperPath = Join-Path $PSScriptRoot "Babel.Shortcuts.ps1"
+$shortcutXamlPath = Join-Path $PSScriptRoot "Babel.Shortcuts.xaml"
+$shortcutDefaultsPath = Join-Path $babelRoot "packages\platform\shortcuts.defaults.json"
+
+if (-not (Test-Path -LiteralPath $shortcutHelperPath -PathType Leaf)) {
+    throw "Shortcut helper not found: $shortcutHelperPath"
+}
+try {
+    . $shortcutHelperPath
+} catch {
+    throw "Could not load the shortcut helper: $($_.Exception.Message)"
+}
 
 function Test-RequiredProperty {
     param(
@@ -160,6 +172,42 @@ function Get-RequiredControl {
     return $control
 }
 
+$expectedShortcutCommands = @(
+    "save",
+    "new",
+    "edit",
+    "confirm",
+    "cancel",
+    "search",
+    "delete",
+    "commandPalette"
+)
+$shortcutDefinitions = @(Get-BabelShortcutDefinitions -Path $shortcutDefaultsPath)
+$actualShortcutCommands = @($shortcutDefinitions | ForEach-Object { [string]$_.Id })
+if (($actualShortcutCommands -join "|") -cne ($expectedShortcutCommands -join "|")) {
+    throw "Shortcut defaults must define the eight commands in their registered order."
+}
+$shortcutDefaultBindings = Get-BabelDefaultShortcutBindings -Definitions $shortcutDefinitions
+
+$shortcutControlNames = @(
+    "ShortcutGrid",
+    "ShortcutErrorText",
+    "ShortcutStatusText",
+    "RestoreDefaultsButton",
+    "CancelShortcutsButton",
+    "SaveShortcutsButton"
+)
+$shortcutPreviewWindow = Import-BabelWindow -Path $shortcutXamlPath
+$shortcutPreviewControls = @{}
+foreach ($controlName in $shortcutControlNames) {
+    $shortcutPreviewControls[$controlName] = Get-RequiredControl `
+        -Window $shortcutPreviewWindow `
+        -Name $controlName
+}
+$shortcutControlCount = $shortcutPreviewControls.Count
+$shortcutPreviewControls = $null
+$shortcutPreviewWindow = $null
+
 $registeredApps = @(Get-RegisteredApps -Path $registryPath)
 $window = Import-BabelWindow -Path $xamlPath
 
@@ -170,6 +218,7 @@ $requiredControlNames = @(
     "StartAllButton",
     "StopButton",
     "VerifyButton",
+    "ShortcutsButton",
     "MinimizeToTrayButton",
     "LogTextBox",
     "StatusText",
@@ -199,7 +248,11 @@ try {
 }
 
 if ($SmokeTest) {
-    Write-Output "Babel GUI smoke test passed: $($registeredApps.Count) app(s), $($controls.Count) required control(s)."
+    $normalizedSmokeBinding = ConvertTo-BabelShortcutBinding -Binding "shift + ctrl + s"
+    if ($normalizedSmokeBinding -ne "Ctrl+Shift+S") {
+        throw "Shortcut normalization smoke test failed."
+    }
+    Write-Output "Babel GUI smoke test passed: $($registeredApps.Count) app(s), $($controls.Count) launcher control(s), $shortcutControlCount shortcut control(s), $($shortcutDefinitions.Count) shortcut command(s)."
     return
 }
 
@@ -213,10 +266,15 @@ $script:StartSelectedButton = $controls.StartSelectedButton
 $script:StartAllButton = $controls.StartAllButton
 $script:StopButton = $controls.StopButton
 $script:VerifyButton = $controls.VerifyButton
+$script:ShortcutsButton = $controls.ShortcutsButton
 $script:MinimizeToTrayButton = $controls.MinimizeToTrayButton
 $script:LogTextBox = $controls.LogTextBox
 $script:StatusText = $controls.StatusText
 $script:WorkerText = $controls.WorkerText
+$script:ShortcutXamlPath = $shortcutXamlPath
+$script:ShortcutControlNames = @($shortcutControlNames)
+$script:ShortcutDefinitions = @($shortcutDefinitions)
+$script:ShortcutDefaultBindings = $shortcutDefaultBindings
 $script:RegisteredApps = $registeredApps
 $script:AppsById = @{}
 $script:RowsById = @{}
@@ -323,6 +381,232 @@ function Set-UiStatus {
     )
 
     $script:StatusText.Text = $Message
+}
+
+function Get-WpfShortcutKeyName {
+    param(
+        [Parameter(Mandatory = $true)]
+        [Windows.Input.Key]$Key
+    )
+
+    $keyText = $Key.ToString()
+    if ($keyText -match "^[A-Z]$") {
+        return $keyText
+    }
+    if ($keyText -match "^D([0-9])$") {
+        return $Matches[1]
+    }
+    if ($keyText -match "^NumPad([0-9])$") {
+        return $Matches[1]
+    }
+    if ($keyText -match "^F([1-9]|1[0-2])$") {
+        return $keyText
+    }
+
+    switch ($Key) {
+        ([Windows.Input.Key]::Return) { return "Enter" }
+        ([Windows.Input.Key]::Escape) { return "Escape" }
+        ([Windows.Input.Key]::Delete) { return "Delete" }
+        ([Windows.Input.Key]::Back) { return "Backspace" }
+        ([Windows.Input.Key]::Space) { return "Space" }
+        default { throw "Key '$keyText' is not supported for Babel shortcuts." }
+    }
+}
+
+function ConvertFrom-WpfShortcutKeyEvent {
+    param(
+        [Parameter(Mandatory = $true)]
+        [Windows.Input.KeyEventArgs]$EventArgs
+    )
+
+    $key = $EventArgs.Key
+    if ($key -eq [Windows.Input.Key]::System) {
+        $key = $EventArgs.SystemKey
+    }
+    $keyName = Get-WpfShortcutKeyName -Key $key
+    $modifiers = $EventArgs.KeyboardDevice.Modifiers
+    if (
+        ($modifiers -band [Windows.Input.ModifierKeys]::Windows) -ne
+        [Windows.Input.ModifierKeys]::None
+    ) {
+        throw "The Windows key cannot be used in a Babel shortcut."
+    }
+
+    $parts = @()
+    if (
+        ($modifiers -band [Windows.Input.ModifierKeys]::Control) -ne
+        [Windows.Input.ModifierKeys]::None
+    ) {
+        $parts += "Ctrl"
+    }
+    if (
+        ($modifiers -band [Windows.Input.ModifierKeys]::Alt) -ne
+        [Windows.Input.ModifierKeys]::None
+    ) {
+        $parts += "Alt"
+    }
+    if (
+        ($modifiers -band [Windows.Input.ModifierKeys]::Shift) -ne
+        [Windows.Input.ModifierKeys]::None
+    ) {
+        $parts += "Shift"
+    }
+    $parts += $keyName
+
+    return ConvertTo-BabelShortcutBinding -Binding ($parts -join "+")
+}
+
+function Get-BabelShortcutDialogState {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$Sender
+    )
+
+    if ($Sender -is [Windows.Window]) {
+        return $Sender.Tag
+    }
+    $dialogWindow = [Windows.Window]::GetWindow($Sender)
+    if ($null -eq $dialogWindow) {
+        throw "The shortcut settings window is unavailable."
+    }
+    return $dialogWindow.Tag
+}
+
+function Show-BabelShortcutSettings {
+    $settings = Read-BabelShortcutSettings -Definitions $script:ShortcutDefinitions
+    $shortcutWindow = Import-BabelWindow -Path $script:ShortcutXamlPath
+    $shortcutControls = @{}
+    foreach ($controlName in $script:ShortcutControlNames) {
+        $shortcutControls[$controlName] = Get-RequiredControl `
+            -Window $shortcutWindow `
+            -Name $controlName
+    }
+
+    $shortcutWindow.Owner = $script:Window
+    if ($null -ne $script:Window.Icon) {
+        $shortcutWindow.Icon = $script:Window.Icon
+    }
+
+    $shortcutTable = New-Object System.Data.DataTable
+    [void]$shortcutTable.Columns.Add("Id", [string])
+    [void]$shortcutTable.Columns.Add("Label", [string])
+    [void]$shortcutTable.Columns.Add("Shortcut", [string])
+    foreach ($definition in $script:ShortcutDefinitions) {
+        $row = $shortcutTable.NewRow()
+        $row.Id = [string]$definition.Id
+        $row.Label = [string]$definition.Label
+        $row.Shortcut = [string]$settings.Bindings[$row.Id]
+        [void]$shortcutTable.Rows.Add($row)
+    }
+    $shortcutControls.ShortcutGrid.ItemsSource = $shortcutTable.DefaultView
+
+    $state = [pscustomobject]@{
+        Window = $shortcutWindow
+        Controls = $shortcutControls
+        Table = $shortcutTable
+        Definitions = @($script:ShortcutDefinitions)
+        DefaultBindings = $script:ShortcutDefaultBindings
+        Saved = $false
+    }
+    $shortcutWindow.Tag = $state
+    if (-not [string]::IsNullOrWhiteSpace([string]$settings.Warning)) {
+        $shortcutControls.ShortcutStatusText.Text = [string]$settings.Warning
+    }
+
+    $shortcutWindow.Add_PreviewKeyDown({
+        param($sender, $eventArgs)
+
+        $focusedElement = [Windows.Input.Keyboard]::FocusedElement
+        if (
+            $null -eq $focusedElement -or
+            -not ($focusedElement -is [Windows.Controls.TextBox]) -or
+            $focusedElement.Name -ne "ShortcutCaptureBox" -or
+            [string]::IsNullOrWhiteSpace([string]$focusedElement.Tag)
+        ) {
+            return
+        }
+
+        $dialogState = Get-BabelShortcutDialogState -Sender $sender
+        try {
+            $canonicalBinding = ConvertFrom-WpfShortcutKeyEvent -EventArgs $eventArgs
+            $commandId = [string]$focusedElement.Tag
+            foreach ($otherRow in $dialogState.Table.Rows) {
+                if (
+                    [string]$otherRow.Id -ne $commandId -and
+                    [string]::Equals(
+                        [string]$otherRow.Shortcut,
+                        $canonicalBinding,
+                        [StringComparison]::OrdinalIgnoreCase
+                    )
+                ) {
+                    throw "Shortcut '$canonicalBinding' is already assigned to $($otherRow.Label)."
+                }
+            }
+
+            $currentRows = @($dialogState.Table.Select("Id = '" + $commandId.Replace("'", "''") + "'"))
+            if ($currentRows.Count -ne 1) {
+                throw "Could not find shortcut command '$commandId'."
+            }
+            $currentRows[0].Shortcut = $canonicalBinding
+            $dialogState.Controls.ShortcutGrid.Items.Refresh()
+            $dialogState.Controls.ShortcutErrorText.Text = ""
+            $dialogState.Controls.ShortcutStatusText.Text = "Shortcut captured. Choose Save to apply the complete set."
+        } catch {
+            $dialogState.Controls.ShortcutErrorText.Text = $_.Exception.Message
+        } finally {
+            $eventArgs.Handled = $true
+        }
+    })
+
+    $shortcutControls.RestoreDefaultsButton.Add_Click({
+        param($sender, $eventArgs)
+
+        $dialogState = Get-BabelShortcutDialogState -Sender $sender
+        foreach ($row in $dialogState.Table.Rows) {
+            $row.Shortcut = [string]$dialogState.DefaultBindings[[string]$row.Id]
+        }
+        $dialogState.Controls.ShortcutGrid.Items.Refresh()
+        $dialogState.Controls.ShortcutErrorText.Text = ""
+        $dialogState.Controls.ShortcutStatusText.Text = "Defaults restored in this window. Choose Save to persist them."
+    })
+
+    $shortcutControls.CancelShortcutsButton.Add_Click({
+        param($sender, $eventArgs)
+
+        $dialogState = Get-BabelShortcutDialogState -Sender $sender
+        $dialogState.Window.DialogResult = $false
+    })
+
+    $shortcutControls.SaveShortcutsButton.Add_Click({
+        param($sender, $eventArgs)
+
+        $dialogState = Get-BabelShortcutDialogState -Sender $sender
+        try {
+            $bindings = [ordered]@{}
+            foreach ($row in $dialogState.Table.Rows) {
+                $bindings[[string]$row.Id] = [string]$row.Shortcut
+            }
+            $savedPath = Write-BabelShortcutSettings `
+                -Definitions $dialogState.Definitions `
+                -Bindings $bindings
+            $dialogState.Saved = $true
+            $dialogState.Controls.ShortcutErrorText.Text = ""
+            $dialogState.Controls.ShortcutStatusText.Text = "Saved. Reload open application pages to use the new shortcuts."
+            [Windows.MessageBox]::Show(
+                $dialogState.Window,
+                "Global shortcuts were saved to:`r`n$savedPath`r`n`r`nReload open application pages to use the new shortcuts.",
+                "Babel Shortcuts",
+                [Windows.MessageBoxButton]::OK,
+                [Windows.MessageBoxImage]::Information
+            ) | Out-Null
+            $dialogState.Window.DialogResult = $true
+        } catch {
+            $dialogState.Controls.ShortcutErrorText.Text = $_.Exception.Message
+        }
+    })
+
+    [void]$shortcutWindow.ShowDialog()
+    return [bool]$state.Saved
 }
 
 function Hide-BabelWindowToTray {
@@ -721,6 +1005,23 @@ $script:StartAllButton.Add_Click({
 
 $script:StopButton.Add_Click({
     Request-WorkerStop
+})
+
+$script:ShortcutsButton.Add_Click({
+    try {
+        if (Show-BabelShortcutSettings) {
+            Set-UiStatus -Message "Global shortcuts saved. Reload open application pages to use them."
+        }
+    } catch {
+        Set-UiStatus -Message "Could not open shortcut settings: $($_.Exception.Message)"
+        [Windows.MessageBox]::Show(
+            $script:Window,
+            "Could not open shortcut settings.`r`n`r`n$($_.Exception.Message)",
+            "Babel Launcher",
+            [Windows.MessageBoxButton]::OK,
+            [Windows.MessageBoxImage]::Error
+        ) | Out-Null
+    }
 })
 
 $script:MinimizeToTrayButton.Add_Click({

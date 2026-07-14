@@ -5,6 +5,10 @@ import {
 } from "@babel-apps/platform/http/request";
 
 import { ApiError } from "@/lib/http/errors";
+import {
+  ENTRY_MULTIPART_WIRE_MAX_BYTES,
+  ENTRY_NEW_IMAGE_MAX_COUNT,
+} from "@/lib/entry-limits";
 import { assertUploadToken, type EntryImageUpload } from "@/lib/storage";
 
 export {
@@ -39,11 +43,38 @@ export function assertSameOrigin(request: Request): void {
 
 export async function readEntryMultipart(
   request: Request,
+  wireLimitBytes = ENTRY_MULTIPART_WIRE_MAX_BYTES,
 ): Promise<EntryMultipartRequest> {
+  assertMultipartWireSize(request.headers.get("content-length"), wireLimitBytes);
+
   let formData: FormData;
+  let sizeError: ApiError | undefined;
   try {
-    formData = await request.formData();
+    if (request.body === undefined || request.body === null) {
+      // Small Request-shaped test doubles do not expose a body stream.
+      formData = await request.formData();
+    } else {
+      let receivedBytes = 0;
+      const countedBody = request.body.pipeThrough(
+        new TransformStream<Uint8Array, Uint8Array>({
+          transform(chunk, controller) {
+            receivedBytes += chunk.byteLength;
+            if (receivedBytes > wireLimitBytes) {
+              sizeError = multipartWireSizeError(wireLimitBytes);
+              controller.error(sizeError);
+              return;
+            }
+            controller.enqueue(chunk);
+          },
+        }),
+      );
+      const headers = new Headers();
+      const contentType = request.headers.get("content-type");
+      if (contentType !== null) headers.set("content-type", contentType);
+      formData = await new Response(countedBody, { headers }).formData();
+    }
   } catch {
+    if (sizeError !== undefined) throw sizeError;
     throw new ApiError(
       400,
       "INVALID_MULTIPART",
@@ -85,6 +116,13 @@ export async function readEntryMultipart(
         field,
       });
     }
+    if (uploads.size >= ENTRY_NEW_IMAGE_MAX_COUNT) {
+      throw new ApiError(
+        413,
+        "TOO_MANY_IMAGES",
+        "An entry save may include at most 50 new images.",
+      );
+    }
 
     const token = field.slice("image:".length);
     assertUploadToken(token);
@@ -102,6 +140,37 @@ export async function readEntryMultipart(
   }
 
   return { payload, uploads };
+}
+
+function multipartWireSizeError(wireLimitBytes: number): ApiError {
+  const mebibyte = 1024 * 1024;
+  const displayLimit = wireLimitBytes % mebibyte === 0
+    ? `${wireLimitBytes / mebibyte} MiB`
+    : `${wireLimitBytes} bytes`;
+  return new ApiError(
+    413,
+    "REQUEST_TOO_LARGE",
+    `The multipart request body must not exceed ${displayLimit}.`,
+  );
+}
+
+function assertMultipartWireSize(
+  contentLength: string | null,
+  wireLimitBytes: number,
+): void {
+  if (contentLength === null) return;
+  const normalized = contentLength.trim();
+  if (!/^\d+$/.test(normalized)) return;
+
+  let parsed: bigint;
+  try {
+    parsed = BigInt(normalized);
+  } catch {
+    return;
+  }
+  if (parsed > BigInt(wireLimitBytes)) {
+    throw multipartWireSizeError(wireLimitBytes);
+  }
 }
 
 export function optionalStringArray(

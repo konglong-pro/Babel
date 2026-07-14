@@ -7,9 +7,12 @@ import {
 
 import { listNoteTitles } from "@/lib/api-client";
 
-export type { StagedImage } from "@babel-apps/markdown/react";
-
-const REMARK_FEATURES = ["gfm"] as const;
+export {
+  ACCEPTED_IMAGE_TYPES,
+  imageFileError,
+  stageImageFile,
+  type StagedImage,
+} from "@babel-apps/markdown/react";
 
 type MarkdownEditorProps = Omit<
   SharedMarkdownEditorProps,
@@ -26,12 +29,10 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
   return (
     <SharedMarkdownEditor
       {...props}
-      emptyPreviewText="Your preview will appear here."
       fetchScope="__APP_ID__:notes"
       fetchTitles={listNoteTitles}
       hintText="Write Markdown with GFM tables, task lists, links, images, and [[note links]]."
       placeholder="Write a definition, example, observation, or question…"
-      remarkFeatures={REMARK_FEATURES}
       uploadScheme="__APP_ID__-upload"
     />
   );

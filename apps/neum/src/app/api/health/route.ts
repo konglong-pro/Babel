@@ -11,13 +11,14 @@ export const runtime = "nodejs";
 export async function GET(): Promise<Response> {
   try {
     assertAppDatabaseReady();
-    const [{ getNeumDatabase }, { entryUploadDirectory }] = await Promise.all([
+    const [{ getNeumDatabase }, storage] = await Promise.all([
       import("@/lib/db/client"),
       import("@/lib/storage"),
     ]);
     const { sqlite } = getNeumDatabase();
     assertCurrentNeumSchema(sqlite);
-    const uploadDirectory = entryUploadDirectory();
+    await storage.ensureEntryImageStorageRecovered();
+    const uploadDirectory = storage.entryUploadDirectory();
     const uploadStats = await lstat(uploadDirectory);
     if (!uploadStats.isDirectory() || uploadStats.isSymbolicLink()) {
       throw new Error("Neum upload path is not a real directory.");

@@ -5,6 +5,7 @@ import { assertSameOrigin, parsePositiveInteger } from "@/lib/http/request";
 import { withEntryMutationLock } from "@/lib/mutation-lock";
 import { getTrashEntry, purgeTrashEntry } from "@/lib/repositories/trash";
 import {
+  ensureEntryImageStorageRecovered,
   finalizeQuarantinedEntryImages,
   quarantineEntryImages,
   restoreQuarantinedEntryImages,
@@ -24,32 +25,35 @@ export function GET(_request: Request, context: RouteContext): Promise<Response>
 }
 
 export function DELETE(request: Request, context: RouteContext): Promise<Response> {
-  return handleApi(() => withEntryMutationLock(async () => {
+  return handleApi(async () => {
     assertSameOrigin(request);
-    const id = await routeId(context);
-    const entry = getTrashEntry(id);
-    if (!entry) throw trashEntryNotFound();
+    await ensureEntryImageStorageRecovered();
+    return withEntryMutationLock(async () => {
+      const id = await routeId(context);
+      const entry = getTrashEntry(id);
+      if (!entry) throw trashEntryNotFound();
 
-    let quarantine: EntryImageQuarantine | undefined;
-    try {
-      quarantine = await quarantineEntryImages(entry.imagePaths);
-      if (!purgeTrashEntry(id, entry.imagePaths)) throw trashEntryNotFound();
-    } catch (error) {
-      if (quarantine) {
-        try {
-          await restoreQuarantinedEntryImages(quarantine);
-        } catch (restoreError) {
-          throw new AggregateError(
-            [error, restoreError],
-            "Trash purge failed and its images could not be restored.",
-          );
+      let quarantine: EntryImageQuarantine | undefined;
+      try {
+        quarantine = await quarantineEntryImages(entry.imagePaths);
+        if (!purgeTrashEntry(id, entry.imagePaths)) throw trashEntryNotFound();
+      } catch (error) {
+        if (quarantine) {
+          try {
+            await restoreQuarantinedEntryImages(quarantine);
+          } catch (restoreError) {
+            throw new AggregateError(
+              [error, restoreError],
+              "Trash purge failed and its images could not be restored.",
+            );
+          }
         }
+        throw error;
       }
-      throw error;
-    }
-    await finalizeQuarantinedEntryImages(quarantine!);
-    return new Response(null, { status: 204 });
-  }));
+      await finalizeQuarantinedEntryImages(quarantine!);
+      return new Response(null, { status: 204 });
+    });
+  });
 }
 
 async function routeId(context: RouteContext): Promise<number> {

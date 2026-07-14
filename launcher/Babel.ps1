@@ -510,6 +510,7 @@ function Get-BabelApps {
             (Join-Path $workspace ".env.production.local"),
             (Join-Path $RootPath "packages\config"),
             (Join-Path $RootPath "packages\markdown"),
+            (Join-Path $RootPath "packages\platform"),
             (Join-Path $RootPath "package.json"),
             (Join-Path $RootPath "package-lock.json"),
             $registryPath

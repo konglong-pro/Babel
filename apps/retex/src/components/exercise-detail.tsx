@@ -139,7 +139,7 @@ export function ExerciseDetail({
           <p className="document-meta">Updated {formatDate(detail.updatedAt)}</p>
         </div>
         <div className="document-actions">
-          <button type="button" onClick={onEdit}>
+          <button data-babel-command="edit" type="button" onClick={onEdit}>
             Edit
           </button>
           <ConfirmButton
@@ -439,10 +439,10 @@ function ExerciseForm({
             <h1>{detail ? detail.title : "Archive a Classic Problem"}</h1>
           </div>
           <div className="document-actions">
-            <button type="button" onClick={onCancel}>
+            <button data-babel-command="cancel" type="button" onClick={onCancel}>
               Cancel
             </button>
-            <button className="primary-button" type="submit" disabled={pending || !title.trim()}>
+            <button data-babel-command="save" className="primary-button" type="submit" disabled={pending || !title.trim()}>
               {pending ? (image ? "Uploading and Saving…" : "Saving…") : "Save"}
             </button>
           </div>

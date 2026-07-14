@@ -9,6 +9,7 @@ import {
 import { ApiError, handleApi } from "@/lib/http/errors";
 import {
   assertPatchHasFields,
+  assertSameOrigin,
   optionalNullablePositiveInteger,
   optionalString,
   parsePositiveInteger,
@@ -40,6 +41,7 @@ export function GET(_request: Request, context: RouteContext): Promise<Response>
 
 export function PATCH(request: Request, context: RouteContext): Promise<Response> {
   return handleApi(async () => {
+    assertSameOrigin(request);
     const id = await routeId(context);
     const body = await readJsonObject(request);
     const patch: UpdateFolderInput = {};
@@ -53,8 +55,9 @@ export function PATCH(request: Request, context: RouteContext): Promise<Response
   });
 }
 
-export function DELETE(_request: Request, context: RouteContext): Promise<Response> {
+export function DELETE(request: Request, context: RouteContext): Promise<Response> {
   return handleApi(async () => {
+    assertSameOrigin(request);
     const id = await routeId(context);
     if (!deleteFolder(id)) {
       throw new ApiError(404, "FOLDER_NOT_FOUND", "Folder not found.");

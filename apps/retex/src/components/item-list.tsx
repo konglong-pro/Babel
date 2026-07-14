@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { type ChangeEvent, useMemo, useRef, useState } from "react";
 
 import {
   type PageExpansionState,
@@ -21,6 +21,7 @@ interface ItemListProps {
   loading?: boolean;
   onSelect: (id: number) => void;
   onCreate: (parentId: number | null) => void;
+  onImport?: (file: File) => Promise<void> | void;
 }
 
 interface KnowledgeBranchProps {
@@ -119,7 +120,9 @@ export function ItemList({
   loading,
   onSelect,
   onCreate,
+  onImport,
 }: ItemListProps) {
+  const importInputRef = useRef<HTMLInputElement>(null);
   const itemName = type === "knowledge" ? "Knowledge Notes" : "Exercises";
   const knowledgeItems = useMemo(
     () => (type === "knowledge" ? (items as KnowledgeSummaryDto[]) : []),
@@ -156,6 +159,12 @@ export function ItemList({
     });
   }
 
+  function chooseMarkdown(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (file) void onImport?.(file);
+  }
+
   return (
     <aside className="archive-panel item-panel" aria-label={`${itemName} list`}>
       <div className="panel-heading compact">
@@ -163,15 +172,39 @@ export function ItemList({
           <span className="eyebrow">Content</span>
           <h2>{selectedFolderId === null ? `All ${itemName}` : itemName}</h2>
         </div>
-        <button
-          type="button"
-          className="primary-button small"
-          disabled={selectedFolderId === null}
-          title={selectedFolderId === null ? "Select a folder first" : undefined}
-          onClick={() => onCreate(null)}
-        >
-          New
-        </button>
+        <div className="item-list-actions">
+          {type === "knowledge" && onImport !== undefined ? (
+            <>
+              <input
+                ref={importInputRef}
+                className="sr-only"
+                type="file"
+                accept=".md,text/markdown,text/plain"
+                tabIndex={-1}
+                onChange={chooseMarkdown}
+              />
+              <button
+                type="button"
+                className="small"
+                disabled={selectedFolderId === null}
+                title={selectedFolderId === null ? "Select a folder first" : undefined}
+                onClick={() => importInputRef.current?.click()}
+              >
+                Import .md
+              </button>
+            </>
+          ) : null}
+          <button
+            type="button"
+            data-babel-command="new"
+            className="primary-button small"
+            disabled={selectedFolderId === null}
+            title={selectedFolderId === null ? "Select a folder first" : undefined}
+            onClick={() => onCreate(null)}
+          >
+            New
+          </button>
+        </div>
       </div>
 
       {selectedFolderId === null ? (

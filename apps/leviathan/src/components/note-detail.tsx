@@ -217,8 +217,8 @@ export function NoteDetail({
           </p>
         </div>
         <div className="document-actions">
-          <button type="button" onClick={onCreateSubnote}>New subnote</button>
-          <button type="button" onClick={onEdit}>Edit</button>
+          <button data-babel-command="new" data-babel-priority="10" type="button" onClick={onCreateSubnote}>New subnote</button>
+          <button data-babel-command="edit" type="button" onClick={onEdit}>Edit</button>
           <ConfirmButton
             className="danger-ghost"
             title="Delete note"
@@ -552,12 +552,13 @@ function NoteForm({
             </h1>
           </div>
           <div className="document-actions">
-            <button type="button" disabled={pending} onClick={onCancel}>Cancel</button>
+            <button data-babel-command="cancel" type="button" disabled={pending} onClick={onCancel}>Cancel</button>
             <button
+              data-babel-command="save"
               className="primary-button"
               type="submit"
               disabled={pending || folderId === null || !title.trim() || Boolean(saveBlockMessage)}
-              title={saveBlockMessage || "Save note (Ctrl/Cmd+S)"}
+              title={saveBlockMessage || "Save note"}
             >
               {pending ? "Saving…" : "Save"}
             </button>

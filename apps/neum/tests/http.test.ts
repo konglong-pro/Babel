@@ -153,6 +153,40 @@ test("Neum HTTP contract", async (t) => {
     );
     assert.equal(unknown.status, 400);
     assert.equal((await errorCode(unknown)), "VALIDATION_ERROR");
+
+    const foreignEntry = await entryCollectionRoute.POST(
+      multipartRequest(
+        "http://localhost/api/entries",
+        { folderId: 1, kind: "knowledge", title: "Foreign entry" },
+        { origin: "https://example.com" },
+      ),
+    );
+    assert.equal(foreignEntry.status, 403);
+  });
+
+  await t.test("entry routes enforce UTF-8 Markdown and code limits", async () => {
+    const oversizedNotes = await entryCollectionRoute.POST(
+      multipartRequest("http://localhost/api/entries", {
+        folderId: 1,
+        kind: "knowledge",
+        title: "Oversized notes",
+        notesMd: "\u53f2".repeat(Math.floor((10 * 1024 * 1024) / 3) + 1),
+      }),
+    );
+    assert.equal(oversizedNotes.status, 413);
+    assert.equal(await errorCode(oversizedNotes), "CONTENT_TOO_LARGE");
+
+    const oversizedCode = await entryCollectionRoute.POST(
+      multipartRequest("http://localhost/api/entries", {
+        folderId: 1,
+        kind: "snippet",
+        title: "Oversized code",
+        code: "x".repeat(10 * 1024 * 1024 + 1),
+        language: "text",
+      }),
+    );
+    assert.equal(oversizedCode.status, 413);
+    assert.equal(await errorCode(oversizedCode), "CODE_TOO_LARGE");
   });
 
   let snippet: EntryDetailDto;
@@ -170,6 +204,31 @@ test("Neum HTTP contract", async (t) => {
     assert.equal(rootResponse.status, 201);
     rootPage = (await rootResponse.json()) as EntryDetailDto;
     assert.equal(rootPage.parentId, null);
+
+    const crossUnitChild = await entryCollectionRoute.POST(
+      multipartRequest("http://localhost/api/entries", {
+        folderId: 1,
+        parentId: rootPage.id,
+        kind: "snippet",
+        title: "HTTP cross-unit child",
+        code: "const invalid = true;",
+        language: "typescript",
+      }),
+    );
+    assert.equal(crossUnitChild.status, 409);
+    assert.equal(await errorCode(crossUnitChild), "CONFLICT");
+
+    const changedKind = await entryItemRoute.PATCH(
+      multipartRequest(`http://localhost/api/entries/${rootPage.id}`, {
+        expectedVersion: rootPage.version,
+        kind: "snippet",
+        code: "const invalid = true;",
+        language: "typescript",
+      }),
+      routeContext(rootPage.id),
+    );
+    assert.equal(changedKind.status, 409);
+    assert.equal(await errorCode(changedKind), "CONFLICT");
 
     const childResponse = await entryCollectionRoute.POST(
       multipartRequest("http://localhost/api/entries", {
@@ -233,6 +292,13 @@ test("Neum HTTP contract", async (t) => {
     assert.equal(snippet.code, "root: [still, editable\nkey_%: foo_bar");
     assert.deepEqual(snippet.tags, ["C++", "Config"]);
     assert.equal(snippet.version, 1);
+
+    const snippetIndex = await entryCollectionRoute.GET(
+      new Request("http://localhost/api/entries?kind=snippet&limit=100"),
+    );
+    assert.equal(snippetIndex.status, 200);
+    const snippetPage = (await snippetIndex.json()) as PaginatedDto<EntryDetailDto>;
+    assert.deepEqual(snippetPage.items.map(({ id }) => id), [snippet.id]);
 
     for (const query of ["C++", "foo_bar", "key_%", "deploy_config.yaml"]) {
       const response = await searchRoute.GET(
@@ -358,6 +424,16 @@ test("Neum HTTP contract", async (t) => {
   });
 
   await t.test("delete, inspect, restore, and purge use the trash contract", async () => {
+    const deletedKnowledge = await entryItemRoute.DELETE(
+      jsonRequest(
+        `http://localhost/api/entries/${childPage.id}`,
+        { expectedVersion: childPage.version },
+        "DELETE",
+      ),
+      routeContext(childPage.id),
+    );
+    assert.equal(deletedKnowledge.status, 204);
+
     const deleted = await entryItemRoute.DELETE(
       jsonRequest(
         `http://localhost/api/entries/${snippet.id}`,
@@ -369,12 +445,19 @@ test("Neum HTTP contract", async (t) => {
     assert.equal(deleted.status, 204);
 
     const trashPageResponse = await trashCollectionRoute.GET(
-      new Request("http://localhost/api/trash?limit=50&offset=0"),
+      new Request("http://localhost/api/trash?kind=snippet&limit=50&offset=0"),
     );
     const trashPage = (await trashPageResponse.json()) as PaginatedDto<TrashEntryDto>;
     assert.equal(trashPage.total, 1);
     const trash = trashPage.items[0];
     assert.equal(trash.id, snippet.id);
+    const knowledgeTrash = (await (
+      await trashCollectionRoute.GET(
+        new Request("http://localhost/api/trash?kind=knowledge&limit=50&offset=0"),
+      )
+    ).json()) as PaginatedDto<TrashEntryDto>;
+    assert.equal(knowledgeTrash.total, 1);
+    assert.equal(knowledgeTrash.items[0]?.id, childPage.id);
 
     const detail = await trashItemRoute.GET(
       new Request(`http://localhost/api/trash/${trash.trashId}`),
@@ -403,7 +486,9 @@ test("Neum HTTP contract", async (t) => {
     );
     assert.equal(deleteAgain.status, 204);
     const nextTrash = (await (
-      await trashCollectionRoute.GET(new Request("http://localhost/api/trash"))
+      await trashCollectionRoute.GET(
+        new Request("http://localhost/api/trash?kind=snippet"),
+      )
     ).json()) as PaginatedDto<TrashEntryDto>;
     const purged = await trashItemRoute.DELETE(
       new Request(`http://localhost/api/trash/${nextTrash.items[0].trashId}`, {
@@ -415,10 +500,14 @@ test("Neum HTTP contract", async (t) => {
   });
 });
 
-function multipartRequest(url: string, payload: Record<string, unknown>): Request {
+function multipartRequest(
+  url: string,
+  payload: Record<string, unknown>,
+  headers: Record<string, string> = {},
+): Request {
   const form = new FormData();
   form.set("payload", JSON.stringify(payload));
-  return new Request(url, { method: "POST", body: form });
+  return new Request(url, { method: "POST", headers, body: form });
 }
 
 function jsonRequest(

@@ -9,6 +9,7 @@ import {
 import Link from "next/link";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { ImportedImageMatcher } from "@/components/imported-image-matcher";
 import { LinkedMentions } from "@/components/linked-mentions";
 import { MarkdownEditor, type StagedImage } from "@/components/markdown-editor";
 import { pageDescendantIds } from "@/components/page-tree-state";
@@ -26,6 +27,13 @@ import {
   listExercises,
   updateKnowledge,
 } from "@/lib/api-client";
+import type { MarkdownImportDraft } from "@/lib/markdown-import";
+import {
+  NOTE_CONTENT_MAX_BYTES,
+  NOTE_NEW_IMAGE_MAX_COUNT,
+  NOTE_SAVE_MAX_BYTES,
+  utf8ByteLength,
+} from "@/lib/note-limits";
 import type {
   BacklinksDto,
   ExerciseSummaryDto,
@@ -36,9 +44,20 @@ import type {
 
 const KNOWLEDGE_HEADING_ID_PREFIX = "retex-knowledge-heading-";
 const REMARK_FEATURES = ["gfm", "math"] as const;
+const PENDING_IMAGE_URL_PATTERN = /retex-upload:\/\/[A-Za-z0-9._-]+/g;
+const MAX_MANAGED_IMAGE_URL =
+  "/api/uploads/notes/00000000-0000-0000-0000-000000000000.webp";
+
+function estimatedPersistedMarkdownBytes(contentMd: string): number {
+  return utf8ByteLength(
+    contentMd.replace(PENDING_IMAGE_URL_PATTERN, MAX_MANAGED_IMAGE_URL),
+  );
+}
 
 interface KnowledgeDetailProps {
   detail: KnowledgeDetailDto | null;
+  importDraft: MarkdownImportDraft | null;
+  draftKey: number;
   mode: "view" | "edit" | "create";
   folderId: number | null;
   pages: KnowledgeSummaryDto[];
@@ -77,6 +96,8 @@ function pagePathLabel(
 
 export function KnowledgeDetail({
   detail,
+  importDraft,
+  draftKey,
   mode,
   folderId,
   pages,
@@ -127,8 +148,9 @@ export function KnowledgeDetail({
   if (mode === "create" || mode === "edit") {
     return (
       <KnowledgeForm
-        key={mode === "edit" ? `edit:${detail?.id ?? "none"}` : `new:${createParentId ?? "root"}`}
+        key={mode === "edit" ? `edit:${detail?.id ?? "none"}` : `new:${draftKey}`}
         detail={mode === "edit" ? detail : null}
+        importDraft={mode === "create" ? importDraft : null}
         folderId={folderId}
         pages={pages}
         createParentId={createParentId}
@@ -163,10 +185,10 @@ export function KnowledgeDetail({
           <p className="document-meta">Updated {formatDate(detail.updatedAt)}</p>
         </div>
         <div className="document-actions">
-          <button type="button" onClick={onCreateChild}>
+          <button data-babel-command="new" data-babel-priority="10" type="button" onClick={onCreateChild}>
             New subnote
           </button>
-          <button type="button" onClick={onEdit}>
+          <button data-babel-command="edit" type="button" onClick={onEdit}>
             Edit
           </button>
           <ConfirmButton
@@ -225,6 +247,7 @@ export function KnowledgeDetail({
 
 interface KnowledgeFormProps {
   detail: KnowledgeDetailDto | null;
+  importDraft: MarkdownImportDraft | null;
   folderId: number | null;
   pages: KnowledgeSummaryDto[];
   createParentId: number | null;
@@ -239,6 +262,7 @@ interface KnowledgeFormProps {
 
 function KnowledgeForm({
   detail,
+  importDraft,
   folderId,
   pages,
   createParentId,
@@ -253,9 +277,9 @@ function KnowledgeForm({
   const formRef = useRef<HTMLFormElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const stagedRef = useRef<StagedImage[]>([]);
-  const initialTitle = detail?.title ?? "";
+  const initialTitle = detail?.title ?? importDraft?.title ?? "";
   const initialTags = detail?.tags.join(", ") ?? "";
-  const initialContent = detail?.contentMd ?? "";
+  const initialContent = detail?.contentMd ?? importDraft?.contentMd ?? "";
   const initialParentId = detail?.parentId ?? createParentId;
   const initialExerciseIds = detail?.relatedExercises.map((item) => item.id) ?? [];
   const [title, setTitle] = useState(initialTitle);
@@ -289,11 +313,40 @@ function KnowledgeForm({
         .sort((a, b) => a.label.localeCompare(b.label, "en-US")),
     [detail?.id, folderId, pageMap, pages, unavailableParentIds],
   );
-  const imagePreviews = useMemo(
-    () => new Map(stagedImages.map((image) => [image.token, image.previewUrl])),
+  const activeImportedReferences = useMemo(
+    () => (importDraft?.imageReferences ?? []).filter((reference) =>
+      content.includes(`retex-upload://${reference.token}`),
+    ),
+    [content, importDraft?.imageReferences],
+  );
+  const stagedTokens = useMemo(
+    () => new Set(stagedImages.map((image) => image.token)),
     [stagedImages],
   );
+  const unresolvedImportedImages = activeImportedReferences.filter(
+    (reference) => !stagedTokens.has(reference.token),
+  );
+  const referencedStagedImages = stagedImages.filter((image) =>
+    content.includes(`retex-upload://${image.token}`),
+  );
+  const contentBytes = utf8ByteLength(content);
+  const persistedContentBytes = estimatedPersistedMarkdownBytes(content);
+  const saveBytes = referencedStagedImages.reduce(
+    (total, image) => total + image.file.size,
+    persistedContentBytes,
+  );
+  const limitError = Math.max(contentBytes, persistedContentBytes) > NOTE_CONTENT_MAX_BYTES
+    ? "Markdown content must not exceed 10 MB."
+    : referencedStagedImages.length > NOTE_NEW_IMAGE_MAX_COUNT
+      ? `A note can upload at most ${NOTE_NEW_IMAGE_MAX_COUNT} new images at once.`
+      : saveBytes > NOTE_SAVE_MAX_BYTES
+        ? "Markdown and new images must not exceed 100 MB in one save."
+        : "";
+  const saveBlockMessage = unresolvedImportedImages.length > 0
+    ? "Match or remove every imported local image before saving."
+    : limitError;
   const dirty =
+    importDraft !== null ||
     title !== initialTitle ||
     tags !== initialTags ||
     content !== initialContent ||
@@ -349,6 +402,10 @@ function KnowledgeForm({
       setError("Select a folder first.");
       return;
     }
+    if (saveBlockMessage) {
+      setError(saveBlockMessage);
+      return;
+    }
     setPending(true);
     setError("");
     try {
@@ -384,6 +441,23 @@ function KnowledgeForm({
     });
   }
 
+  function resolveImportedImages(images: readonly StagedImage[]) {
+    setStagedImages((current) => {
+      const replacements = new Map(images.map((image) => [image.token, image]));
+      const next: StagedImage[] = [];
+      for (const image of current) {
+        const replacement = replacements.get(image.token);
+        if (replacement === undefined) {
+          next.push(image);
+        } else if (replacement.previewUrl !== image.previewUrl) {
+          URL.revokeObjectURL(image.previewUrl);
+        }
+      }
+      next.push(...replacements.values());
+      return next;
+    });
+  }
+
   async function createFromWikilink(wikilink: Wikilink) {
     if (pending) return;
     const targetTitle = normalizedWikilinkTitle(wikilink);
@@ -409,14 +483,28 @@ function KnowledgeForm({
         <fieldset className="form-controls" disabled={pending}>
         <header className="document-header">
           <div>
-            <span className="eyebrow">{detail ? "Edit Knowledge" : "New Knowledge"}</span>
-            <h1>{detail ? detail.title : "Capture a New Mathematical Insight"}</h1>
+            <span className="eyebrow">
+              {detail ? "Edit Knowledge" : importDraft ? "Import Markdown" : "New Knowledge"}
+            </span>
+            <h1>
+              {detail
+                ? detail.title
+                : importDraft
+                  ? importDraft.title
+                  : "Capture a New Mathematical Insight"}
+            </h1>
           </div>
           <div className="document-actions">
-            <button type="button" onClick={onCancel}>
+            <button data-babel-command="cancel" type="button" onClick={onCancel}>
               Cancel
             </button>
-            <button className="primary-button" type="submit" disabled={pending || !title.trim()}>
+            <button
+              data-babel-command="save"
+              className="primary-button"
+              type="submit"
+              disabled={pending || !title.trim() || Boolean(saveBlockMessage)}
+              title={saveBlockMessage || undefined}
+            >
               {pending ? "Saving…" : "Save"}
             </button>
           </div>
@@ -426,6 +514,9 @@ function KnowledgeForm({
           <p className="form-error" role="alert">
             {error}
           </p>
+        ) : null}
+        {!error && limitError ? (
+          <p className="form-error" role="alert">{limitError}</p>
         ) : null}
 
         <div className="form-row two-columns">
@@ -469,13 +560,20 @@ function KnowledgeForm({
           </select>
         </label>
 
+        <ImportedImageMatcher
+          references={activeImportedReferences}
+          stagedImages={stagedImages}
+          disabled={pending}
+          onResolve={resolveImportedImages}
+          onError={setError}
+        />
+
         <div className="editor-outline-layout">
           <MarkdownEditor
             label="Content"
             name="contentMd"
             value={content}
             disabled={pending}
-            imagePreviews={imagePreviews}
             onChange={changeContent}
             onImageError={setError}
             onStageImage={(image) => setStagedImages((current) => [...current, image])}
@@ -485,7 +583,6 @@ function KnowledgeForm({
             onNavigateWikilink={navigateFromPreview}
             onCreateFromWikilink={createFromWikilink}
             textareaRef={textareaRef}
-            headingIdPrefix={KNOWLEDGE_HEADING_ID_PREFIX}
             footerExtras={(
               <RelationPicker
                 legend="Link Exercises"

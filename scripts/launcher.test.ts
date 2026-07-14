@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
@@ -11,14 +12,32 @@ const root = path.resolve(import.meta.dirname, "..");
 const workerPath = path.join(root, "launcher", "Babel.ps1");
 const guiPath = path.join(root, "launcher", "Babel.Gui.ps1");
 const xamlPath = path.join(root, "launcher", "Babel.xaml");
+const shortcutsHelperPath = path.join(root, "launcher", "Babel.Shortcuts.ps1");
+const shortcutsXamlPath = path.join(root, "launcher", "Babel.Shortcuts.xaml");
+const shortcutDefaultsPath = path.join(root, "packages", "platform", "shortcuts.defaults.json");
 
-const [workerSource, guiSource, xamlSource, rootManifestSource] = await Promise.all([
+const [
+  workerSource,
+  guiSource,
+  xamlSource,
+  shortcutsHelperSource,
+  shortcutsXamlSource,
+  shortcutDefaultsSource,
+  rootManifestSource,
+] = await Promise.all([
   readFile(workerPath, "utf8"),
   readFile(guiPath, "utf8"),
   readFile(xamlPath, "utf8"),
+  readFile(shortcutsHelperPath, "utf8"),
+  readFile(shortcutsXamlPath, "utf8"),
+  readFile(shortcutDefaultsPath, "utf8"),
   readFile(path.join(root, "package.json"), "utf8"),
 ]);
 const rootManifest = JSON.parse(rootManifestSource) as { engines?: { node?: string } };
+const shortcutDefaults = JSON.parse(shortcutDefaultsSource) as {
+  schemaVersion?: number;
+  commands?: Array<{ command?: string; label?: string; defaultBinding?: string }>;
+};
 
 test("the launcher exposes backend URLs without a browser action", () => {
   assert.equal(
@@ -132,7 +151,7 @@ test("the launcher checks database migrations after preflight and before startin
   );
 });
 
-test("shared Markdown changes invalidate application builds", () => {
+test("shared platform changes invalidate application builds", () => {
   const buildInputPathsSource =
     workerSource.match(/\$buildInputPaths\s*=\s*@\(([\s\S]*?)\r?\n\s*\)/i)?.[1] ?? "";
 
@@ -141,7 +160,145 @@ test("shared Markdown changes invalidate application builds", () => {
     /Join-Path\s+\$RootPath\s+["']packages\\markdown["']/i,
     "the launcher must rebuild apps after the shared Markdown package changes",
   );
+  assert.match(
+    buildInputPathsSource,
+    /Join-Path\s+\$RootPath\s+["']packages\\platform["']/i,
+    "the launcher must rebuild apps after the shared shortcut contract changes",
+  );
 });
+
+test("the launcher edits the shared eight-command shortcut contract", () => {
+  assert.equal(shortcutDefaults.schemaVersion, 1);
+  assert.deepEqual(
+    shortcutDefaults.commands?.map(({ command, defaultBinding }) => [command, defaultBinding]),
+    [
+      ["save", "Ctrl+S"],
+      ["new", "Ctrl+Alt+N"],
+      ["edit", "Ctrl+Alt+E"],
+      ["confirm", "Ctrl+Enter"],
+      ["cancel", "Escape"],
+      ["search", "Ctrl+F"],
+      ["delete", "Ctrl+Delete"],
+      ["commandPalette", "Ctrl+K"],
+    ],
+  );
+
+  for (const controlName of [
+    "ShortcutGrid",
+    "ShortcutErrorText",
+    "ShortcutStatusText",
+    "RestoreDefaultsButton",
+    "CancelShortcutsButton",
+    "SaveShortcutsButton",
+  ]) {
+    assert.match(shortcutsXamlSource, new RegExp(`x:Name=["']${controlName}["']`, "i"));
+  }
+  assert.match(xamlSource, /x:Name=["']ShortcutsButton["']/i);
+  assert.match(guiSource, /\.\s*\$shortcutHelperPath/i, "the GUI must dot-source the shortcut helper");
+  assert.match(guiSource, /Add_PreviewKeyDown/i, "the modal must capture complete WPF key combinations");
+  assert.match(guiSource, /Read-BabelShortcutSettings/i);
+  assert.match(guiSource, /Write-BabelShortcutSettings/i);
+  assert.match(guiSource, /reload open application pages/i);
+});
+
+test("shortcut settings are normalized, validated, and replaced atomically", () => {
+  assert.match(shortcutsHelperSource, /SpecialFolder\]::LocalApplicationData/i);
+  assert.match(shortcutsHelperSource, /Join-Path[^\r\n]*["']Babel["']/i);
+  assert.match(shortcutsHelperSource, /["']shortcuts\.json["']/i);
+  assert.match(shortcutsHelperSource, /ConvertTo-BabelShortcutBindingMap/i);
+  assert.match(shortcutsHelperSource, /assigned to both/i, "duplicate bindings must be rejected");
+  assert.match(shortcutsHelperSource, /must include Ctrl or Alt/i);
+  assert.match(shortcutsHelperSource, /Only Escape may be used without a modifier/i);
+  for (const reservedBinding of ["Alt+F4", "Ctrl+W", "Ctrl+T", "Ctrl+L", "Ctrl+R", "Ctrl+Shift+T", "F5"]) {
+    assert.match(shortcutsHelperSource, new RegExp(`"${reservedBinding.replaceAll("+", "\\+")}"`));
+  }
+  assert.match(shortcutsHelperSource, /Write-Warning/i, "missing or invalid user settings must warn");
+  assert.match(shortcutsHelperSource, /Text\.UTF8Encoding\(\$false\)/i, "settings must use UTF-8 without a BOM");
+  assert.match(shortcutsHelperSource, /\[IO\.File\]::Replace\(/i, "an existing settings file must be replaced atomically");
+  assert.match(shortcutsHelperSource, /\.tmp["']/i, "the replacement must be staged beside the settings file");
+});
+
+test(
+  "shortcut settings round-trip and replace atomically outside LocalAppData",
+  { skip: process.platform !== "win32" },
+  async () => {
+    const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "babel-launcher-shortcuts-"));
+    const settingsPath = path.join(temporaryRoot, "shortcuts.json");
+    const powershellSource = String.raw`
+$ErrorActionPreference = "Stop"
+. ([Environment]::GetEnvironmentVariable("BABEL_TEST_SHORTCUT_HELPER"))
+$definitions = @(Get-BabelShortcutDefinitions -Path ([Environment]::GetEnvironmentVariable("BABEL_TEST_SHORTCUT_DEFAULTS")))
+$settingsPath = [Environment]::GetEnvironmentVariable("BABEL_TEST_SHORTCUT_SETTINGS")
+$bindings = Get-BabelDefaultShortcutBindings -Definitions $definitions
+[void](Write-BabelShortcutSettings -Definitions $definitions -Bindings $bindings -Path $settingsPath)
+$bindings["save"] = "Ctrl+Alt+S"
+[void](Write-BabelShortcutSettings -Definitions $definitions -Bindings $bindings -Path $settingsPath)
+$loaded = Read-BabelShortcutSettings -Definitions $definitions -Path $settingsPath
+if ($loaded.Source -ne "User" -or $loaded.Bindings["save"] -ne "Ctrl+Alt+S") {
+    throw "Shortcut settings did not survive an atomic replacement round trip."
+}
+foreach ($forbiddenBinding in @("Ctrl", "A", "Shift+S", "Enter", "Ctrl+W", "F5")) {
+    $wasRejected = $false
+    try {
+        [void](ConvertTo-BabelShortcutBinding -Binding $forbiddenBinding)
+    } catch {
+        $wasRejected = $true
+    }
+    if (-not $wasRejected) {
+        throw "Forbidden shortcut was accepted: $forbiddenBinding"
+    }
+}
+Write-Output "Babel shortcut replacement test passed."
+`;
+
+    try {
+      const { stdout } = await execFileAsync(
+        "powershell.exe",
+        [
+          "-NoLogo",
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-EncodedCommand",
+          Buffer.from(powershellSource, "utf16le").toString("base64"),
+        ],
+        {
+          cwd: root,
+          encoding: "utf8",
+          timeout: 30_000,
+          windowsHide: true,
+          env: {
+            ...process.env,
+            BABEL_TEST_SHORTCUT_HELPER: shortcutsHelperPath,
+            BABEL_TEST_SHORTCUT_DEFAULTS: shortcutDefaultsPath,
+            BABEL_TEST_SHORTCUT_SETTINGS: settingsPath,
+          },
+        },
+      );
+
+      assert.match(stdout, /Babel shortcut replacement test passed/i);
+      assert.deepEqual(await readdir(temporaryRoot), ["shortcuts.json"]);
+
+      const settingsBytes = await readFile(settingsPath);
+      assert.equal(
+        settingsBytes.subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf])),
+        false,
+      );
+      const savedSettings = JSON.parse(settingsBytes.toString("utf8")) as {
+        schemaVersion?: number;
+        bindings?: Record<string, string>;
+      };
+      assert.equal(savedSettings.schemaVersion, 1);
+      assert.equal(savedSettings.bindings?.save, "Ctrl+Alt+S");
+      assert.deepEqual(
+        Object.keys(savedSettings.bindings ?? {}),
+        shortcutDefaults.commands?.map(({ command }) => command),
+      );
+    } finally {
+      await rm(temporaryRoot, { recursive: true, force: true });
+    }
+  },
+);
 
 test("the launcher can minimize to the system tray and restore safely", () => {
   const missingContracts: string[] = [];
@@ -184,12 +341,37 @@ test("the launcher can minimize to the system tray and restore safely", () => {
   if (!/New-Object\s+Windows\.Application[\s\S]{0,240}\.Run\(\$script:Window\)/i.test(guiSource)) {
     missingContracts.push("keep the WPF message loop alive while the window is hidden");
   }
-  if (/\.ShowDialog\(\)/i.test(guiSource)) {
+  if (/\$script:Window\.ShowDialog\(\)/i.test(guiSource)) {
     missingContracts.push("avoid a modal loop that returns as soon as the window is hidden");
   }
 
   assert.deepEqual(missingContracts, []);
 });
+
+test(
+  "the shortcut editor passes a read-only Windows PowerShell smoke test",
+  { skip: process.platform !== "win32" },
+  async () => {
+    const { stdout } = await execFileAsync(
+      "powershell.exe",
+      [
+        "-NoLogo",
+        "-NoProfile",
+        "-STA",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        guiPath,
+        "-SmokeTest",
+      ],
+      { cwd: root, encoding: "utf8", timeout: 30_000, windowsHide: true },
+    );
+
+    assert.match(stdout, /Babel GUI smoke test passed/i);
+    assert.match(stdout, /6 shortcut control\(s\)/i);
+    assert.match(stdout, /8 shortcut command\(s\)/i);
+  },
+);
 
 test(
   "the tray lifecycle passes a real Windows PowerShell smoke test",

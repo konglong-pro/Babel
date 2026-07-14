@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test, { after, before } from "node:test";
@@ -14,6 +14,7 @@ import type * as NoteBacklinksRoute from "@/app/api/notes/[id]/backlinks/route";
 import type * as NoteTitlesRoute from "@/app/api/notes/titles/route";
 import type * as UploadRoute from "@/app/api/uploads/notes/[filename]/route";
 import type * as DatabaseModule from "@/lib/db/client";
+import type * as HttpRequestModule from "@/lib/http/request";
 import type * as RepositoryModule from "@/lib/repositories";
 import type * as StorageModule from "@/lib/storage";
 import type { NoteImageUpload } from "@/lib/storage";
@@ -21,6 +22,7 @@ import type { NoteImageUpload } from "@/lib/storage";
 let temporaryRoot = "";
 let uploadDirectory = "";
 let database: typeof DatabaseModule;
+let httpRequest: typeof HttpRequestModule;
 let repositories: typeof RepositoryModule;
 let storage: typeof StorageModule;
 let folderCollectionRoute: typeof FolderCollectionRoute;
@@ -40,6 +42,7 @@ before(async () => {
   migrate(database.db, { migrationsFolder: path.resolve(process.cwd(), "drizzle") });
   [
     repositories,
+    httpRequest,
     storage,
     folderCollectionRoute,
     folderItemRoute,
@@ -51,6 +54,7 @@ before(async () => {
   ] =
     await Promise.all([
       import("@/lib/repositories"),
+      import("@/lib/http/request"),
       import("@/lib/storage"),
       import("@/app/api/folders/route"),
       import("@/app/api/folders/[id]/route"),
@@ -90,17 +94,23 @@ test("Esperanto backend integration", async (t) => {
     });
 
     await t.test("folder hierarchy prevents cycles and non-empty deletion", () => {
-      const vocabulary = repositories.listFolders()[0];
-      const verbs = repositories.createFolder({ name: "Verbs", parentId: vocabulary.id });
-      const phrasal = repositories.createFolder({ name: "Phrasal", parentId: verbs.id });
+      const history = repositories.listFolders()[0];
+      const ancientRome = repositories.createFolder({
+        name: "Ancient Rome",
+        parentId: history.id,
+      });
+      const sources = repositories.createFolder({
+        name: "Sources",
+        parentId: ancientRome.id,
+      });
 
       assert.throws(
-        () => repositories.updateFolder(verbs.id, { parentId: phrasal.id }),
+        () => repositories.updateFolder(ancientRome.id, { parentId: sources.id }),
         (error: unknown) =>
           error instanceof repositories.RepositoryError && error.code === "CONFLICT",
       );
       assert.throws(
-        () => repositories.deleteFolder(verbs.id),
+        () => repositories.deleteFolder(ancientRome.id),
         (error: unknown) =>
           error instanceof repositories.RepositoryError && error.code === "NOT_EMPTY",
       );
@@ -189,97 +199,301 @@ test("Esperanto backend integration", async (t) => {
       );
     });
 
-    await t.test("notes support recursive listing, moving, normalized tags, and search", () => {
-      const vocabulary = repositories.listFolders()[0];
-      const verbs = repositories.listFolders().find(({ name }) => name === "Verbs");
-      assert.ok(verbs);
-      const note = repositories.createNote({
-        folderId: verbs.id,
-        title: "Take off",
-        contentMd: "A useful phrasal verb for departure.",
-        tags: [" Phrasal ", "phrasal", "Travel"],
-      });
-      assert.deepEqual(note.tags, ["Phrasal", "Travel"]);
-      assert.ok(repositories.listNotes(vocabulary.id).some(({ id }) => id === note.id));
-      assert.equal(repositories.searchNotes("departure").notes[0]?.id, note.id);
-      assert.equal(repositories.searchNotes("travel").notes[0]?.id, note.id);
-      assert.deepEqual(repositories.searchNotes("   "), { notes: [] });
-
-      const grammar = repositories.listFolders()[1];
-      const moved = repositories.updateNote(note.id, { folderId: grammar.id }).note;
-      assert.equal(moved.folderId, grammar.id);
-      assert.throws(
-        () => repositories.deleteFolder(grammar.id),
-        (error: unknown) =>
-          error instanceof repositories.RepositoryError && error.code === "NOT_EMPTY",
-      );
-    });
-
-    await t.test("notes form a guarded hierarchy and move their descendants together", () => {
-      const vocabulary = repositories.listFolders()[0];
-      const grammar = repositories.listFolders()[1];
-      const parent = repositories.createNote({
-        folderId: vocabulary.id,
-        parentId: null,
-        title: "Parent page",
-      });
-      const child = repositories.createNote({
-        folderId: vocabulary.id,
-        parentId: parent.id,
-        title: "Child page",
-      });
-      const grandchild = repositories.createNote({
-        folderId: vocabulary.id,
-        parentId: child.id,
-        title: "Grandchild page",
-      });
-
-      assert.equal(child.parentId, parent.id);
-      assert.throws(
-        () => repositories.updateNote(parent.id, { parentId: grandchild.id }),
-        (error: unknown) =>
-          error instanceof repositories.RepositoryError && error.code === "CONFLICT",
-      );
-      assert.throws(
-        () => repositories.deleteNote(parent.id),
-        (error: unknown) =>
-          error instanceof repositories.RepositoryError && error.code === "NOT_EMPTY",
-      );
-
-      const moved = repositories.updateNote(parent.id, { folderId: grammar.id }).note;
-      assert.equal(moved.parentId, null);
-      assert.deepEqual(
-        [parent.id, child.id, grandchild.id].map((id) => repositories.getNote(id)?.folderId),
-        [grammar.id, grammar.id, grammar.id],
-      );
-
-      const vocabularyRoot = repositories.createNote({
-        folderId: vocabulary.id,
-        title: "Vocabulary root",
-      });
-      assert.throws(
-        () => repositories.createNote({
-          folderId: grammar.id,
-          parentId: vocabularyRoot.id,
-          title: "Cross-folder child",
+    await t.test("note writes enforce the 10 MiB UTF-8 Markdown limit", async () => {
+      const title = "Oversized Markdown";
+      const contentMd = "史".repeat(Math.floor((10 * 1024 * 1024) / 3) + 1);
+      const expectedError = {
+        error: {
+          code: "CONTENT_TOO_LARGE",
+          message: "Markdown content must not exceed 10 MiB.",
+        },
+      };
+      const response = await noteCollectionRoute.POST(
+        new Request("http://localhost/api/notes", {
+          method: "POST",
+          body: noteForm({
+            folderId: repositories.listFolders()[0].id,
+            title,
+            contentMd,
+            tags: [],
+          }),
         }),
-        (error: unknown) =>
-          error instanceof repositories.RepositoryError && error.code === "CONFLICT",
       );
-      const reparented = repositories.updateNote(child.id, {
-        folderId: vocabulary.id,
-        parentId: vocabularyRoot.id,
-      }).note;
-      assert.equal(reparented.parentId, vocabularyRoot.id);
-      assert.equal(repositories.getNote(grandchild.id)?.folderId, vocabulary.id);
+
+      assert.equal(response.status, 413);
+      assert.deepEqual(await response.json(), expectedError);
+      assert.equal(
+        repositories.listNotes().some((note) => note.title === title),
+        false,
+      );
+
+      assert.throws(
+        () =>
+          repositories.createNote({
+            folderId: repositories.listFolders()[0].id,
+            title,
+            contentMd,
+          }),
+        (error: unknown) =>
+          error instanceof repositories.RepositoryError &&
+          error.code === "CONTENT_TOO_LARGE",
+      );
+
+      const existing = repositories.createNote({
+        folderId: repositories.listFolders()[0].id,
+        title: "Existing note",
+        contentMd: "Keep this content.",
+      });
+      const patchResponse = await noteItemRoute.PATCH(
+        new Request(`http://localhost/api/notes/${existing.id}`, {
+          method: "PATCH",
+          body: noteForm({ contentMd }),
+        }),
+        { params: Promise.resolve({ id: String(existing.id) }) },
+      );
+      assert.equal(patchResponse.status, 413);
+      assert.deepEqual(await patchResponse.json(), expectedError);
+      assert.equal(repositories.getNote(existing.id)?.contentMd, "Keep this content.");
+      assert.ok(repositories.deleteNote(existing.id));
     });
 
-    await t.test("note routes expose parent pages and reject cyclic or non-empty mutations", async () => {
-      const folderId = repositories.listFolders()[0].id;
+    await t.test("note saves reject more than 50 new images before staging", async () => {
+      const title = "Too many images";
+      const tokens = Array.from(
+        { length: storage.NOTE_NEW_IMAGE_MAX_COUNT + 1 },
+        (_, index) => `image-${index}`,
+      );
+      const images: ReadonlyArray<readonly [string, Buffer, string]> = tokens.map(
+        (token) => [token, png, "image/png"] as const,
+      );
+      const before = await uploadFiles();
+      const response = await noteCollectionRoute.POST(
+        new Request("http://localhost/api/notes", {
+          method: "POST",
+          body: noteForm(
+            {
+              folderId: repositories.listFolders()[0].id,
+              title,
+              contentMd: tokens
+                .map((token) => `![${token}](esperanto-upload://${token})`)
+                .join("\n"),
+              tags: [],
+            },
+            images,
+          ),
+        }),
+      );
+
+      assert.equal(response.status, 413);
+      assert.deepEqual(await response.json(), {
+        error: {
+          code: "TOO_MANY_IMAGES",
+          message: "A note save may include at most 50 new images.",
+        },
+      });
+      assert.equal(
+        repositories.listNotes().some((note) => note.title === title),
+        false,
+      );
+      assert.deepEqual(await uploadFiles(), before);
+    });
+
+    await t.test("logical note save size is checked before upload bodies are read", async () => {
+      const tokens = Array.from({ length: 10 }, (_, index) => `large-${index}`);
+      const uploads = new Map<string, NoteImageUpload>(
+        tokens.map((token) => [
+          token,
+          {
+            type: "image/png",
+            size: storage.NOTE_IMAGE_MAX_BYTES,
+            async arrayBuffer(): Promise<ArrayBuffer> {
+              throw new Error("Aggregate limits must be checked before reading uploads.");
+            },
+          },
+        ]),
+      );
+      const contentMd = tokens
+        .map((token) => `![${token}](esperanto-upload://${token})`)
+        .join("\n");
+      const before = await uploadFiles();
+
+      await assert.rejects(
+        storage.stageNoteImages(contentMd, uploads),
+        (error: unknown) =>
+          error instanceof storage.ImageStorageError &&
+          error.code === "REQUEST_TOO_LARGE",
+      );
+      assert.deepEqual(await uploadFiles(), before);
+    });
+
+    await t.test("wire size is rejected before multipart parsing", async () => {
+      let formDataCalled = false;
+      const request = {
+        headers: new Headers({
+          "Content-Length": String(160 * 1024 * 1024 + 1),
+        }),
+        async formData(): Promise<FormData> {
+          formDataCalled = true;
+          throw new Error("Multipart parsing must not run for a trusted oversized body.");
+        },
+      } as Request;
+
+      await assert.rejects(
+        httpRequest.readNoteMultipart(request),
+        (error: unknown) =>
+          error instanceof Error &&
+          "code" in error &&
+          (error as { code: string }).code === "REQUEST_TOO_LARGE",
+      );
+      assert.equal(formDataCalled, false);
+
+      let invalidHeaderParsed = false;
+      const parsed = await httpRequest.readNoteMultipart({
+        headers: new Headers({ "Content-Length": "not-a-decimal-length" }),
+        async formData(): Promise<FormData> {
+          invalidHeaderParsed = true;
+          return noteForm({});
+        },
+      } as Request);
+      assert.equal(invalidHeaderParsed, true);
+      assert.deepEqual(parsed.payload, {});
+      assert.equal(parsed.uploads.size, 0);
+
+      for (const contentLength of [undefined, "1", "not-a-decimal-length"]) {
+        const headers = new Headers({
+          "Content-Type": "multipart/form-data; boundary=esperanto-test",
+        });
+        if (contentLength !== undefined) {
+          headers.set("Content-Length", contentLength);
+        }
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(Uint8Array.from([0x01, 0x02]));
+            controller.enqueue(Uint8Array.from([0x03, 0x04]));
+          },
+        });
+
+        await assert.rejects(
+          httpRequest.readNoteMultipart({ headers, body } as Request, 3),
+          (error: unknown) =>
+            error instanceof Error &&
+            "code" in error &&
+            (error as { code: string }).code === "REQUEST_TOO_LARGE",
+        );
+      }
+    });
+
+    await t.test("final Markdown expansion cannot exceed the logical save limit", async () => {
+      const largePng = Buffer.alloc(storage.NOTE_IMAGE_MAX_BYTES, 0);
+      png.copy(largePng);
+      const mediumPng = Buffer.alloc(1024 * 1024, 0);
+      png.copy(mediumPng);
+      const uploads = new Map<string, NoteImageUpload>();
+      for (let index = 0; index < 9; index += 1) {
+        uploads.set(`large-${index}`, upload(largePng, "image/png"));
+      }
+      uploads.set("medium", upload(mediumPng, "image/png"));
+
+      const placeholders = [...uploads.keys()]
+        .map((token) => `![${token}](esperanto-upload://${token})`)
+        .join("\n");
+      const targetContentBytes =
+        storage.NOTE_SAVE_MAX_BYTES -
+        9 * storage.NOTE_IMAGE_MAX_BYTES -
+        mediumPng.byteLength;
+      const contentMd =
+        placeholders + "x".repeat(targetContentBytes - placeholders.length);
+      const before = await uploadFiles();
+
+      await assert.rejects(
+        storage.stageNoteImages(contentMd, uploads),
+        (error: unknown) =>
+          error instanceof storage.ImageStorageError &&
+          error.code === "REQUEST_TOO_LARGE",
+      );
+      assert.deepEqual(await uploadFiles(), before);
+      assert.deepEqual(await stagingContents(), []);
+    });
+
+    await t.test("invalid note business data does not read or persist uploads", async () => {
+      let uploadRead = false;
+      const before = await uploadFiles();
+      const body = multipartLike(
+        {
+          folderId: 999_999,
+          title: "Missing folder",
+          contentMd: "![image](esperanto-upload://image)",
+          tags: [],
+        },
+        "image",
+        {
+          type: "image/png",
+          size: png.byteLength,
+          async arrayBuffer(): Promise<ArrayBuffer> {
+            uploadRead = true;
+            return Uint8Array.from(png).buffer;
+          },
+        },
+      );
+      const response = await noteCollectionRoute.POST(
+        {
+          url: "http://localhost/api/notes",
+          headers: new Headers(),
+          formData: async () => body,
+        } as unknown as Request,
+      );
+
+      assert.equal(response.status, 404);
+      assert.equal(uploadRead, false);
+      assert.deepEqual(await uploadFiles(), before);
+
+      const existing = repositories.createNote({
+        folderId: repositories.listFolders()[0].id,
+        title: "Prevalidated patch",
+        contentMd: "unchanged",
+      });
+      const patchBody = multipartLike(
+        {
+          folderId: 999_999,
+          contentMd: "![image](esperanto-upload://image)",
+        },
+        "image",
+        {
+          type: "image/png",
+          size: png.byteLength,
+          async arrayBuffer(): Promise<ArrayBuffer> {
+            uploadRead = true;
+            return Uint8Array.from(png).buffer;
+          },
+        },
+      );
+      const patchResponse = await noteItemRoute.PATCH(
+        {
+          url: `http://localhost/api/notes/${existing.id}`,
+          headers: new Headers(),
+          formData: async () => patchBody,
+        } as unknown as Request,
+        { params: Promise.resolve({ id: String(existing.id) }) },
+      );
+      assert.equal(patchResponse.status, 404);
+      assert.equal(uploadRead, false);
+      assert.equal(repositories.getNote(existing.id)?.contentMd, "unchanged");
+      assert.deepEqual(await uploadFiles(), before);
+      assert.ok(repositories.deleteNote(existing.id));
+    });
+
+    await t.test("notes support nested pages and expose parentId through the API", async () => {
+      const history = repositories.listFolders()[0];
       const parentResponse = await noteCollectionRoute.POST(
         new Request("http://localhost/api/notes", {
           method: "POST",
-          body: noteForm({ folderId, parentId: null, title: "API parent" }),
+          body: noteForm({
+            folderId: history.id,
+            parentId: null,
+            title: "Parent page",
+            contentMd: "",
+            tags: [],
+          }),
         }),
       );
       assert.equal(parentResponse.status, 201);
@@ -289,56 +503,138 @@ test("Esperanto backend integration", async (t) => {
       const childResponse = await noteCollectionRoute.POST(
         new Request("http://localhost/api/notes", {
           method: "POST",
-          body: noteForm({ folderId, parentId: parent.id, title: "API child" }),
+          body: noteForm({
+            folderId: history.id,
+            parentId: parent.id,
+            title: "Child page",
+            contentMd: "",
+            tags: [],
+          }),
         }),
       );
       assert.equal(childResponse.status, 201);
       const child = (await childResponse.json()) as { id: number; parentId: number | null };
       assert.equal(child.parentId, parent.id);
+      assert.equal(repositories.getNote(child.id)?.parentId, parent.id);
+    });
 
-      const cycle = await noteItemRoute.PATCH(
-        new Request(`http://localhost/api/notes/${parent.id}`, {
-          method: "PATCH",
-          body: noteForm({ parentId: child.id }),
+    await t.test("note hierarchy rejects cycles, moves subtrees, and protects parents", async () => {
+      const [history, literature] = repositories.listFolders();
+      const root = repositories.createNote({
+        folderId: history.id,
+        title: "Movable root",
+      });
+      const child = repositories.createNote({
+        folderId: history.id,
+        parentId: root.id,
+        title: "Movable child",
+      });
+      const grandchild = repositories.createNote({
+        folderId: history.id,
+        parentId: child.id,
+        title: "Movable grandchild",
+      });
+
+      assert.throws(
+        () => repositories.updateNote(root.id, { parentId: grandchild.id }),
+        (error: unknown) =>
+          error instanceof repositories.RepositoryError && error.code === "CONFLICT",
+      );
+      assert.throws(
+        () => repositories.createNote({
+          folderId: literature.id,
+          parentId: root.id,
+          title: "Wrong-folder child",
         }),
-        { params: Promise.resolve({ id: String(parent.id) }) },
+        (error: unknown) =>
+          error instanceof repositories.RepositoryError && error.code === "CONFLICT",
       );
-      assert.equal(cycle.status, 409);
 
-      const nonEmpty = await noteItemRoute.DELETE(
-        new Request(`http://localhost/api/notes/${parent.id}`, { method: "DELETE" }),
-        { params: Promise.resolve({ id: String(parent.id) }) },
+      const leaf = repositories.createNote({
+        folderId: history.id,
+        parentId: root.id,
+        title: "Movable leaf",
+      });
+      const movedLeaf = repositories.updateNote(leaf.id, {
+        folderId: literature.id,
+      }).note;
+      assert.equal(movedLeaf.parentId, null);
+      assert.equal(movedLeaf.folderId, literature.id);
+
+      const moved = repositories.updateNote(child.id, { folderId: literature.id }).note;
+      assert.equal(moved.parentId, null);
+      assert.equal(moved.folderId, literature.id);
+      assert.equal(repositories.getNote(grandchild.id)?.folderId, literature.id);
+      assert.equal(repositories.getNote(grandchild.id)?.parentId, child.id);
+
+      assert.throws(
+        () => repositories.deleteNote(child.id),
+        (error: unknown) =>
+          error instanceof repositories.RepositoryError && error.code === "NOT_EMPTY",
       );
-      assert.equal(nonEmpty.status, 409);
+      const deleteResponse = await noteItemRoute.DELETE(
+        new Request(`http://localhost/api/notes/${child.id}`, { method: "DELETE" }),
+        { params: Promise.resolve({ id: String(child.id) }) },
+      );
+      assert.equal(deleteResponse.status, 409);
+      assert.equal((await deleteResponse.json() as { error: { code: string } }).error.code, "NOT_EMPTY");
+    });
+
+    await t.test("notes support recursive listing, moving, normalized tags, and search", () => {
+      const history = repositories.listFolders()[0];
+      const ancientRome = repositories.listFolders().find(
+        ({ name }) => name === "Ancient Rome",
+      );
+      assert.ok(ancientRome);
+      const note = repositories.createNote({
+        folderId: ancientRome.id,
+        title: "The Twelve Tables",
+        contentMd: "这是一份关于古罗马十二表法的历史记录。",
+        tags: [" Roman law ", "roman law", "Vocabulary"],
+      });
+      assert.deepEqual(note.tags, ["Roman law", "Vocabulary"]);
+      assert.ok(repositories.listNotes(history.id).some(({ id }) => id === note.id));
+      assert.equal(repositories.searchNotes("古罗马").notes[0]?.id, note.id);
+      assert.equal(repositories.searchNotes("vocabulary").notes[0]?.id, note.id);
+      assert.deepEqual(repositories.searchNotes("   "), { notes: [] });
+
+      const literature = repositories.listFolders()[1];
+      const moved = repositories.updateNote(note.id, { folderId: literature.id }).note;
+      assert.equal(moved.folderId, literature.id);
+      assert.throws(
+        () => repositories.deleteFolder(literature.id),
+        (error: unknown) =>
+          error instanceof repositories.RepositoryError && error.code === "NOT_EMPTY",
+      );
     });
 
     await t.test("wikilink indexes, APIs, and lifecycle stay deterministic", async () => {
       const folderId = repositories.listFolders()[0].id;
       const firstTarget = repositories.createNote({
         folderId,
-        title: "M2 Wiki Target",
+        title: "M3 Wiki Target",
       });
       const secondTarget = repositories.createNote({
         folderId,
-        title: "M2   WIKI target",
+        title: "M3   WIKI target",
       });
       assert.ok(firstTarget.id < secondTarget.id);
 
       const source = repositories.createNote({
         folderId,
-        title: "Link Source M2",
+        title: "Link Source M3",
         contentMd: [
-          "[[ M2   wiki TARGET |Primary alias]] and [[m2 wiki target]]",
-          "[[M2 Missing Target]]",
-          "`[[M2 Inline Hidden]]`",
+          "[[ M3   wiki TARGET |Primary alias]] and [[m3 wiki target]]",
+          "[[M3 Missing Target]]",
+          "`[[M3 Inline Hidden]]`",
           "```md",
-          "[[M2 Fence Hidden]]",
+          "[[M3 Fence Hidden]]",
           "```",
         ].join("\r\n"),
       });
       const expectedLinks = [
-        { titleKey: "m2 missing target", targetId: null },
-        { titleKey: "m2 wiki target", targetId: firstTarget.id },
+        { titleKey: "m3 missing target", targetId: null },
+        { titleKey: "m3 wiki target", targetId: firstTarget.id },
       ];
       assert.deepEqual(source.links, expectedLinks);
       assert.deepEqual(repositories.listOutgoingNoteLinks(source.id), expectedLinks);
@@ -366,7 +662,7 @@ test("Esperanto backend integration", async (t) => {
       assert.deepEqual(repositories.listBacklinks(secondTarget.id), []);
 
       const titlesResponse = await noteTitlesRoute.GET(
-        new Request("http://localhost/api/notes/titles?q=m2&limit=10"),
+        new Request("http://localhost/api/notes/titles?q=m3&limit=10"),
       );
       assert.equal(titlesResponse.status, 200);
       const titles = (await titlesResponse.json()) as Array<{ id: number; title: string }>;
@@ -375,18 +671,18 @@ test("Esperanto backend integration", async (t) => {
         new Set([firstTarget.id, secondTarget.id]),
       );
       const limitedTitles = await noteTitlesRoute.GET(
-        new Request("http://localhost/api/notes/titles?q=m2&limit=1"),
+        new Request("http://localhost/api/notes/titles?q=m3&limit=1"),
       );
       assert.equal(limitedTitles.status, 200);
       assert.equal(((await limitedTitles.json()) as unknown[]).length, 1);
 
-      repositories.updateNote(firstTarget.id, { title: "M2 Alternate Target" });
+      repositories.updateNote(firstTarget.id, { title: "M3 Alternate Target" });
       assert.deepEqual(repositories.listOutgoingNoteLinks(source.id), [
         expectedLinks[0],
-        { titleKey: "m2 wiki target", targetId: secondTarget.id },
+        { titleKey: "m3 wiki target", targetId: secondTarget.id },
       ]);
 
-      repositories.updateNote(firstTarget.id, { title: "M2 Wiki Target" });
+      repositories.updateNote(firstTarget.id, { title: "M3 Wiki Target" });
       assert.equal(
         repositories.listOutgoingNoteLinks(source.id)[1]?.targetId,
         firstTarget.id,
@@ -398,10 +694,10 @@ test("Esperanto backend integration", async (t) => {
         secondTarget.id,
       );
 
-      repositories.updateNote(secondTarget.id, { title: "M2 Renamed Target" });
+      repositories.updateNote(secondTarget.id, { title: "M3 Renamed Target" });
       assert.equal(repositories.listOutgoingNoteLinks(source.id)[1]?.targetId, null);
 
-      repositories.updateNote(secondTarget.id, { title: "M2 Wiki Target" });
+      repositories.updateNote(secondTarget.id, { title: "M3 Wiki Target" });
       assert.equal(
         repositories.listOutgoingNoteLinks(source.id)[1]?.targetId,
         secondTarget.id,
@@ -411,7 +707,7 @@ test("Esperanto backend integration", async (t) => {
       assert.equal(repositories.listOutgoingNoteLinks(source.id)[1]?.targetId, null);
       const replacement = repositories.createNote({
         folderId,
-        title: "m2 wiki target",
+        title: "m3 wiki target",
       });
       assert.equal(
         repositories.listOutgoingNoteLinks(source.id)[1]?.targetId,
@@ -426,7 +722,7 @@ test("Esperanto backend integration", async (t) => {
           {
             sourceId: source.id,
             sourceTitle: source.title,
-            targetTitleKey: "m2 missing target",
+            targetTitleKey: "m3 missing target",
           },
         ],
       });
@@ -447,25 +743,25 @@ test("Esperanto backend integration", async (t) => {
       const folderId = repositories.listFolders()[0].id;
       const literal = repositories.createNote({
         folderId,
-        title: "M2 %_ literal prefix",
+        title: "M3 %_ literal prefix",
       });
       repositories.createNote({
         folderId,
-        title: "Before M2 %_ literal prefix",
+        title: "Before M3 %_ literal prefix",
       });
       const slash = repositories.createNote({
         folderId,
-        title: "M2 slash\\ literal prefix",
+        title: "M3 slash\\ literal prefix",
       });
       const unicode = repositories.createNote({
         folderId,
         title: "Ĉapitro   Du",
       });
 
-      assert.deepEqual(repositories.listNoteTitles("m2 %_", 20), [
+      assert.deepEqual(repositories.listNoteTitles("m3 %_", 20), [
         { id: literal.id, title: literal.title },
       ]);
-      assert.deepEqual(repositories.listNoteTitles("m2 slash\\", 20), [
+      assert.deepEqual(repositories.listNoteTitles("m3 slash\\", 20), [
         { id: slash.id, title: slash.title },
       ]);
       assert.deepEqual(repositories.listNoteTitles("ĉa", 20), [
@@ -481,30 +777,30 @@ test("Esperanto backend integration", async (t) => {
       const folderId = repositories.listFolders()[1].id;
       const targetA = repositories.createNote({
         folderId,
-        title: "M2 Atomic Target A",
+        title: "M3 Atomic Target A",
       });
       const targetB = repositories.createNote({
         folderId,
-        title: "M2 Atomic Target B",
+        title: "M3 Atomic Target B",
       });
       const source = repositories.createNote({
         folderId,
-        title: "M2 Atomic Source",
-        contentMd: "Before [[M2 Atomic Target A]]",
+        title: "M3 Atomic Source",
+        contentMd: "Before [[M3 Atomic Target A]]",
       });
 
       assert.deepEqual(repositories.listOutgoingNoteLinks(source.id), [
-        { titleKey: "m2 atomic target a", targetId: targetA.id },
+        { titleKey: "m3 atomic target a", targetId: targetA.id },
       ]);
       assert.deepEqual(repositories.listBacklinks(targetA.id), [
         { id: source.id, title: source.title, folderId },
       ]);
 
       const replaced = repositories.updateNote(source.id, {
-        contentMd: "After [[M2 Atomic Target B]]",
+        contentMd: "After [[M3 Atomic Target B]]",
       }).note;
       assert.deepEqual(replaced.links, [
-        { titleKey: "m2 atomic target b", targetId: targetB.id },
+        { titleKey: "m3 atomic target b", targetId: targetB.id },
       ]);
       assert.deepEqual(repositories.listBacklinks(targetA.id), []);
       assert.deepEqual(repositories.listBacklinks(targetB.id), [
@@ -528,8 +824,8 @@ test("Esperanto backend integration", async (t) => {
         assert.throws(
           () => repositories.updateNote(
             source.id,
-            { contentMd: "Failed [[M2 Atomic Target A]] ![Rollback](/api/uploads/notes/m2-update-rollback.png)" },
-            ["data/uploads/notes/m2-update-rollback.png"],
+            { contentMd: "Failed [[M3 Atomic Target A]] ![Rollback](/api/uploads/notes/m3-update-rollback.png)" },
+            ["data/uploads/notes/m3-update-rollback.png"],
           ),
           /forced note_link insert failure/,
         );
@@ -547,16 +843,16 @@ test("Esperanto backend integration", async (t) => {
           () => repositories.createNote(
             {
               folderId,
-              title: "M2 Failed Atomic Create",
-              contentMd: "[[M2 Atomic Target A]] ![Rollback](/api/uploads/notes/m2-create-rollback.png)",
+              title: "M3 Failed Atomic Create",
+              contentMd: "[[M3 Atomic Target A]] ![Rollback](/api/uploads/notes/m3-create-rollback.png)",
             },
-            ["data/uploads/notes/m2-create-rollback.png"],
+            ["data/uploads/notes/m3-create-rollback.png"],
           ),
           /forced note_link insert failure/,
         );
         assert.equal(repositories.listNotes().length, noteCountBefore);
         assert.equal(
-          repositories.listNotes().some(({ title }) => title === "M2 Failed Atomic Create"),
+          repositories.listNotes().some(({ title }) => title === "M3 Failed Atomic Create"),
           false,
         );
         assert.equal(
@@ -650,8 +946,114 @@ test("Esperanto backend integration", async (t) => {
       assert.deepEqual(await stagingContents(), []);
     });
 
+    await t.test("storage recovery restores owned quarantine and removes only generated orphans", async () => {
+      const folderId = repositories.listFolders()[0].id;
+      const staged = await storage.stageNoteImages(
+        "![Recovered](esperanto-upload://recovered)",
+        new Map([["recovered", upload(png, "image/png")]]),
+      );
+      const note = repositories.createNote(
+        {
+          folderId,
+          title: "Crash recovery",
+          contentMd: staged.contentMd,
+          tags: [],
+        },
+        staged.imagePaths,
+      );
+      await storage.quarantineNoteImages(staged.imagePaths);
+      await assert.rejects(storage.readNoteImage(staged.imagePaths[0]), {
+        code: "NOT_FOUND",
+      });
+
+      await storage.recoverNoteImageStorage();
+
+      assert.deepEqual((await storage.readNoteImage(staged.imagePaths[0])).data, png);
+      assert.deepEqual(await stagingContents(), []);
+
+      const orphanPath = await storage.saveNoteImage(upload(png, "image/png"));
+      const arbitraryPath = path.join(uploadDirectory, "personal.png");
+      await writeFile(arbitraryPath, png);
+      await storage.recoverNoteImageStorage();
+
+      await assert.rejects(storage.readNoteImage(orphanPath), { code: "NOT_FOUND" });
+      assert.deepEqual(await storage.readNoteImage("personal.png"), {
+        data: png,
+        contentType: "image/png",
+        fileName: "personal.png",
+        imagePath: "data/uploads/notes/personal.png",
+        size: png.byteLength,
+      });
+
+      const deleted = await noteItemRoute.DELETE(
+        new Request(`http://localhost/api/notes/${note.id}`, { method: "DELETE" }),
+        { params: Promise.resolve({ id: String(note.id) }) },
+      );
+      assert.equal(deleted.status, 204);
+    });
+
+    await t.test("image mutation lock preserves the full critical-section order", async () => {
+      const events: string[] = [];
+      let signalFirstStarted!: () => void;
+      let releaseFirst!: () => void;
+      const firstStarted = new Promise<void>((resolve) => {
+        signalFirstStarted = resolve;
+      });
+      const firstGate = new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+
+      const first = storage.withNoteImageMutationLock(async () => {
+        events.push("first-start");
+        signalFirstStarted();
+        await firstGate;
+        events.push("first-end");
+      });
+      await firstStarted;
+      const second = storage.withNoteImageMutationLock(async () => {
+        events.push("second-start");
+      });
+      await Promise.resolve();
+      assert.deepEqual(events, ["first-start"]);
+
+      releaseFirst();
+      await Promise.all([first, second]);
+      assert.deepEqual(events, ["first-start", "first-end", "second-start"]);
+    });
+
+    await t.test("storage recovery waits for an active image mutation", async () => {
+      let signalMutationStarted!: () => void;
+      let releaseMutation!: () => void;
+      const mutationStarted = new Promise<void>((resolve) => {
+        signalMutationStarted = resolve;
+      });
+      const mutationGate = new Promise<void>((resolve) => {
+        releaseMutation = resolve;
+      });
+
+      const mutation = storage.withNoteImageMutationLock(async () => {
+        signalMutationStarted();
+        await mutationGate;
+      });
+      await mutationStarted;
+      let recoveryEntered = false;
+      const recovery = storage.recoverNoteImageStorage(async () => {
+        recoveryEntered = true;
+      });
+      await Promise.resolve();
+      assert.equal(recoveryEntered, false);
+
+      releaseMutation();
+      await Promise.all([mutation, recovery]);
+      assert.equal(recoveryEntered, true);
+    });
+
     await t.test("multipart API rolls back partial and database failures", async () => {
-      const folderId = repositories.listFolders()[2].id;
+      const literature = repositories.listFolders().find(
+        ({ name }) => name === "Grammar",
+      );
+      assert.ok(literature);
+      const folderId = literature.id;
       const before = await uploadFiles();
       const partial = noteForm(
         {
@@ -692,7 +1094,11 @@ test("Esperanto backend integration", async (t) => {
     });
 
     await t.test("managed image lifecycle enforces ownership and cleans files", async () => {
-      const folderId = repositories.listFolders()[2].id;
+      const literature = repositories.listFolders().find(
+        ({ name }) => name === "Grammar",
+      );
+      assert.ok(literature);
+      const folderId = literature.id;
       const createForm = noteForm(
         {
           folderId,
@@ -840,7 +1246,11 @@ test("Esperanto backend integration", async (t) => {
     });
 
     await t.test("deleting a note quarantines and finalizes its owned image", async () => {
-      const folderId = repositories.listFolders()[2].id;
+      const literature = repositories.listFolders().find(
+        ({ name }) => name === "Grammar",
+      );
+      assert.ok(literature);
+      const folderId = literature.id;
       const response = await noteCollectionRoute.POST(
         new Request("http://localhost/api/notes", {
           method: "POST",
@@ -897,6 +1307,28 @@ function noteForm(
     );
   }
   return form;
+}
+
+function multipartLike(
+  payload: Record<string, unknown>,
+  token: string,
+  image: NoteImageUpload,
+): FormData {
+  const entries: ReadonlyArray<readonly [string, string | NoteImageUpload]> = [
+    ["payload", JSON.stringify(payload)],
+    [`image:${token}`, image],
+  ];
+  return {
+    getAll(field: string): Array<string | NoteImageUpload> {
+      return entries.filter(([name]) => name === field).map(([, value]) => value);
+    },
+    entries(): IterableIterator<[string, FormDataEntryValue]> {
+      return entries[Symbol.iterator]() as IterableIterator<[
+        string,
+        FormDataEntryValue,
+      ]>;
+    },
+  } as unknown as FormData;
 }
 
 async function uploadFiles(): Promise<string[]> {

@@ -20,6 +20,11 @@ import {
   listNotes,
   updateFolder,
 } from "@/lib/api-client";
+import {
+  parseMarkdownImport,
+  type MarkdownImportDraft,
+} from "@/lib/markdown-import";
+import { NOTE_CONTENT_MAX_BYTES } from "@/lib/note-limits";
 import type {
   BacklinkDto,
   FolderDto,
@@ -93,10 +98,9 @@ export function NotesWorkspace({
   const [selectedNoteId, setSelectedNoteId] = useState<number | null>(initialNoteId);
   const [detail, setDetail] = useState<NoteDetailDto | null>(null);
   const [backlinks, setBacklinks] = useState<BacklinkDto[]>([]);
-  const [createTarget, setCreateTarget] = useState<{
-    folderId: number;
-    parentId: number | null;
-  } | null>(null);
+  const [importDraft, setImportDraft] = useState<MarkdownImportDraft | null>(null);
+  const [draftParentId, setDraftParentId] = useState<number | null>(null);
+  const [draftVersion, setDraftVersion] = useState(0);
   const [mode, setMode] = useState<NoteViewMode>("view");
   const [stage, setStage] = useState<ResponsiveStage>(
     initialNoteId !== null ? "note" : initialFolderId !== null ? "notes" : "library",
@@ -108,15 +112,54 @@ export function NotesWorkspace({
   const [detailError, setDetailError] = useState("");
   const [dirty, setDirty] = useState(false);
   const selectionVersionRef = useRef(0);
+  const dirtyRef = useRef(false);
+  const savingRef = useRef(false);
+  const mountedRef = useRef(false);
+  const selectedFolderIdRef = useRef(selectedFolderId);
+  const importRequestVersionRef = useRef(0);
   const wikilinkCreateGenerationRef = useRef(0);
   const wikilinkCreatePendingRef = useRef(false);
-  const dirtyRef = useRef(false);
   const saveActionRef = useRef<(() => void) | null>(null);
   const guardedUrlRef = useRef("");
   const guardEntryPresentRef = useRef(false);
   const allowNextPopRef = useRef(false);
   const allowUnloadRef = useRef(false);
   const popFallbackTimerRef = useRef<number | null>(null);
+
+  const invalidateImportRequest = useCallback(() => {
+    importRequestVersionRef.current += 1;
+  }, []);
+
+  const invalidateWikilinkCreate = useCallback(() => {
+    wikilinkCreateGenerationRef.current += 1;
+  }, []);
+
+  const setSavingState = useCallback((saving: boolean) => {
+    savingRef.current = saving;
+    if (saving && !guardEntryPresentRef.current) {
+      guardedUrlRef.current = currentRelativeUrl();
+      window.history.pushState(
+        guardedHistoryState(),
+        "",
+        guardedUrlRef.current,
+      );
+      guardEntryPresentRef.current = true;
+    }
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      importRequestVersionRef.current += 1;
+      invalidateWikilinkCreate();
+      selectionVersionRef.current += 1;
+    };
+  }, [invalidateWikilinkCreate]);
+
+  useEffect(() => {
+    selectedFolderIdRef.current = selectedFolderId;
+  }, [selectedFolderId]);
 
   const refreshIndex = useCallback(async () => {
     const [nextFolders, nextNotes] = await Promise.all([listFolders(), listNotes()]);
@@ -125,22 +168,11 @@ export function NotesWorkspace({
     return { folders: nextFolders, notes: nextNotes };
   }, []);
 
-  const invalidateWikilinkCreate = useCallback(() => {
-    wikilinkCreateGenerationRef.current += 1;
-  }, []);
-
   const setActiveNoteId = useCallback((id: number | null): number => {
     invalidateWikilinkCreate();
     selectionVersionRef.current += 1;
     setSelectedNoteId(id);
     return selectionVersionRef.current;
-  }, [invalidateWikilinkCreate]);
-
-  useEffect(() => {
-    return () => {
-      invalidateWikilinkCreate();
-      selectionVersionRef.current += 1;
-    };
   }, [invalidateWikilinkCreate]);
 
   useEffect(() => {
@@ -154,7 +186,9 @@ export function NotesWorkspace({
           initialFolderId !== null &&
           !nextFolders.some((folder) => folder.id === initialFolderId)
         ) {
+          invalidateImportRequest();
           invalidateWikilinkCreate();
+          selectedFolderIdRef.current = null;
           setSelectedFolderId(null);
           setStage(initialNoteId !== null ? "note" : "library");
         }
@@ -168,7 +202,12 @@ export function NotesWorkspace({
     return () => {
       active = false;
     };
-  }, [initialFolderId, initialNoteId, invalidateWikilinkCreate]);
+  }, [
+    initialFolderId,
+    initialNoteId,
+    invalidateImportRequest,
+    invalidateWikilinkCreate,
+  ]);
 
   useEffect(() => {
     if (selectedNoteId === null) return;
@@ -216,39 +255,44 @@ export function NotesWorkspace({
   }, []);
 
   const confirmDiscard = useCallback((): boolean => {
+    if (savingRef.current || wikilinkCreatePendingRef.current) {
+      window.alert("Please wait for the note to finish saving.");
+      return false;
+    }
     if (!dirtyRef.current) return true;
     return window.confirm("Discard your unsaved changes?");
   }, []);
 
   const resetToLibraryRoot = useCallback(() => {
+    invalidateImportRequest();
+    selectedFolderIdRef.current = null;
     setDirtyState(false);
     setSelectedFolderId(null);
     setActiveNoteId(null);
     setDetail(null);
     setBacklinks([]);
-    setCreateTarget(null);
+    setImportDraft(null);
+    setDraftParentId(null);
     setDetailError("");
     setDetailLoading(false);
     setDetailRequestVersion(0);
     setMode("view");
     setStage("library");
-  }, [setActiveNoteId, setDirtyState]);
+  }, [invalidateImportRequest, setActiveNoteId, setDirtyState]);
 
   useEffect(() => {
     guardedUrlRef.current = currentRelativeUrl();
     guardEntryPresentRef.current = isGuardedHistoryState(window.history.state);
 
     function beforeUnload(event: BeforeUnloadEvent) {
-      if (!dirtyRef.current || allowUnloadRef.current) return;
+      if (
+        (!dirtyRef.current &&
+          !savingRef.current &&
+          !wikilinkCreatePendingRef.current) ||
+        allowUnloadRef.current
+      ) return;
       event.preventDefault();
       event.returnValue = true;
-    }
-
-    function saveShortcut(event: KeyboardEvent) {
-      if (!(event.ctrlKey || event.metaKey) || event.key.toLocaleLowerCase() !== "s") return;
-      if (!saveActionRef.current) return;
-      event.preventDefault();
-      saveActionRef.current();
     }
 
     function beforeNavigate(event: Event) {
@@ -257,12 +301,14 @@ export function NotesWorkspace({
         return;
       }
 
+      invalidateImportRequest();
       invalidateWikilinkCreate();
       const navigationEvent = event as CustomEvent<BeforeNavigateDetail>;
       if (navigationEvent.detail?.destination === "/notes") resetToLibraryRoot();
     }
 
     function popState(event: PopStateEvent) {
+      invalidateImportRequest();
       if (allowNextPopRef.current) {
         allowNextPopRef.current = false;
         allowUnloadRef.current = false;
@@ -279,7 +325,12 @@ export function NotesWorkspace({
       // observing that intermediate entry while we decide whether to leave.
       event.stopImmediatePropagation();
 
-      if (dirtyRef.current && !confirmDiscard()) {
+      if (
+        (dirtyRef.current ||
+          savingRef.current ||
+          wikilinkCreatePendingRef.current) &&
+        !confirmDiscard()
+      ) {
         window.history.pushState(
           guardedHistoryState(),
           "",
@@ -311,12 +362,10 @@ export function NotesWorkspace({
     }
 
     window.addEventListener("beforeunload", beforeUnload);
-    window.addEventListener("keydown", saveShortcut);
     window.addEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
     window.addEventListener("popstate", popState, true);
     return () => {
       window.removeEventListener("beforeunload", beforeUnload);
-      window.removeEventListener("keydown", saveShortcut);
       window.removeEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
       window.removeEventListener("popstate", popState, true);
       if (popFallbackTimerRef.current !== null) {
@@ -324,7 +373,12 @@ export function NotesWorkspace({
         popFallbackTimerRef.current = null;
       }
     };
-  }, [confirmDiscard, invalidateWikilinkCreate, resetToLibraryRoot]);
+  }, [
+    confirmDiscard,
+    invalidateImportRequest,
+    invalidateWikilinkCreate,
+    resetToLibraryRoot,
+  ]);
 
   const folderMap = useMemo(() => new Map(folders.map((folder) => [folder.id, folder])), [folders]);
   const visibleNotes = useMemo(() => {
@@ -347,11 +401,14 @@ export function NotesWorkspace({
 
   function selectFolder(id: number | null) {
     if (!confirmDiscard()) return;
+    invalidateImportRequest();
+    selectedFolderIdRef.current = id;
     setSelectedFolderId(id);
     setActiveNoteId(null);
     setDetail(null);
     setBacklinks([]);
-    setCreateTarget(null);
+    setImportDraft(null);
+    setDraftParentId(null);
     setDetailError("");
     setDetailLoading(false);
     setDetailRequestVersion(0);
@@ -362,12 +419,15 @@ export function NotesWorkspace({
 
   function openNote(id: number, folderId?: number) {
     if (!confirmDiscard()) return;
+    invalidateImportRequest();
     const targetFolderId = folderId ?? notes.find((note) => note.id === id)?.folderId ?? null;
+    selectedFolderIdRef.current = targetFolderId;
     setSelectedFolderId(targetFolderId);
     setActiveNoteId(id);
     setDetail(null);
     setBacklinks([]);
-    setCreateTarget(null);
+    setImportDraft(null);
+    setDraftParentId(null);
     setDetailError("");
     setDetailLoading(true);
     setDetailRequestVersion(0);
@@ -378,14 +438,17 @@ export function NotesWorkspace({
 
   async function handleCreateFolder(name: string, parentId: number | null) {
     if (!confirmDiscard()) return;
+    invalidateImportRequest();
     invalidateWikilinkCreate();
     const created = await createFolder({ name, parentId });
     await refreshIndex();
+    selectedFolderIdRef.current = created.id;
     setSelectedFolderId(created.id);
     setActiveNoteId(null);
     setDetail(null);
     setBacklinks([]);
-    setCreateTarget(null);
+    setImportDraft(null);
+    setDraftParentId(null);
     setMode("view");
     setDetailLoading(false);
     setDetailRequestVersion(0);
@@ -405,14 +468,17 @@ export function NotesWorkspace({
 
   async function handleDeleteFolder(id: number) {
     if (!confirmDiscard()) return;
+    invalidateImportRequest();
     invalidateWikilinkCreate();
     await deleteFolder(id);
     await refreshIndex();
+    selectedFolderIdRef.current = null;
     setSelectedFolderId(null);
     setActiveNoteId(null);
     setDetail(null);
     setBacklinks([]);
-    setCreateTarget(null);
+    setImportDraft(null);
+    setDraftParentId(null);
     setMode("view");
     setDetailLoading(false);
     setDetailRequestVersion(0);
@@ -421,11 +487,14 @@ export function NotesWorkspace({
   }
 
   async function handleSaved(saved: NoteDetailDto) {
+    invalidateImportRequest();
     const folderChanged = detail !== null && saved.folderId !== detail.folderId;
     const nextFolderId = detail === null || folderChanged ? saved.folderId : selectedFolderId;
+    selectedFolderIdRef.current = nextFolderId;
     setDetail(saved);
     setBacklinks([]);
-    setCreateTarget(null);
+    setImportDraft(null);
+    setDraftParentId(null);
     const selectionVersion = setActiveNoteId(saved.id);
     setSelectedFolderId(nextFolderId);
     setMode("view");
@@ -449,10 +518,12 @@ export function NotesWorkspace({
 
   async function handleCreateWikilink(title: string, folderId: number) {
     if (wikilinkCreatePendingRef.current || !confirmDiscard()) return;
+    wikilinkCreatePendingRef.current = true;
+    invalidateImportRequest();
     const requestGeneration = wikilinkCreateGenerationRef.current + 1;
     wikilinkCreateGenerationRef.current = requestGeneration;
     const startingSelectionVersion = selectionVersionRef.current;
-    wikilinkCreatePendingRef.current = true;
+    setSavingState(true);
     setError("");
     try {
       const saved = await createNote({
@@ -463,6 +534,7 @@ export function NotesWorkspace({
         tags: [],
       });
       if (
+        !mountedRef.current ||
         requestGeneration !== wikilinkCreateGenerationRef.current ||
         startingSelectionVersion !== selectionVersionRef.current
       ) {
@@ -471,22 +543,24 @@ export function NotesWorkspace({
       await handleSaved(saved);
     } catch (caught) {
       if (
-        requestGeneration !== wikilinkCreateGenerationRef.current ||
-        startingSelectionVersion !== selectionVersionRef.current
+        mountedRef.current &&
+        requestGeneration === wikilinkCreateGenerationRef.current &&
+        startingSelectionVersion === selectionVersionRef.current
       ) {
-        return;
+        setError(getErrorMessage(caught));
       }
-      setError(getErrorMessage(caught));
     } finally {
       wikilinkCreatePendingRef.current = false;
+      setSavingState(false);
     }
   }
 
   async function handleDeleted() {
+    invalidateImportRequest();
     setActiveNoteId(null);
     setDetail(null);
     setBacklinks([]);
-    setCreateTarget(null);
+    setImportDraft(null);
     setMode("view");
     setStage("notes");
     setDetailLoading(false);
@@ -501,41 +575,82 @@ export function NotesWorkspace({
 
   function cancelEditing() {
     if (!confirmDiscard()) return;
+    invalidateImportRequest();
     invalidateWikilinkCreate();
+    setImportDraft(null);
     setMode("view");
-    setCreateTarget(null);
     if (!detail) setStage("notes");
   }
 
   function backToNotes() {
     if (!confirmDiscard()) return;
+    invalidateImportRequest();
     invalidateWikilinkCreate();
+    setImportDraft(null);
     setMode("view");
-    setCreateTarget(null);
     setStage("notes");
   }
 
-  function startCreateNote(parentId: number | null, folderId?: number) {
-    const targetFolderId = folderId ?? selectedFolderId;
-    if (targetFolderId === null || !confirmDiscard()) return;
-    setActiveNoteId(null);
-    setDetail(null);
-    setBacklinks([]);
-    setCreateTarget({ folderId: targetFolderId, parentId });
-    setDetailError("");
-    setDetailLoading(false);
-    setDetailRequestVersion(0);
-    setMode("create");
-    setStage("note");
-    replaceLocation(selectedFolderId, null);
-  }
+  async function handleImportMarkdown(file: File) {
+    if (selectedFolderId === null) return;
+    const requestVersion = importRequestVersionRef.current + 1;
+    importRequestVersionRef.current = requestVersion;
+    if (savingRef.current || wikilinkCreatePendingRef.current) {
+      confirmDiscard();
+      return;
+    }
+    if (file.size > NOTE_CONTENT_MAX_BYTES) {
+      setError("Markdown files must not exceed 10 MB.");
+      return;
+    }
+    if (!confirmDiscard()) return;
+    const targetFolderId = selectedFolderId;
 
-  function beginEditing() {
-    invalidateWikilinkCreate();
-    setMode("edit");
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      if (
+        !mountedRef.current ||
+        importRequestVersionRef.current !== requestVersion ||
+        selectedFolderIdRef.current !== targetFolderId
+      ) {
+        return;
+      }
+      const draft = parseMarkdownImport(file.name, bytes);
+      if (
+        !mountedRef.current ||
+        importRequestVersionRef.current !== requestVersion ||
+        selectedFolderIdRef.current !== targetFolderId
+      ) {
+        return;
+      }
+      setError("");
+      setSelectedFolderId(targetFolderId);
+      setActiveNoteId(null);
+      setDetail(null);
+      setBacklinks([]);
+      setImportDraft(draft);
+      setDraftParentId(null);
+      setDetailError("");
+      setDetailLoading(false);
+      setDetailRequestVersion(0);
+      setDraftVersion((version) => version + 1);
+      setMode("create");
+      setStage("note");
+      replaceLocation(targetFolderId, null);
+    } catch (caught) {
+      if (
+        mountedRef.current &&
+        importRequestVersionRef.current === requestVersion &&
+        selectedFolderIdRef.current === targetFolderId
+      ) {
+        setError(getErrorMessage(caught));
+      }
+    }
   }
 
   function backToLibrary() {
+    if (!confirmDiscard()) return;
+    invalidateImportRequest();
     invalidateWikilinkCreate();
     setStage("library");
   }
@@ -566,7 +681,29 @@ export function NotesWorkspace({
         selectedNoteId={selectedNoteId}
         loading={indexLoading}
         onSelect={openNote}
-        onCreate={startCreateNote}
+        onImport={handleImportMarkdown}
+        onCreate={(parentId) => {
+          if ((selectedFolderId === null && parentId === null) || !confirmDiscard()) return;
+          const targetFolderId = parentId === null
+            ? selectedFolderId!
+            : notes.find((note) => note.id === parentId)?.folderId;
+          if (targetFolderId === undefined) return;
+          invalidateImportRequest();
+          selectedFolderIdRef.current = targetFolderId;
+          setSelectedFolderId(targetFolderId);
+          setActiveNoteId(null);
+          setDetail(null);
+          setBacklinks([]);
+          setImportDraft(null);
+          setDraftParentId(parentId);
+          setDetailError("");
+          setDetailLoading(false);
+          setDetailRequestVersion(0);
+          setDraftVersion((version) => version + 1);
+          setMode("create");
+          setStage("note");
+          replaceLocation(targetFolderId, null);
+        }}
         onBack={backToLibrary}
       />
 
@@ -590,20 +727,47 @@ export function NotesWorkspace({
       ) : (
         <NoteDetail
           detail={detail}
+          importDraft={importDraft}
+          draftKey={draftVersion}
           mode={mode}
-          folderId={detail?.folderId ?? createTarget?.folderId ?? selectedFolderId}
-          parentId={detail?.parentId ?? createTarget?.parentId ?? null}
+          folderId={detail?.folderId ?? selectedFolderId}
+          parentId={mode === "create" ? draftParentId : detail?.parentId ?? null}
           folders={folders}
           notes={notes}
           backlinks={backlinks}
           loading={detailLoading}
-          onEdit={beginEditing}
+          onEdit={() => {
+            if (!confirmDiscard()) return;
+            invalidateImportRequest();
+            invalidateWikilinkCreate();
+            setImportDraft(null);
+            setMode("edit");
+          }}
+          onCreateSubnote={() => {
+            if (!detail || !confirmDiscard()) return;
+            invalidateImportRequest();
+            setSelectedFolderId(detail.folderId);
+            selectedFolderIdRef.current = detail.folderId;
+            setActiveNoteId(null);
+            setDetail(null);
+            setBacklinks([]);
+            setImportDraft(null);
+            setDraftParentId(detail.id);
+            setDetailError("");
+            setDetailLoading(false);
+            setDetailRequestVersion(0);
+            setDraftVersion((version) => version + 1);
+            setMode("create");
+            setStage("note");
+            replaceLocation(detail.folderId, null);
+          }}
           onCancel={cancelEditing}
           onSaved={handleSaved}
           onDeleted={handleDeleted}
           onNavigateNote={openNote}
           onCreateWikilink={handleCreateWikilink}
           onDirtyChange={setDirtyState}
+          onPendingChange={setSavingState}
           onRegisterSave={registerSave}
           onBack={backToNotes}
         />

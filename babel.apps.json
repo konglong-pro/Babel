@@ -45,14 +45,16 @@
       "workspace": "apps/vali",
       "port": 3002,
       "healthPath": "/api/health",
-      "identityPath": "/",
+      "identityPath": "/notes",
       "identityText": "Vali",
       "readyTimeoutSeconds": 60,
       "env": {
-        "VALI_DATABASE_PATH": "data/vali/sqlite.db"
+        "VALI_DATABASE_PATH": "data/vali/sqlite.db",
+        "VALI_UPLOAD_DIRECTORY": "data/vali/uploads/notes"
       },
       "requiredDataPaths": [
-        "data/vali/sqlite.db"
+        "data/vali/sqlite.db",
+        "data/vali/uploads/notes"
       ]
     },
     {
@@ -61,7 +63,7 @@
       "workspace": "apps/neum",
       "port": 3003,
       "healthPath": "/api/health",
-      "identityPath": "/entries",
+      "identityPath": "/knowledge",
       "identityText": "Neum",
       "readyTimeoutSeconds": 60,
       "env": {

@@ -163,7 +163,7 @@ test("enables task writeback when a loose list nests its checkbox in a paragraph
   assert.doesNotMatch(html, /<input[^>]*disabled=""/u);
 });
 
-test("renders the complete shared editor and outline surfaces", () => {
+test("renders the complete editor and outline without a live preview", () => {
   const editorHtml = renderToStaticMarkup(createElement(MarkdownEditor, {
     label: "Content",
     name: "contentMd",
@@ -183,13 +183,16 @@ test("renders the complete shared editor and outline surfaces", () => {
   assert.match(editorHtml, /aria-label="Bold"/u);
   assert.match(editorHtml, />Add image<\/button>/u);
   assert.match(editorHtml, /<textarea[^>]*name="contentMd"[^>]*># Heading<\/textarea>/u);
-  assert.match(editorHtml, /<h2 id="heading">Heading<\/h2>/u);
+  assert.doesNotMatch(editorHtml, /Live preview/u);
+  assert.doesNotMatch(editorHtml, /preview-pane/u);
+  assert.doesNotMatch(editorHtml, /class="markdown-body"/u);
+  assert.doesNotMatch(editorHtml, /<h2 id="heading">Heading<\/h2>/u);
   assert.match(outlineHtml, /class="outline-panel"/u);
   assert.match(outlineHtml, />Heading<\/button>/u);
   assert.match(outlineHtml, /class="outline-level-2"/u);
 });
 
-test("forwards the editor default wikilink kind to unresolved preview links", () => {
+test("retains preview-only props without rendering preview content", () => {
   const html = renderToStaticMarkup(createElement(MarkdownEditor, {
     label: "Content",
     name: "contentMd",
@@ -199,10 +202,12 @@ test("forwards the editor default wikilink kind to unresolved preview links", ()
     onCreateFromWikilink: () => undefined,
   }));
 
-  assert.match(html, /data-wikilink-kind="knowledge"/u);
+  assert.match(html, /<textarea[^>]*>\[\[Missing\]\]<\/textarea>/u);
+  assert.doesNotMatch(html, /data-wikilink-kind/u);
+  assert.doesNotMatch(html, /babel-note:/u);
 });
 
-test("disables preview actions with the editor", () => {
+test("disables the textarea without rendering preview actions", () => {
   const html = renderToStaticMarkup(createElement(MarkdownEditor, {
     label: "Content",
     name: "contentMd",
@@ -213,8 +218,6 @@ test("disables preview actions with the editor", () => {
   }));
 
   assert.match(html, /<textarea[^>]*disabled=""/u);
-  assert.match(html, /class="wikilink wikilink-unresolved"/u);
-  assert.match(html, /tabindex="-1"/u);
-  assert.match(html, /aria-disabled="true"/u);
-  assert.doesNotMatch(html, /href="babel-note:/u);
+  assert.doesNotMatch(html, /class="wikilink/u);
+  assert.doesNotMatch(html, /preview/u);
 });

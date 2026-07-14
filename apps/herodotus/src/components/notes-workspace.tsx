@@ -295,13 +295,6 @@ export function NotesWorkspace({
       event.returnValue = true;
     }
 
-    function saveShortcut(event: KeyboardEvent) {
-      if (!(event.ctrlKey || event.metaKey) || event.key.toLocaleLowerCase() !== "s") return;
-      if (!saveActionRef.current) return;
-      event.preventDefault();
-      saveActionRef.current();
-    }
-
     function beforeNavigate(event: Event) {
       if (!confirmDiscard()) {
         event.preventDefault();
@@ -369,12 +362,10 @@ export function NotesWorkspace({
     }
 
     window.addEventListener("beforeunload", beforeUnload);
-    window.addEventListener("keydown", saveShortcut);
     window.addEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
     window.addEventListener("popstate", popState, true);
     return () => {
       window.removeEventListener("beforeunload", beforeUnload);
-      window.removeEventListener("keydown", saveShortcut);
       window.removeEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
       window.removeEventListener("popstate", popState, true);
       if (popFallbackTimerRef.current !== null) {

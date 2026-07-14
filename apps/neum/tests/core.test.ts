@@ -158,16 +158,30 @@ test("Neum core persistence", async (t) => {
       [knowledge.id],
     );
     assert.equal(repository.listEntries({ tag: "json", limit: 1 }).total, 2);
-
-    const converted = repository.updateEntry(knowledge.id, {
+    assert.deepEqual(
+      repository.listEntries({ kind: "knowledge" }).items.map(({ id }) => id),
+      [knowledge.id],
+    );
+    assert.deepEqual(
+      repository.listEntries({ kind: "snippet" }).items.map(({ id }) => id),
+      [snippet.id],
+    );
+    assert.throws(
+      () => repository.updateEntry(knowledge.id, {
+        expectedVersion: knowledge.version,
+        kind: "snippet",
+        code: "{ definitely: not-json }",
+        language: "json",
+        filename: "sample.json",
+      }),
+      repositoryConflict("CONFLICT"),
+    );
+    const renamed = repository.updateEntry(knowledge.id, {
       expectedVersion: knowledge.version,
-      kind: "snippet",
-      code: "{ definitely: not-json }",
-      language: "json",
-      filename: "sample.json",
+      title: "C++ overview",
     }).entry;
-    assert.equal(converted.version, knowledge.version + 1);
-    assert.equal(converted.kind, "snippet");
+    assert.equal(renamed.version, knowledge.version + 1);
+    assert.equal(renamed.kind, "knowledge");
     assert.throws(
       () =>
         repository.updateEntry(knowledge.id, {
@@ -379,10 +393,8 @@ test("Neum core persistence", async (t) => {
     const child = repository.createEntry({
       folderId: source.id,
       parentId: root.id,
-      kind: "snippet",
+      kind: "knowledge",
       title: "Child page",
-      code: "const child = true;",
-      language: "typescript",
     });
     const grandchild = repository.createEntry({
       folderId: source.id,
@@ -393,6 +405,18 @@ test("Neum core persistence", async (t) => {
 
     assert.equal(repository.getEntry(child.id)?.parentId, root.id);
     assert.equal(repository.getEntry(grandchild.id)?.parentId, child.id);
+    assert.throws(
+      () =>
+        repository.createEntry({
+          folderId: source.id,
+          parentId: root.id,
+          kind: "snippet",
+          title: "Cross-unit child",
+          code: "const child = true;",
+          language: "typescript",
+        }),
+      repositoryConflict("CONFLICT"),
+    );
     assert.throws(
       () =>
         repository.createEntry({
