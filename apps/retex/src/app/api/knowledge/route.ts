@@ -1,17 +1,19 @@
 import { NextResponse } from "next/server";
 
 import { createKnowledge, listKnowledge } from "@/lib/repositories";
-import { handleApi } from "@/lib/http/errors";
+import { ApiError, handleApi } from "@/lib/http/errors";
+import { rollbackNoteImageMutation } from "@/lib/http/note-image-mutation";
 import {
   optionalIdArray,
   optionalNullablePositiveInteger,
   optionalString,
   optionalStringArray,
   parsePositiveInteger,
-  readJsonObject,
+  readNoteMutationRequest,
   requiredPositiveInteger,
   requiredString,
 } from "@/lib/http/request";
+import { stageNoteImages } from "@/lib/storage/note-images";
 
 export const runtime = "nodejs";
 
@@ -26,18 +28,40 @@ export function GET(request: Request): Promise<Response> {
 
 export function POST(request: Request): Promise<Response> {
   return handleApi(async () => {
-    const body = await readJsonObject(request);
+    const { payload, uploads } = await readNoteMutationRequest(request);
     const exerciseIds =
-      optionalIdArray(body, "exerciseIds", "relatedExerciseIds") ?? [];
+      optionalIdArray(payload, "exerciseIds", "relatedExerciseIds") ?? [];
+    const contentMd = optionalString(
+      payload,
+      "contentMd",
+      { allowEmpty: true, trim: false },
+    );
+    if (contentMd === undefined && uploads.size > 0) {
+      throw new ApiError(
+        400,
+        "VALIDATION_ERROR",
+        "contentMd is required when adding images.",
+        { field: "contentMd" },
+      );
+    }
+    const staged = await stageNoteImages(contentMd ?? "", uploads);
 
-    const note = createKnowledge({
-      folderId: requiredPositiveInteger(body, "folderId"),
-      parentId: optionalNullablePositiveInteger(body, "parentId"),
-      title: requiredString(body, "title"),
-      contentMd: optionalString(body, "contentMd", { allowEmpty: true, trim: false }) ?? "",
-      tags: optionalStringArray(body, "tags") ?? [],
-      exerciseIds,
-    });
+    let note;
+    try {
+      note = createKnowledge(
+        {
+          folderId: requiredPositiveInteger(payload, "folderId"),
+          parentId: optionalNullablePositiveInteger(payload, "parentId"),
+          title: requiredString(payload, "title"),
+          contentMd: staged.contentMd,
+          tags: optionalStringArray(payload, "tags") ?? [],
+          exerciseIds,
+        },
+        staged.imagePaths,
+      );
+    } catch (error) {
+      await rollbackNoteImageMutation(error, undefined, staged.imagePaths);
+    }
 
     return NextResponse.json(note, { status: 201 });
   });

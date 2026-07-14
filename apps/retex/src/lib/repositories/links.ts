@@ -1,7 +1,7 @@
 import { extractWikilinks, normalizeTitleKey } from "@babel-apps/markdown/core";
 import { and, asc, desc, eq, isNull, ne } from "drizzle-orm";
 
-import { db } from "@/lib/db/client";
+import { db, sqlite } from "@/lib/db/client";
 import { exercises, knowledgeNotes, noteLinks } from "@/lib/db/schema";
 import type {
   BacklinksDto,
@@ -11,6 +11,9 @@ import type {
 } from "@/lib/types";
 
 import { assertPositiveId } from "./shared";
+
+// SQLite NOCASE is ASCII-only; the BINARY title index cannot preserve this normalizer.
+sqlite.function("babel_normalize_title_key", { deterministic: true }, normalizeTitleKey);
 
 export type NoteLinkTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -103,30 +106,27 @@ export function listBacklinks(
 }
 
 export function listNoteTitles(query: string, limit = 20): NoteTitleDto[] {
-  const queryKey = normalizeTitleKey(query);
-  const rows: NoteTitleDto[] = [
-    ...db
-      .select({ id: knowledgeNotes.id, title: knowledgeNotes.title })
-      .from(knowledgeNotes)
-      .orderBy(asc(knowledgeNotes.id))
-      .all()
-      .map((row) => ({ ...row, kind: "knowledge" as const })),
-    ...db
-      .select({ id: exercises.id, title: exercises.title })
-      .from(exercises)
-      .orderBy(asc(exercises.id))
-      .all()
-      .map((row) => ({ ...row, kind: "exercise" as const })),
-  ];
-
-  return rows
-    .filter(({ title }) => normalizeTitleKey(title).includes(queryKey))
-    .sort((left, right) =>
-      left.title.localeCompare(right.title, "en-US", { sensitivity: "base" }) ||
-      kindPriority(left.kind) - kindPriority(right.kind) ||
-      left.id - right.id
+  const pattern = `${escapeLike(normalizeTitleKey(query))}%`;
+  return sqlite
+    .prepare(
+      `SELECT "id", "title", "kind"
+       FROM (
+         SELECT "id", "title", 'knowledge' AS "kind", 0 AS "kind_priority"
+         FROM "knowledge_note"
+         WHERE babel_normalize_title_key("title") LIKE ? ESCAPE '\\'
+         UNION ALL
+         SELECT "id", "title", 'exercise' AS "kind", 1 AS "kind_priority"
+         FROM "exercise"
+         WHERE babel_normalize_title_key("title") LIKE ? ESCAPE '\\'
+       )
+       ORDER BY "title" COLLATE NOCASE, "kind_priority", "id"
+       LIMIT ?`,
     )
-    .slice(0, limit);
+    .all(pattern, pattern, limit) as NoteTitleDto[];
+}
+
+function escapeLike(value: string): string {
+  return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
 }
 
 export function replaceSourceNoteLinks(
@@ -379,8 +379,4 @@ function targetsFromRows(
     }
   }
   return targets;
-}
-
-function kindPriority(kind: LinkEntityKind): number {
-  return kind === "knowledge" ? 0 : 1;
 }

@@ -3,13 +3,14 @@
 import type { Wikilink } from "@babel-apps/markdown/core";
 import {
   MarkdownRenderer,
+  OutlinePanel,
   type ResolvedWikilink,
 } from "@babel-apps/markdown/react";
 import Link from "next/link";
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { LinkedMentions } from "@/components/linked-mentions";
-import { MarkdownEditor } from "@/components/markdown-editor";
+import { MarkdownEditor, type StagedImage } from "@/components/markdown-editor";
 import {
   ConfirmButton,
   formatDate,
@@ -33,6 +34,10 @@ import type {
 } from "@/lib/types";
 import { imageUrl } from "@/lib/types";
 
+const EXERCISE_ANSWER_HEADING_ID_PREFIX = "retex-exercise-answer-heading-";
+const EXERCISE_SOLUTION_HEADING_ID_PREFIX = "retex-exercise-solution-heading-";
+const REMARK_FEATURES = ["gfm", "math"] as const;
+
 interface ExerciseDetailProps {
   detail: ExerciseDetailDto | null;
   mode: "view" | "edit" | "create";
@@ -49,6 +54,8 @@ interface ExerciseDetailProps {
     folderId?: number,
   ) => void;
   onCreateKnowledgeWikilink: (title: string) => void;
+  onDirtyChange?: (dirty: boolean) => void;
+  onRegisterSave?: (action: (() => void) | null) => void;
 }
 
 export function ExerciseDetail({
@@ -63,6 +70,8 @@ export function ExerciseDetail({
   onDeleted,
   onNavigateEntity,
   onCreateKnowledgeWikilink,
+  onDirtyChange,
+  onRegisterSave,
 }: ExerciseDetailProps) {
   const wikilinkTargets = useMemo(() => {
     const targets = new Map<string, ResolvedWikilink>();
@@ -85,7 +94,9 @@ export function ExerciseDetail({
   );
   const createFromWikilink = useCallback((wikilink: Wikilink) => {
     const title = normalizedWikilinkTitle(wikilink);
-    if (title) onCreateKnowledgeWikilink(title);
+    if (!title) return;
+    if (!window.confirm(`Create Knowledge note “${title}” and open it?`)) return;
+    onCreateKnowledgeWikilink(title);
   }, [onCreateKnowledgeWikilink]);
 
   if (loading) {
@@ -103,6 +114,8 @@ export function ExerciseDetail({
         resolveWikilink={resolveWikilink}
         onNavigateWikilink={navigateWikilink}
         onCreateKnowledgeWikilink={onCreateKnowledgeWikilink}
+        onDirtyChange={onDirtyChange}
+        onRegisterSave={onRegisterSave}
       />
     );
   }
@@ -166,27 +179,49 @@ export function ExerciseDetail({
       <div className="exercise-sections">
         <details>
           <summary>Archived Answer</summary>
-          <MarkdownRenderer
-            content={detail.answerMd}
-            emptyText="No archived answer yet."
-            remarkFeatures={["math"]}
-            defaultWikilinkKind="knowledge"
-            resolveWikilink={resolveWikilink}
-            onNavigateWikilink={navigateWikilink}
-            onCreateFromWikilink={createFromWikilink}
-          />
+          <div className="document-outline-layout">
+            <section className="document-content" aria-label="Archived answer">
+              <MarkdownRenderer
+                content={detail.answerMd}
+                emptyText="No archived answer yet."
+                uploadScheme="retex-upload"
+                remarkFeatures={REMARK_FEATURES}
+                defaultWikilinkKind="knowledge"
+                resolveWikilink={resolveWikilink}
+                onNavigateWikilink={navigateWikilink}
+                onCreateFromWikilink={createFromWikilink}
+                headingIdPrefix={EXERCISE_ANSWER_HEADING_ID_PREFIX}
+              />
+            </section>
+            <OutlinePanel
+              content={detail.answerMd}
+              mode="read"
+              headingIdPrefix={EXERCISE_ANSWER_HEADING_ID_PREFIX}
+            />
+          </div>
         </details>
         <details>
           <summary>Archived Solution</summary>
-          <MarkdownRenderer
-            content={detail.solutionMd}
-            emptyText="No archived solution yet."
-            remarkFeatures={["math"]}
-            defaultWikilinkKind="knowledge"
-            resolveWikilink={resolveWikilink}
-            onNavigateWikilink={navigateWikilink}
-            onCreateFromWikilink={createFromWikilink}
-          />
+          <div className="document-outline-layout">
+            <section className="document-content" aria-label="Archived solution">
+              <MarkdownRenderer
+                content={detail.solutionMd}
+                emptyText="No archived solution yet."
+                uploadScheme="retex-upload"
+                remarkFeatures={REMARK_FEATURES}
+                defaultWikilinkKind="knowledge"
+                resolveWikilink={resolveWikilink}
+                onNavigateWikilink={navigateWikilink}
+                onCreateFromWikilink={createFromWikilink}
+                headingIdPrefix={EXERCISE_SOLUTION_HEADING_ID_PREFIX}
+              />
+            </section>
+            <OutlinePanel
+              content={detail.solutionMd}
+              mode="read"
+              headingIdPrefix={EXERCISE_SOLUTION_HEADING_ID_PREFIX}
+            />
+          </div>
         </details>
       </div>
 
@@ -226,6 +261,8 @@ interface ExerciseFormProps {
   resolveWikilink: (titleKey: string) => ResolvedWikilink | null;
   onNavigateWikilink: (target: ResolvedWikilink) => void;
   onCreateKnowledgeWikilink: (title: string) => void;
+  onDirtyChange?: (dirty: boolean) => void;
+  onRegisterSave?: (action: (() => void) | null) => void;
 }
 
 function ExerciseForm({
@@ -236,19 +273,41 @@ function ExerciseForm({
   resolveWikilink,
   onNavigateWikilink,
   onCreateKnowledgeWikilink,
+  onDirtyChange,
+  onRegisterSave,
 }: ExerciseFormProps) {
-  const [title, setTitle] = useState(detail?.title ?? "");
-  const [tags, setTags] = useState(detail?.tags.join(", ") ?? "");
-  const [answer, setAnswer] = useState(detail?.answerMd ?? "");
-  const [solution, setSolution] = useState(detail?.solutionMd ?? "");
+  const formRef = useRef<HTMLFormElement>(null);
+  const answerTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const solutionTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const stagedRef = useRef<StagedImage[]>([]);
+  const initialTitle = detail?.title ?? "";
+  const initialTags = detail?.tags.join(", ") ?? "";
+  const initialAnswer = detail?.answerMd ?? "";
+  const initialSolution = detail?.solutionMd ?? "";
+  const initialKnowledgeIds = detail?.relatedKnowledge.map((item) => item.id) ?? [];
+  const [title, setTitle] = useState(initialTitle);
+  const [tags, setTags] = useState(initialTags);
+  const [answer, setAnswer] = useState(initialAnswer);
+  const [solution, setSolution] = useState(initialSolution);
   const [image, setImage] = useState<File | null>(null);
-  const [knowledgeIds, setKnowledgeIds] = useState(
-    detail?.relatedKnowledge.map((item) => item.id) ?? [],
-  );
+  const [knowledgeIds, setKnowledgeIds] = useState(initialKnowledgeIds);
+  const [stagedImages, setStagedImages] = useState<StagedImage[]>([]);
   const [knowledge, setKnowledge] = useState<KnowledgeSummaryDto[]>([]);
   const [relationsLoading, setRelationsLoading] = useState(true);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const imagePreviews = useMemo(
+    () => new Map(stagedImages.map((stagedImage) => [stagedImage.token, stagedImage.previewUrl])),
+    [stagedImages],
+  );
+  const dirty =
+    title !== initialTitle ||
+    tags !== initialTags ||
+    answer !== initialAnswer ||
+    solution !== initialSolution ||
+    image !== null ||
+    !sameIdSet(knowledgeIds, initialKnowledgeIds) ||
+    stagedImages.length > 0;
 
   useEffect(() => {
     let active = true;
@@ -266,6 +325,32 @@ function ExerciseForm({
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    stagedRef.current = stagedImages;
+  }, [stagedImages]);
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+
+  useEffect(() => {
+    const save = () => formRef.current?.requestSubmit();
+    onRegisterSave?.(save);
+    return () => onRegisterSave?.(null);
+  }, [onRegisterSave]);
+
+  useEffect(() => {
+    return () => {
+      for (const stagedImage of stagedRef.current) {
+        URL.revokeObjectURL(stagedImage.previewUrl);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => onDirtyChange?.(false);
+  }, [onDirtyChange]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -297,14 +382,37 @@ function ExerciseForm({
         knowledgeIds,
       };
       const saved = detail
-        ? await updateExercise(detail.id, input)
-        : await createExercise(input);
+        ? await updateExercise(detail.id, input, stagedImages)
+        : await createExercise(input, stagedImages);
+      onDirtyChange?.(false);
       onSaved(saved);
     } catch (caught) {
       setError(getErrorMessage(caught));
     } finally {
       setPending(false);
     }
+  }
+
+  function changeAnswer(nextAnswer: string) {
+    setAnswer(nextAnswer);
+    retainStagedImages(nextAnswer, solution);
+  }
+
+  function changeSolution(nextSolution: string) {
+    setSolution(nextSolution);
+    retainStagedImages(answer, nextSolution);
+  }
+
+  function retainStagedImages(nextAnswer: string, nextSolution: string) {
+    setStagedImages((current) => {
+      const retained = current.filter((stagedImage) => {
+        const placeholder = `retex-upload://${stagedImage.token}`;
+        const referenced = nextAnswer.includes(placeholder) || nextSolution.includes(placeholder);
+        if (!referenced) URL.revokeObjectURL(stagedImage.previewUrl);
+        return referenced;
+      });
+      return retained.length === current.length ? current : retained;
+    });
   }
 
   function createFromWikilink(wikilink: Wikilink) {
@@ -318,13 +426,13 @@ function ExerciseForm({
   }
 
   function navigateFromPreview(target: ResolvedWikilink) {
-    if (!window.confirm("Discard unsaved changes and open this linked note?")) return;
     onNavigateWikilink(target);
   }
 
   return (
     <section className="detail-panel form-view">
-      <form onSubmit={submit}>
+      <form ref={formRef} onSubmit={submit} aria-busy={pending}>
+        <fieldset className="form-controls" disabled={pending}>
         <header className="document-header">
           <div>
             <span className="eyebrow">{detail ? "Edit Exercise" : "New Exercise"}</span>
@@ -392,39 +500,73 @@ function ExerciseForm({
           <small>{image ? `Selected: ${image.name}` : "Supports PNG, JPEG, WebP, and GIF."}</small>
         </label>
 
-        <MarkdownEditor
-          label="Archived Answer"
-          name="answerMd"
-          rows={10}
-          value={answer}
-          onChange={setAnswer}
-          placeholder="Record the final answer from your first archive pass…"
-          hint="Use $…$ for math and [[title]] to link another note."
-          enableWikilinkAutocomplete
-          resolveWikilink={resolveWikilink}
-          onNavigateWikilink={navigateFromPreview}
-          onCreateFromWikilink={createFromWikilink}
-        />
-        <MarkdownEditor
-          label="Your Solution"
-          name="solutionMd"
-          value={solution}
-          onChange={setSolution}
-          placeholder="Record the key insight, full derivation, and reminders for your future self…"
-          hint="Use $…$ for math and [[title]] to link another note."
-          enableWikilinkAutocomplete
-          resolveWikilink={resolveWikilink}
-          onNavigateWikilink={navigateFromPreview}
-          onCreateFromWikilink={createFromWikilink}
-        />
-
-        <RelationPicker
-          legend="Link Knowledge"
-          items={knowledge}
-          selectedIds={knowledgeIds}
-          loading={relationsLoading}
-          onChange={setKnowledgeIds}
-        />
+        <div className="editor-outline-layout">
+          <MarkdownEditor
+            label="Archived Answer"
+            name="answerMd"
+            rows={10}
+            value={answer}
+            disabled={pending}
+            imagePreviews={imagePreviews}
+            onChange={changeAnswer}
+            onImageError={setError}
+            onStageImage={(stagedImage) => {
+              setStagedImages((current) => [...current, stagedImage]);
+            }}
+            placeholder="Record the final answer from your first archive pass…"
+            hint="Use $…$ for math and [[title]] to link another note."
+            enableWikilinkAutocomplete
+            resolveWikilink={resolveWikilink}
+            onNavigateWikilink={navigateFromPreview}
+            onCreateFromWikilink={createFromWikilink}
+            textareaRef={answerTextareaRef}
+            headingIdPrefix={EXERCISE_ANSWER_HEADING_ID_PREFIX}
+          />
+          <OutlinePanel
+            content={answer}
+            mode="edit"
+            textareaRef={answerTextareaRef}
+            headingIdPrefix={EXERCISE_ANSWER_HEADING_ID_PREFIX}
+          />
+        </div>
+        <div className="editor-outline-layout">
+          <MarkdownEditor
+            label="Your Solution"
+            name="solutionMd"
+            value={solution}
+            disabled={pending}
+            imagePreviews={imagePreviews}
+            onChange={changeSolution}
+            onImageError={setError}
+            onStageImage={(stagedImage) => {
+              setStagedImages((current) => [...current, stagedImage]);
+            }}
+            placeholder="Record the key insight, full derivation, and reminders for your future self…"
+            hint="Use $…$ for math and [[title]] to link another note."
+            enableWikilinkAutocomplete
+            resolveWikilink={resolveWikilink}
+            onNavigateWikilink={navigateFromPreview}
+            onCreateFromWikilink={createFromWikilink}
+            textareaRef={solutionTextareaRef}
+            headingIdPrefix={EXERCISE_SOLUTION_HEADING_ID_PREFIX}
+            footerExtras={(
+              <RelationPicker
+                legend="Link Knowledge"
+                items={knowledge}
+                selectedIds={knowledgeIds}
+                loading={relationsLoading}
+                onChange={setKnowledgeIds}
+              />
+            )}
+          />
+          <OutlinePanel
+            content={solution}
+            mode="edit"
+            textareaRef={solutionTextareaRef}
+            headingIdPrefix={EXERCISE_SOLUTION_HEADING_ID_PREFIX}
+          />
+        </div>
+        </fieldset>
       </form>
     </section>
   );
@@ -436,4 +578,10 @@ function normalizedWikilinkTitle(wikilink: Wikilink): string {
 
 function isLinkEntityKind(value: string | undefined): value is LinkEntityKind {
   return value === "knowledge" || value === "exercise";
+}
+
+function sameIdSet(left: readonly number[], right: readonly number[]): boolean {
+  if (left.length !== right.length) return false;
+  const expected = new Set(right);
+  return left.every((id) => expected.has(id));
 }

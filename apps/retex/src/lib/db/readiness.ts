@@ -11,7 +11,7 @@ const databasePathOptions = {
 export const appDatabaseReadinessOptions = {
   appName: "ReTex",
   packageName: "@babel-apps/retex",
-  expectedMigration: 1_783_940_858_762,
+  expectedMigration: 1_784_005_693_799,
   requiredColumns: {
     knowledge_note: ["parent_id"],
     note_link: [
@@ -21,6 +21,7 @@ export const appDatabaseReadinessOptions = {
       "target_kind",
       "target_id",
     ],
+    note_image: ["source_kind", "source_id", "image_path"],
   },
 } as const;
 

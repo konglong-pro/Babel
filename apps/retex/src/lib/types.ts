@@ -92,3 +92,8 @@ export function imageUrl(imagePath: string): string {
   const fileName = imagePath.split("/").at(-1);
   return fileName ? `/api/uploads/exercises/${encodeURIComponent(fileName)}` : "";
 }
+
+export function noteImageUrl(imagePath: string): string {
+  const fileName = imagePath.split("/").at(-1);
+  return fileName ? `/api/uploads/notes/${encodeURIComponent(fileName)}` : "";
+}

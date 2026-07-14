@@ -3,7 +3,8 @@
 ReTex is the mathematics notebook Module. Preserve its knowledge, exercise,
 scratch-work, search, KaTeX, Markdown, and managed-image behavior. Its private
 data is rooted at `data/retex/` from the Babel root and configured with
-`RETEX_DATABASE_PATH` and `RETEX_UPLOAD_DIRECTORY`.
+`RETEX_DATABASE_PATH`, `RETEX_UPLOAD_DIRECTORY`, and
+`RETEX_NOTE_UPLOAD_DIRECTORY`.
 
 Keep database logical image paths stable when changing the physical upload
 Adapter. Run `npm.cmd run check -w @babel-apps/retex` for a full gate. Apply

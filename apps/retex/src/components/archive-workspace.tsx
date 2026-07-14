@@ -13,6 +13,7 @@ import { ExerciseDetail } from "@/components/exercise-detail";
 import { FolderPanel } from "@/components/folder-panel";
 import { ItemList } from "@/components/item-list";
 import { KnowledgeDetail } from "@/components/knowledge-detail";
+import { useDirtyNavigationGuard } from "@/components/use-dirty-navigation-guard";
 import {
   createFolder,
   createKnowledge,
@@ -72,6 +73,7 @@ export function ArchiveWorkspace({
   const [indexLoading, setIndexLoading] = useState(true);
   const [detailRequestVersion, setDetailRequestVersion] = useState(0);
   const [error, setError] = useState("");
+  const [navigationError, setNavigationError] = useState("");
   const [wikilinkCreation, setWikilinkCreation] = useState<WikilinkCreationRequest | null>(null);
   const [knowledgeFolders, setKnowledgeFolders] = useState<FolderDto[]>([]);
   const [knowledgeFoldersLoading, setKnowledgeFoldersLoading] = useState(false);
@@ -81,9 +83,18 @@ export function ArchiveWorkspace({
   const folderRequestGenerationRef = useRef(0);
   const wikilinkCreateGenerationRef = useRef(0);
   const wikilinkCreatePendingRef = useRef(false);
+  const {
+    dirty,
+    setDirty,
+    registerSave,
+    confirmDiscard,
+    discardAndRun,
+    replaceLocation: replaceGuardedLocation,
+  } = useDirtyNavigationGuard();
 
   const basePath = type === "knowledge" ? "/knowledge" : "/exercise";
   const beginNavigation = useCallback(() => {
+    setNavigationError("");
     navigationGenerationRef.current += 1;
     wikilinkCreateGenerationRef.current += 1;
     return navigationGenerationRef.current;
@@ -173,10 +184,12 @@ export function ArchiveWorkspace({
     if (folderId !== null) params.set("folder", String(folderId));
     if (itemId !== null) params.set("item", String(itemId));
     const query = params.toString();
-    window.history.replaceState(null, "", query ? `${basePath}?${query}` : basePath);
-  }, [basePath]);
+    replaceGuardedLocation(query ? `${basePath}?${query}` : basePath);
+  }, [basePath, replaceGuardedLocation]);
 
   const selectFolder = useCallback((id: number | null) => {
+    if (!confirmDiscard()) return;
+    setDirty(false);
     beginNavigation();
     selectionGenerationRef.current += 1;
     setSelectedFolderId(id);
@@ -187,9 +200,15 @@ export function ArchiveWorkspace({
     setCreateParentId(null);
     setError("");
     replaceLocation(id, null);
-  }, [beginNavigation, replaceLocation]);
+  }, [beginNavigation, confirmDiscard, replaceLocation, setDirty]);
 
-  const selectItem = useCallback((id: number, exactFolderId?: number) => {
+  const selectItem = useCallback((
+    id: number,
+    exactFolderId?: number,
+    discardConfirmed = false,
+  ) => {
+    if (!discardConfirmed && !confirmDiscard()) return;
+    setDirty(false);
     beginNavigation();
     selectionGenerationRef.current += 1;
     const targetFolderId = exactFolderId
@@ -204,14 +223,14 @@ export function ArchiveWorkspace({
     setCreateParentId(null);
     setDetailRequestVersion((version) => version + 1);
     replaceLocation(targetFolderId, id);
-  }, [beginNavigation, items, replaceLocation, selectedFolderId]);
+  }, [beginNavigation, confirmDiscard, items, replaceLocation, selectedFolderId, setDirty]);
 
   const navigateEntity = useCallback((
     kind: LinkEntityKind,
     id: number,
     exactFolderId?: number,
   ) => {
-    const generation = beginNavigation();
+    if (!confirmDiscard()) return;
 
     const indexedFolderId = kind === type
       ? items.find((item) => item.id === id)?.folderId
@@ -219,36 +238,45 @@ export function ArchiveWorkspace({
     const knownFolderId = exactFolderId ?? indexedFolderId;
 
     if (kind === type && knownFolderId !== undefined) {
-      selectItem(id, knownFolderId);
+      selectItem(id, knownFolderId, true);
       return;
     }
 
     if (kind !== type && knownFolderId !== undefined) {
-      window.location.assign(entityLocation(kind, id, knownFolderId));
+      beginNavigation();
+      discardAndRun(() => {
+        window.location.assign(entityLocation(kind, id, knownFolderId));
+      });
       return;
     }
 
+    const generation = beginNavigation();
     const targetRequest = kind === "knowledge" ? getKnowledge(id) : getExercise(id);
     void targetRequest.then(
       (target) => {
         if (generation !== navigationGenerationRef.current) return;
         if (kind === type) {
-          selectItem(id, target.folderId);
+          selectItem(id, target.folderId, true);
         } else {
-          window.location.assign(entityLocation(kind, id, target.folderId));
+          beginNavigation();
+          discardAndRun(() => {
+            window.location.assign(entityLocation(kind, id, target.folderId));
+          });
         }
       },
       (caught) => {
         if (generation === navigationGenerationRef.current) {
-          setError(getErrorMessage(caught));
+          setNavigationError(getErrorMessage(caught));
         }
       },
     );
-  }, [beginNavigation, items, selectItem, type]);
+  }, [beginNavigation, confirmDiscard, discardAndRun, items, selectItem, type]);
 
   async function handleCreateFolder(name: string, parentId: number | null) {
+    if (!confirmDiscard()) return;
     beginNavigation();
     const created = await createFolder({ type, parentId, name });
+    setDirty(false);
     await loadIndex();
     selectionGenerationRef.current += 1;
     setSelectedFolderId(created.id);
@@ -269,8 +297,10 @@ export function ArchiveWorkspace({
   }
 
   async function handleDeleteFolder(id: number) {
+    if (!confirmDiscard()) return;
     beginNavigation();
     await deleteFolder(id);
+    setDirty(false);
     selectionGenerationRef.current += 1;
     setSelectedFolderId(null);
     setSelectedItemId(null);
@@ -281,6 +311,7 @@ export function ArchiveWorkspace({
   }
 
   async function handleSaved(saved: ArchiveDetail) {
+    setDirty(false);
     beginNavigation();
     selectionGenerationRef.current += 1;
     setDetail(saved);
@@ -299,6 +330,7 @@ export function ArchiveWorkspace({
   }
 
   async function handleDeleted() {
+    setDirty(false);
     beginNavigation();
     selectionGenerationRef.current += 1;
     setSelectedItemId(null);
@@ -335,7 +367,9 @@ export function ArchiveWorkspace({
         await handleSaved(saved);
       } else {
         beginNavigation();
-        window.location.assign(entityLocation("knowledge", saved.id, saved.folderId));
+        discardAndRun(() => {
+          window.location.assign(entityLocation("knowledge", saved.id, saved.folderId));
+        });
       }
     } catch (caught) {
       if (
@@ -394,6 +428,8 @@ export function ArchiveWorkspace({
   const detailLoading = selectedItemId !== null && detail?.id !== selectedItemId && !error;
 
   function beginCreate(parentId: number | null) {
+    if (!confirmDiscard()) return;
+    setDirty(false);
     beginNavigation();
     selectionGenerationRef.current += 1;
     if (type === "knowledge" && parentId !== null) {
@@ -416,13 +452,18 @@ export function ArchiveWorkspace({
   }
 
   function cancelEditing() {
+    if (!confirmDiscard()) return;
+    setDirty(false);
     beginNavigation();
     setMode("view");
   }
 
   return (
     <>
-      <div className="archive-workspace">
+      {navigationError ? (
+        <p className="form-error" role="alert">{navigationError}</p>
+      ) : null}
+      <div className={`archive-workspace${dirty ? " has-unsaved" : ""}`}>
         <FolderPanel
           type={type}
           folders={folders}
@@ -478,6 +519,8 @@ export function ArchiveWorkspace({
             onDeleted={handleDeleted}
             onNavigateEntity={navigateEntity}
             onCreateWikilink={createKnowledgeFromKnowledgeWikilink}
+            onDirtyChange={setDirty}
+            onRegisterSave={registerSave}
           />
         ) : (
           <ExerciseDetail
@@ -492,6 +535,8 @@ export function ArchiveWorkspace({
             onDeleted={handleDeleted}
             onNavigateEntity={navigateEntity}
             onCreateKnowledgeWikilink={requestKnowledgeCreation}
+            onDirtyChange={setDirty}
+            onRegisterSave={registerSave}
           />
         )}
       </div>

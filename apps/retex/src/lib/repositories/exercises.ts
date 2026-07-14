@@ -19,6 +19,14 @@ import {
   replaceSourceNoteLinks,
   resolveIncomingLinksForTitle,
 } from "./links";
+import {
+  applyNoteImageMutation,
+  assertNoteImageDeletionPrepared,
+  deleteNoteImageRows,
+  insertNoteImages,
+  prepareNewNoteImages,
+  prepareNoteImageMutation,
+} from "./note-images";
 import { validateKnowledgeIds } from "./relation-validation";
 import { listExerciseKnowledge } from "./relations";
 import {
@@ -91,6 +99,7 @@ export function getExercise(id: number): ExerciseDetailDto | null {
 
 export function createExercise(
   input: CreateExerciseInput,
+  newImagePaths: readonly string[] = [],
 ): ExerciseDetailDto {
   requireFolder(input.folderId, "exercise");
   const title = normalizeRequiredText(input.title, "title");
@@ -99,6 +108,7 @@ export function createExercise(
   const solutionMd = normalizeMarkdown(input.solutionMd ?? "", "solutionMd");
   const tags = tagsToJson(input.tags ?? []);
   const knowledgeIds = validateKnowledgeIds(input.knowledgeIds ?? []);
+  const noteImagePaths = prepareNewNoteImages([answerMd, solutionMd], newImagePaths);
 
   return db.transaction((transaction) => {
     const row = transaction
@@ -113,6 +123,8 @@ export function createExercise(
       })
       .returning()
       .get();
+
+    insertNoteImages(transaction, "exercise", row.id, noteImagePaths);
 
     if (knowledgeIds.length > 0) {
       transaction
@@ -139,6 +151,8 @@ export function createExercise(
 export function updateExercise(
   id: number,
   input: UpdateExerciseInput,
+  newImagePaths: readonly string[] = [],
+  expectedRemovedImagePaths?: readonly string[],
 ): ExerciseDetailDto {
   assertPositiveId(id, "id");
   const current = db
@@ -160,8 +174,20 @@ export function updateExercise(
     tags?: string;
     updatedAt: SQL;
   } = { updatedAt: sql`CURRENT_TIMESTAMP` };
-  let hasChanges = false;
+  let hasChanges = newImagePaths.length > 0;
   let relatedKnowledgeIds: number[] | undefined;
+
+  if (
+    newImagePaths.length > 0 &&
+    input.answerMd === undefined &&
+    input.solutionMd === undefined
+  ) {
+    throw new RepositoryError(
+      "VALIDATION",
+      "answerMd or solutionMd is required when adding images.",
+      { field: "answerMd" },
+    );
+  }
 
   if (input.folderId !== undefined) {
     requireFolder(input.folderId, "exercise");
@@ -203,6 +229,14 @@ export function updateExercise(
     return getExercise(id)!;
   }
 
+  const preparedImages = prepareNoteImageMutation(
+    "exercise",
+    id,
+    [changes.answerMd ?? current.answerMd, changes.solutionMd ?? current.solutionMd],
+    newImagePaths,
+    expectedRemovedImagePaths,
+  );
+
   return db.transaction((transaction) => {
     const row = transaction
       .update(exercises)
@@ -210,6 +244,8 @@ export function updateExercise(
       .where(eq(exercises.id, id))
       .returning()
       .get();
+
+    applyNoteImageMutation(transaction, "exercise", id, preparedImages);
 
     if (relatedKnowledgeIds !== undefined) {
       transaction
@@ -264,8 +300,12 @@ export async function deleteExerciseImageIfUnused(
   return reference ? false : deleteExerciseImage(normalizedPath);
 }
 
-export async function deleteExercise(id: number): Promise<boolean> {
+export async function deleteExercise(
+  id: number,
+  expectedNoteImagePaths?: readonly string[],
+): Promise<boolean> {
   assertPositiveId(id, "id");
+  assertNoteImageDeletionPrepared("exercise", id, expectedNoteImagePaths);
   const deleted = db.transaction((transaction) => {
     const exercise = transaction
       .select()
@@ -280,6 +320,7 @@ export async function deleteExercise(id: number): Promise<boolean> {
       .from(exercises)
       .where(and(eq(exercises.imagePath, imagePath), ne(exercises.id, id)))
       .get();
+    deleteNoteImageRows(transaction, "exercise", id);
     transaction.delete(exercises).where(eq(exercises.id, id)).run();
     deleteEntityLinks(transaction, "exercise", id, exercise.title);
     return { imagePath, deleteImage: sharedImage === undefined };
@@ -287,7 +328,9 @@ export async function deleteExercise(id: number): Promise<boolean> {
 
   if (!deleted) return false;
   if (deleted.deleteImage) {
-    await deleteExerciseImage(deleted.imagePath);
+    await deleteExerciseImage(deleted.imagePath).catch((error) => {
+      console.error("Failed to delete an exercise image after deleting its exercise", error);
+    });
   }
 
   return true;

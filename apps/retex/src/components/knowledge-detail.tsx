@@ -3,13 +3,14 @@
 import type { Wikilink } from "@babel-apps/markdown/core";
 import {
   MarkdownRenderer,
+  OutlinePanel,
   type ResolvedWikilink,
 } from "@babel-apps/markdown/react";
 import Link from "next/link";
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { LinkedMentions } from "@/components/linked-mentions";
-import { MarkdownEditor } from "@/components/markdown-editor";
+import { MarkdownEditor, type StagedImage } from "@/components/markdown-editor";
 import { pageDescendantIds } from "@/components/page-tree-state";
 import {
   ConfirmButton,
@@ -33,6 +34,9 @@ import type {
   LinkEntityKind,
 } from "@/lib/types";
 
+const KNOWLEDGE_HEADING_ID_PREFIX = "retex-knowledge-heading-";
+const REMARK_FEATURES = ["gfm", "math"] as const;
+
 interface KnowledgeDetailProps {
   detail: KnowledgeDetailDto | null;
   mode: "view" | "edit" | "create";
@@ -52,6 +56,8 @@ interface KnowledgeDetailProps {
     folderId?: number,
   ) => void;
   onCreateWikilink: (title: string, folderId: number) => Promise<void> | void;
+  onDirtyChange?: (dirty: boolean) => void;
+  onRegisterSave?: (action: (() => void) | null) => void;
 }
 
 function pagePathLabel(
@@ -84,6 +90,8 @@ export function KnowledgeDetail({
   onDeleted,
   onNavigateEntity,
   onCreateWikilink,
+  onDirtyChange,
+  onRegisterSave,
 }: KnowledgeDetailProps) {
   const wikilinkTargets = useMemo(() => {
     const targets = new Map<string, ResolvedWikilink>();
@@ -129,6 +137,8 @@ export function KnowledgeDetail({
         resolveWikilink={resolveWikilink}
         onNavigateWikilink={navigateWikilink}
         onCreateWikilink={onCreateWikilink}
+        onDirtyChange={onDirtyChange}
+        onRegisterSave={onRegisterSave}
       />
     );
   }
@@ -173,16 +183,25 @@ export function KnowledgeDetail({
         </div>
       </header>
 
-      <section className="document-content" aria-label="Note content">
-        <MarkdownRenderer
+      <div className="document-outline-layout">
+        <section className="document-content" aria-label="Note content">
+          <MarkdownRenderer
+            content={detail.contentMd}
+            uploadScheme="retex-upload"
+            remarkFeatures={REMARK_FEATURES}
+            defaultWikilinkKind="knowledge"
+            resolveWikilink={resolveWikilink}
+            onNavigateWikilink={navigateWikilink}
+            onCreateFromWikilink={createFromWikilink}
+            headingIdPrefix={KNOWLEDGE_HEADING_ID_PREFIX}
+          />
+        </section>
+        <OutlinePanel
           content={detail.contentMd}
-          remarkFeatures={["math"]}
-          defaultWikilinkKind="knowledge"
-          resolveWikilink={resolveWikilink}
-          onNavigateWikilink={navigateWikilink}
-          onCreateFromWikilink={createFromWikilink}
+          mode="read"
+          headingIdPrefix={KNOWLEDGE_HEADING_ID_PREFIX}
         />
-      </section>
+      </div>
 
       <section className="related-section">
         <h2>Related Exercises</h2>
@@ -214,6 +233,8 @@ interface KnowledgeFormProps {
   resolveWikilink: (titleKey: string) => ResolvedWikilink | null;
   onNavigateWikilink: (target: ResolvedWikilink) => void;
   onCreateWikilink: (title: string, folderId: number) => Promise<void> | void;
+  onDirtyChange?: (dirty: boolean) => void;
+  onRegisterSave?: (action: (() => void) | null) => void;
 }
 
 function KnowledgeForm({
@@ -226,14 +247,23 @@ function KnowledgeForm({
   resolveWikilink,
   onNavigateWikilink,
   onCreateWikilink,
+  onDirtyChange,
+  onRegisterSave,
 }: KnowledgeFormProps) {
-  const [title, setTitle] = useState(detail?.title ?? "");
-  const [tags, setTags] = useState(detail?.tags.join(", ") ?? "");
-  const [content, setContent] = useState(detail?.contentMd ?? "");
-  const [parentId, setParentId] = useState<number | null>(detail?.parentId ?? createParentId);
-  const [exerciseIds, setExerciseIds] = useState(
-    detail?.relatedExercises.map((item) => item.id) ?? [],
-  );
+  const formRef = useRef<HTMLFormElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const stagedRef = useRef<StagedImage[]>([]);
+  const initialTitle = detail?.title ?? "";
+  const initialTags = detail?.tags.join(", ") ?? "";
+  const initialContent = detail?.contentMd ?? "";
+  const initialParentId = detail?.parentId ?? createParentId;
+  const initialExerciseIds = detail?.relatedExercises.map((item) => item.id) ?? [];
+  const [title, setTitle] = useState(initialTitle);
+  const [tags, setTags] = useState(initialTags);
+  const [content, setContent] = useState(initialContent);
+  const [parentId, setParentId] = useState<number | null>(initialParentId);
+  const [exerciseIds, setExerciseIds] = useState(initialExerciseIds);
+  const [stagedImages, setStagedImages] = useState<StagedImage[]>([]);
   const [exercises, setExercises] = useState<ExerciseSummaryDto[]>([]);
   const [relationsLoading, setRelationsLoading] = useState(true);
   const [pending, setPending] = useState(false);
@@ -259,6 +289,17 @@ function KnowledgeForm({
         .sort((a, b) => a.label.localeCompare(b.label, "en-US")),
     [detail?.id, folderId, pageMap, pages, unavailableParentIds],
   );
+  const imagePreviews = useMemo(
+    () => new Map(stagedImages.map((image) => [image.token, image.previewUrl])),
+    [stagedImages],
+  );
+  const dirty =
+    title !== initialTitle ||
+    tags !== initialTags ||
+    content !== initialContent ||
+    parentId !== initialParentId ||
+    !sameIdSet(exerciseIds, initialExerciseIds) ||
+    stagedImages.length > 0;
 
   useEffect(() => {
     let active = true;
@@ -276,6 +317,30 @@ function KnowledgeForm({
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    stagedRef.current = stagedImages;
+  }, [stagedImages]);
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+
+  useEffect(() => {
+    const save = () => formRef.current?.requestSubmit();
+    onRegisterSave?.(save);
+    return () => onRegisterSave?.(null);
+  }, [onRegisterSave]);
+
+  useEffect(() => {
+    return () => {
+      for (const image of stagedRef.current) URL.revokeObjectURL(image.previewUrl);
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => onDirtyChange?.(false);
+  }, [onDirtyChange]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -296,14 +361,27 @@ function KnowledgeForm({
         exerciseIds,
       };
       const saved = detail
-        ? await updateKnowledge(detail.id, input)
-        : await createKnowledge(input);
+        ? await updateKnowledge(detail.id, input, stagedImages)
+        : await createKnowledge(input, stagedImages);
+      onDirtyChange?.(false);
       onSaved(saved);
     } catch (caught) {
       setError(getErrorMessage(caught));
     } finally {
       setPending(false);
     }
+  }
+
+  function changeContent(nextContent: string) {
+    setContent(nextContent);
+    setStagedImages((current) => {
+      const retained = current.filter((image) => {
+        const referenced = nextContent.includes(`retex-upload://${image.token}`);
+        if (!referenced) URL.revokeObjectURL(image.previewUrl);
+        return referenced;
+      });
+      return retained.length === current.length ? current : retained;
+    });
   }
 
   async function createFromWikilink(wikilink: Wikilink) {
@@ -322,13 +400,13 @@ function KnowledgeForm({
   }
 
   function navigateFromPreview(target: ResolvedWikilink) {
-    if (!window.confirm("Discard unsaved changes and open this linked note?")) return;
     onNavigateWikilink(target);
   }
 
   return (
     <section className="detail-panel form-view">
-      <form onSubmit={submit}>
+      <form ref={formRef} onSubmit={submit} aria-busy={pending}>
+        <fieldset className="form-controls" disabled={pending}>
         <header className="document-header">
           <div>
             <span className="eyebrow">{detail ? "Edit Knowledge" : "New Knowledge"}</span>
@@ -391,25 +469,41 @@ function KnowledgeForm({
           </select>
         </label>
 
-        <MarkdownEditor
-          label="Content"
-          name="contentMd"
-          value={content}
-          onChange={setContent}
-          hint="Use $…$ for math and [[title]] to link another note."
-          enableWikilinkAutocomplete
-          resolveWikilink={resolveWikilink}
-          onNavigateWikilink={navigateFromPreview}
-          onCreateFromWikilink={createFromWikilink}
-        />
-
-        <RelationPicker
-          legend="Link Exercises"
-          items={exercises}
-          selectedIds={exerciseIds}
-          loading={relationsLoading}
-          onChange={setExerciseIds}
-        />
+        <div className="editor-outline-layout">
+          <MarkdownEditor
+            label="Content"
+            name="contentMd"
+            value={content}
+            disabled={pending}
+            imagePreviews={imagePreviews}
+            onChange={changeContent}
+            onImageError={setError}
+            onStageImage={(image) => setStagedImages((current) => [...current, image])}
+            hint="Use $…$ for math and [[title]] to link another note."
+            enableWikilinkAutocomplete
+            resolveWikilink={resolveWikilink}
+            onNavigateWikilink={navigateFromPreview}
+            onCreateFromWikilink={createFromWikilink}
+            textareaRef={textareaRef}
+            headingIdPrefix={KNOWLEDGE_HEADING_ID_PREFIX}
+            footerExtras={(
+              <RelationPicker
+                legend="Link Exercises"
+                items={exercises}
+                selectedIds={exerciseIds}
+                loading={relationsLoading}
+                onChange={setExerciseIds}
+              />
+            )}
+          />
+          <OutlinePanel
+            content={content}
+            mode="edit"
+            textareaRef={textareaRef}
+            headingIdPrefix={KNOWLEDGE_HEADING_ID_PREFIX}
+          />
+        </div>
+        </fieldset>
       </form>
     </section>
   );
@@ -421,4 +515,10 @@ function normalizedWikilinkTitle(wikilink: Wikilink): string {
 
 function isLinkEntityKind(value: string | undefined): value is LinkEntityKind {
   return value === "knowledge" || value === "exercise";
+}
+
+function sameIdSet(left: readonly number[], right: readonly number[]): boolean {
+  if (left.length !== right.length) return false;
+  const expected = new Set(right);
+  return left.every((id) => expected.has(id));
 }

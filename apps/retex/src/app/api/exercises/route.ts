@@ -6,15 +6,17 @@ import {
   listExercises,
 } from "@/lib/repositories";
 import { handleApi } from "@/lib/http/errors";
+import { rollbackNoteImageMutation } from "@/lib/http/note-image-mutation";
 import {
   optionalIdArray,
   optionalString,
   optionalStringArray,
   parsePositiveInteger,
-  readJsonObject,
+  readNoteMutationRequest,
   requiredPositiveInteger,
   requiredString,
 } from "@/lib/http/request";
+import { stageNoteImagesInMarkdown } from "@/lib/storage";
 
 export const runtime = "nodejs";
 
@@ -29,31 +31,46 @@ export function GET(request: Request): Promise<Response> {
 
 export function POST(request: Request): Promise<Response> {
   return handleApi(async () => {
-    const body = await readJsonObject(request);
+    const { payload: body, uploads } = await readNoteMutationRequest(request);
     const knowledgeIds =
       optionalIdArray(body, "knowledgeIds", "relatedKnowledgeIds") ?? [];
+    const answerMd = optionalString(
+      body,
+      "answerMd",
+      { allowEmpty: true, trim: false },
+    ) ?? "";
+    const solutionMd = optionalString(
+      body,
+      "solutionMd",
+      { allowEmpty: true, trim: false },
+    ) ?? "";
 
     const input = {
       folderId: requiredPositiveInteger(body, "folderId"),
       title: requiredString(body, "title"),
       imagePath: requiredString(body, "imagePath"),
-      answerMd: optionalString(body, "answerMd", { allowEmpty: true, trim: false }) ?? "",
-      solutionMd:
-        optionalString(body, "solutionMd", { allowEmpty: true, trim: false }) ?? "",
       tags: optionalStringArray(body, "tags") ?? [],
       knowledgeIds,
     };
 
-    let exercise;
+    let stagedImagePaths: string[] = [];
     try {
-      exercise = createExercise(input);
+      const staged = await stageNoteImagesInMarkdown([answerMd, solutionMd], uploads);
+      stagedImagePaths = staged.imagePaths;
+      const exercise = createExercise(
+        {
+          ...input,
+          answerMd: staged.markdownSources[0] ?? answerMd,
+          solutionMd: staged.markdownSources[1] ?? solutionMd,
+        },
+        staged.imagePaths,
+      );
+      return NextResponse.json(exercise, { status: 201 });
     } catch (error) {
       await deleteExerciseImageIfUnused(input.imagePath).catch((cleanupError) => {
         console.error("Failed to clean up an unused exercise image", cleanupError);
       });
-      throw error;
+      return rollbackNoteImageMutation(error, undefined, stagedImagePaths);
     }
-
-    return NextResponse.json(exercise, { status: 201 });
   });
 }

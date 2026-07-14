@@ -3,6 +3,7 @@ export * from "./exercises";
 export * from "./folders";
 export * from "./knowledge";
 export * from "./links";
+export * from "./note-images";
 export * from "./relations";
 export * from "./scratch";
 export * from "./search";

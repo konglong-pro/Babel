@@ -1,3 +1,5 @@
+import type { StagedImage } from "@babel-apps/markdown/react";
+
 import type {
   BacklinksDto,
   ExerciseDetailDto,
@@ -62,6 +64,20 @@ function jsonBody(value: unknown): Pick<RequestInit, "body"> {
   return { body: JSON.stringify(value) };
 }
 
+function markdownMutationBody(
+  value: unknown,
+  stagedImages: readonly StagedImage[],
+): Pick<RequestInit, "body"> {
+  if (stagedImages.length === 0) return jsonBody(value);
+
+  const formData = new FormData();
+  formData.set("payload", JSON.stringify(value));
+  for (const image of stagedImages) {
+    formData.set(`image:${image.token}`, image.file);
+  }
+  return { body: formData };
+}
+
 export function getErrorMessage(error: unknown): string {
   return error instanceof Error
     ? error.message
@@ -119,15 +135,25 @@ export interface KnowledgeInput {
   exerciseIds: number[];
 }
 
-export function createKnowledge(input: KnowledgeInput): Promise<KnowledgeDetailDto> {
-  return request("/api/knowledge", { method: "POST", ...jsonBody(input) });
+export function createKnowledge(
+  input: KnowledgeInput,
+  stagedImages: readonly StagedImage[] = [],
+): Promise<KnowledgeDetailDto> {
+  return request("/api/knowledge", {
+    method: "POST",
+    ...markdownMutationBody(input, stagedImages),
+  });
 }
 
 export function updateKnowledge(
   id: number,
   input: KnowledgeInput,
+  stagedImages: readonly StagedImage[] = [],
 ): Promise<KnowledgeDetailDto> {
-  return request(`/api/knowledge/${id}`, { method: "PATCH", ...jsonBody(input) });
+  return request(`/api/knowledge/${id}`, {
+    method: "PATCH",
+    ...markdownMutationBody(input, stagedImages),
+  });
 }
 
 export function deleteKnowledge(id: number): Promise<void> {
@@ -157,15 +183,25 @@ export interface ExerciseInput {
   knowledgeIds: number[];
 }
 
-export function createExercise(input: ExerciseInput): Promise<ExerciseDetailDto> {
-  return request("/api/exercises", { method: "POST", ...jsonBody(input) });
+export function createExercise(
+  input: ExerciseInput,
+  stagedImages: readonly StagedImage[] = [],
+): Promise<ExerciseDetailDto> {
+  return request("/api/exercises", {
+    method: "POST",
+    ...markdownMutationBody(input, stagedImages),
+  });
 }
 
 export function updateExercise(
   id: number,
   input: ExerciseInput,
+  stagedImages: readonly StagedImage[] = [],
 ): Promise<ExerciseDetailDto> {
-  return request(`/api/exercises/${id}`, { method: "PATCH", ...jsonBody(input) });
+  return request(`/api/exercises/${id}`, {
+    method: "PATCH",
+    ...markdownMutationBody(input, stagedImages),
+  });
 }
 
 export function deleteExercise(id: number): Promise<void> {

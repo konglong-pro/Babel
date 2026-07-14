@@ -155,3 +155,26 @@ export const noteLinks = sqliteTable(
     ),
   ],
 );
+
+export const noteImages = sqliteTable(
+  "note_image",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    sourceKind: text("source_kind", { enum: linkEntityKinds }).notNull(),
+    sourceId: integer("source_id").notNull(),
+    imagePath: text("image_path").notNull(),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+  },
+  (table) => [
+    index("note_image_source_idx").on(table.sourceKind, table.sourceId),
+    uniqueIndex("note_image_path_unique").on(table.imagePath),
+    check(
+      "note_image_source_kind_check",
+      sql`${table.sourceKind} in ('knowledge', 'exercise')`,
+    ),
+    check("note_image_source_id_check", sql`${table.sourceId} > 0`),
+    check("note_image_path_not_blank", sql`length(trim(${table.imagePath})) > 0`),
+  ],
+);

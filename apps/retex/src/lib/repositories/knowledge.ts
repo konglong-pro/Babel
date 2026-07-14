@@ -15,6 +15,15 @@ import {
   replaceSourceNoteLinks,
   resolveIncomingLinksForTitle,
 } from "./links";
+import {
+  applyNoteImageMutation,
+  assertNoteImageDeletionPrepared,
+  deleteNoteImageRows,
+  insertNoteImages,
+  prepareNewNoteImages,
+  prepareNoteImageMutation,
+  type PreparedNoteImageMutation,
+} from "./note-images";
 import { validateExerciseIds } from "./relation-validation";
 import { listKnowledgeExercises } from "./relations";
 import {
@@ -87,6 +96,7 @@ export function getKnowledge(id: number): KnowledgeDetailDto | null {
 
 export function createKnowledge(
   input: CreateKnowledgeInput,
+  newImagePaths: readonly string[] = [],
 ): KnowledgeDetailDto {
   requireFolder(input.folderId, "knowledge");
   const parentId = input.parentId ?? null;
@@ -97,6 +107,7 @@ export function createKnowledge(
   const contentMd = normalizeMarkdown(input.contentMd ?? "", "contentMd");
   const tags = tagsToJson(input.tags ?? []);
   const exerciseIds = validateExerciseIds(input.exerciseIds ?? []);
+  const preparedImagePaths = prepareNewNoteImages([contentMd], newImagePaths);
 
   return db.transaction((transaction) => {
     const row = transaction
@@ -117,6 +128,7 @@ export function createKnowledge(
         .run();
     }
 
+    insertNoteImages(transaction, "knowledge", row.id, preparedImagePaths);
     replaceSourceNoteLinks(transaction, "knowledge", row.id, [contentMd]);
     resolveIncomingLinksForTitle(transaction, title);
     return toKnowledgeDetail(
@@ -130,6 +142,8 @@ export function createKnowledge(
 export function updateKnowledge(
   id: number,
   input: UpdateKnowledgeInput,
+  newImagePaths: readonly string[] = [],
+  expectedRemovedImagePaths?: readonly string[],
 ): KnowledgeDetailDto {
   assertPositiveId(id, "id");
   const current = db
@@ -154,6 +168,7 @@ export function updateKnowledge(
   } = { updatedAt: sql`CURRENT_TIMESTAMP` };
   let hasChanges = false;
   let relatedExerciseIds: number[] | undefined;
+  let preparedImageMutation: PreparedNoteImageMutation | undefined;
   const nextFolderId = input.folderId ?? current.folderId;
   const folderChanged = nextFolderId !== current.folderId;
   const nextParentId =
@@ -162,6 +177,14 @@ export function updateKnowledge(
       : folderChanged
         ? null
         : current.parentId;
+
+  if (newImagePaths.length > 0 && input.contentMd === undefined) {
+    throw new RepositoryError(
+      "VALIDATION",
+      "contentMd is required when adding images.",
+      { field: "contentMd" },
+    );
+  }
 
   if (input.folderId !== undefined) {
     requireFolder(input.folderId, "knowledge");
@@ -195,6 +218,26 @@ export function updateKnowledge(
   if (input.exerciseIds !== undefined) {
     relatedExerciseIds = validateExerciseIds(input.exerciseIds);
     hasChanges = true;
+  }
+
+  if (
+    input.contentMd !== undefined ||
+    newImagePaths.length > 0 ||
+    expectedRemovedImagePaths !== undefined
+  ) {
+    preparedImageMutation = prepareNoteImageMutation(
+      "knowledge",
+      id,
+      [changes.contentMd ?? current.contentMd],
+      newImagePaths,
+      expectedRemovedImagePaths,
+    );
+    if (
+      preparedImageMutation.newImagePaths.length > 0 ||
+      preparedImageMutation.removedImagePaths.length > 0
+    ) {
+      hasChanges = true;
+    }
   }
 
   if (!hasChanges) {
@@ -239,6 +282,9 @@ export function updateKnowledge(
         }
     }
 
+    if (preparedImageMutation !== undefined) {
+      applyNoteImageMutation(transaction, "knowledge", id, preparedImageMutation);
+    }
     replaceSourceNoteLinks(transaction, "knowledge", id, [
       changes.contentMd ?? current.contentMd,
     ]);
@@ -259,8 +305,12 @@ export function updateKnowledge(
   });
 }
 
-export function deleteKnowledge(id: number): boolean {
+export function deleteKnowledge(
+  id: number,
+  expectedImagePaths?: readonly string[],
+): boolean {
   assertPositiveId(id, "id");
+  assertNoteImageDeletionPrepared("knowledge", id, expectedImagePaths);
   return db.transaction((transaction) => {
     const current = transaction
       .select({ id: knowledgeNotes.id, title: knowledgeNotes.title })
@@ -286,6 +336,7 @@ export function deleteKnowledge(id: number): boolean {
       .returning({ id: knowledgeNotes.id })
       .get();
     if (!deleted) return false;
+    deleteNoteImageRows(transaction, "knowledge", id);
     deleteEntityLinks(transaction, "knowledge", id, current.title);
     return true;
   });

@@ -634,6 +634,82 @@ a {
   max-width: 880px;
 }
 
+.document-outline-layout,
+.editor-outline-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  align-items: start;
+  gap: clamp(1rem, 2.2vw, 2rem);
+}
+
+.document-outline-layout {
+  max-width: 1140px;
+}
+
+.document-outline-layout > .document-content,
+.editor-outline-layout > .editor-field {
+  min-width: 0;
+}
+
+.document-outline-layout > .document-content:only-child,
+.editor-outline-layout > .editor-field:only-child {
+  grid-column: 1 / -1;
+}
+
+.outline-panel {
+  position: sticky;
+  top: 0;
+  min-width: 0;
+  border-left: 1px solid var(--line);
+  padding-left: 1rem;
+}
+
+.outline-panel summary {
+  cursor: pointer;
+  color: var(--accent-dark);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.outline-panel ol {
+  display: grid;
+  gap: 0.16rem;
+  margin: 0.65rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.outline-panel li {
+  min-width: 0;
+}
+
+.outline-panel button {
+  width: 100%;
+  min-height: 30px;
+  overflow-wrap: anywhere;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  padding: 0.28rem 0.38rem;
+  font-size: 0.76rem;
+  line-height: 1.35;
+  text-align: left;
+}
+
+.outline-panel button:hover {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+
+.outline-panel .outline-level-2 { padding-left: 0.4rem; }
+.outline-panel .outline-level-3 { padding-left: 0.8rem; }
+.outline-panel .outline-level-4,
+.outline-panel .outline-level-5,
+.outline-panel .outline-level-6 { padding-left: 1.2rem; }
+
 .markdown-body {
   overflow-wrap: anywhere;
   font-family: inherit;
@@ -667,6 +743,39 @@ a {
   margin-left: 0;
   color: var(--muted);
   padding-left: 1rem;
+}
+
+.markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid var(--line-strong);
+  padding: 0.48rem 0.58rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdown-body th {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+
+.markdown-body input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+.markdown-body img {
+  display: block;
+  max-width: 100%;
+  max-height: 72vh;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  object-fit: contain;
 }
 
 .markdown-body .katex-display {
@@ -807,6 +916,15 @@ a {
   gap: 1rem;
 }
 
+.form-controls {
+  border: 0;
+  display: grid;
+  gap: 1rem;
+  margin: 0;
+  min-inline-size: 0;
+  padding: 0;
+}
+
 .form-row,
 .field,
 .upload-field {
@@ -859,6 +977,30 @@ a {
   gap: 1rem;
 }
 
+.editor-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.55rem;
+}
+
+.editor-format-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.28rem;
+}
+
+.editor-format-tools button {
+  min-width: 30px;
+  min-height: 30px;
+  padding: 0.28rem 0.4rem;
+}
+
+.editor-format-tools code {
+  font-family: "Cascadia Code", Consolas, monospace;
+}
+
 .live-badge {
   color: var(--accent-dark);
   font-size: 0.7rem;
@@ -891,6 +1033,10 @@ a {
   min-width: 0;
   overflow: auto;
   padding: 0.82rem 1rem;
+}
+
+.preview-pane .markdown-body input[type="checkbox"]:not(:disabled) {
+  cursor: pointer;
 }
 
 .wikilink-autocomplete {
@@ -1218,6 +1364,21 @@ a {
   background: #f1f1f2;
 }
 
+@media (max-width: 1499px) {
+  .document-outline-layout,
+  .editor-outline-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .outline-panel {
+    position: static;
+    order: -1;
+    border-bottom: 1px solid var(--line);
+    border-left: 0;
+    padding: 0 0 0.8rem;
+  }
+}
+
 @media (max-width: 1100px) {
   .archive-workspace {
     grid-template-columns: minmax(190px, 0.78fr) minmax(250px, 1.22fr);
@@ -1310,11 +1471,13 @@ a {
   }
 
   .document-header,
+  .field-heading,
   .scratch-header {
     display: grid;
   }
 
   .document-actions,
+  .editor-tools,
   .scratch-actions {
     justify-content: flex-start;
   }

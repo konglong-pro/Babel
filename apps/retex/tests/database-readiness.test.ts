@@ -12,7 +12,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { assertAppDatabaseReady } from "@/lib/db/readiness";
 import { GET as getHealth } from "@/app/api/health/route";
 
-const latestMigration = 1_783_940_858_762;
+const latestMigration = 1_784_005_693_799;
 const migrationsFolder = path.resolve(process.cwd(), "drizzle");
 
 test("ReTex database readiness", async (t) => {
@@ -30,7 +30,7 @@ test("ReTex database readiness", async (t) => {
 
   await t.test("rejects a latest-looking database without page hierarchy", () => {
     const databasePath = path.join(root, "missing-parent.db");
-    createLatestLookingDatabase(databasePath, "knowledge_note");
+    createLatestLookingDatabase(databasePath);
 
     assert.throws(
       () => assertAppDatabaseReady(databasePath),
@@ -40,11 +40,21 @@ test("ReTex database readiness", async (t) => {
 
   await t.test("rejects a latest-looking database without the link index", () => {
     const databasePath = path.join(root, "missing-note-link.db");
-    createLatestLookingDatabase(databasePath, "knowledge_note", true);
+    createLatestLookingDatabase(databasePath, true);
 
     assert.throws(
       () => assertAppDatabaseReady(databasePath),
       /missing required column: note_link\.source_kind/i,
+    );
+  });
+
+  await t.test("rejects a latest-looking database without note images", () => {
+    const databasePath = path.join(root, "missing-note-image.db");
+    createLatestLookingDatabase(databasePath, true, true);
+
+    assert.throws(
+      () => assertAppDatabaseReady(databasePath),
+      /missing required column: note_image\.source_kind/i,
     );
   });
 
@@ -72,16 +82,26 @@ test("ReTex database readiness", async (t) => {
 
 function createLatestLookingDatabase(
   databasePath: string,
-  table: string,
   includeParentId = false,
+  includeNoteLink = false,
 ): void {
   const sqlite = new BetterSqlite3(databasePath);
   try {
     sqlite.exec(`
-      CREATE TABLE ${table} (
+      CREATE TABLE knowledge_note (
         id integer PRIMARY KEY
         ${includeParentId ? ", parent_id integer" : ""}
       );
+      ${includeNoteLink ? `
+        CREATE TABLE note_link (
+          id integer PRIMARY KEY,
+          source_kind text,
+          source_id integer,
+          target_title_key text,
+          target_kind text,
+          target_id integer
+        );
+      ` : ""}
       CREATE TABLE __drizzle_migrations (
         id integer PRIMARY KEY AUTOINCREMENT,
         hash text NOT NULL,

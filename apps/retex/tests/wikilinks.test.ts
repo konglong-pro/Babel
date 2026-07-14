@@ -224,6 +224,42 @@ test("backlinks are grouped by source kind and title suggestions preserve kinds"
       { title: "Grouped target", kind: "knowledge" },
     ],
   );
+  assert.deepEqual(
+    repositories.listNoteTitles("grouped", 1).map(({ title, kind }) => ({ title, kind })),
+    [{ title: "Grouped exercise source", kind: "exercise" }],
+  );
+
+  const literal = repositories.createKnowledge({
+    folderId: knowledgeFolder.id,
+    title: "Grouped %_ literal prefix",
+  });
+  repositories.createExercise({
+    folderId: exerciseFolder.id,
+    title: "Before Grouped %_ literal prefix",
+    imagePath: "data/uploads/exercises/grouped-infix.png",
+  });
+  const slash = repositories.createKnowledge({
+    folderId: knowledgeFolder.id,
+    title: "Grouped slash\\ literal prefix",
+  });
+  const unicode = repositories.createKnowledge({
+    folderId: knowledgeFolder.id,
+    title: "Ĉapitro   Du",
+  });
+
+  assert.deepEqual(repositories.listNoteTitles("grouped %_", 20), [
+    { id: literal.id, title: literal.title, kind: "knowledge" },
+  ]);
+  assert.deepEqual(repositories.listNoteTitles("grouped slash\\", 20), [
+    { id: slash.id, title: slash.title, kind: "knowledge" },
+  ]);
+  assert.deepEqual(repositories.listNoteTitles("ĉa", 20), [
+    { id: unicode.id, title: unicode.title, kind: "knowledge" },
+  ]);
+  assert.deepEqual(repositories.listNoteTitles("ĉapitro du", 20), [
+    { id: unicode.id, title: unicode.title, kind: "knowledge" },
+  ]);
+  assert.equal(repositories.listNoteTitles("", 1).length, 1);
 });
 
 test("link trigger failures roll back entity and relation writes", () => {
