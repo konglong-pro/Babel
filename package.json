@@ -21,7 +21,8 @@
     "dev:esperanto": "npm run dev -w @babel-apps/esperanto",
     "dev:vali": "npm run dev -w @babel-apps/vali",
     "dev:neum": "npm run dev -w @babel-apps/neum",
-    "dev:herodotus": "npm run dev -w @babel-apps/herodotus"
+    "dev:herodotus": "npm run dev -w @babel-apps/herodotus",
+    "dev:leviathan": "npm run dev -w @babel-apps/leviathan"
   },
   "dependencies": {
     "better-sqlite3": "12.11.1"

@@ -90,6 +90,24 @@
         "data/herodotus/sqlite.db",
         "data/herodotus/uploads/notes"
       ]
+    },
+    {
+      "name": "Leviathan",
+      "id": "leviathan",
+      "workspace": "apps/leviathan",
+      "port": 3005,
+      "healthPath": "/api/health",
+      "identityPath": "/notes",
+      "identityText": "Leviathan",
+      "readyTimeoutSeconds": 60,
+      "env": {
+        "LEVIATHAN_DATABASE_PATH": "data/leviathan/sqlite.db",
+        "LEVIATHAN_UPLOAD_DIRECTORY": "data/leviathan/uploads/notes"
+      },
+      "requiredDataPaths": [
+        "data/leviathan/sqlite.db",
+        "data/leviathan/uploads/notes"
+      ]
     }
   ]
 }
