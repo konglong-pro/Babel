@@ -6,7 +6,40 @@ export interface TextEditResult {
   selectionEnd: number;
 }
 
+export interface TextReplacement {
+  from: number;
+  to: number;
+  insert: string;
+}
+
 export type InlineMarker = "**" | "*" | "`" | "~~";
+
+export interface MarkdownKeyInput {
+  key: string;
+  altKey?: boolean;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
+  shiftKey?: boolean;
+}
+
+export function minimalTextReplacement(
+  current: string,
+  next: string,
+): TextReplacement | null {
+  if (current === next) return null;
+  let from = 0;
+  while (from < current.length && from < next.length && current[from] === next[from]) {
+    from += 1;
+  }
+
+  let to = current.length;
+  let nextEnd = next.length;
+  while (to > from && nextEnd > from && current[to - 1] === next[nextEnd - 1]) {
+    to -= 1;
+    nextEnd -= 1;
+  }
+  return { from, to, insert: next.slice(from, nextEnd) };
+}
 
 interface SourceLine {
   text: string;
@@ -319,6 +352,40 @@ export function wrapInlineSelection(
     selectionStart: selectionStart + markerLength,
     selectionEnd: selectionEnd + markerLength,
   };
+}
+
+export function editFromMarkdownKey(
+  text: string,
+  selectionStart: number,
+  selectionEnd: number,
+  input: MarkdownKeyInput,
+): TextEditResult | null {
+  const key = input.key.toLowerCase();
+  if (
+    key === "enter" &&
+    input.altKey !== true &&
+    input.ctrlKey !== true &&
+    input.metaKey !== true
+  ) {
+    return continueFenceOnEnter(text, selectionStart, selectionEnd) ??
+      continueListOnEnter(text, selectionStart, selectionEnd);
+  }
+  if (key === "tab") {
+    return input.shiftKey === true
+      ? outdentListItem(text, selectionStart, selectionEnd)
+      : indentListItem(text, selectionStart, selectionEnd);
+  }
+
+  const marker = key === "b" ? "**" : key === "i" ? "*" : null;
+  if (
+    marker !== null &&
+    (input.ctrlKey === true || input.metaKey === true) &&
+    input.altKey !== true &&
+    input.shiftKey !== true
+  ) {
+    return wrapInlineSelection(text, selectionStart, selectionEnd, marker);
+  }
+  return null;
 }
 
 export function linkFromPastedUrl(

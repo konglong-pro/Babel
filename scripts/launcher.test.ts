@@ -39,19 +39,90 @@ const shortcutDefaults = JSON.parse(shortcutDefaultsSource) as {
   commands?: Array<{ command?: string; label?: string; defaultBinding?: string }>;
 };
 
-test("the launcher exposes backend URLs without a browser action", () => {
+test("the launcher opens a verified notebook in the system browser", () => {
   assert.equal(
     /Start-Process\s+-FilePath\s+\$status\.App\.Url/i.test(workerSource),
     false,
     "the worker must not open an application URL",
   );
-  assert.equal(
-    /Start-Process\s+-FilePath\s+\$app\.OpenUrl/i.test(guiSource),
-    false,
-    "the GUI must not open an application URL",
+  assert.match(
+    guiSource,
+    /Start-Process\s+-FilePath\s+\$App\.IdentityUrl/i,
+    "the GUI must hand the registered identity URL to the system browser",
   );
-  assert.equal(/\bOpenButton\b/.test(guiSource), false, "the GUI script must not expose an Open button");
-  assert.equal(/\bOpenButton\b/.test(xamlSource), false, "the XAML must not expose an Open button");
+  assert.match(guiSource, /\bOpenSelectedButton\b/i);
+  assert.match(xamlSource, /x:Name=["']OpenSelectedButton["']/i);
+  assert.match(xamlSource, /Content=["']OPEN \(_O\)["']/i);
+
+  const openSource =
+    guiSource.match(/function\s+Open-BabelApp\b([\s\S]*?)function\s+[A-Za-z]/i)?.[1] ?? "";
+  assert.match(openSource, /Test-AppHealthRecentlyPassed\s+-App\s+\$App/i);
+  assert.doesNotMatch(openSource, /Test-AppHealth\s+-App/i);
+  assert.match(openSource, /Start-AppHealthProbe\s+-App\s+\$App/i);
+  assert.match(openSource, /Open-AppIdentity\s+-App\s+\$App/i);
+  assert.ok(
+    openSource.search(/Test-AppHealthRecentlyPassed\s+-App\s+\$App/i) <
+      openSource.search(/Open-AppIdentity\s+-App\s+\$App/i),
+    "OPEN must verify health and identity before opening the browser",
+  );
+});
+
+test("the GUI retains the complete health and identity contract", () => {
+  for (const field of ["healthPath", "identityPath", "identityText"]) {
+    assert.match(
+      guiSource,
+      new RegExp(`foreach \\(\\$propertyName in @\\([^)]*"${field}"`, "is"),
+      `the GUI registry loader must require ${field}`,
+    );
+  }
+  assert.match(guiSource, /\bHealthUrl\s*=\s*\$internalBaseUrl\s*\+\s*\$healthPath/i);
+  assert.match(guiSource, /\bIdentityHealthUrl\s*=\s*\$internalBaseUrl\s*\+\s*\$identityPath/i);
+  assert.match(guiSource, /\bIdentityUrl\s*=\s*\$publicBaseUrl\s*\+\s*\$identityPath/i);
+  assert.match(guiSource, /\bIdentityText\s*=\s*\$identityText/i);
+
+  const appHealthSource =
+    guiSource.match(/function\s+Test-AppHealth\b([\s\S]*?)function\s+[A-Za-z]/i)?.[1] ?? "";
+  assert.match(appHealthSource, /-Uri\s+\$App\.HealthUrl\b/i);
+  assert.match(appHealthSource, /-Uri\s+\$App\.IdentityHealthUrl\b/i);
+  assert.match(appHealthSource, /\$App\.IdentityText/i);
+
+  const statusRefreshSource =
+    guiSource.match(/function\s+Refresh-AppStatuses\b([\s\S]*?)function\s+Update-LogView/i)?.[1] ?? "";
+  assert.doesNotMatch(
+    statusRefreshSource,
+    /Test-AppHealth/i,
+    "periodic probes must not block the WPF Dispatcher with synchronous HTTP",
+  );
+  assert.match(guiSource, /RunspaceFactory\]::CreateRunspacePool/i);
+  assert.match(guiSource, /\$probePowerShell\.BeginInvoke\(\)/i);
+  assert.match(guiSource, /\$script:ProbeGenerationById/i);
+
+  const startAllSource =
+    guiSource.match(/function\s+Start-AllNotebookWorkers\b([\s\S]*?)if\s*\(\$LifecycleSmokeTest\)/i)?.[1] ?? "";
+  assert.doesNotMatch(startAllSource, /Test-AppHealth\s+-App/i);
+  assert.match(startAllSource, /Start-AppHealthProbe\s+-App\s+\$app/i);
+});
+
+test("notebooks have independent workers and the five product states", () => {
+  assert.match(guiSource, /\$script:WorkersById\s*=\s*@\{\}/i);
+  assert.doesNotMatch(guiSource, /\$script:Worker\s*=\s*\$null/i);
+  assert.match(guiSource, /function\s+Get-AppDisplayStatus\b/i);
+  for (const status of ["Stopped", "Starting", "Ready", "Unhealthy", "External"]) {
+    assert.match(guiSource, new RegExp(`return ["']${status}["']`, "i"));
+    assert.match(xamlSource, new RegExp(`Value=["']${status}["']`, "i"));
+  }
+  assert.match(xamlSource, /x:Name=["']AdvancedExpander["']/i);
+  assert.match(xamlSource, /x:Name=["']StartAllButton["']/i);
+  assert.match(xamlSource, /x:Name=["']VerifyButton["']/i);
+  assert.match(xamlSource, /x:Name=["']LogTextBox["']/i);
+});
+
+test("the tray menu exposes every registered notebook", () => {
+  assert.match(guiSource, /\$script:TrayAppMenuItems\s*=\s*@\{\}/i);
+  assert.match(guiSource, /foreach\s*\(\$app\s+in\s+\$script:RegisteredApps\)[\s\S]{0,900}ToolStripMenuItem/i);
+  assert.match(guiSource, /\$trayAppMenuItem\.Tag\s*=\s*\$app\.Id/i);
+  assert.match(guiSource, /\$trayAppMenuItem\.Add_Click/i);
+  assert.match(guiSource, /Open-BabelApp/i);
 });
 
 test("ready messages publish the registered identity URL", () => {
@@ -335,8 +406,8 @@ test("the launcher can minimize to the system tray and restore safely", () => {
   if (!/\$script:TrayExitMenuItem\.Add_Click[\s\S]{0,240}\$script:Window\.Close\(\)/i.test(guiSource)) {
     missingContracts.push("route the tray Exit command through the window close lifecycle");
   }
-  if (!/\$script:Window\.Add_Closing[\s\S]{0,720}Request-WorkerStop/i.test(guiSource)) {
-    missingContracts.push("keep graceful worker shutdown behind the close lifecycle");
+  if (!/\$script:Window\.Add_Closing[\s\S]{0,720}Request-AllWorkersStop/i.test(guiSource)) {
+    missingContracts.push("keep graceful multi-worker shutdown behind the close lifecycle");
   }
   if (!/New-Object\s+Windows\.Application[\s\S]{0,240}\.Run\(\$script:Window\)/i.test(guiSource)) {
     missingContracts.push("keep the WPF message loop alive while the window is hidden");
@@ -370,6 +441,64 @@ test(
     assert.match(stdout, /Babel GUI smoke test passed/i);
     assert.match(stdout, /6 shortcut control\(s\)/i);
     assert.match(stdout, /8 shortcut command\(s\)/i);
+  },
+);
+
+test(
+  "the notebook state machine passes a real Windows PowerShell smoke test",
+  { skip: process.platform !== "win32" },
+  async () => {
+    const { stdout } = await execFileAsync(
+      "powershell.exe",
+      [
+        "-NoLogo",
+        "-NoProfile",
+        "-STA",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        guiPath,
+        "-StateSmokeTest",
+      ],
+      { cwd: root, encoding: "utf8", timeout: 30_000, windowsHide: true },
+    );
+
+    assert.match(stdout, /Babel GUI state smoke test passed/i);
+    for (const status of ["Stopped", "Starting", "Ready", "Unhealthy", "External"]) {
+      assert.match(stdout, new RegExp(`\\b${status}\\b`, "i"));
+    }
+    assert.match(stdout, /foreign listener rejected/i);
+    assert.match(stdout, /independent workers/i);
+  },
+);
+
+test(
+  "the multi-worker lifecycle passes a real Windows PowerShell smoke test",
+  { skip: process.platform !== "win32" },
+  async () => {
+    const { stdout } = await execFileAsync(
+      "powershell.exe",
+      [
+        "-NoLogo",
+        "-NoProfile",
+        "-STA",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        guiPath,
+        "-LifecycleSmokeTest",
+      ],
+      { cwd: root, encoding: "utf8", timeout: 30_000, windowsHide: true },
+    );
+
+    assert.match(stdout, /Babel GUI lifecycle smoke test passed/i);
+    assert.match(stdout, /asynchronous health probe/i);
+    assert.match(stdout, /stale result rejection/i);
+    assert.match(stdout, /independent workers/i);
+    assert.match(stdout, /closing gate/i);
+    assert.match(stdout, /pending OPEN cancellation/i);
+    assert.match(stdout, /failed-stop cancellation/i);
+    assert.match(stdout, /worker cleanup/i);
   },
 );
 

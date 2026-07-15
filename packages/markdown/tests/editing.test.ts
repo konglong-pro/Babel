@@ -4,14 +4,79 @@ import test from "node:test";
 import {
   continueFenceOnEnter,
   continueListOnEnter,
+  editFromMarkdownKey,
   indentListItem,
   linkFromPastedUrl,
+  minimalTextReplacement,
   outdentListItem,
   toggleTaskCheckbox,
   toggleTaskListSelection,
   wrapInlineSelection,
   type InlineMarker,
 } from "@babel-apps/markdown/editing";
+
+test("describes the smallest contiguous replacement for a native edit", () => {
+  assert.deepEqual(minimalTextReplacement("alpha omega", "alpha brave omega"), {
+    from: 6,
+    to: 6,
+    insert: "brave ",
+  });
+  assert.equal(minimalTextReplacement("unchanged", "unchanged"), null);
+});
+
+test("applies the standard bold shortcut to the active selection", () => {
+  assert.deepEqual(editFromMarkdownKey("important", 0, 9, {
+    key: "b",
+    ctrlKey: true,
+  }), {
+    text: "**important**",
+    selectionStart: 2,
+    selectionEnd: 11,
+  });
+});
+
+test("applies the standard italic shortcut with the platform modifier", () => {
+  const expected = {
+    text: "*emphasis*",
+    selectionStart: 1,
+    selectionEnd: 9,
+  };
+  assert.deepEqual(editFromMarkdownKey("emphasis", 0, 8, {
+    key: "i",
+    ctrlKey: true,
+  }), expected);
+  assert.deepEqual(editFromMarkdownKey("emphasis", 0, 8, {
+    key: "i",
+    metaKey: true,
+  }), expected);
+});
+
+test("routes Enter through fenced-block continuation before generic input", () => {
+  assert.deepEqual(editFromMarkdownKey("```ts", 5, 5, { key: "Enter" }), {
+    text: "```ts\n\n```",
+    selectionStart: 6,
+    selectionEnd: 6,
+  });
+});
+
+test("routes Tab and Shift+Tab through list indentation", () => {
+  const indented = editFromMarkdownKey("- item", 0, 6, { key: "Tab" });
+  assert.deepEqual(indented, {
+    text: "  - item",
+    selectionStart: 2,
+    selectionEnd: 8,
+  });
+  assert.deepEqual(editFromMarkdownKey(
+    indented!.text,
+    indented!.selectionStart,
+    indented!.selectionEnd,
+    { key: "Tab", shiftKey: true },
+  ), {
+    text: "- item",
+    selectionStart: 0,
+    selectionEnd: 6,
+  });
+});
 
 test("continues unordered, ordered, task, and quoted list markers", () => {
   assert.deepEqual(continueListOnEnter("- item", 6, 6), {

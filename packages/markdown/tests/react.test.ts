@@ -181,6 +181,8 @@ test("renders the complete editor and outline without a live preview", () => {
 
   assert.match(editorHtml, /aria-label="Markdown formatting"/u);
   assert.match(editorHtml, /aria-label="Bold"/u);
+  assert.match(editorHtml, /aria-keyshortcuts="Control\+B Meta\+B"/u);
+  assert.match(editorHtml, /aria-keyshortcuts="Control\+I Meta\+I"/u);
   assert.match(editorHtml, />Add image<\/button>/u);
   assert.match(editorHtml, /<textarea[^>]*name="contentMd"[^>]*># Heading<\/textarea>/u);
   assert.doesNotMatch(editorHtml, /Live preview/u);

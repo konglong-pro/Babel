@@ -59,13 +59,20 @@ before launching or backing up the new application.
 
 ## Launcher
 
-Double-click `launcher\Babel.vbs` or `launcher\Babel.lnk` to open the WPF control
-panel. It reads `babel.apps.json` dynamically, shows each registered app and
-port, and can start the selected app, start all apps, stop the session cleanly,
-or run a readiness verification. `MINIMIZE TO TRAY` hides the control panel in
-the Windows notification area without stopping its worker; tray `Exit` follows
-the same graceful shutdown path. The launcher starts backends only and writes
-each notebook URL to the Session Log; it does not open a browser.
+Double-click `launcher\Babel.vbs` or `launcher\Babel.lnk` to open the WPF
+application launcher. It reads `babel.apps.json` dynamically and presents each
+registered notebook as a card with a `Stopped`, `Starting`, `Ready`, `Unhealthy`,
+or `External` state. Choose `OPEN`: a stopped notebook gets its own worker, the
+launcher waits for both its health endpoint and registered page identity, then
+opens the `identityPath` in the system default browser. A healthy notebook that
+is already running opens immediately; an unrelated or unhealthy listener on the
+registered port is never opened or stopped.
+
+`START ALL`, per-notebook and all-worker stop controls, `VERIFY ALL`, shortcut
+settings, and complete worker logs live under `ADVANCED / DIAGNOSTICS`.
+`MINIMIZE TO TRAY` hides the launcher without stopping its workers. The tray
+menu lists every notebook; choosing one follows the same start, identity-check,
+and open flow. Tray `Exit` gracefully stops all workers owned by that launcher.
 
 `SHORTCUTS` opens the global shortcut editor. Babel stores the user override in
 `%LOCALAPPDATA%\Babel\shortcuts.json`, outside both the public repository and the

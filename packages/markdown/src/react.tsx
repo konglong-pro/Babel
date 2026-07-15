@@ -40,11 +40,9 @@ import {
   type Wikilink,
 } from "./core";
 import {
-  continueFenceOnEnter,
-  continueListOnEnter,
-  indentListItem,
+  editFromMarkdownKey,
   linkFromPastedUrl,
-  outdentListItem,
+  minimalTextReplacement,
   toggleTaskListSelection,
   wrapInlineSelection,
   type InlineMarker,
@@ -822,22 +820,12 @@ export function MarkdownEditor({
     }
     if (event.key === "Enter" && autocomplete.isOpen) return;
     const textarea = event.currentTarget;
-    let edit: TextEditResult | null = null;
-    if (event.key === "Enter" && !event.altKey && !event.ctrlKey && !event.metaKey) {
-      edit = continueFenceOnEnter(
-        textarea.value,
-        textarea.selectionStart,
-        textarea.selectionEnd,
-      ) ?? continueListOnEnter(
-        textarea.value,
-        textarea.selectionStart,
-        textarea.selectionEnd,
-      );
-    } else if (event.key === "Tab") {
-      edit = event.shiftKey
-        ? outdentListItem(textarea.value, textarea.selectionStart, textarea.selectionEnd)
-        : indentListItem(textarea.value, textarea.selectionStart, textarea.selectionEnd);
-    }
+    const edit = editFromMarkdownKey(
+      textarea.value,
+      textarea.selectionStart,
+      textarea.selectionEnd,
+      event,
+    );
     if (edit === null) return;
     event.preventDefault();
     commit(edit);
@@ -873,10 +861,22 @@ export function MarkdownEditor({
         </div>
         <div className="editor-tools">
           <div className="editor-format-tools" aria-label="Markdown formatting">
-            <button type="button" disabled={disabled} aria-label="Bold" onClick={() => format("**")}>
+            <button
+              type="button"
+              disabled={disabled}
+              aria-label="Bold"
+              aria-keyshortcuts="Control+B Meta+B"
+              onClick={() => format("**")}
+            >
               <strong>B</strong>
             </button>
-            <button type="button" disabled={disabled} aria-label="Italic" onClick={() => format("*")}>
+            <button
+              type="button"
+              disabled={disabled}
+              aria-label="Italic"
+              aria-keyshortcuts="Control+I Meta+I"
+              onClick={() => format("*")}
+            >
               <em>I</em>
             </button>
             <button type="button" disabled={disabled} aria-label="Inline code" onClick={() => format("`") }>
@@ -1119,27 +1119,12 @@ function parseWikilinkHref(href: string | undefined): { titleKey: string; kind?:
 }
 
 function setNativeTextareaValue(textarea: HTMLTextAreaElement, value: string): void {
-  const current = textarea.value;
-  if (current === value) return;
-  let start = 0;
-  while (start < current.length && start < value.length && current[start] === value[start]) {
-    start += 1;
-  }
-  let currentEnd = current.length;
-  let valueEnd = value.length;
-  while (
-    currentEnd > start &&
-    valueEnd > start &&
-    current[currentEnd - 1] === value[valueEnd - 1]
-  ) {
-    currentEnd -= 1;
-    valueEnd -= 1;
-  }
+  const replacement = minimalTextReplacement(textarea.value, value);
+  if (replacement === null) return;
 
   textarea.focus();
-  textarea.setSelectionRange(start, currentEnd);
-  const replacement = value.slice(start, valueEnd);
-  if (textarea.ownerDocument.execCommand("insertText", false, replacement)) return;
+  textarea.setSelectionRange(replacement.from, replacement.to);
+  if (textarea.ownerDocument.execCommand("insertText", false, replacement.insert)) return;
 
   const view = textarea.ownerDocument.defaultView;
   const prototype = view?.HTMLTextAreaElement.prototype;
