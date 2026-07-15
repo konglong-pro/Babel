@@ -178,25 +178,16 @@ a {
   display: inline-flex;
   width: fit-content;
   align-items: center;
-  gap: 0.72rem;
-  color: var(--ink);
+  color: #fff;
   text-decoration: none;
-}
-
-.brand-rule {
-  width: 4px;
-  height: 29px;
-  background: var(--line-strong);
-  box-shadow: 5px 0 0 var(--ink);
 }
 
 .brand strong {
   font-family: var(--serif);
-  font-size: 1.42rem;
-  font-style: italic;
+  font-size: 1.72rem;
+  font-style: normal;
   font-weight: 700;
-  letter-spacing: 0.24em;
-  text-transform: uppercase;
+  line-height: 1;
 }
 
 .unit-navigation {
@@ -1566,12 +1557,8 @@ a {
     grid-column: 1 / -1;
   }
 
-  .brand-rule {
-    height: 24px;
-  }
-
   .brand strong {
-    font-size: 1.25rem;
+    font-size: 1.52rem;
   }
 
   .notes-workspace {

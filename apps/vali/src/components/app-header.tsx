@@ -46,8 +46,7 @@ export function AppHeader() {
   return (
     <header className="app-header">
       <Link className="brand" href="/notes" aria-label="Vali notes home" onClick={visitHome}>
-        <span className="brand-rule" aria-hidden="true" />
-        <strong>Vali</strong>
+        <strong aria-hidden="true">V</strong>
       </Link>
 
       <nav className="unit-navigation" aria-label="Vali units">
