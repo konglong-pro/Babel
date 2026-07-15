@@ -17,6 +17,7 @@
     "new-app": "tsx scripts/new-app.ts",
     "data:backup": "tsx scripts/data-backup.ts",
     "git:setup": "git config core.hooksPath .githooks",
+    "launcher:build": "powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\\launcher\\Build-BabelExe.ps1",
     "dev:retex": "npm run dev -w @babel-apps/retex",
     "dev:esperanto": "npm run dev -w @babel-apps/esperanto",
     "dev:vali": "npm run dev -w @babel-apps/vali",

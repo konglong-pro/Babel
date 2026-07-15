@@ -22,6 +22,7 @@ import type {
   EntryDetailDto,
   EntryTitleDto,
   PaginatedDto,
+  SearchResultsDto,
   TrashEntryDto,
 } from "@/lib/types";
 import { withEntryMutationLock } from "@/lib/mutation-lock";
@@ -281,7 +282,7 @@ test("Neum HTTP contract", async (t) => {
         kind: "snippet",
         title: "C++ deploy_config",
         notesMd: "Broken configuration is still useful.",
-        code: "root: [still, editable\nkey_%: foo_bar",
+        code: "line before\nroot: [still, editable\nkey_%: foo_bar\npath: C:\\temp\nline after",
         language: "yaml",
         filename: "deploy_config.yaml",
         tags: ["Config", "config", " C++ "],
@@ -289,7 +290,10 @@ test("Neum HTTP contract", async (t) => {
     );
     assert.equal(created.status, 201);
     snippet = (await created.json()) as EntryDetailDto;
-    assert.equal(snippet.code, "root: [still, editable\nkey_%: foo_bar");
+    assert.equal(
+      snippet.code,
+      "line before\nroot: [still, editable\nkey_%: foo_bar\npath: C:\\temp\nline after",
+    );
     assert.deepEqual(snippet.tags, ["C++", "Config"]);
     assert.equal(snippet.version, 1);
 
@@ -300,16 +304,47 @@ test("Neum HTTP contract", async (t) => {
     const snippetPage = (await snippetIndex.json()) as PaginatedDto<EntryDetailDto>;
     assert.deepEqual(snippetPage.items.map(({ id }) => id), [snippet.id]);
 
-    for (const query of ["C++", "foo_bar", "key_%", "deploy_config.yaml"]) {
+    for (const query of ["C++", "foo_bar", "key_%", "deploy_config.yaml", "\\"]) {
       const response = await searchRoute.GET(
         new Request(`http://localhost/api/search?q=${encodeURIComponent(query)}&limit=1`),
       );
       assert.equal(response.status, 200);
-      const page = (await response.json()) as PaginatedDto<{ id: number }>;
-      assert.equal(page.items[0]?.id, snippet.id);
+      const page = (await response.json()) as SearchResultsDto;
+      const item = page.items[0];
+      assert.equal(item?.id, snippet.id);
       assert.equal(page.limit, 1);
       assert.equal(page.offset, 0);
+      assert.ok(item);
+      assert.equal(Object.hasOwn(item, "notesMd"), false);
+      assert.equal(Object.hasOwn(item, "code"), false);
+      assert.equal(Object.hasOwn(item, "score"), false);
+      assert.ok(
+        [
+          ...item.match.title,
+          ...item.match.tags.flatMap(({ parts }) => parts),
+          ...item.match.snippet.parts,
+        ].some(({ highlighted }) => highlighted),
+      );
+      if (query === "foo_bar") {
+        const snippetText = item.match.snippet.parts.map(({ text }) => text).join("");
+        assert.equal(item.match.snippet.field, "code");
+        assert.equal(item.match.matchedFields.includes("code"), true);
+        assert.equal(snippetText.split("\n").length, 3);
+        assert.match(snippetText, /root: \[still, editable\nkey_%: foo_bar\npath: C:\\temp/);
+      }
     }
+
+    const filteredResponse = await searchRoute.GET(
+      new Request(
+        "http://localhost/api/search?q=foo_bar&folderId=1&scope=direct&kind=snippet&tag=config&limit=1&offset=1",
+      ),
+    );
+    assert.equal(filteredResponse.status, 200);
+    const filteredPage = (await filteredResponse.json()) as SearchResultsDto;
+    assert.equal(filteredPage.total, 1);
+    assert.equal(filteredPage.items.length, 0);
+    assert.equal(filteredPage.limit, 1);
+    assert.equal(filteredPage.offset, 1);
   });
 
   await t.test("wikilink detail, title, and backlink routes expose the link index", async () => {

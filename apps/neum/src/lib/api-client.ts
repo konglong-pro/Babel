@@ -6,6 +6,7 @@ import type {
   EntryTitleDto,
   FolderDto,
   PaginatedDto,
+  SearchResultsDto,
   TagSummaryDto,
   TrashEntryDto,
 } from "@/lib/types";
@@ -216,13 +217,31 @@ export function deleteEntry(id: number, expectedVersion: number): Promise<void> 
   });
 }
 
-export interface SearchFilters extends EntryListFilters {
+export interface SearchFilters extends Omit<EntryListFilters, "completeTree"> {
   query: string;
 }
 
-export function searchEntries(filters: SearchFilters): Promise<PaginatedDto<EntrySummaryDto>> {
-  const { query, ...rest } = filters;
-  return request(`/api/search${queryString({ q: query, ...entryFilterQuery(rest) })}`);
+export function searchEntries(filters: SearchFilters): Promise<SearchResultsDto> {
+  const {
+    query,
+    folderId,
+    includeDescendants,
+    kind,
+    tag,
+    limit,
+    offset,
+  } = filters;
+  return request(`/api/search${queryString({
+    q: query,
+    ...entryFilterQuery({
+      folderId,
+      includeDescendants,
+      kind,
+      tag,
+      limit,
+      offset,
+    }),
+  })}`);
 }
 
 export function listTags(): Promise<TagSummaryDto[]> {

@@ -3,11 +3,21 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { formatDate, Tags } from "@/components/shared";
+import { formatDate } from "@/components/shared";
 import { getErrorMessage, searchNotes } from "@/lib/api-client";
-import type { SearchResultsDto } from "@/lib/types";
+import type {
+  NoteSearchField,
+  SearchResultsDto,
+  SearchTagDto,
+  SearchTextPartDto,
+} from "@/lib/types";
 
 const EMPTY_RESULTS: SearchResultsDto = { notes: [] };
+const SEARCH_FIELD_LABELS: Record<NoteSearchField, string> = {
+  title: "Title",
+  content: "Body",
+  tags: "Tags",
+};
 
 export function SearchResults({ query }: { query: string }) {
   const [results, setResults] = useState<SearchResultsDto>(EMPTY_RESULTS);
@@ -69,8 +79,16 @@ export function SearchResults({ query }: { query: string }) {
             <li key={note.id}>
               <Link href={`/notes?folder=${note.folderId}&note=${note.id}`}>
                 <span className="eyebrow">Note</span>
-                <strong>{note.title}</strong>
-                <Tags tags={note.tags} />
+                <strong><HighlightedText parts={note.match.title} /></strong>
+                <span className="search-match-fields">
+                  Matched in {note.match.matchedFields.map((field) => SEARCH_FIELD_LABELS[field]).join(" · ")}
+                </span>
+                <p className="search-snippet">
+                  {note.match.snippet.truncatedStart ? "…" : null}
+                  <HighlightedText parts={note.match.snippet.parts} />
+                  {note.match.snippet.truncatedEnd ? "…" : null}
+                </p>
+                <SearchTags tags={note.match.tags} />
                 <time dateTime={note.updatedAt}>Updated {formatDate(note.updatedAt)}</time>
               </Link>
             </li>
@@ -78,5 +96,25 @@ export function SearchResults({ query }: { query: string }) {
         </ul>
       ) : null}
     </div>
+  );
+}
+
+function HighlightedText({ parts }: { parts: SearchTextPartDto[] }) {
+  return parts.map((part, index) =>
+    part.highlighted
+      ? <mark key={`${part.text}-${index}`}>{part.text}</mark>
+      : <span key={`${part.text}-${index}`}>{part.text}</span>,
+  );
+}
+
+function SearchTags({ tags }: { tags: SearchTagDto[] }) {
+  if (tags.length === 0) return <span className="muted no-tags">No tags</span>;
+
+  return (
+    <ul className="tag-list" aria-label="Tags">
+      {tags.map((tag, index) => (
+        <li key={`${tag.value}-${index}`}><HighlightedText parts={tag.parts} /></li>
+      ))}
+    </ul>
   );
 }

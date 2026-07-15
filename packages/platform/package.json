@@ -15,7 +15,8 @@
     "./db/readiness": "./src/db/readiness.ts",
     "./db/readiness-snapshot": "./src/db/readiness-snapshot.ts",
     "./http/errors": "./src/http/errors.ts",
-    "./http/request": "./src/http/request.ts"
+    "./http/request": "./src/http/request.ts",
+    "./search/text": "./src/search/text.ts"
   },
   "scripts": {
     "lint": "eslint .",

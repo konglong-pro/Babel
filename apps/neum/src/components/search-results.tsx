@@ -3,13 +3,27 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { entryKindLabel, formatDate, Tags } from "@/components/shared";
+import { entryKindLabel, formatDate } from "@/components/shared";
 import { getErrorMessage, searchEntries } from "@/lib/api-client";
 import { entryWorkspaceHref } from "@/lib/entry-routes";
-import type { EntrySummaryDto } from "@/lib/types";
+import type {
+  EntrySearchField,
+  EntrySearchResultDto,
+  SearchTagDto,
+  SearchTextPartDto,
+} from "@/lib/types";
+
+const SEARCH_FIELD_LABELS: Record<EntrySearchField, string> = {
+  title: "Title",
+  notesMd: "Notes",
+  code: "Code",
+  tags: "Tags",
+  filename: "Filename",
+  language: "Language",
+};
 
 export function SearchResults({ query }: { query: string }) {
-  const [items, setItems] = useState<EntrySummaryDto[]>([]);
+  const [items, setItems] = useState<EntrySearchResultDto[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(Boolean(query));
   const [error, setError] = useState("");
@@ -72,8 +86,14 @@ export function SearchResults({ query }: { query: string }) {
                 entryId: entry.id,
               })}>
                 <span className="eyebrow">{entryKindLabel(entry.kind)}</span>
-                <strong>{entry.title}</strong>
-                <Tags tags={entry.tags} />
+                <strong><HighlightedText parts={entry.match.title} /></strong>
+                <span className="search-match-fields">
+                  Matched in {entry.match.matchedFields
+                    .map((field) => SEARCH_FIELD_LABELS[field])
+                    .join(" · ")}
+                </span>
+                <SearchSnippet entry={entry} />
+                <SearchTags tags={entry.match.tags} />
                 <time dateTime={entry.updatedAt}>Updated {formatDate(entry.updatedAt)}</time>
               </Link>
             </li>
@@ -81,8 +101,41 @@ export function SearchResults({ query }: { query: string }) {
         </ul>
       ) : null}
       {items.length < total ? (
-        <p className="result-count">Showing the latest {items.length} matches.</p>
+        <p className="result-count">Showing {items.length} of {total} results.</p>
       ) : null}
     </div>
+  );
+}
+
+function SearchSnippet({ entry }: { entry: EntrySearchResultDto }) {
+  const { snippet } = entry.match;
+  const content = (
+    <>
+      {snippet.truncatedStart ? "…" : null}
+      <HighlightedText parts={snippet.parts} />
+      {snippet.truncatedEnd ? "…" : null}
+    </>
+  );
+  return snippet.field === "code"
+    ? <pre className="search-snippet search-code-snippet"><code>{content}</code></pre>
+    : <p className="search-snippet">{content}</p>;
+}
+
+function HighlightedText({ parts }: { parts: SearchTextPartDto[] }) {
+  return parts.map((part, index) =>
+    part.highlighted
+      ? <mark key={`${part.text}-${index}`}>{part.text}</mark>
+      : <span key={`${part.text}-${index}`}>{part.text}</span>,
+  );
+}
+
+function SearchTags({ tags }: { tags: SearchTagDto[] }) {
+  if (tags.length === 0) return <span className="muted no-tags">No tags</span>;
+  return (
+    <ul className="tag-list" aria-label="Tags">
+      {tags.map((tag, index) => (
+        <li key={`${tag.value}-${index}`}><HighlightedText parts={tag.parts} /></li>
+      ))}
+    </ul>
   );
 }

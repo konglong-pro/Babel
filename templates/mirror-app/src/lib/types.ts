@@ -38,7 +38,35 @@ export interface NoteDetailDto extends NoteSummaryDto {
 }
 
 export interface SearchResultsDto {
-  notes: NoteSummaryDto[];
+  notes: NoteSearchResultDto[];
+}
+
+export type NoteSearchField = "title" | "content" | "tags";
+
+export interface SearchTextPartDto {
+  text: string;
+  highlighted: boolean;
+}
+
+export interface SearchTagDto {
+  value: string;
+  parts: SearchTextPartDto[];
+}
+
+export interface SearchSnippetDto {
+  field: NoteSearchField;
+  parts: SearchTextPartDto[];
+  truncatedStart: boolean;
+  truncatedEnd: boolean;
+}
+
+export interface NoteSearchResultDto extends NoteSummaryDto {
+  match: {
+    matchedFields: NoteSearchField[];
+    title: SearchTextPartDto[];
+    tags: SearchTagDto[];
+    snippet: SearchSnippetDto;
+  };
 }
 
 export function noteImageUrl(imagePath: string): string {

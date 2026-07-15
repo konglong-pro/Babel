@@ -12,6 +12,7 @@ import type * as NoteCollectionRoute from "@/app/api/notes/route";
 import type * as NoteItemRoute from "@/app/api/notes/[id]/route";
 import type * as NoteBacklinksRoute from "@/app/api/notes/[id]/backlinks/route";
 import type * as NoteTitlesRoute from "@/app/api/notes/titles/route";
+import type * as SearchRoute from "@/app/api/search/route";
 import type * as UploadRoute from "@/app/api/uploads/notes/[filename]/route";
 import type * as DatabaseModule from "@/lib/db/client";
 import type * as HttpRequestModule from "@/lib/http/request";
@@ -31,6 +32,7 @@ let noteCollectionRoute: typeof NoteCollectionRoute;
 let noteItemRoute: typeof NoteItemRoute;
 let noteBacklinksRoute: typeof NoteBacklinksRoute;
 let noteTitlesRoute: typeof NoteTitlesRoute;
+let searchRoute: typeof SearchRoute;
 let uploadRoute: typeof UploadRoute;
 
 before(async () => {
@@ -50,6 +52,7 @@ before(async () => {
     noteItemRoute,
     noteBacklinksRoute,
     noteTitlesRoute,
+    searchRoute,
     uploadRoute,
   ] =
     await Promise.all([
@@ -62,6 +65,7 @@ before(async () => {
       import("@/app/api/notes/[id]/route"),
       import("@/app/api/notes/[id]/backlinks/route"),
       import("@/app/api/notes/titles/route"),
+      import("@/app/api/search/route"),
       import("@/app/api/uploads/notes/[filename]/route"),
     ]);
 });
@@ -606,6 +610,103 @@ test("Esperanto backend integration", async (t) => {
         (error: unknown) =>
           error instanceof repositories.RepositoryError && error.code === "NOT_EMPTY",
       );
+    });
+
+    await t.test("search ranks an exact title above a newer body-only match", () => {
+      const folderId = repositories.listFolders()[0].id;
+      const query = "Esperanto search tracer alpha";
+      const exactTitle = repositories.createNote({ folderId, title: query });
+      const bodyOnly = repositories.createNote({
+        folderId,
+        title: "Newer Esperanto body result",
+        contentMd: `This note contains ${query} in its body.`,
+      });
+
+      const result = repositories.searchNotes(query);
+
+      assert.deepEqual(result.notes.map(({ id }) => id), [exactTitle.id, bodyOnly.id]);
+      assert.deepEqual(result.notes[0]?.match.matchedFields, ["title"]);
+      assert.equal(result.notes[0]?.match.snippet.field, "title");
+      assert.deepEqual(result.notes[1]?.match.matchedFields, ["content"]);
+
+      const emojiPrefix = repositories.createNote({
+        folderId,
+        title: "😀😀😀needle",
+      });
+      const asciiPrefix = repositories.createNote({
+        folderId,
+        title: "xxxxxneedle",
+      });
+      assert.deepEqual(
+        repositories.searchNotes("needle").notes
+          .filter(({ id }) => id === emojiPrefix.id || id === asciiPrefix.id)
+          .map(({ id }) => id),
+        [emojiPrefix.id, asciiPrefix.id],
+      );
+    });
+
+    await t.test("search API returns safe match details without full bodies", async () => {
+      const folderId = repositories.listFolders()[0].id;
+      const query = "esperanto-api-C++-needle";
+      const note = repositories.createNote({
+        folderId,
+        title: "Esperanto API search contract",
+        contentMd: `Private full body containing ${query}.`,
+        tags: [`tag-${query}`],
+      });
+      const response = await searchRoute.GET(
+        new Request(`http://localhost/api/search?q=${encodeURIComponent(query)}`),
+      );
+
+      assert.equal(response.status, 200);
+      const payload = await response.json() as {
+        notes: Array<Record<string, unknown> & { id: number; match: Record<string, unknown> }>;
+      };
+      const result = payload.notes.find(({ id }) => id === note.id);
+      assert.ok(result);
+      assert.ok(result.match);
+      assert.equal("contentMd" in result, false);
+      assert.equal("score" in result, false);
+      assert.equal("rank" in result, false);
+    });
+
+    await t.test("search ranks decoded tags without counting JSON escapes", () => {
+      const folderId = repositories.listFolders()[0].id;
+      const fourBackslashes = repositories.createNote({
+        folderId,
+        title: "Esperanto four backslashes",
+        tags: [String.raw`a\b\c\d\e`],
+      });
+      const threeBackslashes = repositories.createNote({
+        folderId,
+        title: "Esperanto three backslashes",
+        tags: [String.raw`a\b\c\d`],
+      });
+
+      const results = repositories.searchNotes("\\").notes;
+      assert.deepEqual(
+        results
+          .filter(({ id }) => id === fourBackslashes.id || id === threeBackslashes.id)
+          .map(({ id }) => id),
+        [fourBackslashes.id, threeBackslashes.id],
+      );
+      assert.equal(
+        results
+          .find(({ id }) => id === fourBackslashes.id)
+          ?.match.tags[0]?.parts.filter(({ highlighted }) => highlighted).length,
+        4,
+      );
+
+      const storedOnly = repositories.searchNotes("[").notes.find(
+        ({ id }) => id === fourBackslashes.id,
+      );
+      assert.deepEqual(storedOnly?.match.matchedFields, ["tags"]);
+      assert.deepEqual(storedOnly?.match.snippet, {
+        field: "tags",
+        parts: [{ text: "Tag data match", highlighted: false }],
+        truncatedStart: false,
+        truncatedEnd: false,
+      });
     });
 
     await t.test("wikilink indexes, APIs, and lifecycle stay deterministic", async () => {

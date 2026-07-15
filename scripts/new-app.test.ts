@@ -317,7 +317,41 @@ test("renders the repository mirror template as an independent app", async (t) =
     generatedBackendTests,
     /note hierarchy rejects cycles, moves subtrees, and protects parents/,
   );
+  assert.match(
+    generatedBackendTests,
+    /search ranks an exact title above a newer body-only match/,
+  );
+  assert.match(
+    generatedBackendTests,
+    /search API returns safe match details without full bodies/,
+  );
+  assert.match(
+    generatedBackendTests,
+    /search ranks decoded tags without counting JSON escapes/,
+  );
   assert.match(generatedBackendTests, /wire size is rejected before multipart parsing/);
+
+  const generatedSearchRepository = await readFile(
+    path.join(generatedRoot, "src", "lib", "repositories", "search.ts"),
+    "utf8",
+  );
+  assert.match(generatedSearchRepository, /@babel-apps\/platform\/search\/text/);
+  assert.match(generatedSearchRepository, /compareRankedNotes/);
+  assert.match(generatedSearchRepository, /hasStoredTagOnlyMatch/);
+  assert.match(generatedSearchRepository, /literalTextPosition/);
+  const generatedSearchTypes = await readFile(
+    path.join(generatedRoot, "src", "lib", "types.ts"),
+    "utf8",
+  );
+  assert.match(generatedSearchTypes, /interface NoteSearchResultDto/);
+  assert.match(generatedSearchTypes, /matchedFields: NoteSearchField\[\]/);
+  const generatedSearchResults = await readFile(
+    path.join(generatedRoot, "src", "components", "search-results.tsx"),
+    "utf8",
+  );
+  assert.match(generatedSearchResults, /<mark/);
+  assert.doesNotMatch(generatedSearchResults, /dangerouslySetInnerHTML/);
+  assert.match(globalStyles, /\.search-result-list mark/);
   assert.match(generatedBackendTests, /storage recovery waits for an active image mutation/);
   await access(path.join(generatedRoot, "src", "lib", "repositories", "index.ts"));
 });

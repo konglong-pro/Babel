@@ -66,7 +66,41 @@ export interface PaginatedDto<T> {
   offset: number;
 }
 
-export type SearchResultsDto = PaginatedDto<EntrySummaryDto>;
+export type EntrySearchField =
+  | "title"
+  | "tags"
+  | "filename"
+  | "language"
+  | "notesMd"
+  | "code";
+
+export interface SearchTextPartDto {
+  text: string;
+  highlighted: boolean;
+}
+
+export interface SearchTagDto {
+  value: string;
+  parts: SearchTextPartDto[];
+}
+
+export interface SearchSnippetDto {
+  field: EntrySearchField;
+  parts: SearchTextPartDto[];
+  truncatedStart: boolean;
+  truncatedEnd: boolean;
+}
+
+export interface EntrySearchResultDto extends EntrySummaryDto {
+  match: {
+    matchedFields: EntrySearchField[];
+    title: SearchTextPartDto[];
+    tags: SearchTagDto[];
+    snippet: SearchSnippetDto;
+  };
+}
+
+export type SearchResultsDto = PaginatedDto<EntrySearchResultDto>;
 
 export function entryImageUrl(imagePath: string): string {
   const fileName = imagePath.replaceAll("\\", "/").split("/").at(-1);

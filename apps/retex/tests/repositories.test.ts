@@ -240,3 +240,40 @@ test("knowledge page moves preserve tree invariants", () => {
     root.id,
   );
 });
+
+test("search ranks exact titles before newer body matches within each group", () => {
+  const knowledgeFolder = repositories.createFolder({
+    type: "knowledge",
+    name: "Search ranking knowledge",
+  });
+  const exerciseFolder = repositories.createFolder({
+    type: "exercise",
+    name: "Search ranking exercises",
+  });
+  const query = "Zeta rank before pagination";
+  const exactKnowledge = repositories.createKnowledge({
+    folderId: knowledgeFolder.id,
+    title: query,
+  });
+  repositories.createKnowledge({
+    folderId: knowledgeFolder.id,
+    title: "A newer knowledge body match",
+    contentMd: `This body contains ${query}.`,
+  });
+  const exactExercise = repositories.createExercise({
+    folderId: exerciseFolder.id,
+    title: query,
+    imagePath: "data/uploads/exercises/search-rank-exact.png",
+  });
+  repositories.createExercise({
+    folderId: exerciseFolder.id,
+    title: "A newer exercise solution match",
+    imagePath: "data/uploads/exercises/search-rank-body.png",
+    solutionMd: `This solution contains ${query}.`,
+  });
+
+  const results = repositories.searchArchive(query);
+
+  assert.equal(results.knowledge[0]?.id, exactKnowledge.id);
+  assert.equal(results.exercises[0]?.id, exactExercise.id);
+});

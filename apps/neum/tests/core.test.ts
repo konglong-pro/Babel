@@ -220,6 +220,271 @@ test("Neum core persistence", async (t) => {
     );
   });
 
+  await t.test("search ranks the complete result set before pagination", () => {
+    const folderId = repository.listFolders()[0].id;
+    const query = "Rank before pagination";
+    const exactTitle = repository.createEntry({
+      folderId,
+      kind: "knowledge",
+      title: query,
+    });
+    repository.createEntry({
+      folderId,
+      kind: "knowledge",
+      title: "Newer body-only match",
+      notesMd: `This note mentions ${query} only in its body.`,
+    });
+
+    const page = repository.searchEntries(query, { limit: 1 });
+
+    assert.equal(page.total, 2);
+    assert.equal(page.limit, 1);
+    assert.equal(page.offset, 0);
+    assert.equal(page.items[0]?.id, exactTitle.id);
+    assert.deepEqual(page.items[0]?.match.matchedFields, ["title"]);
+    assert.deepEqual(page.items[0]?.match.snippet, {
+      field: "title",
+      parts: [{ text: "Title match", highlighted: false }],
+      truncatedStart: false,
+      truncatedEnd: false,
+    });
+    assert.equal(repository.searchEntries(query, { limit: 1, offset: 1 }).items[0]?.title, "Newer body-only match");
+  });
+
+  await t.test("search applies every relevance tier and deterministic tie breaker", () => {
+    const folderId = repository.listFolders()[0].id;
+    const query = "Neum tier token 7f3";
+    const exactTitle = repository.createEntry({
+      folderId,
+      kind: "knowledge",
+      title: query,
+    });
+    const titlePrefix = repository.createEntry({
+      folderId,
+      kind: "knowledge",
+      title: `${query} reference`,
+    });
+    const exactTag = repository.createEntry({
+      folderId,
+      kind: "knowledge",
+      title: "Exact tag tier",
+      tags: [query],
+    });
+    const exactFilename = repository.createEntry({
+      folderId,
+      kind: "snippet",
+      title: "Exact filename tier",
+      code: "const tier = 2;",
+      language: "typescript",
+      filename: query,
+    });
+    const titleContains = repository.createEntry({
+      folderId,
+      kind: "knowledge",
+      title: `Before ${query} after`,
+    });
+    const metadataContains = repository.createEntry({
+      folderId,
+      kind: "snippet",
+      title: "Metadata tier",
+      code: "const tier = 4;",
+      language: `lang-${query}-mode`,
+    });
+    const bodyContains = repository.createEntry({
+      folderId,
+      kind: "knowledge",
+      title: "Body tier",
+      notesMd: `Only the body contains ${query}.`,
+    });
+
+    const tieredItems = repository.searchEntries(query, { limit: 20 }).items;
+    assert.deepEqual(
+      tieredItems.map(({ id }) => id),
+      [
+        exactTitle.id,
+        titlePrefix.id,
+        exactFilename.id,
+        exactTag.id,
+        titleContains.id,
+        metadataContains.id,
+        bodyContains.id,
+      ],
+    );
+    assert.equal(tieredItems.find(({ id }) => id === exactTag.id)?.match.snippet.field, "tags");
+    assert.equal(
+      tieredItems.find(({ id }) => id === exactFilename.id)?.match.snippet.field,
+      "filename",
+    );
+
+    const fieldCountQuery = "Neum field count 8g4";
+    const multipleFields = repository.createEntry({
+      folderId,
+      kind: "knowledge",
+      title: fieldCountQuery,
+      notesMd: fieldCountQuery,
+    });
+    repository.createEntry({
+      folderId,
+      kind: "knowledge",
+      title: fieldCountQuery,
+    });
+    assert.equal(repository.searchEntries(fieldCountQuery).items[0]?.id, multipleFields.id);
+
+    const occurrenceQuery = "Neum occurrence 4p2";
+    const twice = repository.createEntry({
+      folderId,
+      kind: "knowledge",
+      title: "Two body occurrences",
+      notesMd: `${occurrenceQuery} then ${occurrenceQuery}`,
+    });
+    repository.createEntry({
+      folderId,
+      kind: "knowledge",
+      title: "One body occurrence",
+      notesMd: occurrenceQuery,
+    });
+    assert.equal(repository.searchEntries(occurrenceQuery).items[0]?.id, twice.id);
+
+    const cappedQuery = "Neum capped count 2k6";
+    const earlierPosition = repository.createEntry({
+      folderId,
+      kind: "knowledge",
+      title: "Five capped occurrences",
+      notesMd: Array.from({ length: 5 }, () => cappedQuery).join(" "),
+    });
+    repository.createEntry({
+      folderId,
+      kind: "knowledge",
+      title: "Six later occurrences",
+      notesMd: `Padding before the match. ${Array.from({ length: 6 }, () => cappedQuery).join(" ")}`,
+    });
+    assert.equal(repository.searchEntries(cappedQuery).items[0]?.id, earlierPosition.id);
+
+    const updatedQuery = "Neum updated tie 5m1";
+    const firstId = repository.createEntry({
+      folderId,
+      kind: "knowledge",
+      title: "First stable row",
+      notesMd: updatedQuery,
+    });
+    const secondId = repository.createEntry({
+      folderId,
+      kind: "knowledge",
+      title: "Second stable row",
+      notesMd: updatedQuery,
+    });
+    database.sqlite.prepare("UPDATE entry SET updated_at = ? WHERE id = ?")
+      .run("2026-01-02T00:00:00.000Z", firstId.id);
+    database.sqlite.prepare("UPDATE entry SET updated_at = ? WHERE id = ?")
+      .run("2026-01-01T00:00:00.000Z", secondId.id);
+    assert.equal(repository.searchEntries(updatedQuery).items[0]?.id, firstId.id);
+    database.sqlite.prepare("UPDATE entry SET updated_at = ? WHERE id IN (?, ?)")
+      .run("2026-01-03T00:00:00.000Z", firstId.id, secondId.id);
+    assert.equal(repository.searchEntries(updatedQuery).items[0]?.id, secondId.id);
+  });
+
+  await t.test("search keeps literal characters, case behavior, and filters", () => {
+    const inboxId = repository.listFolders()[0].id;
+    const scope = repository.createFolder({ name: "Search filter scope", parentId: inboxId });
+    const child = repository.createFolder({ name: "Search filter child", parentId: scope.id });
+    const query = "Neum scoped literal 3v8";
+    const direct = repository.createEntry({
+      folderId: scope.id,
+      kind: "knowledge",
+      title: query,
+    });
+    repository.createEntry({
+      folderId: child.id,
+      kind: "knowledge",
+      title: "Scoped child note",
+      notesMd: query,
+      tags: ["Neum scoped tag"],
+    });
+    const snippet = repository.createEntry({
+      folderId: child.id,
+      kind: "snippet",
+      title: "Scoped child snippet",
+      code: query,
+      language: "text",
+      tags: ["Neum scoped tag"],
+    });
+
+    assert.equal(repository.searchEntries(query, { folderId: scope.id }).total, 3);
+    assert.deepEqual(
+      repository.searchEntries(query, {
+        folderId: scope.id,
+        includeDescendants: false,
+      }).items.map(({ id }) => id),
+      [direct.id],
+    );
+    assert.deepEqual(
+      repository.searchEntries(query, { folderId: scope.id, kind: "snippet" }).items.map(({ id }) => id),
+      [snippet.id],
+    );
+    assert.equal(
+      repository.searchEntries(query, { folderId: scope.id, tag: "neum scoped tag" }).total,
+      2,
+    );
+    const offsetPage = repository.searchEntries(query, {
+      folderId: scope.id,
+      limit: 1,
+      offset: 1,
+    });
+    assert.equal(offsetPage.total, 3);
+    assert.equal(offsetPage.limit, 1);
+    assert.equal(offsetPage.offset, 1);
+
+    const literals = repository.createEntry({
+      folderId: scope.id,
+      kind: "knowledge",
+      title: "ASCII NEEDLE 中文 😀 percent% underscore_ slash\\ C++ ÄCaseSentinel",
+    });
+    for (const literalQuery of ["ascii needle", "中文", "😀", "%", "_", "\\", "C++", "Äcasesentinel"]) {
+      assert.ok(repository.searchEntries(literalQuery).items.some(({ id }) => id === literals.id));
+    }
+    assert.equal(repository.searchEntries("äcasesentinel").items.some(({ id }) => id === literals.id), false);
+
+    const multilineQuery = "Multiline\tneedle 😀";
+    const longMarkdown = repository.createEntry({
+      folderId: scope.id,
+      kind: "knowledge",
+      title: "Long Markdown snippet",
+      notesMd: `${"Prefix context. ".repeat(30)}${multilineQuery}${" Suffix context.".repeat(30)}`,
+    });
+    const markdownMatch = repository.searchEntries(multilineQuery).items
+      .find(({ id }) => id === longMarkdown.id)?.match;
+    assert.ok(markdownMatch);
+    assert.equal(markdownMatch.snippet.field, "notesMd");
+    assert.equal(markdownMatch.snippet.truncatedStart, true);
+    assert.equal(markdownMatch.snippet.truncatedEnd, true);
+    assert.ok(
+      markdownMatch.snippet.parts.some(
+        ({ text, highlighted }) => highlighted && text === "Multiline needle 😀",
+      ),
+    );
+
+    const edgeQuery = "Neum Markdown edge 6h9";
+    const atStart = repository.createEntry({
+      folderId: scope.id,
+      kind: "knowledge",
+      title: "Markdown hit at start",
+      notesMd: `${edgeQuery} ${"tail ".repeat(80)}`,
+    });
+    const atEnd = repository.createEntry({
+      folderId: scope.id,
+      kind: "knowledge",
+      title: "Markdown hit at end",
+      notesMd: `${"head ".repeat(80)}${edgeQuery}`,
+    });
+    const edgeMatches = new Map(
+      repository.searchEntries(edgeQuery).items.map((item) => [item.id, item.match.snippet]),
+    );
+    assert.equal(edgeMatches.get(atStart.id)?.truncatedStart, false);
+    assert.equal(edgeMatches.get(atStart.id)?.truncatedEnd, true);
+    assert.equal(edgeMatches.get(atEnd.id)?.truncatedStart, true);
+    assert.equal(edgeMatches.get(atEnd.id)?.truncatedEnd, false);
+  });
+
   await t.test("wikilinks resolve deterministically and follow entry lifecycle", () => {
     const inbox = repository.listFolders()[0];
     const source = repository.createEntry({

@@ -12,6 +12,7 @@ import type * as NoteCollectionRoute from "@/app/api/notes/route";
 import type * as NoteItemRoute from "@/app/api/notes/[id]/route";
 import type * as NoteBacklinksRoute from "@/app/api/notes/[id]/backlinks/route";
 import type * as NoteTitlesRoute from "@/app/api/notes/titles/route";
+import type * as SearchRoute from "@/app/api/search/route";
 import type * as UploadRoute from "@/app/api/uploads/notes/[filename]/route";
 import type * as DatabaseModule from "@/lib/db/client";
 import type * as HttpRequestModule from "@/lib/http/request";
@@ -31,6 +32,7 @@ let noteCollectionRoute: typeof NoteCollectionRoute;
 let noteItemRoute: typeof NoteItemRoute;
 let noteBacklinksRoute: typeof NoteBacklinksRoute;
 let noteTitlesRoute: typeof NoteTitlesRoute;
+let searchRoute: typeof SearchRoute;
 let uploadRoute: typeof UploadRoute;
 
 before(async () => {
@@ -50,6 +52,7 @@ before(async () => {
     noteItemRoute,
     noteBacklinksRoute,
     noteTitlesRoute,
+    searchRoute,
     uploadRoute,
   ] =
     await Promise.all([
@@ -62,6 +65,7 @@ before(async () => {
       import("@/app/api/notes/[id]/route"),
       import("@/app/api/notes/[id]/backlinks/route"),
       import("@/app/api/notes/titles/route"),
+      import("@/app/api/search/route"),
       import("@/app/api/uploads/notes/[filename]/route"),
     ]);
 });
@@ -605,6 +609,288 @@ test("Herodotus backend integration", async (t) => {
         (error: unknown) =>
           error instanceof repositories.RepositoryError && error.code === "NOT_EMPTY",
       );
+    });
+
+    await t.test("search ranks an exact title above a newer body-only match and describes the match", () => {
+      const folderId = repositories.listFolders()[0].id;
+      const exactTitle = repositories.createNote({
+        folderId,
+        title: "Search tracer alpha",
+      });
+      const bodyOnly = repositories.createNote({
+        folderId,
+        title: "Newer body result",
+        contentMd: "This note contains Search tracer alpha in its body.",
+      });
+
+      const result = repositories.searchNotes("Search tracer alpha");
+
+      assert.deepEqual(result.notes.map(({ id }) => id), [exactTitle.id, bodyOnly.id]);
+      assert.deepEqual(result.notes[0]?.match, {
+        matchedFields: ["title"],
+        title: [{ text: "Search tracer alpha", highlighted: true }],
+        tags: [],
+        snippet: {
+          field: "title",
+          parts: [{ text: "Title match", highlighted: false }],
+          truncatedStart: false,
+          truncatedEnd: false,
+        },
+      });
+      assert.deepEqual(result.notes[1]?.match.matchedFields, ["content"]);
+      assert.ok(result.notes[1]?.match.snippet.parts.some(({ highlighted }) => highlighted));
+    });
+
+    await t.test("search snippets collapse Markdown whitespace and truncate near text boundaries", () => {
+      const folderId = repositories.listFolders()[0].id;
+      const query = "snippet needle 🧪";
+      const note = repositories.createNote({
+        folderId,
+        title: "Long Markdown search sample",
+        contentMd: `${"prefix ".repeat(40)}\n\n${query}\n\n${"suffix ".repeat(40)}`,
+      });
+
+      const match = repositories.searchNotes(query).notes.find(({ id }) => id === note.id)?.match;
+      assert.ok(match);
+      assert.equal(match.snippet.field, "content");
+      assert.equal(match.snippet.truncatedStart, true);
+      assert.equal(match.snippet.truncatedEnd, true);
+      const snippetText = match.snippet.parts.map(({ text }) => text).join("");
+      assert.match(snippetText, /^prefix /);
+      assert.match(snippetText, / suffix$/);
+      assert.ok(snippetText.length <= 200);
+      assert.ok(
+        match.snippet.parts.some(
+          ({ text, highlighted }) => highlighted && text === query,
+        ),
+      );
+    });
+
+    await t.test("search highlights a whitespace-folded version of a multiline literal query", () => {
+      const folderId = repositories.listFolders()[0].id;
+      const query = "multiline query\ncontinues here";
+      const note = repositories.createNote({
+        folderId,
+        title: "Multiline query sample",
+        contentMd: `Before ${query} after.`,
+      });
+
+      const result = repositories.searchNotes(query).notes.find(({ id }) => id === note.id);
+      assert.ok(result);
+      assert.ok(
+        result.match.snippet.parts.some(
+          ({ text, highlighted }) => highlighted && text === "multiline query continues here",
+        ),
+      );
+    });
+
+    await t.test("search applies the documented phrase relevance tiers", () => {
+      const folderId = repositories.listFolders()[0].id;
+      const query = "tier needle";
+      const exactTitle = repositories.createNote({ folderId, title: query });
+      const titlePrefix = repositories.createNote({ folderId, title: `${query} appendix` });
+      const exactTag = repositories.createNote({
+        folderId,
+        title: "Exact tag result",
+        tags: [query],
+      });
+      const titleContains = repositories.createNote({
+        folderId,
+        title: `Notes about ${query} today`,
+      });
+      const tagContains = repositories.createNote({
+        folderId,
+        title: "Partial tag result",
+        tags: [`topic-${query}-more`],
+      });
+      const bodyContains = repositories.createNote({
+        folderId,
+        title: "Body result",
+        contentMd: `Only the body contains ${query}.`,
+      });
+
+      assert.deepEqual(
+        repositories.searchNotes(query).notes.map(({ id }) => id),
+        [
+          exactTitle.id,
+          titlePrefix.id,
+          exactTag.id,
+          titleContains.id,
+          tagContains.id,
+          bodyContains.id,
+        ],
+      );
+    });
+
+    await t.test("search keeps literal phrase semantics for scripts, emoji, and special characters", () => {
+      const folderId = repositories.listFolders()[0].id;
+      const samples = [
+        "100%-literal-marker",
+        "under_score_literal_marker",
+        "literal\\path\\marker",
+        "C++ literal marker",
+        "中文字面短语",
+        "emoji 🧠 marker",
+      ];
+      const notes = samples.map((query, index) => repositories.createNote({
+        folderId,
+        title: `Literal sample ${index}`,
+        contentMd: `The body contains ${query} exactly.`,
+      }));
+      const asciiCase = repositories.createNote({
+        folderId,
+        title: "ASCII Fold Marker",
+      });
+      repositories.createNote({
+        folderId,
+        title: "Étage nonascii marker",
+      });
+      repositories.createNote({
+        folderId,
+        title: "Words remain one phrase",
+        contentMd: "whole phrase has an inserted word between it",
+      });
+      const slashTag = repositories.createNote({
+        folderId,
+        title: "Tag literal sample",
+        tags: ["path\\tag"],
+      });
+
+      for (const [index, query] of samples.entries()) {
+        assert.ok(
+          repositories.searchNotes(query).notes.some(({ id }) => id === notes[index]?.id),
+          `expected a literal match for ${query}`,
+        );
+      }
+      assert.equal(repositories.searchNotes("ascii fold marker").notes[0]?.id, asciiCase.id);
+      assert.equal(repositories.searchNotes("étage nonascii marker").notes.length, 0);
+      assert.equal(repositories.searchNotes("whole phrase between").notes.length, 0);
+      const slashTagMatch = repositories.searchNotes("\\").notes.find(
+        ({ id }) => id === slashTag.id,
+      );
+      assert.ok(slashTagMatch?.match.tags[0]?.parts.some(({ highlighted }) => highlighted));
+
+      const storedTagMatch = repositories.searchNotes('"').notes.find(
+        ({ id }) => id === slashTag.id,
+      );
+      assert.deepEqual(storedTagMatch?.match.matchedFields, ["tags"]);
+      assert.equal(storedTagMatch?.match.snippet.field, "tags");
+      assert.equal(
+        storedTagMatch?.match.snippet.parts.map(({ text }) => text).join(""),
+        "Tag data match",
+      );
+    });
+
+    await t.test("search applies every deterministic tie-break in order", () => {
+      const folderId = repositories.listFolders()[0].id;
+
+      const fieldQuery = "field-tie-needle";
+      const moreFields = repositories.createNote({
+        folderId,
+        title: `About ${fieldQuery}`,
+        contentMd: fieldQuery,
+      });
+      const fewerFields = repositories.createNote({
+        folderId,
+        title: `Other ${fieldQuery}`,
+      });
+      assert.deepEqual(
+        repositories.searchNotes(fieldQuery).notes.map(({ id }) => id),
+        [moreFields.id, fewerFields.id],
+      );
+
+      const countQuery = "count-tie-needle";
+      const oneOccurrence = repositories.createNote({
+        folderId,
+        title: `A ${countQuery}`,
+      });
+      const threeOccurrences = repositories.createNote({
+        folderId,
+        title: `A ${countQuery} ${countQuery} ${countQuery}`,
+      });
+      assert.deepEqual(
+        repositories.searchNotes(countQuery).notes.map(({ id }) => id),
+        [threeOccurrences.id, oneOccurrence.id],
+      );
+
+      const cappedQuery = "capped-tie-needle";
+      const fiveEarlier = repositories.createNote({
+        folderId,
+        title: `A ${Array(5).fill(cappedQuery).join(" ")}`,
+      });
+      const sixLater = repositories.createNote({
+        folderId,
+        title: `A much later ${Array(6).fill(cappedQuery).join(" ")}`,
+      });
+      assert.deepEqual(
+        repositories.searchNotes(cappedQuery).notes.map(({ id }) => id),
+        [fiveEarlier.id, sixLater.id],
+      );
+
+      const emojiPositionQuery = "emoji-position-needle";
+      const emojiEarlier = repositories.createNote({
+        folderId,
+        title: `😀😀😀${emojiPositionQuery}`,
+      });
+      const asciiLater = repositories.createNote({
+        folderId,
+        title: `xxxxx${emojiPositionQuery}`,
+      });
+      database.sqlite.prepare("UPDATE note SET updated_at = ? WHERE id IN (?, ?)")
+        .run("2022-01-01T00:00:00.000Z", emojiEarlier.id, asciiLater.id);
+      assert.deepEqual(
+        repositories.searchNotes(emojiPositionQuery).notes.map(({ id }) => id),
+        [emojiEarlier.id, asciiLater.id],
+      );
+
+      const timeQuery = "time-tie-needle";
+      const older = repositories.createNote({ folderId, title: `A ${timeQuery}` });
+      const newer = repositories.createNote({ folderId, title: `A ${timeQuery}` });
+      database.sqlite.prepare("UPDATE note SET updated_at = ? WHERE id = ?")
+        .run("2020-01-01T00:00:00.000Z", older.id);
+      database.sqlite.prepare("UPDATE note SET updated_at = ? WHERE id = ?")
+        .run("2021-01-01T00:00:00.000Z", newer.id);
+      assert.deepEqual(
+        repositories.searchNotes(timeQuery).notes.map(({ id }) => id),
+        [newer.id, older.id],
+      );
+
+      const stableQuery = "stable-tie-needle";
+      const lowerId = repositories.createNote({ folderId, title: `A ${stableQuery}` });
+      const higherId = repositories.createNote({ folderId, title: `A ${stableQuery}` });
+      database.sqlite.prepare("UPDATE note SET updated_at = ? WHERE id IN (?, ?)")
+        .run("2022-01-01T00:00:00.000Z", lowerId.id, higherId.id);
+      assert.deepEqual(
+        repositories.searchNotes(stableQuery).notes.map(({ id }) => id),
+        [higherId.id, lowerId.id],
+      );
+    });
+
+    await t.test("search API adds match details without exposing bodies or rank scores", async () => {
+      const folderId = repositories.listFolders()[0].id;
+      const note = repositories.createNote({
+        folderId,
+        title: "API match contract",
+        contentMd: "Private full body with api-contract-needle in context.",
+        tags: ["api-contract-needle-tag"],
+      });
+
+      const response = await searchRoute.GET(
+        new Request("http://localhost/api/search?q=api-contract-needle"),
+      );
+      assert.equal(response.status, 200);
+      const payload = await response.json() as {
+        notes: Array<Record<string, unknown> & { id: number; match: Record<string, unknown> }>;
+      };
+      const result = payload.notes.find(({ id }) => id === note.id);
+      assert.ok(result);
+      assert.equal(result.title, note.title);
+      assert.deepEqual(result.tags, note.tags);
+      assert.equal(result.updatedAt, note.updatedAt);
+      assert.ok(result.match);
+      assert.equal("contentMd" in result, false);
+      assert.equal("score" in result, false);
+      assert.equal("rank" in result, false);
     });
 
     await t.test("wikilink indexes, APIs, and lifecycle stay deterministic", async () => {

@@ -59,20 +59,29 @@ before launching or backing up the new application.
 
 ## Launcher
 
-Double-click `launcher\Babel.vbs` or `launcher\Babel.lnk` to open the WPF
-application launcher. It reads `babel.apps.json` dynamically and presents each
-registered notebook as a card with a `Stopped`, `Starting`, `Ready`, `Unhealthy`,
-or `External` state. Choose `OPEN`: a stopped notebook gets its own worker, the
-launcher waits for both its health endpoint and registered page identity, then
-opens the `identityPath` in the system default browser. A healthy notebook that
-is already running opens immediately; an unrelated or unhealthy listener on the
-registered port is never opened or stopped.
+Double-click `launcher\Babel.exe` to open the WPF application launcher. The
+existing `Babel.vbs` and `Babel.lnk` entries remain available as fallbacks. The
+launcher reads `babel.apps.json` dynamically and presents the notebooks in the
+original table-and-command-panel layout with a `Stopped`, `Starting`, `Ready`,
+`Unhealthy`, or `External` state. Choose `OPEN`: a stopped notebook gets its own
+worker, the launcher waits for both its health endpoint and registered page
+identity, then opens the `identityPath` in the system default browser. A healthy
+notebook that is already running opens immediately; an unrelated or unhealthy
+listener on the registered port is never opened or stopped.
 
 `START ALL`, per-notebook and all-worker stop controls, `VERIFY ALL`, shortcut
-settings, and complete worker logs live under `ADVANCED / DIAGNOSTICS`.
+settings, and the complete session log remain in the command-panel interface.
 `MINIMIZE TO TRAY` hides the launcher without stopping its workers. The tray
 menu lists every notebook; choosing one follows the same start, identity-check,
 and open flow. Tray `Exit` gracefully stops all workers owned by that launcher.
+
+`Babel.exe` is a small Windows-native wrapper around `Babel.Gui.ps1`; it does not
+duplicate launcher behavior. Rebuild it with the Windows .NET Framework compiler
+already included with Windows:
+
+```powershell
+npm.cmd run launcher:build
+```
 
 `SHORTCUTS` opens the global shortcut editor. Babel stores the user override in
 `%LOCALAPPDATA%\Babel\shortcuts.json`, outside both the public repository and the

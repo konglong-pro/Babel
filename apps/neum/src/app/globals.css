@@ -1424,6 +1424,41 @@ a {
   align-self: end;
 }
 
+.search-match-fields {
+  color: var(--ink-faint);
+  font-size: 0.69rem;
+  letter-spacing: 0.02em;
+}
+
+.search-snippet {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.search-code-snippet {
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: rgb(255 255 255 / 38%);
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  padding: 0.65rem;
+  white-space: pre-wrap;
+}
+
+.search-code-snippet code {
+  font: inherit;
+}
+
+.search-result-list mark {
+  background: #f4dc78;
+  color: inherit;
+  padding-inline: 0.04em;
+}
+
 .search-empty {
   min-height: 420px;
 }
@@ -1942,6 +1977,10 @@ a {
 
   .search-result-list a {
     min-height: 135px;
+  }
+
+  .search-code-snippet {
+    font-size: 0.7rem;
   }
 
   button {

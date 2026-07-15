@@ -80,9 +80,35 @@ export interface ReflectionDetailDto extends ReflectionSummaryDto {
   links: NoteLinkDto[];
 }
 
+export type DocumentSearchField = "title" | "content" | "tags";
+
+export interface SearchTextPartDto {
+  text: string;
+  highlighted: boolean;
+}
+
+export interface SearchTagDto {
+  value: string;
+  parts: SearchTextPartDto[];
+}
+
+export interface SearchSnippetDto {
+  field: DocumentSearchField;
+  parts: SearchTextPartDto[];
+  truncatedStart: boolean;
+  truncatedEnd: boolean;
+}
+
+export interface DocumentSearchMatchDto {
+  matchedFields: DocumentSearchField[];
+  title: SearchTextPartDto[];
+  tags: SearchTagDto[];
+  snippet: SearchSnippetDto;
+}
+
 export type DocumentSearchResultDto =
-  | ({ kind: "note" } & NoteSummaryDto)
-  | ReflectionSummaryDto;
+  | ({ kind: "note"; match: DocumentSearchMatchDto } & NoteSummaryDto)
+  | (ReflectionSummaryDto & { match: DocumentSearchMatchDto });
 
 export interface DocumentSearchResultsDto {
   results: DocumentSearchResultDto[];

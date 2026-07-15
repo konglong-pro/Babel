@@ -83,9 +83,45 @@ export interface ScratchSolutionDto {
   updatedAt: string;
 }
 
+export type KnowledgeSearchField = "title" | "content" | "tags";
+export type ExerciseSearchField = "title" | "solution" | "tags";
+export type SearchField = KnowledgeSearchField | ExerciseSearchField;
+
+export interface SearchTextPartDto {
+  text: string;
+  highlighted: boolean;
+}
+
+export interface SearchTagDto {
+  value: string;
+  parts: SearchTextPartDto[];
+}
+
+export interface SearchSnippetDto<TField extends SearchField = SearchField> {
+  field: TField;
+  parts: SearchTextPartDto[];
+  truncatedStart: boolean;
+  truncatedEnd: boolean;
+}
+
+export interface SearchMatchDto<TField extends SearchField = SearchField> {
+  matchedFields: TField[];
+  title: SearchTextPartDto[];
+  tags: SearchTagDto[];
+  snippet: SearchSnippetDto<TField>;
+}
+
+export interface KnowledgeSearchResultDto extends KnowledgeSummaryDto {
+  match: SearchMatchDto<KnowledgeSearchField>;
+}
+
+export interface ExerciseSearchResultDto extends ExerciseSummaryDto {
+  match: SearchMatchDto<ExerciseSearchField>;
+}
+
 export interface SearchResultsDto {
-  knowledge: KnowledgeSummaryDto[];
-  exercises: ExerciseSummaryDto[];
+  knowledge: KnowledgeSearchResultDto[];
+  exercises: ExerciseSearchResultDto[];
 }
 
 export function imageUrl(imagePath: string): string {

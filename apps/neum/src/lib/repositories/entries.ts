@@ -1,5 +1,6 @@
 import {
   and,
+  asc,
   count,
   desc,
   eq,
@@ -22,11 +23,14 @@ import {
   normalizeStoredEntryImagePath,
 } from "@/lib/storage";
 import { identityKey } from "@/lib/identity";
+import { createEntrySearchMatch } from "@/lib/search-match";
 import type {
   EntryDetailDto,
   EntryKind,
+  EntrySearchResultDto,
   EntrySummaryDto,
   PaginatedDto,
+  SearchResultsDto,
 } from "@/lib/types";
 
 import { RepositoryError } from "./errors";
@@ -61,6 +65,8 @@ export interface EntryListOptions {
   limit?: number;
   offset?: number;
 }
+
+export type EntrySearchOptions = Omit<EntryListOptions, "completeTree">;
 
 export interface CreateEntryInput {
   folderId: number;
@@ -107,19 +113,19 @@ type NormalizedEntryFields = Pick<
 export function listEntries(
   options: EntryListOptions = {},
 ): PaginatedDto<EntrySummaryDto> {
-  return queryEntries(undefined, options);
+  return queryEntries(options);
 }
 
 export function searchEntries(
   query: string,
-  options: EntryListOptions = {},
-): PaginatedDto<EntrySummaryDto> {
+  options: EntrySearchOptions = {},
+): SearchResultsDto {
   const normalized = typeof query === "string" ? query.trim() : "";
   if (!normalized) {
     const { limit, offset } = normalizePagination(options.limit, options.offset);
     return { items: [], total: 0, limit, offset };
   }
-  return queryEntries(normalized, options);
+  return querySearchEntries(normalized, options);
 }
 
 export function getEntry(id: number): EntryDetailDto | null {
@@ -272,6 +278,17 @@ export function entryRowToSummary(
   };
 }
 
+function entryRowToSearchResult(
+  row: EntryRow,
+  tagNames: readonly string[],
+  query: string,
+): EntrySearchResultDto {
+  return {
+    ...entryRowToSummary(row, tagNames),
+    match: createEntrySearchMatch(row, tagNames, query),
+  };
+}
+
 export function entryRowToDetail(
   row: EntryRow,
   tagNames?: readonly string[],
@@ -320,33 +337,10 @@ export function normalizePagination(
   return { limit, offset };
 }
 
-function queryEntries(
-  query: string | undefined,
-  options: EntryListOptions,
-): PaginatedDto<EntrySummaryDto> {
+function queryEntries(options: EntryListOptions): PaginatedDto<EntrySummaryDto> {
   const { db } = getNeumDatabase();
   const { limit, offset } = normalizePagination(options.limit, options.offset);
-  const conditions: SQL[] = [];
-  if (options.folderId !== undefined) {
-    const folderIds =
-      options.includeDescendants === false
-        ? (requireFolder(options.folderId), [options.folderId])
-        : descendantFolderIds(options.folderId);
-    conditions.push(inArray(entries.folderId, folderIds));
-  }
-  if (options.kind !== undefined) {
-    conditions.push(eq(entries.kind, normalizeEntryKind(options.kind)));
-  }
-  if (options.tag !== undefined) {
-    const tag = normalizeRequiredText(options.tag, "tag");
-    conditions.push(sql`EXISTS (
-      SELECT 1 FROM ${entryTags}
-      INNER JOIN ${tags} ON ${tags.id} = ${entryTags.tagId}
-      WHERE ${entryTags.entryId} = ${entries.id}
-        AND ${tags.nameKey} = ${identityKey(tag)}
-    )`);
-  }
-  if (query !== undefined) conditions.push(searchCondition(query));
+  const conditions = entryFilterConditions(options);
   const where = conditions.length === 0 ? undefined : and(...conditions);
   const total =
     db.select({ value: count() }).from(entries).where(where).get()?.value ?? 0;
@@ -367,21 +361,184 @@ function queryEntries(
   };
 }
 
-function searchCondition(query: string): SQL {
-  const pattern = `%${escapeLike(query)}%`;
-  return or(
-    likeLiteral(entries.title, pattern),
-    likeLiteral(entries.notesMd, pattern),
-    likeLiteral(entries.code, pattern),
-    likeLiteral(entries.language, pattern),
-    likeLiteral(entries.filename, pattern),
-    sql`EXISTS (
+function querySearchEntries(query: string, options: EntrySearchOptions): SearchResultsDto {
+  const { db } = getNeumDatabase();
+  const { limit, offset } = normalizePagination(options.limit, options.offset);
+  const rank = searchRank(query);
+  const where = and(...entryFilterConditions(options), rank.condition);
+  const total =
+    db.select({ value: count() }).from(entries).where(where).get()?.value ?? 0;
+  const orderedIds = db
+    .select({ id: entries.id })
+    .from(entries)
+    .where(where)
+    .orderBy(
+      asc(rank.tier),
+      desc(rank.fieldCount),
+      desc(rank.occurrenceCount),
+      asc(rank.firstPosition),
+      desc(entries.updatedAt),
+      desc(entries.id),
+    );
+  const rankedRows = orderedIds.limit(limit).offset(offset).all();
+  const rankedIds = rankedRows.map(({ id }) => id);
+  const rows = rankedIds.length === 0
+    ? []
+    : db.select().from(entries).where(inArray(entries.id, rankedIds)).all();
+  const rowsById = new Map(rows.map((row) => [row.id, row]));
+  const tagMap = tagsByEntryIds(rankedIds);
+  const items = rankedIds.map((id) => {
+    const row = rowsById.get(id);
+    if (!row) throw new Error(`Ranked entry ${id} disappeared before hydration.`);
+    return entryRowToSearchResult(row, tagMap.get(id) ?? [], query);
+  });
+  return {
+    items,
+    total,
+    limit,
+    offset,
+  };
+}
+
+function entryFilterConditions(options: EntryListOptions): SQL[] {
+  const conditions: SQL[] = [];
+  if (options.folderId !== undefined) {
+    const folderIds =
+      options.includeDescendants === false
+        ? (requireFolder(options.folderId), [options.folderId])
+        : descendantFolderIds(options.folderId);
+    conditions.push(inArray(entries.folderId, folderIds));
+  }
+  if (options.kind !== undefined) {
+    conditions.push(eq(entries.kind, normalizeEntryKind(options.kind)));
+  }
+  if (options.tag !== undefined) {
+    const tag = normalizeRequiredText(options.tag, "tag");
+    conditions.push(sql`EXISTS (
+      SELECT 1 FROM ${entryTags}
+      INNER JOIN ${tags} ON ${tags.id} = ${entryTags.tagId}
+      WHERE ${entryTags.entryId} = ${entries.id}
+        AND ${tags.nameKey} = ${identityKey(tag)}
+    )`);
+  }
+  return conditions;
+}
+
+interface SearchRankSql {
+  condition: SQL;
+  tier: SQL<number>;
+  fieldCount: SQL<number>;
+  occurrenceCount: SQL<number>;
+  firstPosition: SQL<number>;
+}
+
+function searchRank(query: string): SearchRankSql {
+  const escaped = escapeLike(query);
+  const exactPattern = escaped;
+  const prefixPattern = `${escaped}%`;
+  const containsPattern = `%${escaped}%`;
+  const titleExact = likeLiteral(entries.title, exactPattern);
+  const titlePrefix = likeLiteral(entries.title, prefixPattern);
+  const titleMatch = likeLiteral(entries.title, containsPattern);
+  const notesMatch = likeLiteral(entries.notesMd, containsPattern);
+  const codeMatch = likeLiteral(entries.code, containsPattern);
+  const languageMatch = likeLiteral(entries.language, containsPattern);
+  const filenameExact = likeLiteral(entries.filename, exactPattern);
+  const filenameMatch = likeLiteral(entries.filename, containsPattern);
+  const exactTag = tagLike(exactPattern);
+  const tagMatch = tagLike(containsPattern);
+  const condition = or(
+    titleMatch,
+    notesMatch,
+    codeMatch,
+    languageMatch,
+    filenameMatch,
+    tagMatch,
+  )!;
+  const metadataMatch = or(tagMatch, filenameMatch, languageMatch)!;
+  const tier = sql<number>`CASE
+    WHEN ${titleExact} THEN 0
+    WHEN ${titlePrefix} THEN 1
+    WHEN ${exactTag} OR ${filenameExact} THEN 2
+    WHEN ${titleMatch} THEN 3
+    WHEN ${metadataMatch} THEN 4
+    ELSE 5
+  END`;
+  const fieldCount = sql<number>`(
+    CASE WHEN ${titleMatch} THEN 1 ELSE 0 END
+    + CASE WHEN ${tagMatch} THEN 1 ELSE 0 END
+    + CASE WHEN ${filenameMatch} THEN 1 ELSE 0 END
+    + CASE WHEN ${languageMatch} THEN 1 ELSE 0 END
+    + CASE WHEN ${notesMatch} THEN 1 ELSE 0 END
+    + CASE WHEN ${codeMatch} THEN 1 ELSE 0 END
+  )`;
+  const occurrenceCount = sql<number>`min(5,
+    ${literalOccurrenceCount(entries.title, query)}
+    + ${tagOccurrenceCount(query, containsPattern)}
+    + ${literalOccurrenceCount(entries.filename, query)}
+    + ${literalOccurrenceCount(entries.language, query)}
+    + ${literalOccurrenceCount(entries.notesMd, query)}
+    + ${literalOccurrenceCount(entries.code, query)}
+  )`;
+  const firstPosition = sql<number>`min(
+    ${literalFirstPosition(entries.title, query, titleMatch)},
+    ${tagFirstPosition(query, containsPattern)},
+    ${literalFirstPosition(entries.filename, query, filenameMatch)},
+    ${literalFirstPosition(entries.language, query, languageMatch)},
+    ${literalFirstPosition(entries.notesMd, query, notesMatch)},
+    ${literalFirstPosition(entries.code, query, codeMatch)}
+  )`;
+  return { condition, tier, fieldCount, occurrenceCount, firstPosition };
+}
+
+function tagLike(pattern: string): SQL {
+  return sql`EXISTS (
       SELECT 1 FROM ${entryTags}
       INNER JOIN ${tags} ON ${tags.id} = ${entryTags.tagId}
       WHERE ${entryTags.entryId} = ${entries.id}
         AND ${tags.name} LIKE ${pattern} ESCAPE ${"\\"}
-    )`,
-  )!;
+    )`;
+}
+
+function tagOccurrenceCount(query: string, pattern: string): SQL<number> {
+  return sql<number>`COALESCE((
+    SELECT SUM(${literalOccurrenceCount(tags.name, query)})
+    FROM ${entryTags}
+    INNER JOIN ${tags} ON ${tags.id} = ${entryTags.tagId}
+    WHERE ${entryTags.entryId} = ${entries.id}
+      AND ${tags.name} LIKE ${pattern} ESCAPE ${"\\"}
+  ), 0)`;
+}
+
+function tagFirstPosition(query: string, pattern: string): SQL<number> {
+  return sql<number>`COALESCE((
+    SELECT MIN(instr(lower(${tags.name}), lower(${query})))
+    FROM ${entryTags}
+    INNER JOIN ${tags} ON ${tags.id} = ${entryTags.tagId}
+    WHERE ${entryTags.entryId} = ${entries.id}
+      AND ${tags.name} LIKE ${pattern} ESCAPE ${"\\"}
+  ), 2147483647)`;
+}
+
+function literalOccurrenceCount(column: AnyColumn, query: string): SQL<number> {
+  return sql<number>`CASE
+    WHEN ${column} IS NULL THEN 0
+    ELSE (
+      length(lower(${column}))
+      - length(replace(lower(${column}), lower(${query}), ''))
+    ) / length(${query})
+  END`;
+}
+
+function literalFirstPosition(
+  column: AnyColumn,
+  query: string,
+  matches: SQL,
+): SQL<number> {
+  return sql<number>`CASE
+    WHEN ${matches} THEN instr(lower(${column}), lower(${query}))
+    ELSE 2147483647
+  END`;
 }
 
 function likeLiteral(column: AnyColumn, pattern: string): SQL {

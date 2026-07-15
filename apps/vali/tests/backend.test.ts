@@ -359,6 +359,148 @@ test("Vali backend integration", async (t) => {
       );
     });
 
+    await t.test("search ranks exact titles and reflection dates above newer body matches", () => {
+      const folderId = repositories.listFolders()[0].id;
+      const exactTitle = repositories.createNote({
+        folderId,
+        title: "Vali Rank Needle Z9",
+        contentMd: "Older exact-title result.",
+      });
+      const titleBody = repositories.createNote({
+        folderId,
+        title: "Newer title-body result",
+        contentMd: "The body contains vali rank needle z9.",
+      });
+      const exactDate = "2097-08-19";
+      repositories.saveReflection(exactDate, "Older exact-date result.");
+      const dateBody = repositories.createNote({
+        folderId,
+        title: "Newer date-body result",
+        contentMd: `The body contains ${exactDate}.`,
+      });
+      const datePrefix = repositories.createNote({
+        folderId,
+        title: `${exactDate} prefix result`,
+      });
+
+      database.sqlite.prepare("UPDATE note SET updated_at = ? WHERE id = ?")
+        .run("2020-01-01T00:00:00.000Z", exactTitle.id);
+      database.sqlite.prepare("UPDATE note SET updated_at = ? WHERE id = ?")
+        .run("2030-01-01T00:00:00.000Z", titleBody.id);
+      database.sqlite.prepare("UPDATE reflection SET updated_at = ? WHERE date = ?")
+        .run("2020-01-01T00:00:00.000Z", exactDate);
+      database.sqlite.prepare("UPDATE note SET updated_at = ? WHERE id = ?")
+        .run("2030-01-01T00:00:00.000Z", dateBody.id);
+
+      assert.deepEqual(
+        repositories.searchDocuments("vali rank needle z9").results.map((result) =>
+          result.kind === "note" ? `note:${result.id}` : `reflection:${result.date}`
+        ),
+        [`note:${exactTitle.id}`, `note:${titleBody.id}`],
+      );
+      assert.deepEqual(
+        repositories.searchDocuments(exactDate).results.map((result) =>
+          result.kind === "note" ? `note:${result.id}` : `reflection:${result.date}`
+        ),
+        [`note:${datePrefix.id}`, `reflection:${exactDate}`, `note:${dateBody.id}`],
+      );
+
+      const emojiPositionQuery = "vali-emoji-position-z9";
+      const emojiEarlier = repositories.createNote({
+        folderId,
+        title: `😀😀😀${emojiPositionQuery}`,
+      });
+      const asciiLater = repositories.createNote({
+        folderId,
+        title: `xxxxx${emojiPositionQuery}`,
+      });
+      database.sqlite.prepare("UPDATE note SET updated_at = ? WHERE id IN (?, ?)")
+        .run("2022-01-01T00:00:00.000Z", emojiEarlier.id, asciiLater.id);
+      assert.deepEqual(
+        repositories.searchDocuments(emojiPositionQuery).results.map((result) =>
+          result.kind === "note" ? result.id : result.date
+        ),
+        [emojiEarlier.id, asciiLater.id],
+      );
+    });
+
+    await t.test("search returns safe match metadata for mixed and literal results", async () => {
+      const folderId = repositories.listFolders()[0].id;
+      const symbols = repositories.createNote({
+        folderId,
+        title: "Symbols literal%z8 literal_z8 literal\\z8 C++ z8 🧠",
+        contentMd: "No matching symbols in this body.",
+      });
+      const tagOnly = repositories.createNote({
+        folderId,
+        title: "Tag-only search result",
+        contentMd: "No matching token in this body.",
+        tags: ["vali-tag-only-z8", "path\\tag"],
+      });
+      const mixedToken = "vali-mixed-contract-z8";
+      const mixedNote = repositories.createNote({
+        folderId,
+        title: "Mixed note result",
+        contentMd: `Body with ${mixedToken}.`,
+      });
+      const mixedDate = "2097-08-20";
+      repositories.saveReflection(mixedDate, `Reflection body with ${mixedToken}.`);
+
+      for (const query of ["literal%z8", "literal_z8", "literal\\z8", "C++ z8", "🧠"]) {
+        assert.ok(
+          repositories.searchDocuments(query).results.some(
+            (result) => result.kind === "note" && result.id === symbols.id,
+          ),
+          `Expected a literal match for ${query}`,
+        );
+      }
+
+      const titleMatch = repositories.searchDocuments("C++ z8").results.find(
+        (result) => result.kind === "note" && result.id === symbols.id,
+      );
+      assert.deepEqual(titleMatch?.match.matchedFields, ["title"]);
+      assert.equal(titleMatch?.match.snippet.field, "title");
+      assert.ok(titleMatch?.match.title.some((part) => part.highlighted && part.text === "C++ z8"));
+
+      const tagMatch = repositories.searchDocuments("vali-tag-only-z8").results.find(
+        (result) => result.kind === "note" && result.id === tagOnly.id,
+      );
+      assert.deepEqual(tagMatch?.match.matchedFields, ["tags"]);
+      assert.equal(tagMatch?.match.snippet.field, "tags");
+      assert.ok(tagMatch?.match.tags[0]?.parts.some((part) => part.highlighted));
+
+      const slashTagMatch = repositories.searchDocuments("\\").results.find(
+        (result) => result.kind === "note" && result.id === tagOnly.id,
+      );
+      assert.ok(slashTagMatch?.match.tags[1]?.parts.some((part) => part.highlighted));
+      const storedTagMatch = repositories.searchDocuments('"').results.find(
+        (result) => result.kind === "note" && result.id === tagOnly.id,
+      );
+      assert.deepEqual(storedTagMatch?.match.matchedFields, ["tags"]);
+      assert.equal(storedTagMatch?.match.snippet.field, "tags");
+      assert.equal(
+        storedTagMatch?.match.snippet.parts.map(({ text }) => text).join(""),
+        "Tag data match",
+      );
+
+      const mixed = repositories.searchDocuments(mixedToken).results;
+      assert.ok(mixed.some((result) => result.kind === "note" && result.id === mixedNote.id));
+      assert.ok(mixed.some((result) => result.kind === "reflection" && result.date === mixedDate));
+
+      const response = await searchRoute.GET(
+        new Request(`http://localhost/api/search?q=${encodeURIComponent(mixedToken)}`),
+      );
+      assert.equal(response.status, 200);
+      const body = await response.json() as { results: Array<Record<string, unknown>> };
+      assert.deepEqual(new Set(body.results.map((result) => result.kind)), new Set(["note", "reflection"]));
+      for (const result of body.results) {
+        assert.ok("match" in result);
+        assert.equal("contentMd" in result, false);
+        assert.equal("rank" in result, false);
+        assert.equal("score" in result, false);
+      }
+    });
+
     await t.test("notes form a guarded hierarchy and move their descendants together", () => {
       const vocabulary = repositories.listFolders()[0];
       const grammar = repositories.listFolders()[1];

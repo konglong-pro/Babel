@@ -12,6 +12,9 @@ const root = path.resolve(import.meta.dirname, "..");
 const workerPath = path.join(root, "launcher", "Babel.ps1");
 const guiPath = path.join(root, "launcher", "Babel.Gui.ps1");
 const xamlPath = path.join(root, "launcher", "Babel.xaml");
+const nativeLauncherPath = path.join(root, "launcher", "Babel.exe");
+const nativeLauncherSourcePath = path.join(root, "launcher", "Babel.Launcher.cs");
+const nativeLauncherBuildPath = path.join(root, "launcher", "Build-BabelExe.ps1");
 const shortcutsHelperPath = path.join(root, "launcher", "Babel.Shortcuts.ps1");
 const shortcutsXamlPath = path.join(root, "launcher", "Babel.Shortcuts.xaml");
 const shortcutDefaultsPath = path.join(root, "packages", "platform", "shortcuts.defaults.json");
@@ -20,6 +23,8 @@ const [
   workerSource,
   guiSource,
   xamlSource,
+  nativeLauncherSource,
+  nativeLauncherBuildSource,
   shortcutsHelperSource,
   shortcutsXamlSource,
   shortcutDefaultsSource,
@@ -28,11 +33,14 @@ const [
   readFile(workerPath, "utf8"),
   readFile(guiPath, "utf8"),
   readFile(xamlPath, "utf8"),
+  readFile(nativeLauncherSourcePath, "utf8"),
+  readFile(nativeLauncherBuildPath, "utf8"),
   readFile(shortcutsHelperPath, "utf8"),
   readFile(shortcutsXamlPath, "utf8"),
   readFile(shortcutDefaultsPath, "utf8"),
   readFile(path.join(root, "package.json"), "utf8"),
 ]);
+const nativeLauncher = await readFile(nativeLauncherPath);
 const rootManifest = JSON.parse(rootManifestSource) as { engines?: { node?: string } };
 const shortcutDefaults = JSON.parse(shortcutDefaultsSource) as {
   schemaVersion?: number;
@@ -66,6 +74,73 @@ test("the launcher opens a verified notebook in the system browser", () => {
     "OPEN must verify health and identity before opening the browser",
   );
 });
+
+test("the previous control-panel visual shell keeps the current launcher contract", () => {
+  assert.match(xamlSource, /Text=["']Attention Iteration["']/i);
+  assert.match(xamlSource, /<DataGrid\s+[\s\S]*?x:Name=["']AppsGrid["']/i);
+  assert.doesNotMatch(xamlSource, /<ListBox\s+[\s\S]*?x:Name=["']AppsGrid["']/i);
+  assert.match(xamlSource, /C\s+O\s+M\s+M\s+A\s+N\s+D\s+S/i);
+  assert.match(xamlSource, /S\s+E\s+S\s+S\s+I\s+O\s+N\s+L\s+O\s+G/i);
+  assert.match(xamlSource, /x:Name=["']OpenSelectedButton["']/i);
+  assert.match(xamlSource, /x:Name=["']AdvancedExpander["'][\s\S]{0,120}IsExpanded=["']True["']/i);
+});
+
+test("Babel.exe is a thin, reproducible STA entry point", () => {
+  assert.equal(nativeLauncher.subarray(0, 2).toString("ascii"), "MZ");
+  assert.ok(nativeLauncher.length > 1_024, "the checked-in launcher must contain a PE executable");
+  const peOffset = nativeLauncher.readUInt32LE(0x3c);
+  assert.equal(nativeLauncher.subarray(peOffset, peOffset + 4).toString("binary"), "PE\0\0");
+  assert.equal(
+    nativeLauncher.readUInt16LE(peOffset + 24 + 68),
+    2,
+    "Babel.exe must use the Windows GUI subsystem and avoid a console window",
+  );
+  assert.match(nativeLauncherSource, /\[STAThread\]/);
+  assert.match(nativeLauncherSource, /"Babel\.Gui\.ps1"/);
+  assert.match(nativeLauncherSource, /"-STA"/);
+  assert.match(nativeLauncherSource, /WorkingDirectory\s*=\s*repositoryRoot/);
+  assert.match(nativeLauncherSource, /CreateNoWindow\s*=\s*true/);
+  assert.match(nativeLauncherSource, /WaitForExit\(\)/);
+  assert.match(nativeLauncherSource, /return process\.ExitCode/);
+  assert.doesNotMatch(nativeLauncherSource, /XamlReader|RunspaceFactory/);
+  assert.match(nativeLauncherBuildSource, /v4\.0\.30319/i);
+  assert.match(nativeLauncherBuildSource, /csc\.exe/i);
+  assert.match(nativeLauncherBuildSource, /\/target:winexe/i);
+  assert.match(nativeLauncherBuildSource, /\/noconfig/i);
+  assert.match(nativeLauncherBuildSource, /\/nostdlib\+/i);
+  assert.match(nativeLauncherBuildSource, /\/win32icon:/i);
+  assert.match(nativeLauncherBuildSource, /Babel\.Launcher\.cs/i);
+});
+
+test(
+  "the native launcher rebuilds with the Windows framework compiler",
+  { skip: process.platform !== "win32" },
+  async () => {
+    const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "babel-launcher-exe-"));
+    const outputPath = path.join(temporaryRoot, "Babel.exe");
+    try {
+      await execFileAsync(
+        "powershell.exe",
+        [
+          "-NoLogo",
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          nativeLauncherBuildPath,
+          "-OutputPath",
+          outputPath,
+        ],
+        { cwd: root, encoding: "utf8", timeout: 30_000, windowsHide: true },
+      );
+
+      const rebuiltLauncher = await readFile(outputPath);
+      assert.equal(rebuiltLauncher.subarray(0, 2).toString("ascii"), "MZ");
+    } finally {
+      await rm(temporaryRoot, { recursive: true, force: true });
+    }
+  },
+);
 
 test("the GUI retains the complete health and identity contract", () => {
   for (const field of ["healthPath", "identityPath", "identityText"]) {
@@ -418,6 +493,33 @@ test("the launcher can minimize to the system tray and restore safely", () => {
 
   assert.deepEqual(missingContracts, []);
 });
+
+test(
+  "the native launcher forwards a read-only GUI smoke test",
+  { skip: process.platform !== "win32" },
+  async () => {
+    await execFileAsync(nativeLauncherPath, ["-SmokeTest"], {
+      cwd: os.tmpdir(),
+      encoding: "utf8",
+      timeout: 30_000,
+      windowsHide: true,
+    });
+
+    await assert.rejects(
+      execFileAsync(nativeLauncherPath, ["-SmokeTest", "-StateSmokeTest"], {
+        cwd: os.tmpdir(),
+        encoding: "utf8",
+        timeout: 30_000,
+        windowsHide: true,
+      }),
+      (error: unknown) => {
+        const exitCode = (error as { code?: unknown }).code;
+        return typeof exitCode === "number" && exitCode !== 0;
+      },
+      "Babel.exe must propagate a non-zero GUI script exit code without showing a modal error",
+    );
+  },
+);
 
 test(
   "the shortcut editor passes a read-only Windows PowerShell smoke test",
