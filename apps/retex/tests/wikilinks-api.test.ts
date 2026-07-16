@@ -21,7 +21,6 @@ let titlesRoute: typeof import("../src/app/api/titles/route");
 before(async () => {
   temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "retex-links-api-test-"));
   process.env.RETEX_DATABASE_PATH = path.join(temporaryDirectory, "sqlite.db");
-  process.env.RETEX_UPLOAD_DIRECTORY = path.join(temporaryDirectory, "uploads");
   database = await import("../src/lib/db/client");
   migrate(database.db, { migrationsFolder: path.join(process.cwd(), "drizzle") });
   repositories = await import("../src/lib/repositories");
@@ -65,7 +64,7 @@ test("detail, backlinks, and titles APIs expose polymorphic wikilinks", async ()
   const exerciseTarget = repositories.createExercise({
     folderId: exerciseFolder.id,
     title: "API exercise target",
-    imagePath: "data/uploads/exercises/api-target.png",
+    problemMd: "API target problem",
   });
   const knowledgeSource = repositories.createKnowledge({
     folderId: knowledgeFolder.id,
@@ -75,8 +74,7 @@ test("detail, backlinks, and titles APIs expose polymorphic wikilinks", async ()
   const exerciseSource = repositories.createExercise({
     folderId: exerciseFolder.id,
     title: "API exercise source",
-    imagePath: "data/uploads/exercises/api-source.png",
-    answerMd: "[[API knowledge target]]",
+    problemMd: "[[API knowledge target]]",
   });
 
   const knowledgeDetailResponse = await knowledgeRoute.GET(

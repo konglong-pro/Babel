@@ -2,6 +2,7 @@
 
 import type { Wikilink } from "@babel-apps/markdown/core";
 import {
+  DetachedReaderWindow,
   MarkdownRenderer,
   OutlinePanel,
   type ResolvedWikilink,
@@ -43,7 +44,7 @@ import type {
 } from "@/lib/types";
 
 const KNOWLEDGE_HEADING_ID_PREFIX = "retex-knowledge-heading-";
-const REMARK_FEATURES = ["gfm", "math"] as const;
+const REMARK_FEATURES = ["gfm", "typst-math"] as const;
 const PENDING_IMAGE_URL_PATTERN = /retex-upload:\/\/[A-Za-z0-9._-]+/g;
 const MAX_MANAGED_IMAGE_URL =
   "/api/uploads/notes/00000000-0000-0000-0000-000000000000.webp";
@@ -51,6 +52,60 @@ const MAX_MANAGED_IMAGE_URL =
 function estimatedPersistedMarkdownBytes(contentMd: string): number {
   return utf8ByteLength(
     contentMd.replace(PENDING_IMAGE_URL_PATTERN, MAX_MANAGED_IMAGE_URL),
+  );
+}
+
+interface KnowledgeReaderDraftProps {
+  title: string;
+  tags: string[];
+  content: string;
+  imagePreviews: ReadonlyMap<string, string>;
+  ownerDocument: Document;
+  resolveWikilink: (titleKey: string) => ResolvedWikilink | null;
+  onNavigateWikilink: (target: ResolvedWikilink) => void;
+}
+
+function KnowledgeReaderDraft({
+  title,
+  tags,
+  content,
+  imagePreviews,
+  ownerDocument,
+  resolveWikilink,
+  onNavigateWikilink,
+}: KnowledgeReaderDraftProps) {
+  const headingIdPrefix = `${KNOWLEDGE_HEADING_ID_PREFIX}reader-`;
+  return (
+    <article className="document-view" aria-label="Live Knowledge reader">
+      <header className="document-header">
+        <div>
+          <span className="eyebrow">Knowledge</span>
+          <h1>{title.trim() || "Untitled Knowledge note"}</h1>
+          <Tags tags={tags} />
+          <p className="document-meta">Live draft. Save changes in the editor.</p>
+        </div>
+      </header>
+      <div className="document-outline-layout">
+        <section className="document-content" aria-label="Note content">
+          <MarkdownRenderer
+            content={content}
+            imagePreviews={imagePreviews}
+            uploadScheme="retex-upload"
+            remarkFeatures={REMARK_FEATURES}
+            defaultWikilinkKind="knowledge"
+            resolveWikilink={resolveWikilink}
+            onNavigateWikilink={onNavigateWikilink}
+            headingIdPrefix={headingIdPrefix}
+          />
+        </section>
+        <OutlinePanel
+          content={content}
+          mode="read"
+          ownerDocument={ownerDocument}
+          headingIdPrefix={headingIdPrefix}
+        />
+      </div>
+    </article>
   );
 }
 
@@ -313,6 +368,10 @@ function KnowledgeForm({
         .sort((a, b) => a.label.localeCompare(b.label, "en-US")),
     [detail?.id, folderId, pageMap, pages, unavailableParentIds],
   );
+  const imagePreviews = useMemo(
+    () => new Map(stagedImages.map((image) => [image.token, image.previewUrl])),
+    [stagedImages],
+  );
   const activeImportedReferences = useMemo(
     () => (importDraft?.imageReferences ?? []).filter((reference) =>
       content.includes(`retex-upload://${reference.token}`),
@@ -495,6 +554,24 @@ function KnowledgeForm({
             </h1>
           </div>
           <div className="document-actions">
+            <DetachedReaderWindow
+              title={`${title.trim() || "Untitled Knowledge note"} - Reader`}
+              windowKey={`retex-knowledge-${detail?.id ?? "draft"}`}
+              buttonLabel="Read"
+              disabled={pending}
+            >
+              {({ document: readerDocument }) => (
+                <KnowledgeReaderDraft
+                  title={title}
+                  tags={parseTags(tags)}
+                  content={content}
+                  imagePreviews={imagePreviews}
+                  ownerDocument={readerDocument}
+                  resolveWikilink={resolveWikilink}
+                  onNavigateWikilink={onNavigateWikilink}
+                />
+              )}
+            </DetachedReaderWindow>
             <button data-babel-command="cancel" type="button" onClick={onCancel}>
               Cancel
             </button>
@@ -574,10 +651,11 @@ function KnowledgeForm({
             name="contentMd"
             value={content}
             disabled={pending}
+            imagePreviews={imagePreviews}
             onChange={changeContent}
             onImageError={setError}
             onStageImage={(image) => setStagedImages((current) => [...current, image])}
-            hint="Use $…$ for math and [[title]] to link another note."
+            hint="Use native Typst math inside $…$ and [[title]] to link another note."
             enableWikilinkAutocomplete
             resolveWikilink={resolveWikilink}
             onNavigateWikilink={navigateFromPreview}

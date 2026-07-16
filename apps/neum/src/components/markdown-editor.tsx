@@ -14,7 +14,7 @@ export {
   type StagedImage,
 } from "@babel-apps/markdown/react";
 
-const REMARK_FEATURES = ["gfm"] as const;
+const REMARK_FEATURES = ["gfm", "typst-math"] as const;
 
 type MarkdownEditorProps = Omit<
   SharedMarkdownEditorProps,
@@ -32,7 +32,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       {...props}
       fetchScope="neum:entries"
       fetchTitles={listEntryTitles}
-      hintText="Write Markdown with GFM tables, task lists, links, images, and [[entry links]]."
+      hintText="Write Markdown with GFM, [[entry links]], and Typst math: $x$ inline or $ x $ on its own line."
       placeholder="Write context, explanation, sources, or caveats…"
       remarkFeatures={REMARK_FEATURES}
       uploadScheme="neum-upload"

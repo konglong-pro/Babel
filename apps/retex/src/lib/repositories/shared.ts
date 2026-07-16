@@ -71,6 +71,17 @@ export function normalizeMarkdown(value: unknown, label: string): string {
   return value;
 }
 
+export function normalizeRequiredMarkdown(value: unknown, label: string): string {
+  const markdown = normalizeMarkdown(value, label);
+  if (!markdown.trim()) {
+    throw new RepositoryError("VALIDATION", `${label} is required.`, {
+      field: label,
+    });
+  }
+
+  return markdown;
+}
+
 export function normalizeTags(tags: readonly string[]): string[] {
   if (!Array.isArray(tags) || tags.some((tag) => typeof tag !== "string")) {
     throw new RepositoryError("VALIDATION", "Tags must be an array of strings.", {

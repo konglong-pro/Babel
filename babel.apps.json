@@ -12,12 +12,10 @@
       "readyTimeoutSeconds": 60,
       "env": {
         "RETEX_DATABASE_PATH": "data/retex/sqlite.db",
-        "RETEX_UPLOAD_DIRECTORY": "data/retex/uploads/exercises",
         "RETEX_NOTE_UPLOAD_DIRECTORY": "data/retex/uploads/notes"
       },
       "requiredDataPaths": [
         "data/retex/sqlite.db",
-        "data/retex/uploads/exercises",
         "data/retex/uploads/notes"
       ]
     },

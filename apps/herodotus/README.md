@@ -19,7 +19,9 @@ private `data/` repository. The launcher supplies absolute
 
 The three-column workspace keeps the folder tree, note list, and reader/editor
 visible together. The editor uses its full content area for GitHub Flavored
-Markdown, while saved notes render in the reader. PNG, JPEG, WebP, and GIF
+Markdown, while saved notes render in the reader. While editing, **Read** opens a
+separate live reader window that follows the current draft and staged images.
+PNG, JPEG, WebP, and GIF
 images up to 10 MB can be selected or pasted; images are committed to storage
 only when the note is saved. A save accepts up to 10 MiB of Markdown, 50 new
 images, and 100 MiB of Markdown plus new images in total; multipart transport is

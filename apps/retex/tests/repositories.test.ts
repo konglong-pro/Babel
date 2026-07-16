@@ -71,7 +71,7 @@ test("repository workflow preserves archive invariants", async () => {
   const firstExercise = repositories.createExercise({
     folderId: exerciseRoot.id,
     title: "经典换元积分题 001",
-    imagePath: "data/uploads/exercises/repository-test-1.png",
+    problemMd: "Repository problem 1",
     answerMd: "$1/3$",
     solutionMd: "解法关键词 solution-substitution-token",
     tags: ["经典", "换元"],
@@ -79,7 +79,7 @@ test("repository workflow preserves archive invariants", async () => {
   const secondExercise = repositories.createExercise({
     folderId: exerciseRoot.id,
     title: "经典换元积分题 002",
-    imagePath: "data/uploads/exercises/repository-test-2.png",
+    problemMd: "Repository problem 2",
     solutionMd: "另一种推导",
     tags: ["积分"],
   });
@@ -263,12 +263,12 @@ test("search ranks exact titles before newer body matches within each group", ()
   const exactExercise = repositories.createExercise({
     folderId: exerciseFolder.id,
     title: query,
-    imagePath: "data/uploads/exercises/search-rank-exact.png",
+    problemMd: "Exact-title problem",
   });
   repositories.createExercise({
     folderId: exerciseFolder.id,
     title: "A newer exercise solution match",
-    imagePath: "data/uploads/exercises/search-rank-body.png",
+    problemMd: "Body-match problem",
     solutionMd: `This solution contains ${query}.`,
   });
 

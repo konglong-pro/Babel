@@ -42,6 +42,15 @@ export function requiredFolderType(body: JsonObject, field = "type"): FolderType
   return value as FolderType;
 }
 
+export function requiredMarkdown(body: JsonObject, field: string): string {
+  const value = body[field];
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new ApiError(400, "VALIDATION_ERROR", `${field} is required.`, { field });
+  }
+
+  return value;
+}
+
 export function queryFolderType(value: string | null): FolderType {
   if (value === null || !folderTypes.includes(value as FolderType)) {
     throw new ApiError(

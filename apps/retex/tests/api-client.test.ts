@@ -24,7 +24,7 @@ const knowledgeInput: KnowledgeInput = {
 const exerciseInput: ExerciseInput = {
   folderId: 1,
   title: "A limit exercise",
-  imagePath: "data/retex/uploads/exercises/problem.png",
+  problemMd: "Problem statement",
   answerMd: "42",
   solutionMd: "# Solution",
   tags: ["analysis"],

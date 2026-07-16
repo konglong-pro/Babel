@@ -2,6 +2,7 @@
 
 import type { Wikilink } from "@babel-apps/markdown/core";
 import {
+  DetachedReaderWindow,
   MarkdownRenderer,
   OutlinePanel,
   type ResolvedWikilink,
@@ -24,7 +25,6 @@ import {
   getErrorMessage,
   listKnowledge,
   updateExercise,
-  uploadExerciseImage,
 } from "@/lib/api-client";
 import type {
   BacklinksDto,
@@ -32,11 +32,127 @@ import type {
   KnowledgeSummaryDto,
   LinkEntityKind,
 } from "@/lib/types";
-import { imageUrl } from "@/lib/types";
 
+const EXERCISE_PROBLEM_HEADING_ID_PREFIX = "retex-exercise-problem-heading-";
 const EXERCISE_ANSWER_HEADING_ID_PREFIX = "retex-exercise-answer-heading-";
 const EXERCISE_SOLUTION_HEADING_ID_PREFIX = "retex-exercise-solution-heading-";
-const REMARK_FEATURES = ["gfm", "math"] as const;
+const REMARK_FEATURES = ["gfm", "typst-math"] as const;
+
+interface ExerciseReaderDraftProps {
+  title: string;
+  tags: string[];
+  problem: string;
+  answer: string;
+  solution: string;
+  imagePreviews: ReadonlyMap<string, string>;
+  ownerDocument: Document;
+  resolveWikilink: (titleKey: string) => ResolvedWikilink | null;
+  onNavigateWikilink: (target: ResolvedWikilink) => void;
+}
+
+function ExerciseReaderSection({
+  label,
+  content,
+  emptyText,
+  imagePreviews,
+  headingIdPrefix,
+  ownerDocument,
+  resolveWikilink,
+  onNavigateWikilink,
+}: {
+  label: string;
+  content: string;
+  emptyText: string;
+  imagePreviews: ReadonlyMap<string, string>;
+  headingIdPrefix: string;
+  ownerDocument: Document;
+  resolveWikilink: (titleKey: string) => ResolvedWikilink | null;
+  onNavigateWikilink: (target: ResolvedWikilink) => void;
+}) {
+  return (
+    <section aria-label={label}>
+      <h2>{label}</h2>
+      <div className="document-outline-layout">
+        <div className="document-content">
+          <MarkdownRenderer
+            content={content}
+            emptyText={emptyText}
+            imagePreviews={imagePreviews}
+            uploadScheme="retex-upload"
+            remarkFeatures={REMARK_FEATURES}
+            defaultWikilinkKind="knowledge"
+            resolveWikilink={resolveWikilink}
+            onNavigateWikilink={onNavigateWikilink}
+            headingIdPrefix={headingIdPrefix}
+          />
+        </div>
+        <OutlinePanel
+          content={content}
+          mode="read"
+          ownerDocument={ownerDocument}
+          headingIdPrefix={headingIdPrefix}
+        />
+      </div>
+    </section>
+  );
+}
+
+function ExerciseReaderDraft({
+  title,
+  tags,
+  problem,
+  answer,
+  solution,
+  imagePreviews,
+  ownerDocument,
+  resolveWikilink,
+  onNavigateWikilink,
+}: ExerciseReaderDraftProps) {
+  return (
+    <article className="document-view" aria-label="Live Exercise reader">
+      <header className="document-header">
+        <div>
+          <span className="eyebrow">Exercise</span>
+          <h1>{title.trim() || "Untitled Exercise"}</h1>
+          <Tags tags={tags} />
+          <p className="document-meta">Live draft. Save changes in the editor.</p>
+        </div>
+      </header>
+      <div className="exercise-sections">
+        <ExerciseReaderSection
+          label="Problem"
+          content={problem}
+          emptyText="No problem statement yet."
+          imagePreviews={imagePreviews}
+          headingIdPrefix={`${EXERCISE_PROBLEM_HEADING_ID_PREFIX}reader-`}
+          ownerDocument={ownerDocument}
+          resolveWikilink={resolveWikilink}
+          onNavigateWikilink={onNavigateWikilink}
+        />
+        <ExerciseReaderSection
+          label="Archived Answer"
+          content={answer}
+          emptyText="No archived answer yet."
+          imagePreviews={imagePreviews}
+          headingIdPrefix={`${EXERCISE_ANSWER_HEADING_ID_PREFIX}reader-`}
+          ownerDocument={ownerDocument}
+          resolveWikilink={resolveWikilink}
+          onNavigateWikilink={onNavigateWikilink}
+        />
+        <ExerciseReaderSection
+          label="Your Solution"
+          content={solution}
+          emptyText="No solution notes yet."
+          imagePreviews={imagePreviews}
+          headingIdPrefix={`${EXERCISE_SOLUTION_HEADING_ID_PREFIX}reader-`}
+          ownerDocument={ownerDocument}
+          resolveWikilink={resolveWikilink}
+          onNavigateWikilink={onNavigateWikilink}
+        />
+      </div>
+    </article>
+  );
+}
 
 interface ExerciseDetailProps {
   detail: ExerciseDetailDto | null;
@@ -156,21 +272,29 @@ export function ExerciseDetail({
         </div>
       </header>
 
-      <figure className="exercise-image-frame">
-        {/* The image comes from the local managed upload directory; its dimensions are not known before upload. */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={imageUrl(detail.imagePath)}
-          alt={`${detail.title} problem image`}
-          loading="lazy"
-          decoding="async"
-        />
-        <figcaption>
-          <a href={imageUrl(detail.imagePath)} target="_blank" rel="noreferrer">
-            View Full Image
-          </a>
-        </figcaption>
-      </figure>
+      <section className="exercise-problem" aria-labelledby="exercise-problem-heading">
+        <h2 id="exercise-problem-heading">Problem</h2>
+        <div className="document-outline-layout">
+          <div className="document-content">
+            <MarkdownRenderer
+              content={detail.problemMd}
+              emptyText="No archived problem yet."
+              uploadScheme="retex-upload"
+              remarkFeatures={REMARK_FEATURES}
+              defaultWikilinkKind="knowledge"
+              resolveWikilink={resolveWikilink}
+              onNavigateWikilink={navigateWikilink}
+              onCreateFromWikilink={createFromWikilink}
+              headingIdPrefix={EXERCISE_PROBLEM_HEADING_ID_PREFIX}
+            />
+          </div>
+          <OutlinePanel
+            content={detail.problemMd}
+            mode="read"
+            headingIdPrefix={EXERCISE_PROBLEM_HEADING_ID_PREFIX}
+          />
+        </div>
+      </section>
 
       <div className="exercise-tags">
         <Tags tags={detail.tags} />
@@ -277,19 +401,21 @@ function ExerciseForm({
   onRegisterSave,
 }: ExerciseFormProps) {
   const formRef = useRef<HTMLFormElement>(null);
+  const problemTextareaRef = useRef<HTMLTextAreaElement>(null);
   const answerTextareaRef = useRef<HTMLTextAreaElement>(null);
   const solutionTextareaRef = useRef<HTMLTextAreaElement>(null);
   const stagedRef = useRef<StagedImage[]>([]);
   const initialTitle = detail?.title ?? "";
   const initialTags = detail?.tags.join(", ") ?? "";
+  const initialProblem = detail?.problemMd ?? "";
   const initialAnswer = detail?.answerMd ?? "";
   const initialSolution = detail?.solutionMd ?? "";
   const initialKnowledgeIds = detail?.relatedKnowledge.map((item) => item.id) ?? [];
   const [title, setTitle] = useState(initialTitle);
   const [tags, setTags] = useState(initialTags);
+  const [problem, setProblem] = useState(initialProblem);
   const [answer, setAnswer] = useState(initialAnswer);
   const [solution, setSolution] = useState(initialSolution);
-  const [image, setImage] = useState<File | null>(null);
   const [knowledgeIds, setKnowledgeIds] = useState(initialKnowledgeIds);
   const [stagedImages, setStagedImages] = useState<StagedImage[]>([]);
   const [knowledge, setKnowledge] = useState<KnowledgeSummaryDto[]>([]);
@@ -303,9 +429,9 @@ function ExerciseForm({
   const dirty =
     title !== initialTitle ||
     tags !== initialTags ||
+    problem !== initialProblem ||
     answer !== initialAnswer ||
     solution !== initialSolution ||
-    image !== null ||
     !sameIdSet(knowledgeIds, initialKnowledgeIds) ||
     stagedImages.length > 0;
 
@@ -359,23 +485,18 @@ function ExerciseForm({
       setError("Select a folder first.");
       return;
     }
-    if (!detail && !image) {
-      setError("A new Exercise requires a problem image.");
+    if (!problem.trim()) {
+      setError("An Exercise requires a problem statement.");
       return;
     }
 
     setPending(true);
     setError("");
     try {
-      let imagePath = detail?.imagePath ?? "";
-      if (image) {
-        const uploaded = await uploadExerciseImage(image);
-        imagePath = uploaded.imagePath;
-      }
       const input = {
         folderId,
         title: title.trim(),
-        imagePath,
+        problemMd: problem,
         answerMd: answer,
         solutionMd: solution,
         tags: parseTags(tags),
@@ -393,21 +514,33 @@ function ExerciseForm({
     }
   }
 
+  function changeProblem(nextProblem: string) {
+    setProblem(nextProblem);
+    retainStagedImages(nextProblem, answer, solution);
+  }
+
   function changeAnswer(nextAnswer: string) {
     setAnswer(nextAnswer);
-    retainStagedImages(nextAnswer, solution);
+    retainStagedImages(problem, nextAnswer, solution);
   }
 
   function changeSolution(nextSolution: string) {
     setSolution(nextSolution);
-    retainStagedImages(answer, nextSolution);
+    retainStagedImages(problem, answer, nextSolution);
   }
 
-  function retainStagedImages(nextAnswer: string, nextSolution: string) {
+  function retainStagedImages(
+    nextProblem: string,
+    nextAnswer: string,
+    nextSolution: string,
+  ) {
     setStagedImages((current) => {
       const retained = current.filter((stagedImage) => {
         const placeholder = `retex-upload://${stagedImage.token}`;
-        const referenced = nextAnswer.includes(placeholder) || nextSolution.includes(placeholder);
+        const referenced =
+          nextProblem.includes(placeholder) ||
+          nextAnswer.includes(placeholder) ||
+          nextSolution.includes(placeholder);
         if (!referenced) URL.revokeObjectURL(stagedImage.previewUrl);
         return referenced;
       });
@@ -439,11 +572,36 @@ function ExerciseForm({
             <h1>{detail ? detail.title : "Archive a Classic Problem"}</h1>
           </div>
           <div className="document-actions">
+            <DetachedReaderWindow
+              title={`${title.trim() || "Untitled Exercise"} - Reader`}
+              windowKey={`retex-exercise-${detail?.id ?? "draft"}`}
+              buttonLabel="Read"
+              disabled={pending}
+            >
+              {({ document: readerDocument }) => (
+                <ExerciseReaderDraft
+                  title={title}
+                  tags={parseTags(tags)}
+                  problem={problem}
+                  answer={answer}
+                  solution={solution}
+                  imagePreviews={imagePreviews}
+                  ownerDocument={readerDocument}
+                  resolveWikilink={resolveWikilink}
+                  onNavigateWikilink={onNavigateWikilink}
+                />
+              )}
+            </DetachedReaderWindow>
             <button data-babel-command="cancel" type="button" onClick={onCancel}>
               Cancel
             </button>
-            <button data-babel-command="save" className="primary-button" type="submit" disabled={pending || !title.trim()}>
-              {pending ? (image ? "Uploading and Saving…" : "Saving…") : "Save"}
+            <button
+              data-babel-command="save"
+              className="primary-button"
+              type="submit"
+              disabled={pending || !title.trim() || !problem.trim()}
+            >
+              {pending ? "Saving…" : "Save"}
             </button>
           </div>
         </header>
@@ -479,26 +637,35 @@ function ExerciseForm({
           </label>
         </div>
 
-        <label className="upload-field">
-          <span>{detail ? "Replace Problem Image (Optional)" : "Problem Image"}</span>
-          {detail ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={imageUrl(detail.imagePath)}
-              alt="Current problem image preview"
-              loading="lazy"
-              decoding="async"
-            />
-          ) : null}
-          <input
-            name="image"
-            type="file"
-            required={!detail}
-            accept="image/png,image/jpeg,image/webp,image/gif"
-            onChange={(event) => setImage(event.target.files?.[0] ?? null)}
+        <div className="editor-outline-layout">
+          <MarkdownEditor
+            label="Problem"
+            name="problemMd"
+            rows={14}
+            value={problem}
+            disabled={pending}
+            imagePreviews={imagePreviews}
+            onChange={changeProblem}
+            onImageError={setError}
+            onStageImage={(stagedImage) => {
+              setStagedImages((current) => [...current, stagedImage]);
+            }}
+            placeholder="Write the complete problem statement, including conditions and diagrams…"
+            hint="Use native Typst math inside $…$ and [[title]] to link another note. Images can be pasted or inserted."
+            enableWikilinkAutocomplete
+            resolveWikilink={resolveWikilink}
+            onNavigateWikilink={navigateFromPreview}
+            onCreateFromWikilink={createFromWikilink}
+            textareaRef={problemTextareaRef}
+            headingIdPrefix={EXERCISE_PROBLEM_HEADING_ID_PREFIX}
           />
-          <small>{image ? `Selected: ${image.name}` : "Supports PNG, JPEG, WebP, and GIF."}</small>
-        </label>
+          <OutlinePanel
+            content={problem}
+            mode="edit"
+            textareaRef={problemTextareaRef}
+            headingIdPrefix={EXERCISE_PROBLEM_HEADING_ID_PREFIX}
+          />
+        </div>
 
         <div className="editor-outline-layout">
           <MarkdownEditor
@@ -514,7 +681,7 @@ function ExerciseForm({
               setStagedImages((current) => [...current, stagedImage]);
             }}
             placeholder="Record the final answer from your first archive pass…"
-            hint="Use $…$ for math and [[title]] to link another note."
+            hint="Use native Typst math inside $…$ and [[title]] to link another note."
             enableWikilinkAutocomplete
             resolveWikilink={resolveWikilink}
             onNavigateWikilink={navigateFromPreview}
@@ -542,7 +709,7 @@ function ExerciseForm({
               setStagedImages((current) => [...current, stagedImage]);
             }}
             placeholder="Record the key insight, full derivation, and reminders for your future self…"
-            hint="Use $…$ for math and [[title]] to link another note."
+            hint="Use native Typst math inside $…$ and [[title]] to link another note."
             enableWikilinkAutocomplete
             resolveWikilink={resolveWikilink}
             onNavigateWikilink={navigateFromPreview}

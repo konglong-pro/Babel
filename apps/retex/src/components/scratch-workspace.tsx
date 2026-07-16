@@ -1,6 +1,10 @@
 "use client";
 
-import { OutlinePanel } from "@babel-apps/markdown/react";
+import {
+  DetachedReaderWindow,
+  MarkdownRenderer,
+  OutlinePanel,
+} from "@babel-apps/markdown/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useRef, useState } from "react";
@@ -13,12 +17,13 @@ import {
   saveScratch,
 } from "@/lib/api-client";
 import { navigationAllowed } from "@/components/app-header";
-import { imageUrl, type ExerciseDetailDto } from "@/lib/types";
+import type { ExerciseDetailDto } from "@/lib/types";
 import { MarkdownEditor } from "@/components/markdown-editor";
-import { ConfirmButton, formatDate } from "@/components/shared";
+import { ConfirmButton, formatDate, Tags } from "@/components/shared";
 import { useDirtyNavigationGuard } from "@/components/use-dirty-navigation-guard";
 
 const SCRATCH_HEADING_ID_PREFIX = "retex-scratch-heading-";
+const REMARK_FEATURES = ["gfm", "typst-math"] as const;
 
 export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
   const router = useRouter();
@@ -133,6 +138,61 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
         </div>
         <div className="scratch-actions">
           {updatedAt ? <small>Last saved: {formatDate(updatedAt)}</small> : <small>Not saved yet</small>}
+          <DetachedReaderWindow
+            title={`${exercise.title} - Scratch reader`}
+            windowKey={`retex-scratch-${exercise.id}`}
+            buttonLabel="Read"
+            disabled={saving}
+          >
+            {({ document: readerDocument }) => {
+              const headingIdPrefix = `${SCRATCH_HEADING_ID_PREFIX}reader-`;
+              return (
+                <article className="document-view" aria-label="Live Scratch reader">
+                  <header className="document-header">
+                    <div>
+                      <span className="eyebrow">Scratch - Temporary Work</span>
+                      <h1>{exercise.title}</h1>
+                      <Tags tags={exercise.tags} />
+                      <p className="document-meta">Live draft. Save changes in the editor.</p>
+                    </div>
+                  </header>
+                  <section className="exercise-problem" aria-labelledby="reader-scratch-problem-heading">
+                    <h2 id="reader-scratch-problem-heading">Problem</h2>
+                    <div className="document-content">
+                      <MarkdownRenderer
+                        content={exercise.problemMd}
+                        emptyText="No archived problem yet."
+                        uploadScheme="retex-upload"
+                        remarkFeatures={REMARK_FEATURES}
+                        defaultWikilinkKind="knowledge"
+                      />
+                    </div>
+                  </section>
+                  <section aria-labelledby="reader-scratch-work-heading">
+                    <h2 id="reader-scratch-work-heading">Current work</h2>
+                    <div className="document-outline-layout">
+                      <div className="document-content">
+                        <MarkdownRenderer
+                          content={content}
+                          emptyText="No scratch work yet."
+                          uploadScheme="retex-upload"
+                          remarkFeatures={REMARK_FEATURES}
+                          defaultWikilinkKind="knowledge"
+                          headingIdPrefix={headingIdPrefix}
+                        />
+                      </div>
+                      <OutlinePanel
+                        content={content}
+                        mode="read"
+                        ownerDocument={readerDocument}
+                        headingIdPrefix={headingIdPrefix}
+                      />
+                    </div>
+                  </section>
+                </article>
+              );
+            }}
+          </DetachedReaderWindow>
           <ConfirmButton
             className="danger-ghost"
             title="Clear Scratch"
@@ -166,9 +226,15 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
         </div>
 
         <div className="scratch-grid">
-          <section className="scratch-image" aria-label="Problem image">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={imageUrl(exercise.imagePath)} alt={`${exercise.title} problem image`} />
+          <section className="scratch-problem" aria-labelledby="scratch-problem-heading">
+            <h2 id="scratch-problem-heading">Problem</h2>
+            <MarkdownRenderer
+              content={exercise.problemMd}
+              emptyText="No archived problem yet."
+              uploadScheme="retex-upload"
+              remarkFeatures={REMARK_FEATURES}
+              defaultWikilinkKind="knowledge"
+            />
           </section>
           <section className="scratch-editor" aria-label="Temporary work editor">
             <div className="editor-outline-layout">

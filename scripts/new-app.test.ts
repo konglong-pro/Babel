@@ -145,14 +145,26 @@ test("renders the repository mirror template as an independent app", async (t) =
   assert.equal(manifest.name, "@babel-apps/mirror-notes");
   assert.equal(manifest.dependencies["@babel-apps/markdown"], "0.1.0");
   assert.equal(manifest.dependencies["@babel-apps/platform"], "0.1.0");
+  assert.equal(manifest.dependencies["@babel-apps/typst"], "0.1.0");
   assert.equal(manifest.dependencies["react-markdown"], undefined);
   assert.equal(manifest.dependencies["remark-gfm"], undefined);
+  assert.equal(
+    manifest.scripts["typst:assets"],
+    "tsx ../../packages/typst/scripts/sync-public-assets.ts public",
+  );
+  assert.equal(manifest.scripts.predev, "npm run typst:assets");
+  assert.equal(manifest.scripts.prebuild, "npm run typst:assets");
+  assert.equal(manifest.scripts.prestart, "npm run typst:assets");
   assert.equal(manifest.scripts["db:backfill-links"], "tsx scripts/backfill-links.ts");
   assert.equal(manifest.scripts["db:check"], "tsx scripts/check-database.ts");
   assert.equal(manifest.scripts.build, "tsx scripts/build.ts");
   assert.match(
     await readFile(path.join(generatedRoot, "next.config.ts"), "utf8"),
     /transpilePackages:\s*\[[^\]]*["']@babel-apps\/markdown["']/,
+  );
+  assert.match(
+    await readFile(path.join(generatedRoot, "next.config.ts"), "utf8"),
+    /transpilePackages:\s*\[[^\]]*["']@babel-apps\/typst["']/,
   );
   assert.match(
     await readFile(path.join(generatedRoot, "src", "app", "api", "health", "route.ts"), "utf8"),
@@ -222,6 +234,9 @@ test("renders the repository mirror template as an independent app", async (t) =
     "utf8",
   );
   assert.match(noteDetail, /OutlinePanel/);
+  assert.match(noteDetail, /DetachedReaderWindow/);
+  assert.match(noteDetail, /windowKey=\{`mirror-notes-note-/);
+  assert.match(noteDetail, /ownerDocument=\{readerDocument\}/);
   assert.match(noteDetail, /const NOTE_HEADING_ID_PREFIX = "mirror-notes-note-heading-"/);
   assert.match(noteDetail, /textareaRef=\{textareaRef\}/);
   assert.match(noteDetail, /footerExtras=/);

@@ -5,10 +5,37 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import {
+  DetachedReaderWindow,
   MarkdownEditor,
   MarkdownRenderer,
   OutlinePanel,
+  detachedReaderWindowName,
 } from "@babel-apps/markdown/react";
+
+test("normalizes stable detached reader window names", () => {
+  assert.equal(
+    detachedReaderWindowName("  Leviathan / note:42  "),
+    "babel-reader-Leviathan-note-42",
+  );
+  assert.equal(detachedReaderWindowName("***"), "babel-reader-document");
+});
+
+test("renders an accessible detached reader control without inline content", () => {
+  const html = renderToStaticMarkup(createElement(
+    DetachedReaderWindow,
+    {
+      title: "Draft note — Reader",
+      windowKey: "note-42",
+      buttonLabel: "Read",
+    },
+    createElement("p", null, "Detached content"),
+  ));
+
+  assert.match(html, /type="button"/u);
+  assert.match(html, /title="Open a live reading window"/u);
+  assert.match(html, />Read<\/button>/u);
+  assert.doesNotMatch(html, /Detached content/u);
+});
 
 test("renders resolved and unresolved wikilinks with deterministic classes and typed hrefs", () => {
   const html = renderToStaticMarkup(createElement(MarkdownRenderer, {
@@ -59,17 +86,31 @@ test("renders an unresolved managed image as a placeholder without an empty sour
   assert.doesNotMatch(html, /src=""/u);
 });
 
-test("configures GFM by default and math only when requested", () => {
+test("configures GFM by default and native Typst math only when requested", () => {
   const gfmHtml = renderToStaticMarkup(createElement(MarkdownRenderer, {
     content: "| A |\n| - |\n| B |",
   }));
   const mathHtml = renderToStaticMarkup(createElement(MarkdownRenderer, {
     content: "$x^2$",
-    remarkFeatures: ["math"],
+    remarkFeatures: ["typst-math"],
   }));
 
   assert.match(gfmHtml, /<table>/u);
-  assert.match(mathHtml, /class="katex"/u);
+  assert.match(mathHtml, /class="typst-formula typst-formula-inline"/u);
+  assert.match(mathHtml, /data-typst-display="inline"/u);
+  assert.match(mathHtml, /<code>x\^2<\/code>/u);
+  assert.doesNotMatch(mathHtml, /katex/u);
+});
+
+test("renders standalone spaced dollars as a Typst display formula", () => {
+  const html = renderToStaticMarkup(createElement(MarkdownRenderer, {
+    content: "Before\n\n$ sum_(i=1)^n i $\n\nAfter",
+    remarkFeatures: ["typst-math"],
+  }));
+
+  assert.match(html, /class="typst-formula typst-formula-block"/u);
+  assert.match(html, /data-typst-display="block"/u);
+  assert.match(html, /<code>sum_\(i=1\)\^n i<\/code>/u);
 });
 
 test("does not allow internal note schemes in image sources or malformed links", () => {

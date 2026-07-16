@@ -2,6 +2,7 @@
 
 import type { Wikilink } from "@babel-apps/markdown/core";
 import {
+  DetachedReaderWindow,
   MarkdownRenderer,
   OutlinePanel,
   type ResolvedWikilink,
@@ -47,6 +48,7 @@ import type {
 export type NoteViewMode = "view" | "edit" | "create";
 
 const NOTE_HEADING_ID_PREFIX = "herodotus-note-heading-";
+const REMARK_FEATURES = ["gfm", "typst-math"] as const;
 const PENDING_IMAGE_URL_PATTERN = /herodotus-upload:\/\/[A-Za-z0-9._-]+/g;
 const MAX_MANAGED_IMAGE_URL =
   "/api/uploads/notes/00000000-0000-0000-0000-000000000000.webp";
@@ -54,6 +56,61 @@ const MAX_MANAGED_IMAGE_URL =
 function estimatedPersistedMarkdownBytes(contentMd: string): number {
   return utf8ByteLength(
     contentMd.replace(PENDING_IMAGE_URL_PATTERN, MAX_MANAGED_IMAGE_URL),
+  );
+}
+
+interface NoteReaderDraftProps {
+  title: string;
+  folderLabel: string;
+  tags: string[];
+  content: string;
+  imagePreviews: ReadonlyMap<string, string>;
+  ownerDocument: Document;
+  resolveWikilink: (titleKey: string) => ResolvedWikilink | null;
+  onNavigateWikilink: (target: ResolvedWikilink) => void;
+}
+
+function NoteReaderDraft({
+  title,
+  folderLabel,
+  tags,
+  content,
+  imagePreviews,
+  ownerDocument,
+  resolveWikilink,
+  onNavigateWikilink,
+}: NoteReaderDraftProps) {
+  const headingIdPrefix = `${NOTE_HEADING_ID_PREFIX}reader-`;
+  return (
+    <article className="document-view" aria-label="Live note reader">
+      <header className="document-header">
+        <div>
+          <span className="eyebrow">{folderLabel || "Draft note"}</span>
+          <h1>{title.trim() || "Untitled note"}</h1>
+          <Tags tags={tags} />
+          <p className="document-meta">Live draft. Save changes in the editor.</p>
+        </div>
+      </header>
+      <div className="document-outline-layout">
+        <section className="document-content" aria-label="Note content">
+          <MarkdownRenderer
+            content={content}
+            imagePreviews={imagePreviews}
+            remarkFeatures={REMARK_FEATURES}
+            uploadScheme="herodotus-upload"
+            resolveWikilink={resolveWikilink}
+            onNavigateWikilink={onNavigateWikilink}
+            headingIdPrefix={headingIdPrefix}
+          />
+        </section>
+        <OutlinePanel
+          content={content}
+          mode="read"
+          ownerDocument={ownerDocument}
+          headingIdPrefix={headingIdPrefix}
+        />
+      </div>
+    </article>
   );
 }
 
@@ -237,6 +294,7 @@ export function NoteDetail({
         <section className="document-content" aria-label="Note content">
           <MarkdownRenderer
             content={detail.contentMd}
+            remarkFeatures={REMARK_FEATURES}
             uploadScheme="herodotus-upload"
             resolveWikilink={resolveWikilink}
             onNavigateWikilink={navigateWikilink}
@@ -552,6 +610,25 @@ function NoteForm({
             </h1>
           </div>
           <div className="document-actions">
+            <DetachedReaderWindow
+              title={`${title.trim() || "Untitled note"} - Reader`}
+              windowKey={`herodotus-note-${detail?.id ?? "draft"}`}
+              buttonLabel="Read"
+              disabled={pending}
+            >
+              {({ document: readerDocument }) => (
+                <NoteReaderDraft
+                  title={title}
+                  folderLabel={folderId === null ? "" : folderPathLabel(folderId, folderMap)}
+                  tags={parseTags(tags)}
+                  content={content}
+                  imagePreviews={imagePreviews}
+                  ownerDocument={readerDocument}
+                  resolveWikilink={resolveWikilink}
+                  onNavigateWikilink={onNavigateWikilink}
+                />
+              )}
+            </DetachedReaderWindow>
             <button data-babel-command="cancel" type="button" disabled={pending} onClick={onCancel}>Cancel</button>
             <button
               data-babel-command="save"

@@ -18,6 +18,8 @@ private `data/` repository. The launcher supplies absolute `NEUM_DATABASE_PATH`
 and `NEUM_UPLOAD_DIRECTORY` values.
 
 The editor preserves incomplete JSON, YAML, and other snippets exactly as typed.
+While editing, **Read** opens a separate live reader window; knowledge entries
+show live Markdown and snippets show both their notes and exact code.
 Knowledge folders can import UTF-8 `.md` files and match referenced local images
 by filename; the Code unit intentionally has no Markdown-file import action.
 Markdown notes and code are each limited to 10 MiB. A save may add at most 50

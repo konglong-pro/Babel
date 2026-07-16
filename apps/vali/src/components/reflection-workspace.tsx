@@ -2,6 +2,7 @@
 
 import type { Wikilink } from "@babel-apps/markdown/core";
 import {
+  DetachedReaderWindow,
   MarkdownRenderer,
   OutlinePanel,
   type ResolvedWikilink,
@@ -35,6 +36,7 @@ import type {
 } from "@/lib/types";
 
 const REFLECTION_HEADING_ID_PREFIX = "vali-reflection-heading-";
+const REMARK_FEATURES = ["gfm", "typst-math"] as const;
 type ValiResolvedWikilink = ResolvedWikilink & { date?: string };
 
 function localToday(): string {
@@ -329,6 +331,47 @@ export function ReflectionWorkspace({ initialDate }: { initialDate: string | nul
                 <h1>{selectedDate}</h1>
               </div>
               <div className="document-actions">
+                <DetachedReaderWindow
+                  title={`${selectedDate} - Reflection reader`}
+                  windowKey={`vali-reflection-${selectedDate}`}
+                  buttonLabel="Read"
+                  disabled={pending}
+                >
+                  {({ document: readerDocument }) => {
+                    const headingIdPrefix = `${REFLECTION_HEADING_ID_PREFIX}reader-`;
+                    return (
+                      <article aria-label="Live reflection reader">
+                        <header className="document-header">
+                          <div>
+                            <span className="eyebrow">Daily reflection</span>
+                            <h1>{selectedDate}</h1>
+                            <p className="document-meta">Live draft. Save changes in the editor.</p>
+                          </div>
+                        </header>
+                        <div className="document-outline-layout">
+                          <section className="document-content" aria-label="Reflection content">
+                            <MarkdownRenderer
+                              content={content}
+                              emptyText="This reflection is empty."
+                              imagePreviews={imagePreviews}
+                              remarkFeatures={REMARK_FEATURES}
+                              uploadScheme="vali-upload"
+                              resolveWikilink={resolveWikilink}
+                              onNavigateWikilink={navigateWikilink}
+                              headingIdPrefix={headingIdPrefix}
+                            />
+                          </section>
+                          <OutlinePanel
+                            content={content}
+                            mode="read"
+                            ownerDocument={readerDocument}
+                            headingIdPrefix={headingIdPrefix}
+                          />
+                        </div>
+                      </article>
+                    );
+                  }}
+                </DetachedReaderWindow>
                 {detail ? (
                   <button data-babel-command="cancel" type="button" onClick={() => {
                     if (!confirmDiscard()) return;
@@ -390,6 +433,7 @@ export function ReflectionWorkspace({ initialDate }: { initialDate: string | nul
                 <MarkdownRenderer
                   content={content}
                   emptyText="This reflection is empty."
+                  remarkFeatures={REMARK_FEATURES}
                   uploadScheme="vali-upload"
                   resolveWikilink={resolveWikilink}
                   onNavigateWikilink={navigateWikilink}

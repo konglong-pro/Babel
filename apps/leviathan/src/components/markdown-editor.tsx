@@ -5,6 +5,8 @@ import {
   type MarkdownEditorProps as SharedMarkdownEditorProps,
 } from "@babel-apps/markdown/react";
 
+const REMARK_FEATURES = ["gfm", "typst-math"] as const;
+
 import { listNoteTitles } from "@/lib/api-client";
 
 export {
@@ -31,8 +33,9 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       {...props}
       fetchScope="leviathan:notes"
       fetchTitles={listNoteTitles}
-      hintText="Write Markdown with GFM tables, task lists, links, images, and [[note links]]."
+      hintText="Write Markdown with GFM, [[note links]], and Typst math: $x$ inline or $ x $ on its own line."
       placeholder="Write a political or economic note, quotation, interpretation, or question…"
+      remarkFeatures={REMARK_FEATURES}
       uploadScheme="leviathan-upload"
     />
   );

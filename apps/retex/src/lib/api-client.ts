@@ -176,7 +176,7 @@ export function getExerciseBacklinks(id: number): Promise<BacklinksDto> {
 export interface ExerciseInput {
   folderId: number;
   title: string;
-  imagePath: string;
+  problemMd: string;
   answerMd: string;
   solutionMd: string;
   tags: string[];
@@ -206,14 +206,6 @@ export function updateExercise(
 
 export function deleteExercise(id: number): Promise<void> {
   return request(`/api/exercises/${id}`, { method: "DELETE" });
-}
-
-export function uploadExerciseImage(
-  file: File,
-): Promise<{ imagePath: string; url: string }> {
-  const formData = new FormData();
-  formData.set("file", file);
-  return request("/api/uploads/exercises", { method: "POST", body: formData });
 }
 
 export async function getScratch(exerciseId: number): Promise<ScratchSolutionDto | null> {

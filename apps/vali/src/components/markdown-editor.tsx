@@ -5,6 +5,8 @@ import {
   type MarkdownEditorProps as SharedMarkdownEditorProps,
 } from "@babel-apps/markdown/react";
 
+const REMARK_FEATURES = ["gfm", "typst-math"] as const;
+
 import { listNoteTitles } from "@/lib/api-client";
 
 export {
@@ -31,8 +33,9 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
       {...props}
       fetchScope="vali:documents"
       fetchTitles={listNoteTitles}
-      hintText="Write Markdown with GFM tables, task lists, links, images, and [[document links]]."
+      hintText="Write Markdown with GFM, [[document links]], and Typst math: $x$ inline or $ x $ on its own line."
       placeholder="Write a definition, example, observation, or question..."
+      remarkFeatures={REMARK_FEATURES}
       uploadScheme="vali-upload"
     />
   );

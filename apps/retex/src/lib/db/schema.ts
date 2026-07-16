@@ -68,7 +68,7 @@ export const exercises = sqliteTable(
       .notNull()
       .references(() => folders.id, { onDelete: "restrict" }),
     title: text("title").notNull(),
-    imagePath: text("image_path").notNull(),
+    problemMd: text("problem_md").notNull(),
     answerMd: text("answer_md").notNull().default(""),
     solutionMd: text("solution_md").notNull().default(""),
     tags: text("tags").notNull().default("[]"),
@@ -78,7 +78,7 @@ export const exercises = sqliteTable(
     index("exercise_folder_idx").on(table.folderId),
     index("exercise_title_idx").on(table.title),
     check("exercise_title_not_blank", sql`length(trim(${table.title})) > 0`),
-    check("exercise_image_path_not_blank", sql`length(trim(${table.imagePath})) > 0`),
+    check("exercise_problem_not_blank", sql`length(trim(${table.problemMd})) > 0`),
   ],
 );
 

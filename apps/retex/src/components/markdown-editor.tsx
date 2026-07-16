@@ -27,7 +27,7 @@ type MarkdownEditorProps = Omit<
 
 export function MarkdownEditor({
   enableWikilinkAutocomplete = false,
-  hint = "Use $…$ for inline math and $$…$$ for display math.",
+  hint = "Use native Typst math inside $…$; add spaces just inside the delimiters for display math.",
   placeholder = "Use Markdown to capture your understanding…",
   rows = 18,
   ...props

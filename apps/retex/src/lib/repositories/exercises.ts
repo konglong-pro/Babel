@@ -1,11 +1,7 @@
-import { and, asc, desc, eq, ne, sql, type SQL } from "drizzle-orm";
+import { asc, desc, eq, sql, type SQL } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
 import { exercises, knowledgeExercises } from "@/lib/db/schema";
-import {
-  deleteExerciseImage,
-  normalizeStoredExerciseImagePath,
-} from "@/lib/storage";
 import type {
   ExerciseDetailDto,
   ExerciseSummaryDto,
@@ -32,6 +28,7 @@ import { listExerciseKnowledge } from "./relations";
 import {
   assertPositiveId,
   normalizeMarkdown,
+  normalizeRequiredMarkdown,
   normalizeRequiredText,
   requireFolder,
   tagsFromJson,
@@ -43,7 +40,7 @@ type ExerciseRow = typeof exercises.$inferSelect;
 export interface CreateExerciseInput {
   folderId: number;
   title: string;
-  imagePath: string;
+  problemMd: string;
   answerMd?: string;
   solutionMd?: string;
   tags?: readonly string[];
@@ -53,7 +50,7 @@ export interface CreateExerciseInput {
 export interface UpdateExerciseInput {
   folderId?: number;
   title?: string;
-  imagePath?: string;
+  problemMd?: string;
   answerMd?: string;
   solutionMd?: string;
   tags?: readonly string[];
@@ -103,12 +100,15 @@ export function createExercise(
 ): ExerciseDetailDto {
   requireFolder(input.folderId, "exercise");
   const title = normalizeRequiredText(input.title, "title");
-  const imagePath = normalizeStoredExerciseImagePath(input.imagePath);
+  const problemMd = normalizeRequiredMarkdown(input.problemMd, "problemMd");
   const answerMd = normalizeMarkdown(input.answerMd ?? "", "answerMd");
   const solutionMd = normalizeMarkdown(input.solutionMd ?? "", "solutionMd");
   const tags = tagsToJson(input.tags ?? []);
   const knowledgeIds = validateKnowledgeIds(input.knowledgeIds ?? []);
-  const noteImagePaths = prepareNewNoteImages([answerMd, solutionMd], newImagePaths);
+  const noteImagePaths = prepareNewNoteImages(
+    [problemMd, answerMd, solutionMd],
+    newImagePaths,
+  );
 
   return db.transaction((transaction) => {
     const row = transaction
@@ -116,7 +116,7 @@ export function createExercise(
       .values({
         folderId: input.folderId,
         title,
-        imagePath,
+        problemMd,
         answerMd,
         solutionMd,
         tags,
@@ -138,7 +138,11 @@ export function createExercise(
         .run();
     }
 
-    replaceSourceNoteLinks(transaction, "exercise", row.id, [answerMd, solutionMd]);
+    replaceSourceNoteLinks(transaction, "exercise", row.id, [
+      problemMd,
+      answerMd,
+      solutionMd,
+    ]);
     resolveIncomingLinksForTitle(transaction, title);
     return toExerciseDetail(
       row,
@@ -168,7 +172,7 @@ export function updateExercise(
   const changes: {
     folderId?: number;
     title?: string;
-    imagePath?: string;
+    problemMd?: string;
     answerMd?: string;
     solutionMd?: string;
     tags?: string;
@@ -179,13 +183,14 @@ export function updateExercise(
 
   if (
     newImagePaths.length > 0 &&
+    input.problemMd === undefined &&
     input.answerMd === undefined &&
     input.solutionMd === undefined
   ) {
     throw new RepositoryError(
       "VALIDATION",
-      "answerMd or solutionMd is required when adding images.",
-      { field: "answerMd" },
+      "problemMd, answerMd, or solutionMd is required when adding images.",
+      { field: "problemMd" },
     );
   }
 
@@ -200,8 +205,8 @@ export function updateExercise(
     hasChanges = true;
   }
 
-  if (input.imagePath !== undefined) {
-    changes.imagePath = normalizeStoredExerciseImagePath(input.imagePath);
+  if (input.problemMd !== undefined) {
+    changes.problemMd = normalizeRequiredMarkdown(input.problemMd, "problemMd");
     hasChanges = true;
   }
 
@@ -232,7 +237,11 @@ export function updateExercise(
   const preparedImages = prepareNoteImageMutation(
     "exercise",
     id,
-    [changes.answerMd ?? current.answerMd, changes.solutionMd ?? current.solutionMd],
+    [
+      changes.problemMd ?? current.problemMd,
+      changes.answerMd ?? current.answerMd,
+      changes.solutionMd ?? current.solutionMd,
+    ],
     newImagePaths,
     expectedRemovedImagePaths,
   );
@@ -267,6 +276,7 @@ export function updateExercise(
     }
 
     replaceSourceNoteLinks(transaction, "exercise", id, [
+      changes.problemMd ?? current.problemMd,
       changes.answerMd ?? current.answerMd,
       changes.solutionMd ?? current.solutionMd,
     ]);
@@ -287,19 +297,6 @@ export function updateExercise(
   });
 }
 
-export async function deleteExerciseImageIfUnused(
-  imagePath: string,
-): Promise<boolean> {
-  const normalizedPath = normalizeStoredExerciseImagePath(imagePath);
-  const reference = db
-    .select({ id: exercises.id })
-    .from(exercises)
-    .where(eq(exercises.imagePath, normalizedPath))
-    .get();
-
-  return reference ? false : deleteExerciseImage(normalizedPath);
-}
-
 export async function deleteExercise(
   id: number,
   expectedNoteImagePaths?: readonly string[],
@@ -314,25 +311,13 @@ export async function deleteExercise(
       .get();
     if (!exercise) return null;
 
-    const imagePath = normalizeStoredExerciseImagePath(exercise.imagePath);
-    const sharedImage = transaction
-      .select({ id: exercises.id })
-      .from(exercises)
-      .where(and(eq(exercises.imagePath, imagePath), ne(exercises.id, id)))
-      .get();
     deleteNoteImageRows(transaction, "exercise", id);
     transaction.delete(exercises).where(eq(exercises.id, id)).run();
     deleteEntityLinks(transaction, "exercise", id, exercise.title);
-    return { imagePath, deleteImage: sharedImage === undefined };
+    return true;
   });
 
   if (!deleted) return false;
-  if (deleted.deleteImage) {
-    await deleteExerciseImage(deleted.imagePath).catch((error) => {
-      console.error("Failed to delete an exercise image after deleting its exercise", error);
-    });
-  }
-
   return true;
 }
 
@@ -341,7 +326,6 @@ function toExerciseSummary(row: ExerciseRow): ExerciseSummaryDto {
     id: row.id,
     folderId: row.folderId,
     title: row.title,
-    imagePath: row.imagePath,
     tags: tagsFromJson(row.tags),
     updatedAt: row.updatedAt,
   };
@@ -354,6 +338,7 @@ function toExerciseDetail(
 ): ExerciseDetailDto {
   return {
     ...toExerciseSummary(row),
+    problemMd: row.problemMd,
     answerMd: row.answerMd,
     solutionMd: row.solutionMd,
     createdAt: row.createdAt,

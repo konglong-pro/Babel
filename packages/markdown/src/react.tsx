@@ -29,9 +29,8 @@ import ReactMarkdown, {
   type Components,
   type UrlTransform,
 } from "react-markdown";
-import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
+import { TypstFormula } from "@babel-apps/typst/react";
 
 import { findAutocompleteQuery, type AutocompleteQuery } from "./autocomplete";
 import {
@@ -49,8 +48,9 @@ import {
   type TextEditResult,
 } from "./editing";
 import { extractOutline, outlineSlugs } from "./outline";
+import { createRemarkTypstMath, prepareTypstMath } from "./typst-math";
 
-export type RemarkFeature = "gfm" | "math";
+export type RemarkFeature = "gfm" | "typst-math";
 
 export interface ResolvedWikilink {
   id: number;
@@ -98,6 +98,13 @@ export function MarkdownRenderer({
     return withImagePreviews(content, uploadScheme, imagePreviews);
   }, [content, imagePreviews, uploadScheme]);
 
+  const preparedTypstMath = useMemo(() => {
+    return remarkFeatures.includes("typst-math")
+      ? prepareTypstMath(renderedContent)
+      : null;
+  }, [remarkFeatures, renderedContent]);
+  const contentWithoutFormulaSyntax = preparedTypstMath?.content ?? renderedContent;
+
   const headingIds = useMemo(() => {
     const outline = extractOutline(renderedContent);
     const slugs = outlineSlugs(outline);
@@ -109,17 +116,17 @@ export function MarkdownRenderer({
 
   const targetsByKey = useMemo(() => {
     const nextTargets = new Map<string, ResolvedWikilink | null>();
-    for (const wikilink of extractWikilinks(renderedContent)) {
+    for (const wikilink of extractWikilinks(contentWithoutFormulaSyntax)) {
       if (!nextTargets.has(wikilink.titleKey)) {
         nextTargets.set(wikilink.titleKey, resolveWikilink?.(wikilink.titleKey) ?? null);
       }
     }
     return nextTargets;
-  }, [renderedContent, resolveWikilink]);
+  }, [contentWithoutFormulaSyntax, resolveWikilink]);
 
   const { preprocessedContent, wikilinksByOffset } = useMemo(() => {
     const nextWikilinksByOffset = new Map<number, Wikilink>();
-    const nextContent = preprocessWikilinks(renderedContent, {
+    const nextContent = preprocessWikilinks(contentWithoutFormulaSyntax, {
       targetKind: ({ titleKey }) => targetsByKey.get(titleKey)?.kind ?? defaultWikilinkKind,
       onWikilink: (wikilink, occurrence) => {
         nextWikilinksByOffset.set(occurrence.start, wikilink);
@@ -129,7 +136,7 @@ export function MarkdownRenderer({
       preprocessedContent: nextContent,
       wikilinksByOffset: nextWikilinksByOffset,
     };
-  }, [defaultWikilinkKind, renderedContent, targetsByKey]);
+  }, [contentWithoutFormulaSyntax, defaultWikilinkKind, targetsByKey]);
 
   const components = useMemo<Components>(() => {
     const nextComponents: Components = {
@@ -198,18 +205,33 @@ export function MarkdownRenderer({
         return <img {...props} src={src} alt={alt ?? ""} loading="lazy" />;
       };
     }
+    if (preparedTypstMath !== null) {
+      const componentsWithTypst = nextComponents as Components & Record<string, unknown>;
+      componentsWithTypst["typst-formula"] = ({ formulaIndex }: { formulaIndex?: number | string }) => {
+        const occurrence = preparedTypstMath.occurrences[Number(formulaIndex)];
+        if (occurrence === undefined) return null;
+        return (
+          <TypstFormula
+            source={occurrence.source}
+            display={occurrence.display}
+            sourceLine={occurrence.sourceLine}
+            sourceColumn={occurrence.sourceColumn}
+          />
+        );
+      };
+    }
     return nextComponents;
   }, [
     onCreateFromWikilink,
     onNavigateWikilink,
     headingIds,
+    preparedTypstMath,
     targetsByKey,
     uploadScheme,
     wikilinksByOffset,
   ]);
 
   const useGfm = remarkFeatures.includes("gfm");
-  const useMath = remarkFeatures.includes("math");
   const urlTransform = useMemo<UrlTransform>(() => {
     if (uploadScheme === undefined) return wikilinkUrlTransform;
     const placeholderPrefix = `${uploadScheme}://`;
@@ -228,9 +250,8 @@ export function MarkdownRenderer({
           components={components}
           remarkPlugins={[
             ...(useGfm ? [remarkGfm] : []),
-            ...(useMath ? [remarkMath] : []),
+            ...(preparedTypstMath === null ? [] : [createRemarkTypstMath(preparedTypstMath)]),
           ]}
-          rehypePlugins={useMath ? [rehypeKatex] : []}
           urlTransform={urlTransform}
         >
           {preprocessedContent}
@@ -636,6 +657,242 @@ export function WikilinkAutocomplete({
   );
 }
 
+export interface DetachedReaderWindowContext {
+  document: Document;
+  window: Window;
+}
+
+export interface DetachedReaderWindowProps {
+  children?:
+    | ReactNode
+    | ((context: DetachedReaderWindowContext) => ReactNode);
+  title: string;
+  windowKey: string;
+  buttonLabel?: ReactNode;
+  buttonClassName?: string;
+  disabled?: boolean;
+  onBlocked?: () => void;
+}
+
+interface DetachedReaderHost {
+  popup: Window;
+  root: HTMLElement;
+}
+
+const DETACHED_READER_FEATURES = [
+  "popup=yes",
+  "width=1040",
+  "height=860",
+  "resizable=yes",
+  "scrollbars=yes",
+].join(",");
+
+const DETACHED_READER_STYLE = `
+html {
+  min-height: 100%;
+}
+
+body.babel-detached-reader-window {
+  min-height: 100vh;
+  overflow: auto;
+}
+
+.babel-detached-reader-root {
+  width: 100%;
+  min-height: 100vh;
+  padding: clamp(1.25rem, 4vw, 4rem);
+}
+
+.babel-detached-reader-root > * {
+  width: min(1160px, 100%);
+  margin-inline: auto;
+}
+`;
+
+export function detachedReaderWindowName(windowKey: string): string {
+  const normalized = windowKey
+    .trim()
+    .replace(/[^A-Za-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 96);
+  return `babel-reader-${normalized || "document"}`;
+}
+
+function prepareDetachedReaderDocument(
+  popup: Window,
+  sourceDocument: Document,
+  title: string,
+): HTMLElement {
+  const targetDocument = popup.document;
+  targetDocument.open();
+  targetDocument.write("<!doctype html><html><head></head><body></body></html>");
+  targetDocument.close();
+  targetDocument.documentElement.lang = sourceDocument.documentElement.lang || "en";
+  targetDocument.documentElement.className = sourceDocument.documentElement.className;
+  targetDocument.head.replaceChildren();
+
+  const charset = targetDocument.createElement("meta");
+  charset.setAttribute("charset", "utf-8");
+  targetDocument.head.append(charset);
+
+  const viewport = targetDocument.createElement("meta");
+  viewport.name = "viewport";
+  viewport.content = "width=device-width, initial-scale=1";
+  targetDocument.head.append(viewport);
+
+  const base = targetDocument.createElement("base");
+  base.href = sourceDocument.baseURI;
+  targetDocument.head.append(base);
+
+  for (const sourceNode of sourceDocument.head.querySelectorAll(
+    'link[rel="stylesheet"], style',
+  )) {
+    const clone = sourceNode.cloneNode(true);
+    if (clone.nodeName === "LINK" && sourceNode instanceof HTMLLinkElement) {
+      (clone as HTMLLinkElement).href = sourceNode.href;
+    }
+    targetDocument.head.append(clone);
+  }
+
+  const readerStyle = targetDocument.createElement("style");
+  readerStyle.dataset.babelDetachedReader = "";
+  readerStyle.textContent = DETACHED_READER_STYLE;
+  targetDocument.head.append(readerStyle);
+
+  targetDocument.title = title;
+  targetDocument.body.replaceChildren();
+  targetDocument.body.className = [
+    sourceDocument.body.className,
+    "babel-detached-reader-window",
+  ].filter(Boolean).join(" ");
+
+  const root = targetDocument.createElement("main");
+  root.className = "babel-detached-reader-root";
+  root.tabIndex = -1;
+  targetDocument.body.append(root);
+  return root;
+}
+
+function updateDetachedReaderTitle(popup: Window, title: string) {
+  popup.document.title = title;
+}
+
+export function DetachedReaderWindow({
+  children,
+  title,
+  windowKey,
+  buttonLabel = "Open reader",
+  buttonClassName,
+  disabled = false,
+  onBlocked,
+}: DetachedReaderWindowProps) {
+  const [host, setHost] = useState<DetachedReaderHost | null>(null);
+  const hostRef = useRef<DetachedReaderHost | null>(null);
+
+  useEffect(() => {
+    hostRef.current = host;
+  }, [host]);
+
+  useEffect(() => {
+    if (host === null) return;
+    try {
+      updateDetachedReaderTitle(host.popup, title);
+    } catch {
+      // A reader navigated away. The next click will recreate its document.
+    }
+  }, [host, title]);
+
+  useEffect(() => {
+    if (host === null) return;
+    const { popup } = host;
+    const forgetClosedWindow = () => {
+      try {
+        if (
+          !popup.closed &&
+          host.root.isConnected &&
+          popup.document === host.root.ownerDocument
+        ) return;
+      } catch {
+        // Cross-origin navigation detaches the live reader from its opener.
+      }
+      if (hostRef.current?.root === host.root) hostRef.current = null;
+      setHost((current) => current?.root === host.root ? null : current);
+    };
+    const interval = window.setInterval(forgetClosedWindow, 500);
+    popup.addEventListener("pagehide", forgetClosedWindow);
+    return () => {
+      window.clearInterval(interval);
+      popup.removeEventListener("pagehide", forgetClosedWindow);
+    };
+  }, [host]);
+
+  useEffect(() => {
+    return () => {
+      const current = hostRef.current;
+      hostRef.current = null;
+      if (
+        current !== null &&
+        current.root.isConnected &&
+        !current.popup.closed
+      ) current.popup.close();
+    };
+  }, []);
+
+  function openReader() {
+    const current = hostRef.current;
+    if (current !== null && !current.popup.closed && current.root.isConnected) {
+      current.popup.focus();
+      return;
+    }
+
+    const popup = window.open(
+      "",
+      detachedReaderWindowName(windowKey),
+      DETACHED_READER_FEATURES,
+    );
+    if (popup === null) {
+      if (onBlocked !== undefined) onBlocked();
+      else window.alert("The reading window was blocked. Allow pop-ups for this local app and try again.");
+      return;
+    }
+
+    try {
+      popup.opener = null;
+      const root = prepareDetachedReaderDocument(popup, document, title);
+      const nextHost = { popup, root };
+      hostRef.current = nextHost;
+      setHost(nextHost);
+      popup.focus();
+      root.focus();
+    } catch {
+      popup.close();
+      if (onBlocked !== undefined) onBlocked();
+      else window.alert("The reading window could not be opened. Close it and try again.");
+    }
+  }
+
+  const readerContent = host === null
+    ? null
+    : typeof children === "function"
+      ? children({ document: host.root.ownerDocument, window: host.popup })
+      : children;
+
+  return (
+    <>
+      <button
+        className={buttonClassName}
+        type="button"
+        disabled={disabled}
+        title="Open a live reading window"
+        onClick={openReader}
+      >
+        {buttonLabel}
+      </button>
+      {host === null ? null : createPortal(readerContent, host.root)}
+    </>
+  );
+}
+
 export const ACCEPTED_IMAGE_TYPES = new Set([
   "image/png",
   "image/jpeg",
@@ -943,6 +1200,7 @@ export interface OutlinePanelProps {
   content: string;
   mode: "edit" | "read";
   textareaRef?: RefObject<HTMLTextAreaElement | null>;
+  ownerDocument?: Document | null;
   headingIdPrefix?: string;
   className?: string;
   title?: string;
@@ -952,6 +1210,7 @@ export function OutlinePanel({
   content,
   mode,
   textareaRef,
+  ownerDocument,
   headingIdPrefix = "",
   className,
   title = "Outline",
@@ -978,9 +1237,9 @@ export function OutlinePanel({
       });
       return;
     }
-    const ownerDocument = textareaRef?.current?.ownerDocument ??
+    const targetDocument = ownerDocument ?? textareaRef?.current?.ownerDocument ??
       (typeof document === "undefined" ? null : document);
-    ownerDocument
+    targetDocument
       ?.getElementById(`${headingIdPrefix}${slugs[index]}`)
       ?.scrollIntoView({ block: "start" });
   }

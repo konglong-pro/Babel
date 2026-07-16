@@ -29,6 +29,13 @@
       "when": 1784005693799,
       "tag": "0003_nice_gauntlet",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1784095200000,
+      "tag": "0004_exercise_problem_markdown",
+      "breakpoints": true
     }
   ]
 }

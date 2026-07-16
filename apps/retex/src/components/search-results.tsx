@@ -19,6 +19,8 @@ const EMPTY_RESULTS: SearchResultsDto = { knowledge: [], exercises: [] };
 const SEARCH_FIELD_LABELS: Record<SearchField, string> = {
   title: "Title",
   content: "Content",
+  problem: "Problem",
+  answer: "Answer",
   solution: "Solution",
   tags: "Tags",
 };
@@ -56,7 +58,8 @@ export function SearchResults({ query }: { query: string }) {
         <span className="eyebrow">Global Search</span>
         <h1>{query ? `“${query}”` : "Search Your Math Archive"}</h1>
         <p>
-          Search Knowledge titles, content, and tags, plus Exercise titles, solutions, and tags.
+          Search Knowledge titles, content, and tags, plus Exercise titles, problems, answers,
+          solutions, and tags.
         </p>
       </header>
 

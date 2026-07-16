@@ -63,12 +63,12 @@ export interface ExerciseSummaryDto {
   id: number;
   folderId: number;
   title: string;
-  imagePath: string;
   tags: string[];
   updatedAt: string;
 }
 
 export interface ExerciseDetailDto extends ExerciseSummaryDto {
+  problemMd: string;
   answerMd: string;
   solutionMd: string;
   createdAt: string;
@@ -84,7 +84,12 @@ export interface ScratchSolutionDto {
 }
 
 export type KnowledgeSearchField = "title" | "content" | "tags";
-export type ExerciseSearchField = "title" | "solution" | "tags";
+export type ExerciseSearchField =
+  | "title"
+  | "problem"
+  | "answer"
+  | "solution"
+  | "tags";
 export type SearchField = KnowledgeSearchField | ExerciseSearchField;
 
 export interface SearchTextPartDto {
@@ -122,11 +127,6 @@ export interface ExerciseSearchResultDto extends ExerciseSummaryDto {
 export interface SearchResultsDto {
   knowledge: KnowledgeSearchResultDto[];
   exercises: ExerciseSearchResultDto[];
-}
-
-export function imageUrl(imagePath: string): string {
-  const fileName = imagePath.split("/").at(-1);
-  return fileName ? `/api/uploads/exercises/${encodeURIComponent(fileName)}` : "";
 }
 
 export function noteImageUrl(imagePath: string): string {

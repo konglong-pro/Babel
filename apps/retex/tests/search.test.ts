@@ -189,7 +189,7 @@ test("search tie breakers use field count, capped occurrences, position, updated
   assert.equal(repositories.searchArchive(emojiQuery).knowledge[0]?.id, emojiEarlier.id);
 });
 
-test("search excludes answer, scratch, and image path and returns bounded API match data", async () => {
+test("search includes problem and answer, excludes scratch, and returns bounded API match data", async () => {
   const knowledgeFolder = repositories.createFolder({
     type: "knowledge",
     name: "Search API knowledge",
@@ -199,15 +199,27 @@ test("search excludes answer, scratch, and image path and returns bounded API ma
     name: "Search API exercises",
   });
   const excludedQuery = "excluded-field-token";
-  const excluded = createExercise(exerciseFolder.id, "Excluded fields", excludedQuery, {
-    imagePath: `data/uploads/exercises/${excludedQuery}.png`,
+  const problemMatch = createExercise(exerciseFolder.id, "Problem field", "problem", {
+    problemMd: excludedQuery,
+  });
+  const answerMatch = createExercise(exerciseFolder.id, "Answer field", "answer", {
     answerMd: excludedQuery,
   });
-  repositories.upsertScratch(excluded.id, excludedQuery);
-  assert.deepEqual(repositories.searchArchive(excludedQuery), {
-    knowledge: [],
-    exercises: [],
-  });
+  const scratchOnly = createExercise(exerciseFolder.id, "Scratch only", "scratch");
+  repositories.upsertScratch(scratchOnly.id, excludedQuery);
+  const fieldResults = repositories.searchArchive(excludedQuery);
+  assert.deepEqual(
+    fieldResults.exercises.map(({ id }) => id).sort((left, right) => left - right),
+    [problemMatch.id, answerMatch.id].sort((left, right) => left - right),
+  );
+  assert.deepEqual(
+    fieldResults.exercises.find(({ id }) => id === problemMatch.id)?.match.matchedFields,
+    ["problem"],
+  );
+  assert.deepEqual(
+    fieldResults.exercises.find(({ id }) => id === answerMatch.id)?.match.matchedFields,
+    ["answer"],
+  );
 
   const query = "api-search-only";
   const knowledge = repositories.createKnowledge({
@@ -228,6 +240,7 @@ test("search excludes answer, scratch, and image path and returns bounded API ma
   assert.ok(exerciseResult);
   for (const result of [knowledgeResult, exerciseResult]) {
     assert.equal(Object.hasOwn(result, "contentMd"), false);
+    assert.equal(Object.hasOwn(result, "problemMd"), false);
     assert.equal(Object.hasOwn(result, "solutionMd"), false);
     assert.equal(Object.hasOwn(result, "answerMd"), false);
     assert.equal(Object.hasOwn(result, "score"), false);
@@ -318,7 +331,7 @@ function createExercise(
   title: string,
   suffix: string,
   overrides: {
-    imagePath?: string;
+    problemMd?: string;
     answerMd?: string;
     solutionMd?: string;
     tags?: string[];
@@ -327,7 +340,7 @@ function createExercise(
   return repositories.createExercise({
     folderId,
     title,
-    imagePath: overrides.imagePath ?? `data/uploads/exercises/search-${suffix}.png`,
+    problemMd: overrides.problemMd ?? `Problem for ${suffix}`,
     answerMd: overrides.answerMd,
     solutionMd: overrides.solutionMd,
     tags: overrides.tags,

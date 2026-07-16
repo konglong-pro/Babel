@@ -1,10 +1,6 @@
 import { NextResponse } from "next/server";
 
-import {
-  createExercise,
-  deleteExerciseImageIfUnused,
-  listExercises,
-} from "@/lib/repositories";
+import { createExercise, listExercises } from "@/lib/repositories";
 import { handleApi } from "@/lib/http/errors";
 import { rollbackNoteImageMutation } from "@/lib/http/note-image-mutation";
 import {
@@ -15,6 +11,7 @@ import {
   parsePositiveInteger,
   readNoteMutationRequest,
   requiredPositiveInteger,
+  requiredMarkdown,
   requiredString,
 } from "@/lib/http/request";
 import {
@@ -42,6 +39,7 @@ export function POST(request: Request): Promise<Response> {
       const { payload: body, uploads } = await readNoteMutationRequest(request);
       const knowledgeIds =
         optionalIdArray(body, "knowledgeIds", "relatedKnowledgeIds") ?? [];
+      const problemMd = requiredMarkdown(body, "problemMd");
       const answerMd = optionalString(
         body,
         "answerMd",
@@ -56,28 +54,28 @@ export function POST(request: Request): Promise<Response> {
       const input = {
         folderId: requiredPositiveInteger(body, "folderId"),
         title: requiredString(body, "title"),
-        imagePath: requiredString(body, "imagePath"),
         tags: optionalStringArray(body, "tags") ?? [],
         knowledgeIds,
       };
 
       let stagedImagePaths: string[] = [];
       try {
-        const staged = await stageNoteImagesInMarkdown([answerMd, solutionMd], uploads);
+        const staged = await stageNoteImagesInMarkdown(
+          [problemMd, answerMd, solutionMd],
+          uploads,
+        );
         stagedImagePaths = staged.imagePaths;
         const exercise = createExercise(
           {
             ...input,
-            answerMd: staged.markdownSources[0] ?? answerMd,
-            solutionMd: staged.markdownSources[1] ?? solutionMd,
+            problemMd: staged.markdownSources[0] ?? problemMd,
+            answerMd: staged.markdownSources[1] ?? answerMd,
+            solutionMd: staged.markdownSources[2] ?? solutionMd,
           },
           staged.imagePaths,
         );
         return NextResponse.json(exercise, { status: 201 });
       } catch (error) {
-        await deleteExerciseImageIfUnused(input.imagePath).catch((cleanupError) => {
-          console.error("Failed to clean up an unused exercise image", cleanupError);
-        });
         return rollbackNoteImageMutation(error, undefined, stagedImagePaths);
       }
     });

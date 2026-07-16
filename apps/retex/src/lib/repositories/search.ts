@@ -53,7 +53,8 @@ export function searchArchive(query: string): SearchResultsDto {
       id: exercises.id,
       folderId: exercises.folderId,
       title: exercises.title,
-      imagePath: exercises.imagePath,
+      problemMd: exercises.problemMd,
+      answerMd: exercises.answerMd,
       solutionMd: exercises.solutionMd,
       tags: exercises.tags,
       updatedAt: exercises.updatedAt,
@@ -62,6 +63,8 @@ export function searchArchive(query: string): SearchResultsDto {
     .where(
       or(
         likeLiteral(exercises.title, pattern),
+        likeLiteral(exercises.problemMd, pattern),
+        likeLiteral(exercises.answerMd, pattern),
         likeLiteral(exercises.solutionMd, pattern),
         likeLiteral(exercises.tags, pattern),
       ),
@@ -134,7 +137,8 @@ function rankExercise(
     id: number;
     folderId: number;
     title: string;
-    imagePath: string;
+    problemMd: string;
+    answerMd: string;
     solutionMd: string;
     tags: string;
     updatedAt: string;
@@ -142,23 +146,41 @@ function rankExercise(
   query: string,
 ): RankedResult<ExerciseSearchResultDto> {
   const tags = tagsFromJson(row.tags);
-  const metrics = rankFields(row.title, row.solutionMd, tags, row.tags, query);
+  const bodies = [
+    { field: "problem" as const, value: row.problemMd },
+    { field: "answer" as const, value: row.answerMd },
+    { field: "solution" as const, value: row.solutionMd },
+  ];
+  const matchedBodies = bodies
+    .map((body) => ({ ...body, position: literalTextPosition(body.value, query) }))
+    .filter((body) => body.position >= 0)
+    .sort((left, right) => left.position - right.position);
+  const metrics = rankFields(
+    row.title,
+    bodies.map(({ value }) => value).join("\u0000"),
+    tags,
+    row.tags,
+    query,
+  );
+  metrics.fieldCount += Math.max(0, matchedBodies.length - 1);
   const matchedFields: ExerciseSearchField[] = [];
   if (metrics.titlePosition >= 0) matchedFields.push("title");
-  if (metrics.bodyPosition >= 0) matchedFields.push("solution");
+  for (const body of bodies) {
+    if (literalTextPosition(body.value, query) >= 0) matchedFields.push(body.field);
+  }
   if (metrics.tagMatched) matchedFields.push("tags");
+  const snippetBody = matchedBodies[0] ?? bodies[0];
   const result: ExerciseSearchResultDto = {
     id: row.id,
     folderId: row.folderId,
     title: row.title,
-    imagePath: row.imagePath,
     tags,
     updatedAt: row.updatedAt,
     match: {
       matchedFields,
       title: highlightLiteral(row.title, query),
       tags: tags.map((tag) => ({ value: tag, parts: highlightLiteral(tag, query) })),
-      snippet: chooseSnippet("solution", row.solutionMd, metrics, query),
+      snippet: chooseSnippet(snippetBody.field, snippetBody.value, metrics, query),
     },
   };
   return { result, ...rankValues(metrics) };
@@ -231,7 +253,9 @@ function rankValues(metrics: RankMetrics): Omit<RankedResult<never>, "result"> {
   };
 }
 
-function chooseSnippet<TField extends "content" | "solution">(
+function chooseSnippet<
+  TField extends "content" | "problem" | "answer" | "solution",
+>(
   bodyField: TField,
   body: string,
   metrics: RankMetrics,

@@ -233,6 +233,7 @@ export function rebuildAllNoteLinks(): RebuildNoteLinksResult {
       .select({
         id: exercises.id,
         title: exercises.title,
+        problemMd: exercises.problemMd,
         answerMd: exercises.answerMd,
         solutionMd: exercises.solutionMd,
       })
@@ -264,7 +265,7 @@ export function rebuildAllNoteLinks(): RebuildNoteLinksResult {
         targets,
         "exercise",
         source.id,
-        [source.answerMd, source.solutionMd],
+        [source.problemMd, source.answerMd, source.solutionMd],
       );
     }
     for (let offset = 0; offset < values.length; offset += 200) {

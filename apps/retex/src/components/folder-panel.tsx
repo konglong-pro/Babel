@@ -1,6 +1,13 @@
 "use client";
 
-import { type FormEvent, useId, useMemo, useRef, useState } from "react";
+import {
+  type FormEvent,
+  type RefObject,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import {
   type FolderExpansionState,
@@ -15,6 +22,9 @@ interface FolderPanelProps {
   folders: FolderDto[];
   selectedId: number | null;
   busy?: boolean;
+  typstReferenceOpen: boolean;
+  typstReferenceTriggerRef: RefObject<HTMLButtonElement | null>;
+  onOpenTypstReference: () => void;
   onSelect: (id: number | null) => void;
   onCreate: (name: string, parentId: number | null) => Promise<void>;
   onRename: (id: number, name: string) => Promise<void>;
@@ -131,6 +141,9 @@ export function FolderPanel({
   folders,
   selectedId,
   busy,
+  typstReferenceOpen,
+  typstReferenceTriggerRef,
+  onOpenTypstReference,
   onSelect,
   onCreate,
   onRename,
@@ -233,7 +246,12 @@ export function FolderPanel({
   const spaceName = type === "knowledge" ? "Knowledge" : "Exercise";
 
   return (
-    <aside className="archive-panel folder-panel" aria-label={`${spaceName} folders`}>
+    <aside
+      className="archive-panel folder-panel"
+      aria-label={`${spaceName} folders`}
+      aria-hidden={typstReferenceOpen}
+      inert={typstReferenceOpen}
+    >
       <div className="panel-heading">
         <div>
           <span className="eyebrow">Folders</span>
@@ -284,6 +302,21 @@ export function FolderPanel({
           />
         )}
       </nav>
+
+      <div className="folder-panel-footer">
+        <button
+          ref={typstReferenceTriggerRef}
+          id="retex-typst-reference-trigger"
+          type="button"
+          className="typst-reference-trigger"
+          aria-controls="retex-typst-reference-panel"
+          aria-expanded={typstReferenceOpen}
+          onClick={onOpenTypstReference}
+        >
+          <span aria-hidden="true">ƒ</span>
+          <span>Typst 公式表</span>
+        </button>
+      </div>
 
       <dialog ref={dialogRef} className="dialog" aria-labelledby={dialogTitleId}>
         <form className="dialog-body" onSubmit={submit}>

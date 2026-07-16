@@ -2,6 +2,7 @@
 
 import type { Wikilink } from "@babel-apps/markdown/core";
 import {
+  DetachedReaderWindow,
   MarkdownRenderer,
   OutlinePanel,
   type ResolvedWikilink,
@@ -51,6 +52,7 @@ import type {
 export type EntryViewMode = "view" | "edit" | "create";
 
 const ENTRY_HEADING_ID_PREFIX = "neum-entry-heading-";
+const REMARK_FEATURES = ["gfm", "typst-math"] as const;
 const PENDING_IMAGE_URL_PATTERN = /neum-upload:\/\/[A-Za-z0-9._-]+/g;
 const MAX_MANAGED_IMAGE_URL =
   "/api/uploads/entries/00000000-0000-0000-0000-000000000000.webp";
@@ -58,6 +60,83 @@ const MAX_MANAGED_IMAGE_URL =
 function estimatedPersistedMarkdownBytes(notesMd: string): number {
   return utf8ByteLength(
     notesMd.replace(PENDING_IMAGE_URL_PATTERN, MAX_MANAGED_IMAGE_URL),
+  );
+}
+
+interface EntryReaderDraftProps {
+  kind: EntryKind;
+  title: string;
+  folderLabel: string;
+  tags: string[];
+  notesMd: string;
+  imagePreviews: ReadonlyMap<string, string>;
+  language: string;
+  filename: string;
+  code: string;
+  ownerDocument: Document;
+  resolveWikilink: (titleKey: string) => ResolvedWikilink | null;
+  onNavigateWikilink: (target: ResolvedWikilink) => void;
+}
+
+function EntryReaderDraft({
+  kind,
+  title,
+  folderLabel,
+  tags,
+  notesMd,
+  imagePreviews,
+  language,
+  filename,
+  code,
+  ownerDocument,
+  resolveWikilink,
+  onNavigateWikilink,
+}: EntryReaderDraftProps) {
+  const headingIdPrefix = `${ENTRY_HEADING_ID_PREFIX}reader-`;
+  return (
+    <article className="document-view" aria-label="Live entry reader">
+      <header className="document-header">
+        <div>
+          <span className="eyebrow">{folderLabel || entryKindLabel(kind)}</span>
+          <p className="entry-kind document-kind">{entryKindLabel(kind)}</p>
+          <h1>{title.trim() || "Untitled entry"}</h1>
+          <Tags tags={tags} />
+          <p className="document-meta">Live draft. Save changes in the editor.</p>
+        </div>
+      </header>
+      <div className="document-outline-layout">
+        <section className="document-content" aria-label="Entry content">
+          {notesMd ? (
+            <MarkdownRenderer
+              content={notesMd}
+              imagePreviews={imagePreviews}
+              remarkFeatures={REMARK_FEATURES}
+              uploadScheme="neum-upload"
+              resolveWikilink={resolveWikilink}
+              onNavigateWikilink={onNavigateWikilink}
+              headingIdPrefix={headingIdPrefix}
+            />
+          ) : (
+            <p className="empty-copy">No explanatory notes yet.</p>
+          )}
+          {kind === "snippet" ? (
+            <section className="snippet-view" aria-label="Code snippet">
+              <p className="code-meta">
+                <strong>{language.trim() || "Unspecified language"}</strong>
+                {filename.trim() ? <span>{filename}</span> : null}
+              </p>
+              <pre className="code-block"><code>{code}</code></pre>
+            </section>
+          ) : null}
+        </section>
+        <OutlinePanel
+          content={notesMd}
+          mode="read"
+          ownerDocument={ownerDocument}
+          headingIdPrefix={headingIdPrefix}
+        />
+      </div>
+    </article>
   );
 }
 
@@ -258,6 +337,7 @@ export function EntryDetail({
           {detail.notesMd ? (
             <MarkdownRenderer
               content={detail.notesMd}
+              remarkFeatures={REMARK_FEATURES}
               uploadScheme="neum-upload"
               resolveWikilink={resolveWikilink}
               onNavigateWikilink={navigateWikilink}
@@ -566,6 +646,29 @@ function EntryForm({
             </h1>
           </div>
           <div className="document-actions">
+            <DetachedReaderWindow
+              title={`${title.trim() || "Untitled entry"} - Reader`}
+              windowKey={`neum-${kind}-${detail?.id ?? "draft"}`}
+              buttonLabel="Read"
+              disabled={pending}
+            >
+              {({ document: readerDocument }) => (
+                <EntryReaderDraft
+                  kind={kind}
+                  title={title}
+                  folderLabel={folderId === null ? "" : folderPathLabel(folderId, folderMap)}
+                  tags={parseTags(tags)}
+                  notesMd={notesMd}
+                  imagePreviews={imagePreviews}
+                  language={language}
+                  filename={filename}
+                  code={code}
+                  ownerDocument={readerDocument}
+                  resolveWikilink={resolveWikilink}
+                  onNavigateWikilink={onNavigateWikilink}
+                />
+              )}
+            </DetachedReaderWindow>
             <button data-babel-command="cancel" type="button" onClick={onCancel}>Cancel</button>
             <button
               data-babel-command="save"

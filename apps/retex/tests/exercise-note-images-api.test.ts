@@ -14,20 +14,15 @@ let storage: typeof import("../src/lib/storage");
 let collectionRoute: typeof import("../src/app/api/exercises/route");
 let itemRoute: typeof import("../src/app/api/exercises/[id]/route");
 let previousDatabasePath: string | undefined;
-let previousExerciseUploadDirectory: string | undefined;
 let previousNoteUploadDirectory: string | undefined;
 
 before(async () => {
-  temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "retex-exercise-images-api-"));
+  temporaryDirectory = await mkdtemp(
+    path.join(os.tmpdir(), "retex-exercise-markdown-api-"),
+  );
   previousDatabasePath = process.env.RETEX_DATABASE_PATH;
-  previousExerciseUploadDirectory = process.env.RETEX_UPLOAD_DIRECTORY;
   previousNoteUploadDirectory = process.env.RETEX_NOTE_UPLOAD_DIRECTORY;
   process.env.RETEX_DATABASE_PATH = path.join(temporaryDirectory, "sqlite.db");
-  process.env.RETEX_UPLOAD_DIRECTORY = path.join(
-    temporaryDirectory,
-    "uploads",
-    "exercises",
-  );
   process.env.RETEX_NOTE_UPLOAD_DIRECTORY = path.join(
     temporaryDirectory,
     "uploads",
@@ -47,18 +42,18 @@ before(async () => {
 after(() => {
   database.sqlite.close();
   restoreEnvironment("RETEX_DATABASE_PATH", previousDatabasePath);
-  restoreEnvironment("RETEX_UPLOAD_DIRECTORY", previousExerciseUploadDirectory);
   restoreEnvironment("RETEX_NOTE_UPLOAD_DIRECTORY", previousNoteUploadDirectory);
 
   const resolved = path.resolve(temporaryDirectory);
   const temporaryRoot = path.resolve(os.tmpdir());
-  assert.ok(resolved.startsWith(`${temporaryRoot}${path.sep}retex-exercise-images-api-`));
+  assert.ok(
+    resolved.startsWith(`${temporaryRoot}${path.sep}retex-exercise-markdown-api-`),
+  );
   rmSync(resolved, { recursive: true, force: true });
 });
 
-test("exercise Markdown images share ownership across answer and solution", async () => {
+test("exercise Markdown images share ownership across problem, answer, and solution", async () => {
   const folder = repositories.createFolder({ type: "exercise", name: "Image API" });
-  const primaryImagePath = await storage.saveExerciseImage(upload(png, "image/png"));
   const createResponse = await collectionRoute.POST(
     new Request("http://localhost/api/exercises", {
       method: "POST",
@@ -66,7 +61,11 @@ test("exercise Markdown images share ownership across answer and solution", asyn
         {
           folderId: folder.id,
           title: "Illustrated exercise",
-          imagePath: primaryImagePath,
+          problemMd: [
+            "Problem text",
+            "![Shared problem](retex-upload://shared)",
+            "![Problem only](retex-upload://problem)",
+          ].join("\n"),
           answerMd: [
             "![Shared answer](retex-upload://shared)",
             "![Answer only](retex-upload://answer)",
@@ -78,6 +77,7 @@ test("exercise Markdown images share ownership across answer and solution", asyn
         },
         [
           ["shared", png, "image/png"],
+          ["problem", jpeg, "image/jpeg"],
           ["answer", gif, "image/gif"],
           ["solution", webp, "image/webp"],
         ],
@@ -88,54 +88,52 @@ test("exercise Markdown images share ownership across answer and solution", asyn
   assert.equal(createResponse.status, 201);
   const created = (await createResponse.json()) as {
     id: number;
-    imagePath: string;
+    problemMd: string;
     answerMd: string;
     solutionMd: string;
   };
-  assert.equal(created.imagePath, primaryImagePath);
+  assert.equal(created.problemMd.includes("retex-upload://"), false);
   assert.equal(created.answerMd.includes("retex-upload://"), false);
   assert.equal(created.solutionMd.includes("retex-upload://"), false);
 
+  const problemPaths = [...storage.managedImagePathsInMarkdown(created.problemMd)];
   const answerPaths = [...storage.managedImagePathsInMarkdown(created.answerMd)];
   const solutionPaths = [...storage.managedImagePathsInMarkdown(created.solutionMd)];
-  const sharedImagePath = answerPaths.find((imagePath) => solutionPaths.includes(imagePath));
+  const sharedImagePath = problemPaths.find(
+    (imagePath) => answerPaths.includes(imagePath) && solutionPaths.includes(imagePath),
+  );
+  const problemOnlyImagePath = problemPaths.find(
+    (imagePath) => imagePath !== sharedImagePath,
+  );
   const answerOnlyImagePath = answerPaths.find(
-    (imagePath) => !solutionPaths.includes(imagePath),
+    (imagePath) => imagePath !== sharedImagePath,
   );
   const solutionOnlyImagePath = solutionPaths.find(
-    (imagePath) => !answerPaths.includes(imagePath),
+    (imagePath) => imagePath !== sharedImagePath,
   );
   assert.ok(sharedImagePath);
+  assert.ok(problemOnlyImagePath);
   assert.ok(answerOnlyImagePath);
   assert.ok(solutionOnlyImagePath);
   assert.deepEqual(
     repositories.listNoteImagePaths("exercise", created.id),
-    [answerOnlyImagePath, sharedImagePath, solutionOnlyImagePath].sort(),
+    [sharedImagePath, problemOnlyImagePath, answerOnlyImagePath, solutionOnlyImagePath].sort(),
   );
-  assert.equal(
-    database.sqlite
-      .prepare("SELECT count(*) FROM note_image WHERE source_kind = 'exercise' AND source_id = ?")
-      .pluck()
-      .get(created.id),
-    3,
-  );
-  assert.equal(
-    repositories.listNoteImagePaths("exercise", created.id).includes(primaryImagePath),
-    false,
-  );
-  assert.deepEqual((await storage.readExerciseImage(primaryImagePath)).data, png);
 
   const patchResponse = await itemRoute.PATCH(
     jsonRequest(`http://localhost/api/exercises/${created.id}`, "PATCH", {
+      problemMd: "The problem no longer contains an image.",
       answerMd: "The answer no longer contains an image.",
     }),
     { params: Promise.resolve({ id: String(created.id) }) },
   );
   assert.equal(patchResponse.status, 200);
   const patched = (await patchResponse.json()) as {
+    problemMd: string;
     answerMd: string;
     solutionMd: string;
   };
+  assert.equal(patched.problemMd, "The problem no longer contains an image.");
   assert.equal(patched.answerMd, "The answer no longer contains an image.");
   assert.equal(patched.solutionMd, created.solutionMd);
   assert.deepEqual(
@@ -143,12 +141,15 @@ test("exercise Markdown images share ownership across answer and solution", asyn
     [sharedImagePath, solutionOnlyImagePath].sort(),
   );
   await assert.rejects(
+    storage.readNoteImage(problemOnlyImagePath),
+    hasStorageCode("NOT_FOUND"),
+  );
+  await assert.rejects(
     storage.readNoteImage(answerOnlyImagePath),
     hasStorageCode("NOT_FOUND"),
   );
   assert.deepEqual((await storage.readNoteImage(sharedImagePath)).data, png);
   assert.deepEqual((await storage.readNoteImage(solutionOnlyImagePath)).data, webp);
-  assert.deepEqual((await storage.readExerciseImage(primaryImagePath)).data, png);
   assert.deepEqual(await noteStagingFiles(), []);
 
   const deleteResponse = await itemRoute.DELETE(
@@ -163,129 +164,63 @@ test("exercise Markdown images share ownership across answer and solution", asyn
     storage.readNoteImage(solutionOnlyImagePath),
     hasStorageCode("NOT_FOUND"),
   );
-  await assert.rejects(
-    storage.readExerciseImage(primaryImagePath),
-    hasStorageCode("NOT_FOUND"),
-  );
   assert.deepEqual(await noteStagingFiles(), []);
 });
 
-test("exercise API keeps JSON compatibility and validates multipart uploads", async () => {
+test("exercise API accepts JSON and requires a nonblank problem", async () => {
   const folder = repositories.createFolder({ type: "exercise", name: "Request formats" });
-  const primaryImagePath = await storage.saveExerciseImage(upload(jpeg, "image/jpeg"));
   const createResponse = await collectionRoute.POST(
     jsonRequest("http://localhost/api/exercises", "POST", {
       folderId: folder.id,
       title: "JSON exercise",
-      imagePath: primaryImagePath,
+      problemMd: "  JSON problem  \n",
       answerMd: "JSON answer",
       solutionMd: "JSON solution",
     }),
   );
   assert.equal(createResponse.status, 201);
-  const created = (await createResponse.json()) as {
-    id: number;
-    imagePath: string;
-    answerMd: string;
-  };
-  assert.equal(created.imagePath, primaryImagePath);
-  assert.deepEqual(repositories.listNoteImagePaths("exercise", created.id), []);
+  const created = (await createResponse.json()) as { id: number; problemMd: string };
+  assert.equal(created.problemMd, "  JSON problem  \n");
 
-  const jsonPatch = await itemRoute.PATCH(
-    jsonRequest(`http://localhost/api/exercises/${created.id}`, "PATCH", {
-      answerMd: "Updated through JSON",
-    }),
-    { params: Promise.resolve({ id: String(created.id) }) },
-  );
-  assert.equal(jsonPatch.status, 200);
-  assert.equal(
-    ((await jsonPatch.json()) as { answerMd: string }).answerMd,
-    "Updated through JSON",
-  );
-
-  const missingMarkdown = await itemRoute.PATCH(
-    new Request(`http://localhost/api/exercises/${created.id}`, {
-      method: "PATCH",
-      body: noteForm(
-        { title: "Uploads still require Markdown" },
-        [["missing", png, "image/png"]],
-      ),
-    }),
-    { params: Promise.resolve({ id: String(created.id) }) },
-  );
-  assert.equal(missingMarkdown.status, 400);
-  assert.equal(
-    ((await missingMarkdown.json()) as { error: { code: string } }).error.code,
-    "VALIDATION_ERROR",
-  );
-  assert.equal(repositories.getExercise(created.id)?.title, "JSON exercise");
-  assert.deepEqual(repositories.listNoteImagePaths("exercise", created.id), []);
-  assert.deepEqual(await noteUploadFiles(), []);
-  assert.deepEqual((await storage.readExerciseImage(primaryImagePath)).data, jpeg);
-
-  const duplicateUploadForm = noteForm(
-    {
-      answerMd: "![Duplicate](retex-upload://duplicate)",
-    },
-    [["duplicate", png, "image/png"]],
-  );
-  duplicateUploadForm.append(
-    "image:duplicate",
-    new Blob([Uint8Array.from(png)], { type: "image/png" }),
-    "duplicate-again.png",
-  );
-  const duplicateUpload = await itemRoute.PATCH(
-    new Request(`http://localhost/api/exercises/${created.id}`, {
-      method: "PATCH",
-      body: duplicateUploadForm,
-    }),
-    { params: Promise.resolve({ id: String(created.id) }) },
-  );
-  assert.equal(duplicateUpload.status, 400);
-  assert.equal(
-    ((await duplicateUpload.json()) as { error: { code: string } }).error.code,
-    "VALIDATION_ERROR",
-  );
-  assert.deepEqual(repositories.listNoteImagePaths("exercise", created.id), []);
-  assert.deepEqual(await noteUploadFiles(), []);
-  assert.deepEqual((await storage.readExerciseImage(primaryImagePath)).data, jpeg);
-
-  const deleteResponse = await itemRoute.DELETE(
-    new Request(`http://localhost/api/exercises/${created.id}`, { method: "DELETE" }),
-    { params: Promise.resolve({ id: String(created.id) }) },
-  );
-  assert.equal(deleteResponse.status, 204);
-  await assert.rejects(
-    storage.readExerciseImage(primaryImagePath),
-    hasStorageCode("NOT_FOUND"),
-  );
-});
-
-test("exercise PATCH removes a replacement primary image when note image staging fails", async () => {
-  const folder = repositories.createFolder({ type: "exercise", name: "Patch rollback" });
-  const originalImagePath = await storage.saveExerciseImage(upload(jpeg, "image/jpeg"));
-  const createResponse = await collectionRoute.POST(
+  const missingProblem = await collectionRoute.POST(
     jsonRequest("http://localhost/api/exercises", "POST", {
       folderId: folder.id,
-      title: "Original exercise",
-      imagePath: originalImagePath,
-      answerMd: "Original answer",
-      solutionMd: "Original solution",
+      title: "Missing problem",
+      answerMd: "Answer",
     }),
   );
-  assert.equal(createResponse.status, 201);
-  const created = (await createResponse.json()) as { id: number };
-
-  const replacementImagePath = await storage.saveExerciseImage(
-    upload(png, "image/png"),
+  assert.equal(missingProblem.status, 400);
+  assert.equal(
+    ((await missingProblem.json()) as { error: { code: string } }).error.code,
+    "VALIDATION_ERROR",
   );
+
+  const blankPatch = await itemRoute.PATCH(
+    jsonRequest(`http://localhost/api/exercises/${created.id}`, "PATCH", {
+      problemMd: "  \n",
+    }),
+    { params: Promise.resolve({ id: String(created.id) }) },
+  );
+  assert.equal(blankPatch.status, 400);
+  assert.equal(repositories.getExercise(created.id)?.problemMd, "  JSON problem  \n");
+});
+
+test("exercise PATCH rolls back note image staging when one upload is invalid", async () => {
+  const folder = repositories.createFolder({ type: "exercise", name: "Patch rollback" });
+  const created = repositories.createExercise({
+    folderId: folder.id,
+    title: "Original exercise",
+    problemMd: "Original problem",
+    answerMd: "Original answer",
+    solutionMd: "Original solution",
+  });
+
   const patchResponse = await itemRoute.PATCH(
     new Request(`http://localhost/api/exercises/${created.id}`, {
       method: "PATCH",
       body: noteForm(
         {
-          imagePath: replacementImagePath,
-          answerMd: [
+          problemMd: [
             "![Valid](retex-upload://valid)",
             "![Invalid](retex-upload://invalid)",
           ].join("\n"),
@@ -305,138 +240,34 @@ test("exercise PATCH removes a replacement primary image when note image staging
     "INVALID_CONTENT",
   );
   const unchanged = repositories.getExercise(created.id);
-  assert.equal(unchanged?.imagePath, originalImagePath);
+  assert.equal(unchanged?.problemMd, "Original problem");
   assert.equal(unchanged?.answerMd, "Original answer");
   assert.equal(unchanged?.solutionMd, "Original solution");
   assert.deepEqual(repositories.listNoteImagePaths("exercise", created.id), []);
-  assert.deepEqual((await storage.readExerciseImage(originalImagePath)).data, jpeg);
-  await assert.rejects(
-    storage.readExerciseImage(replacementImagePath),
-    hasStorageCode("NOT_FOUND"),
-  );
   assert.deepEqual(await noteUploadFiles(), []);
   assert.deepEqual(await noteStagingFiles(), []);
-
-  const deleteResponse = await itemRoute.DELETE(
-    new Request(`http://localhost/api/exercises/${created.id}`, { method: "DELETE" }),
-    { params: Promise.resolve({ id: String(created.id) }) },
-  );
-  assert.equal(deleteResponse.status, 204);
 });
 
-test("exercise PATCH removes a replacement primary image when multipart fields are duplicated", async () => {
-  const folder = repositories.createFolder({ type: "exercise", name: "Multipart rollback" });
-  const originalImagePath = await storage.saveExerciseImage(upload(jpeg, "image/jpeg"));
-  const createResponse = await collectionRoute.POST(
-    jsonRequest("http://localhost/api/exercises", "POST", {
-      folderId: folder.id,
-      title: "Multipart original",
-      imagePath: originalImagePath,
-      answerMd: "Original answer",
-      solutionMd: "Original solution",
-    }),
-  );
-  assert.equal(createResponse.status, 201);
-  const created = (await createResponse.json()) as { id: number };
-
-  const replacementImagePath = await storage.saveExerciseImage(
-    upload(png, "image/png"),
-  );
-  const duplicateUploadForm = noteForm(
-    {
-      imagePath: replacementImagePath,
-      answerMd: "![Duplicate](retex-upload://duplicate)",
-    },
-    [["duplicate", png, "image/png"]],
-  );
-  duplicateUploadForm.append(
-    "image:duplicate",
-    new Blob([Uint8Array.from(png)], { type: "image/png" }),
-    "duplicate-again.png",
-  );
-  const patchResponse = await itemRoute.PATCH(
+test("exercise PATCH rejects uploads when no Markdown field is supplied", async () => {
+  const folder = repositories.createFolder({ type: "exercise", name: "Upload fields" });
+  const created = repositories.createExercise({
+    folderId: folder.id,
+    title: "Upload field exercise",
+    problemMd: "Problem",
+  });
+  const response = await itemRoute.PATCH(
     new Request(`http://localhost/api/exercises/${created.id}`, {
       method: "PATCH",
-      body: duplicateUploadForm,
+      body: noteForm(
+        { title: "Uploads still require Markdown" },
+        [["missing", png, "image/png"]],
+      ),
     }),
     { params: Promise.resolve({ id: String(created.id) }) },
   );
-
-  assert.equal(patchResponse.status, 400);
-  assert.equal(
-    ((await patchResponse.json()) as { error: { code: string } }).error.code,
-    "VALIDATION_ERROR",
-  );
-  const unchanged = repositories.getExercise(created.id);
-  assert.equal(unchanged?.imagePath, originalImagePath);
-  assert.equal(unchanged?.answerMd, "Original answer");
-  assert.equal(unchanged?.solutionMd, "Original solution");
-  assert.deepEqual(repositories.listNoteImagePaths("exercise", created.id), []);
-  assert.deepEqual((await storage.readExerciseImage(originalImagePath)).data, jpeg);
-  await assert.rejects(
-    storage.readExerciseImage(replacementImagePath),
-    hasStorageCode("NOT_FOUND"),
-  );
+  assert.equal(response.status, 400);
+  assert.equal(repositories.getExercise(created.id)?.title, "Upload field exercise");
   assert.deepEqual(await noteUploadFiles(), []);
-  assert.deepEqual(await noteStagingFiles(), []);
-
-  const deleteResponse = await itemRoute.DELETE(
-    new Request(`http://localhost/api/exercises/${created.id}`, { method: "DELETE" }),
-    { params: Promise.resolve({ id: String(created.id) }) },
-  );
-  assert.equal(deleteResponse.status, 204);
-});
-
-test("exercise PATCH removes a replacement primary image when field validation fails", async () => {
-  const folder = repositories.createFolder({ type: "exercise", name: "Field rollback" });
-  const originalImagePath = await storage.saveExerciseImage(upload(jpeg, "image/jpeg"));
-  const createResponse = await collectionRoute.POST(
-    jsonRequest("http://localhost/api/exercises", "POST", {
-      folderId: folder.id,
-      title: "Field original",
-      imagePath: originalImagePath,
-      answerMd: "Original answer",
-      solutionMd: "Original solution",
-    }),
-  );
-  assert.equal(createResponse.status, 201);
-  const created = (await createResponse.json()) as { id: number };
-
-  const replacementImagePath = await storage.saveExerciseImage(
-    upload(png, "image/png"),
-  );
-  const patchResponse = await itemRoute.PATCH(
-    jsonRequest(`http://localhost/api/exercises/${created.id}`, "PATCH", {
-      imagePath: replacementImagePath,
-      folderId: 0,
-    }),
-    { params: Promise.resolve({ id: String(created.id) }) },
-  );
-
-  assert.equal(patchResponse.status, 400);
-  assert.equal(
-    ((await patchResponse.json()) as { error: { code: string } }).error.code,
-    "VALIDATION_ERROR",
-  );
-  const unchanged = repositories.getExercise(created.id);
-  assert.equal(unchanged?.imagePath, originalImagePath);
-  assert.equal(unchanged?.folderId, folder.id);
-  assert.equal(unchanged?.answerMd, "Original answer");
-  assert.equal(unchanged?.solutionMd, "Original solution");
-  assert.deepEqual(repositories.listNoteImagePaths("exercise", created.id), []);
-  assert.deepEqual((await storage.readExerciseImage(originalImagePath)).data, jpeg);
-  await assert.rejects(
-    storage.readExerciseImage(replacementImagePath),
-    hasStorageCode("NOT_FOUND"),
-  );
-  assert.deepEqual(await noteUploadFiles(), []);
-  assert.deepEqual(await noteStagingFiles(), []);
-
-  const deleteResponse = await itemRoute.DELETE(
-    new Request(`http://localhost/api/exercises/${created.id}`, { method: "DELETE" }),
-    { params: Promise.resolve({ id: String(created.id) }) },
-  );
-  assert.equal(deleteResponse.status, 204);
 });
 
 const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01]);
@@ -470,20 +301,6 @@ function noteForm(
     );
   }
   return form;
-}
-
-function upload(data: Buffer, type: string): {
-  type: string;
-  size: number;
-  arrayBuffer(): Promise<ArrayBuffer>;
-} {
-  return {
-    type,
-    size: data.byteLength,
-    async arrayBuffer() {
-      return Uint8Array.from(data).buffer;
-    },
-  };
 }
 
 function hasStorageCode(code: string): (error: unknown) => boolean {

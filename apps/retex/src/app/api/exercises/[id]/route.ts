@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 
 import {
   deleteExercise,
-  deleteExerciseImageIfUnused,
   getExercise,
   listNoteImagePaths,
   updateExercise,
@@ -64,23 +63,17 @@ export function PATCH(request: Request, context: RouteContext): Promise<Response
       }
 
       const patch: UpdateExerciseInput = {};
-      let replacementImagePath: string | undefined;
       let stagedImagePaths: string[] = [];
       let quarantine: NoteImageQuarantine | undefined;
       let exercise;
       try {
-        const { payload: body, uploads } = await readNoteMutationRequest(
-          request,
-          (payload) => {
-            const imagePath = payload.imagePath;
-            if (typeof imagePath === "string" && imagePath.trim().length > 0) {
-              replacementImagePath = imagePath.trim();
-            }
-          },
-        );
+        const { payload: body, uploads } = await readNoteMutationRequest(request);
         const folderId = optionalPositiveInteger(body, "folderId");
         const title = optionalString(body, "title");
-        const imagePath = optionalString(body, "imagePath");
+        const problemMd = optionalString(body, "problemMd", {
+          allowEmpty: true,
+          trim: false,
+        });
         const answerMd = optionalString(body, "answerMd", {
           allowEmpty: true,
           trim: false,
@@ -97,32 +90,41 @@ export function PATCH(request: Request, context: RouteContext): Promise<Response
         );
         if (folderId !== undefined) patch.folderId = folderId;
         if (title !== undefined) patch.title = title;
-        if (imagePath !== undefined) patch.imagePath = imagePath;
+        if (problemMd !== undefined) patch.problemMd = problemMd;
         if (answerMd !== undefined) patch.answerMd = answerMd;
         if (solutionMd !== undefined) patch.solutionMd = solutionMd;
         if (tags !== undefined) patch.tags = tags;
         if (knowledgeIds !== undefined) patch.knowledgeIds = knowledgeIds;
 
-        if (uploads.size > 0 && answerMd === undefined && solutionMd === undefined) {
+        if (
+          uploads.size > 0 &&
+          problemMd === undefined &&
+          answerMd === undefined &&
+          solutionMd === undefined
+        ) {
           throw new ApiError(
             400,
             "VALIDATION_ERROR",
-            "answerMd or solutionMd is required when adding images.",
-            { field: "answerMd" },
+            "problemMd, answerMd, or solutionMd is required when adding images.",
+            { field: "problemMd" },
           );
         }
+        const nextProblemMd = problemMd ?? current.problemMd;
         const nextAnswerMd = answerMd ?? current.answerMd;
         const nextSolutionMd = solutionMd ?? current.solutionMd;
         const staged = await stageNoteImagesInMarkdown(
-          [nextAnswerMd, nextSolutionMd],
+          [nextProblemMd, nextAnswerMd, nextSolutionMd],
           uploads,
         );
         stagedImagePaths = staged.imagePaths;
+        if (problemMd !== undefined) {
+          patch.problemMd = staged.markdownSources[0] ?? problemMd;
+        }
         if (answerMd !== undefined) {
-          patch.answerMd = staged.markdownSources[0] ?? answerMd;
+          patch.answerMd = staged.markdownSources[1] ?? answerMd;
         }
         if (solutionMd !== undefined) {
-          patch.solutionMd = staged.markdownSources[1] ?? solutionMd;
+          patch.solutionMd = staged.markdownSources[2] ?? solutionMd;
         }
         assertPatchHasFields({
           ...patch,
@@ -132,8 +134,9 @@ export function PATCH(request: Request, context: RouteContext): Promise<Response
 
         const ownedImagePaths = listNoteImagePaths("exercise", id);
         const referencedImagePaths = new Set([
-          ...managedImagePathsInMarkdown(staged.markdownSources[0] ?? nextAnswerMd),
-          ...managedImagePathsInMarkdown(staged.markdownSources[1] ?? nextSolutionMd),
+          ...managedImagePathsInMarkdown(staged.markdownSources[0] ?? nextProblemMd),
+          ...managedImagePathsInMarkdown(staged.markdownSources[1] ?? nextAnswerMd),
+          ...managedImagePathsInMarkdown(staged.markdownSources[2] ?? nextSolutionMd),
         ]);
         const removedImagePaths = ownedImagePaths.filter(
           (imagePath) => !referencedImagePaths.has(imagePath),
@@ -147,21 +150,9 @@ export function PATCH(request: Request, context: RouteContext): Promise<Response
           removedImagePaths,
         );
       } catch (error) {
-        if (replacementImagePath && replacementImagePath !== current.imagePath) {
-          await deleteExerciseImageIfUnused(replacementImagePath).catch((cleanupError) => {
-            console.error("Failed to clean up an unused exercise image", cleanupError);
-          });
-        }
         await rollbackNoteImageMutation(error, quarantine, stagedImagePaths);
       }
       await finalizeQuarantinedNoteImages(quarantine!);
-
-      if (patch.imagePath && patch.imagePath !== current.imagePath) {
-        await deleteExerciseImageIfUnused(current.imagePath).catch((cleanupError) => {
-          console.error("Failed to clean up a replaced exercise image", cleanupError);
-        });
-      }
-
       return NextResponse.json(exercise);
     });
   });

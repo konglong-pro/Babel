@@ -18,7 +18,6 @@ try {
     env: {
       ...process.env,
       RETEX_DATABASE_PATH: path.join(temporaryDirectory, "sqlite.db"),
-      RETEX_UPLOAD_DIRECTORY: path.join(temporaryDirectory, "uploads", "exercises"),
       RETEX_NOTE_UPLOAD_DIRECTORY: path.join(temporaryDirectory, "uploads", "notes"),
     },
     stdio: "inherit",

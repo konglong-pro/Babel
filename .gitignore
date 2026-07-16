@@ -3,6 +3,7 @@
 /.new-app.lock
 **/node_modules/
 **/.next/
+**/public/_typst/
 **/output/
 **/*.tsbuildinfo
 **/*.log

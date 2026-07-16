@@ -18,7 +18,6 @@ let schema: typeof import("../src/lib/db/schema");
 before(async () => {
   temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "retex-links-test-"));
   process.env.RETEX_DATABASE_PATH = path.join(temporaryDirectory, "sqlite.db");
-  process.env.RETEX_UPLOAD_DIRECTORY = path.join(temporaryDirectory, "uploads");
   database = await import("../src/lib/db/client");
   schema = await import("../src/lib/db/schema");
   migrate(database.db, { migrationsFolder: path.join(process.cwd(), "drizzle") });
@@ -32,7 +31,7 @@ after(() => {
   rmSync(resolved, { recursive: true, force: true });
 });
 
-test("indexes both exercise markdown fields once and excludes scratch work", () => {
+test("indexes all three exercise markdown fields once and excludes scratch work", () => {
   const knowledgeFolder = repositories.createFolder({
     type: "knowledge",
     name: "Link targets",
@@ -47,6 +46,10 @@ test("indexes both exercise markdown fields once and excludes scratch work", () 
   });
   repositories.createKnowledge({
     folderId: knowledgeFolder.id,
+    title: "Problem target",
+  });
+  repositories.createKnowledge({
+    folderId: knowledgeFolder.id,
     title: "Answer target",
   });
   repositories.createKnowledge({
@@ -55,24 +58,24 @@ test("indexes both exercise markdown fields once and excludes scratch work", () 
   });
   const source = repositories.createExercise({
     folderId: exerciseFolder.id,
-    title: "Two-field source",
-    imagePath: "data/uploads/exercises/two-field.png",
+    title: "Three-field source",
+    problemMd: "[[Shared target]] [[Problem target]]",
     answerMd: "[[Shared target]] [[Answer target]]",
     solutionMd: "[[Shared target]] [[Solution target]]",
   });
 
   assert.deepEqual(
     source.links.map(({ titleKey }) => titleKey),
-    ["answer target", "shared target", "solution target"],
+    ["answer target", "problem target", "shared target", "solution target"],
   );
   assert.deepEqual(
     source.links.find(({ titleKey }) => titleKey === "shared target"),
     { titleKey: "shared target", targetKind: "knowledge", targetId: shared.id },
   );
-  assert.equal(source.links.length, 3);
+  assert.equal(source.links.length, 4);
 
   repositories.upsertScratch(source.id, "[[Scratch-only target]]");
-  assert.equal(repositories.getExercise(source.id)?.links.length, 3);
+  assert.equal(repositories.getExercise(source.id)?.links.length, 4);
   const scratchRows = database.db
     .select({ value: count() })
     .from(schema.noteLinks)
@@ -93,12 +96,12 @@ test("resolves knowledge before exercise and uses the smallest id within a kind"
   const firstExercise = repositories.createExercise({
     folderId: exerciseFolder.id,
     title: "Priority target",
-    imagePath: "data/uploads/exercises/priority-first.png",
+    problemMd: "Priority problem one",
   });
   repositories.createExercise({
     folderId: exerciseFolder.id,
     title: "Priority target",
-    imagePath: "data/uploads/exercises/priority-second.png",
+    problemMd: "Priority problem two",
   });
   const source = repositories.createKnowledge({
     folderId: knowledgeFolder.id,
@@ -138,7 +141,7 @@ test("rename and delete make links unresolved and later targets re-resolve them"
   const target = repositories.createExercise({
     folderId: exerciseFolder.id,
     title: "Lifecycle target",
-    imagePath: "data/uploads/exercises/lifecycle.png",
+    problemMd: "Lifecycle problem",
   });
   const source = repositories.createKnowledge({
     folderId: knowledgeFolder.id,
@@ -209,7 +212,7 @@ test("backlinks are grouped by source kind and title suggestions preserve kinds"
   const exerciseSource = repositories.createExercise({
     folderId: exerciseFolder.id,
     title: "Grouped exercise source",
-    imagePath: "data/uploads/exercises/grouped.png",
+    problemMd: "Grouped source problem",
     answerMd: "[[Grouped target]]",
   });
 
@@ -236,7 +239,7 @@ test("backlinks are grouped by source kind and title suggestions preserve kinds"
   repositories.createExercise({
     folderId: exerciseFolder.id,
     title: "Before Grouped %_ literal prefix",
-    imagePath: "data/uploads/exercises/grouped-infix.png",
+    problemMd: "Grouped infix problem",
   });
   const slash = repositories.createKnowledge({
     folderId: knowledgeFolder.id,
@@ -290,7 +293,7 @@ test("link trigger failures roll back entity and relation writes", () => {
   const source = repositories.createExercise({
     folderId: exerciseFolder.id,
     title: "Rollback source",
-    imagePath: "data/uploads/exercises/rollback-original.png",
+    problemMd: "Original problem",
     answerMd: "[[Original target]]",
     knowledgeIds: [relationA.id],
   });
@@ -307,7 +310,7 @@ test("link trigger failures roll back entity and relation writes", () => {
     assert.throws(
       () => repositories.updateExercise(source.id, {
         title: "Changed source",
-        imagePath: "data/uploads/exercises/rollback-changed.png",
+        problemMd: "Changed problem",
         answerMd: "[[Rollback target]]",
         knowledgeIds: [relationB.id],
       }),
@@ -315,7 +318,7 @@ test("link trigger failures roll back entity and relation writes", () => {
     );
     const unchanged = repositories.getExercise(source.id);
     assert.equal(unchanged?.title, "Rollback source");
-    assert.equal(unchanged?.imagePath, "data/uploads/exercises/rollback-original.png");
+    assert.equal(unchanged?.problemMd, "Original problem");
     assert.equal(unchanged?.answerMd, "[[Original target]]");
     assert.deepEqual(unchanged?.relatedKnowledge.map(({ id }) => id), [relationA.id]);
     assert.deepEqual(unchanged?.links.map(({ titleKey }) => titleKey), ["original target"]);
@@ -323,7 +326,7 @@ test("link trigger failures roll back entity and relation writes", () => {
     const relationExercise = repositories.createExercise({
       folderId: exerciseFolder.id,
       title: "Create rollback relation",
-      imagePath: "data/uploads/exercises/create-rollback.png",
+      problemMd: "Create rollback problem",
     });
     assert.throws(
       () => repositories.createKnowledge({
@@ -364,7 +367,7 @@ test("full link rebuild is idempotent and still excludes scratch markdown", () =
   const exercise = repositories.createExercise({
     folderId: exerciseFolder.id,
     title: "Rebuild exercise source",
-    imagePath: "data/uploads/exercises/rebuild.png",
+    problemMd: "[[Rebuild target]] [[Rebuild problem missing]]",
     answerMd: "[[Rebuild target]]",
     solutionMd: "[[Rebuild target]] [[Rebuild solution missing]]",
   });
@@ -382,6 +385,11 @@ test("full link rebuild is idempotent and still excludes scratch markdown", () =
   assert.equal(
     second.unresolved.some(({ targetTitleKey }) =>
       targetTitleKey === "rebuild missing"),
+    true,
+  );
+  assert.equal(
+    second.unresolved.some(({ targetTitleKey }) =>
+      targetTitleKey === "rebuild problem missing"),
     true,
   );
   assert.equal(

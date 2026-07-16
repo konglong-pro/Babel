@@ -3,8 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "typst:assets": "tsx ../../packages/typst/scripts/sync-public-assets.ts public",
+    "predev": "npm run typst:assets",
     "dev": "next dev -H 127.0.0.1 -p 3001",
+    "prebuild": "npm run typst:assets",
     "build": "tsx scripts/build.ts",
+    "prestart": "npm run typst:assets",
     "start": "next start -H 127.0.0.1 -p 3001",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
@@ -19,6 +23,7 @@
   "dependencies": {
     "@babel-apps/markdown": "0.1.0",
     "@babel-apps/platform": "0.1.0",
+    "@babel-apps/typst": "0.1.0",
     "better-sqlite3": "^12.11.1",
     "drizzle-orm": "^0.45.2",
     "next": "^16.2.10",
