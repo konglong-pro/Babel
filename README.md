@@ -86,9 +86,10 @@ npm.cmd run launcher:build
 `SHORTCUTS` opens the global shortcut editor. Babel stores the user override in
 `%LOCALAPPDATA%\Babel\shortcuts.json`, outside both the public repository and the
 private notebook-data repository. The defaults are `Ctrl+S` (save),
-`Ctrl+Alt+N` (new), `Ctrl+Alt+E` (edit), `Ctrl+Enter` (confirm), `Escape`
-(cancel), `Ctrl+F` (search), `Ctrl+Delete` (delete), and `Ctrl+K` (command
-palette). Reload an open notebook page after saving changes in the launcher.
+`Ctrl+Alt+N` (new), `Ctrl+Alt+E` (edit), `Ctrl+R` (read), `Ctrl+Enter`
+(confirm), `Escape` (cancel), `Ctrl+F` (search), `Ctrl+Delete` (delete), and
+`Ctrl+K` (command palette). Reload an open notebook page after saving changes
+in the launcher.
 
 The command-line launcher remains available for scripts and recovery work:
 

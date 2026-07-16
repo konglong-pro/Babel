@@ -18,6 +18,7 @@ import {
   SHORTCUT_DEFINITIONS,
   shouldIgnoreShortcutEvent,
   type ShortcutCommand,
+  type ShortcutKeyboardEventLike,
   type ShortcutSettings,
 } from "./core";
 
@@ -31,6 +32,11 @@ interface PaletteItem {
   readonly label: string;
   readonly binding: string;
   readonly available: boolean;
+}
+
+interface ShortcutKeyDownEventLike extends ShortcutKeyboardEventLike {
+  preventDefault(): void;
+  stopPropagation(): void;
 }
 
 const EDITABLE_SELECTOR = [
@@ -210,6 +216,34 @@ export function commandAllowedFromEditable(
   return !editable || (command !== "new" && command !== "edit" && command !== "delete");
 }
 
+export function handleReadShortcutKeyDown(
+  event: ShortcutKeyDownEventLike,
+  binding: string,
+  editable: boolean,
+  execute: () => boolean,
+): boolean {
+  const matches = matchesShortcutBinding(
+    {
+      key: event.key,
+      ctrlKey: event.ctrlKey,
+      altKey: event.altKey,
+      shiftKey: event.shiftKey,
+      metaKey: event.metaKey,
+      isComposing: event.isComposing,
+      keyCode: event.keyCode,
+      repeat: false,
+      defaultPrevented: event.defaultPrevented,
+    },
+    binding,
+  );
+  if (!matches || !commandAllowedFromEditable("read", editable)) return false;
+
+  if (event.repeat !== true) execute();
+  event.preventDefault();
+  event.stopPropagation();
+  return true;
+}
+
 function eventComesFromEditable(event: KeyboardEvent): boolean {
   const target = event.target instanceof Element ? event.target : window.document.activeElement;
   const targetEditable = target?.closest<HTMLElement>(EDITABLE_SELECTOR) ?? null;
@@ -289,6 +323,15 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts" }: Shor
   }, [endpoint]);
 
   const onWindowKeyDown = useEffectEvent((event: KeyboardEvent) => {
+    if (event.repeat === true) {
+      handleReadShortcutKeyDown(
+        event,
+        settings.bindings.read,
+        eventComesFromEditable(event),
+        () => executeShortcutCommand("read"),
+      );
+      return;
+    }
     if (shouldIgnoreShortcutEvent(event)) return;
 
     if (
@@ -317,7 +360,17 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts" }: Shor
       }
     }
 
+    if (
+      handleReadShortcutKeyDown(
+        event,
+        settings.bindings.read,
+        eventComesFromEditable(event),
+        () => executeShortcutCommand("read"),
+      )
+    ) return;
+
     for (const { command } of SHORTCUT_DEFINITIONS) {
+      if (command === "read") continue;
       if (!matchesShortcutBinding(event, settings.bindings[command])) continue;
       if (!commandAllowedFromEditable(command, eventComesFromEditable(event))) return;
 

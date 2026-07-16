@@ -53,6 +53,7 @@ export type EntryViewMode = "view" | "edit" | "create";
 
 const ENTRY_HEADING_ID_PREFIX = "neum-entry-heading-";
 const REMARK_FEATURES = ["gfm", "typst-math"] as const;
+const EMPTY_IMAGE_PREVIEWS: ReadonlyMap<string, string> = new Map();
 const PENDING_IMAGE_URL_PATTERN = /neum-upload:\/\/[A-Za-z0-9._-]+/g;
 const MAX_MANAGED_IMAGE_URL =
   "/api/uploads/entries/00000000-0000-0000-0000-000000000000.webp";
@@ -73,6 +74,7 @@ interface EntryReaderDraftProps {
   language: string;
   filename: string;
   code: string;
+  live: boolean;
   ownerDocument: Document;
   resolveWikilink: (titleKey: string) => ResolvedWikilink | null;
   onNavigateWikilink: (target: ResolvedWikilink) => void;
@@ -88,20 +90,21 @@ function EntryReaderDraft({
   language,
   filename,
   code,
+  live,
   ownerDocument,
   resolveWikilink,
   onNavigateWikilink,
 }: EntryReaderDraftProps) {
   const headingIdPrefix = `${ENTRY_HEADING_ID_PREFIX}reader-`;
   return (
-    <article className="document-view" aria-label="Live entry reader">
+    <article className="document-view" aria-label={live ? "Live entry reader" : "Entry reader"}>
       <header className="document-header">
         <div>
           <span className="eyebrow">{folderLabel || entryKindLabel(kind)}</span>
           <p className="entry-kind document-kind">{entryKindLabel(kind)}</p>
           <h1>{title.trim() || "Untitled entry"}</h1>
           <Tags tags={tags} />
-          <p className="document-meta">Live draft. Save changes in the editor.</p>
+          {live ? <p className="document-meta">Live draft. Save changes in the editor.</p> : null}
         </div>
       </header>
       <div className="document-outline-layout">
@@ -304,6 +307,30 @@ export function EntryDetail({
       </button>
       <header className="document-header">
         <div>
+          <DetachedReaderWindow
+            title={`${detail.title} - Reader`}
+            windowKey={`neum-${detail.kind}-${detail.id}`}
+            buttonLabel="Read"
+            buttonClassName="babel-reader-title-button"
+          >
+            {({ document: readerDocument }) => (
+              <EntryReaderDraft
+                kind={detail.kind}
+                title={detail.title}
+                folderLabel={folderPathLabel(detail.folderId, folderMap)}
+                tags={detail.tags}
+                notesMd={detail.notesMd}
+                imagePreviews={EMPTY_IMAGE_PREVIEWS}
+                language={detail.language ?? ""}
+                filename={detail.filename ?? ""}
+                code={detail.code ?? ""}
+                live={false}
+                ownerDocument={readerDocument}
+                resolveWikilink={resolveWikilink}
+                onNavigateWikilink={navigateWikilink}
+              />
+            )}
+          </DetachedReaderWindow>
           <span className="eyebrow">
             {folderPathLabel(detail.folderId, folderMap) || entryKindLabel(detail.kind)}
           </span>
@@ -638,19 +665,11 @@ function EntryForm({
       <form ref={formRef} onSubmit={submit}>
         <header className="document-header form-header">
           <div>
-            <span className="eyebrow">
-              {detail ? "Edit entry" : importDraft ? "Import Markdown" : "New entry"}
-            </span>
-            <h1>
-              {detail ? detail.title : importDraft ? importDraft.title : "Capture technical knowledge"}
-            </h1>
-          </div>
-          <div className="document-actions">
             <DetachedReaderWindow
               title={`${title.trim() || "Untitled entry"} - Reader`}
               windowKey={`neum-${kind}-${detail?.id ?? "draft"}`}
               buttonLabel="Read"
-              buttonPortalTargetId="babel-detached-reader-trigger-target"
+              buttonClassName="babel-reader-title-button"
               disabled={pending}
             >
               {({ document: readerDocument }) => (
@@ -664,12 +683,21 @@ function EntryForm({
                   language={language}
                   filename={filename}
                   code={code}
+                  live
                   ownerDocument={readerDocument}
                   resolveWikilink={resolveWikilink}
                   onNavigateWikilink={onNavigateWikilink}
                 />
               )}
             </DetachedReaderWindow>
+            <span className="eyebrow">
+              {detail ? "Edit entry" : importDraft ? "Import Markdown" : "New entry"}
+            </span>
+            <h1>
+              {detail ? detail.title : importDraft ? importDraft.title : "Capture technical knowledge"}
+            </h1>
+          </div>
+          <div className="document-actions">
             <button data-babel-command="cancel" type="button" onClick={onCancel}>Cancel</button>
             <button
               data-babel-command="save"

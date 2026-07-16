@@ -42,6 +42,7 @@ import type {
 
 const NOTE_HEADING_ID_PREFIX = "vali-note-heading-";
 const REMARK_FEATURES = ["gfm", "typst-math"] as const;
+const EMPTY_IMAGE_PREVIEWS: ReadonlyMap<string, string> = new Map();
 type ValiResolvedWikilink = ResolvedWikilink & { date?: string };
 
 interface NoteReaderDraftProps {
@@ -50,6 +51,7 @@ interface NoteReaderDraftProps {
   tags: string[];
   content: string;
   imagePreviews: ReadonlyMap<string, string>;
+  live: boolean;
   ownerDocument: Document;
   resolveWikilink: (titleKey: string) => ResolvedWikilink | null;
   onNavigateWikilink: (target: ResolvedWikilink) => void;
@@ -61,19 +63,20 @@ function NoteReaderDraft({
   tags,
   content,
   imagePreviews,
+  live,
   ownerDocument,
   resolveWikilink,
   onNavigateWikilink,
 }: NoteReaderDraftProps) {
   const headingIdPrefix = `${NOTE_HEADING_ID_PREFIX}reader-`;
   return (
-    <article className="document-view" aria-label="Live note reader">
+    <article className="document-view" aria-label={live ? "Live note reader" : "Note reader"}>
       <header className="document-header">
         <div>
           <span className="eyebrow">{folderLabel || "Draft note"}</span>
           <h1>{title.trim() || "Untitled note"}</h1>
           <Tags tags={tags} />
-          <p className="document-meta">Live draft. Save changes in the editor.</p>
+          {live ? <p className="document-meta">Live draft. Save changes in the editor.</p> : null}
         </div>
       </header>
       <div className="document-outline-layout">
@@ -232,6 +235,26 @@ export function NoteDetail({
       </button>
       <header className="document-header">
         <div>
+          <DetachedReaderWindow
+            title={`${detail.title} - Reader`}
+            windowKey={`vali-note-${detail.id}`}
+            buttonLabel="Read"
+            buttonClassName="babel-reader-title-button"
+          >
+            {({ document: readerDocument }) => (
+              <NoteReaderDraft
+                title={detail.title}
+                folderLabel={folderPathLabel(detail.folderId, folderMap)}
+                tags={detail.tags}
+                content={detail.contentMd}
+                imagePreviews={EMPTY_IMAGE_PREVIEWS}
+                live={false}
+                ownerDocument={readerDocument}
+                resolveWikilink={resolveWikilink}
+                onNavigateWikilink={navigateWikilink}
+              />
+            )}
+          </DetachedReaderWindow>
           <span className="eyebrow">{folderPathLabel(detail.folderId, folderMap) || "Note"}</span>
           <h1>{detail.title}</h1>
           <Tags tags={detail.tags} />
@@ -499,17 +522,11 @@ function NoteForm({
       <form ref={formRef} onSubmit={submit}>
         <header className="document-header form-header">
           <div>
-            <span className="eyebrow">
-              {detail ? "Edit note" : importDraft ? "Import Markdown" : "New note"}
-            </span>
-            <h1>{detail ? detail.title : importDraft?.title ?? "Capture what you learned"}</h1>
-          </div>
-          <div className="document-actions">
             <DetachedReaderWindow
               title={`${title.trim() || "Untitled note"} - Reader`}
               windowKey={`vali-note-${detail?.id ?? "draft"}`}
               buttonLabel="Read"
-              buttonPortalTargetId="babel-detached-reader-trigger-target"
+              buttonClassName="babel-reader-title-button"
               disabled={pending}
             >
               {({ document: readerDocument }) => (
@@ -519,12 +536,19 @@ function NoteForm({
                   tags={parseTags(tags)}
                   content={content}
                   imagePreviews={imagePreviews}
+                  live
                   ownerDocument={readerDocument}
                   resolveWikilink={resolveWikilink}
                   onNavigateWikilink={onNavigateWikilink}
                 />
               )}
             </DetachedReaderWindow>
+            <span className="eyebrow">
+              {detail ? "Edit note" : importDraft ? "Import Markdown" : "New note"}
+            </span>
+            <h1>{detail ? detail.title : importDraft?.title ?? "Capture what you learned"}</h1>
+          </div>
+          <div className="document-actions">
             <button data-babel-command="cancel" type="button" onClick={onCancel}>Cancel</button>
             <button
               data-babel-command="save"

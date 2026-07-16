@@ -45,6 +45,7 @@ import type {
 
 const KNOWLEDGE_HEADING_ID_PREFIX = "retex-knowledge-heading-";
 const REMARK_FEATURES = ["gfm", "typst-math"] as const;
+const EMPTY_IMAGE_PREVIEWS: ReadonlyMap<string, string> = new Map();
 const PENDING_IMAGE_URL_PATTERN = /retex-upload:\/\/[A-Za-z0-9._-]+/g;
 const MAX_MANAGED_IMAGE_URL =
   "/api/uploads/notes/00000000-0000-0000-0000-000000000000.webp";
@@ -60,6 +61,7 @@ interface KnowledgeReaderDraftProps {
   tags: string[];
   content: string;
   imagePreviews: ReadonlyMap<string, string>;
+  live: boolean;
   ownerDocument: Document;
   resolveWikilink: (titleKey: string) => ResolvedWikilink | null;
   onNavigateWikilink: (target: ResolvedWikilink) => void;
@@ -70,19 +72,20 @@ function KnowledgeReaderDraft({
   tags,
   content,
   imagePreviews,
+  live,
   ownerDocument,
   resolveWikilink,
   onNavigateWikilink,
 }: KnowledgeReaderDraftProps) {
   const headingIdPrefix = `${KNOWLEDGE_HEADING_ID_PREFIX}reader-`;
   return (
-    <article className="document-view" aria-label="Live Knowledge reader">
+    <article className="document-view" aria-label={live ? "Live Knowledge reader" : "Knowledge reader"}>
       <header className="document-header">
         <div>
           <span className="eyebrow">Knowledge</span>
           <h1>{title.trim() || "Untitled Knowledge note"}</h1>
           <Tags tags={tags} />
-          <p className="document-meta">Live draft. Save changes in the editor.</p>
+          {live ? <p className="document-meta">Live draft. Save changes in the editor.</p> : null}
         </div>
       </header>
       <div className="document-outline-layout">
@@ -234,6 +237,25 @@ export function KnowledgeDetail({
     <article className="detail-panel document-view">
       <header className="document-header">
         <div>
+          <DetachedReaderWindow
+            title={`${detail.title} - Reader`}
+            windowKey={`retex-knowledge-${detail.id}`}
+            buttonLabel="Read"
+            buttonClassName="babel-reader-title-button"
+          >
+            {({ document: readerDocument }) => (
+              <KnowledgeReaderDraft
+                title={detail.title}
+                tags={detail.tags}
+                content={detail.contentMd}
+                imagePreviews={EMPTY_IMAGE_PREVIEWS}
+                live={false}
+                ownerDocument={readerDocument}
+                resolveWikilink={resolveWikilink}
+                onNavigateWikilink={navigateWikilink}
+              />
+            )}
+          </DetachedReaderWindow>
           <span className="eyebrow">Knowledge</span>
           <h1>{detail.title}</h1>
           <Tags tags={detail.tags} />
@@ -542,6 +564,26 @@ function KnowledgeForm({
         <fieldset className="form-controls" disabled={pending}>
         <header className="document-header">
           <div>
+            <DetachedReaderWindow
+              title={`${title.trim() || "Untitled Knowledge note"} - Reader`}
+              windowKey={`retex-knowledge-${detail?.id ?? "draft"}`}
+              buttonLabel="Read"
+              buttonClassName="babel-reader-title-button"
+              disabled={pending}
+            >
+              {({ document: readerDocument }) => (
+                <KnowledgeReaderDraft
+                  title={title}
+                  tags={parseTags(tags)}
+                  content={content}
+                  imagePreviews={imagePreviews}
+                  live
+                  ownerDocument={readerDocument}
+                  resolveWikilink={resolveWikilink}
+                  onNavigateWikilink={onNavigateWikilink}
+                />
+              )}
+            </DetachedReaderWindow>
             <span className="eyebrow">
               {detail ? "Edit Knowledge" : importDraft ? "Import Markdown" : "New Knowledge"}
             </span>
@@ -554,25 +596,6 @@ function KnowledgeForm({
             </h1>
           </div>
           <div className="document-actions">
-            <DetachedReaderWindow
-              title={`${title.trim() || "Untitled Knowledge note"} - Reader`}
-              windowKey={`retex-knowledge-${detail?.id ?? "draft"}`}
-              buttonLabel="Read"
-              buttonPortalTargetId="babel-detached-reader-trigger-target"
-              disabled={pending}
-            >
-              {({ document: readerDocument }) => (
-                <KnowledgeReaderDraft
-                  title={title}
-                  tags={parseTags(tags)}
-                  content={content}
-                  imagePreviews={imagePreviews}
-                  ownerDocument={readerDocument}
-                  resolveWikilink={resolveWikilink}
-                  onNavigateWikilink={onNavigateWikilink}
-                />
-              )}
-            </DetachedReaderWindow>
             <button data-babel-command="cancel" type="button" onClick={onCancel}>
               Cancel
             </button>

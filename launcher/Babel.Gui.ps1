@@ -268,6 +268,7 @@ $expectedShortcutCommands = @(
     "save",
     "new",
     "edit",
+    "read",
     "confirm",
     "cancel",
     "search",
@@ -277,7 +278,7 @@ $expectedShortcutCommands = @(
 $shortcutDefinitions = @(Get-BabelShortcutDefinitions -Path $shortcutDefaultsPath)
 $actualShortcutCommands = @($shortcutDefinitions | ForEach-Object { [string]$_.Id })
 if (($actualShortcutCommands -join "|") -cne ($expectedShortcutCommands -join "|")) {
-    throw "Shortcut defaults must define the eight commands in their registered order."
+    throw "Shortcut defaults must define the nine commands in their registered order."
 }
 $shortcutDefaultBindings = Get-BabelDefaultShortcutBindings -Definitions $shortcutDefinitions
 

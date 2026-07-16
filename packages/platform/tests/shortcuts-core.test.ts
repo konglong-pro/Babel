@@ -19,7 +19,7 @@ test("shortcut definitions and checked-in defaults stay in lockstep", () => {
   ) as unknown;
 
   assert.deepEqual(defaultsDocument, {
-    schemaVersion: 1,
+    schemaVersion: 2,
     commands: SHORTCUT_DEFINITIONS,
   });
   assert.deepEqual(
@@ -27,11 +27,12 @@ test("shortcut definitions and checked-in defaults stay in lockstep", () => {
     SHORTCUT_COMMANDS,
   );
   assert.deepEqual(DEFAULT_SHORTCUT_SETTINGS, {
-    schemaVersion: 1,
+    schemaVersion: 2,
     bindings: {
       save: "Ctrl+S",
       new: "Ctrl+Alt+N",
       edit: "Ctrl+Alt+E",
+      read: "Ctrl+R",
       confirm: "Ctrl+Enter",
       cancel: "Escape",
       search: "Ctrl+F",
@@ -47,6 +48,7 @@ test("shortcut bindings normalize supported keys and modifier order", () => {
   assert.equal(normalizeShortcutBinding("control+return"), "Ctrl+Enter");
   assert.equal(normalizeShortcutBinding("alt+back"), "Alt+Backspace");
   assert.equal(normalizeShortcutBinding("alt+f5"), "Alt+F5");
+  assert.equal(normalizeShortcutBinding("ctrl+r"), "Ctrl+R");
   assert.equal(normalizeShortcutBinding("esc"), "Escape");
   assert.deepEqual(parseShortcutBinding("Ctrl+Alt+enter"), {
     binding: "Ctrl+Alt+Enter",
@@ -74,7 +76,6 @@ test("shortcut bindings reject unsafe, uncapturable, and accidental bare keys", 
     "Ctrl+Shift+W",
     "Ctrl+T",
     "Ctrl+L",
-    "Ctrl+R",
     "Ctrl+Shift+T",
     "F5",
     "Ctrl+F5",
@@ -93,9 +94,9 @@ test("shortcut bindings reject unsafe, uncapturable, and accidental bare keys", 
   }
 });
 
-test("shortcut settings require the exact schema and command keys", () => {
+test("shortcut settings require exact current keys and migrate legacy settings", () => {
   const valid = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     bindings: { ...DEFAULT_SHORTCUT_SETTINGS.bindings },
   };
   assert.deepEqual(parseShortcutSettings(valid), valid);
@@ -106,6 +107,27 @@ test("shortcut settings require the exact schema and command keys", () => {
     }).bindings.save,
     "Alt+Shift+S",
   );
+
+  const legacy = {
+    schemaVersion: 1,
+    bindings: {
+      save: "Ctrl+Alt+S",
+      new: "Ctrl+Alt+N",
+      edit: "Ctrl+Alt+E",
+      confirm: "Ctrl+Enter",
+      cancel: "Escape",
+      search: "Ctrl+F",
+      delete: "Ctrl+Delete",
+      commandPalette: "Ctrl+K",
+    },
+  };
+  assert.deepEqual(parseShortcutSettings(legacy), {
+    schemaVersion: 2,
+    bindings: {
+      ...legacy.bindings,
+      read: "Ctrl+R",
+    },
+  });
 
   assert.throws(() => parseShortcutSettings({ ...valid, extra: true }), ShortcutValidationError);
   assert.throws(
@@ -126,7 +148,15 @@ test("shortcut settings require the exact schema and command keys", () => {
       }),
     ShortcutValidationError,
   );
-  assert.throws(() => parseShortcutSettings({ ...valid, schemaVersion: 2 }), ShortcutValidationError);
+  assert.throws(
+    () =>
+      parseShortcutSettings({
+        ...legacy,
+        bindings: { ...legacy.bindings, read: "Ctrl+R" },
+      }),
+    ShortcutValidationError,
+  );
+  assert.throws(() => parseShortcutSettings({ ...valid, schemaVersion: 3 }), ShortcutValidationError);
 });
 
 test("keyboard matching is exact and ignores unsafe event states", () => {
@@ -140,6 +170,7 @@ test("keyboard matching is exact and ignores unsafe event states", () => {
   assert.equal(matchesShortcutBinding(baseEvent, "Ctrl+S"), true);
   assert.equal(matchesShortcutBinding({ ...baseEvent, shiftKey: true }, "Ctrl+S"), false);
   assert.equal(matchesShortcutBinding({ ...baseEvent, ctrlKey: false }, "Ctrl+S"), false);
+  assert.equal(matchesShortcutBinding({ ...baseEvent, key: "r" }, "Ctrl+R"), true);
   assert.equal(matchesShortcutBinding({ key: "Esc" }, "Escape"), true);
 
   for (const ignoredState of [

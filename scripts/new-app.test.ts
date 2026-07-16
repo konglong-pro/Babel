@@ -234,7 +234,14 @@ test("renders the repository mirror template as an independent app", async (t) =
     "utf8",
   );
   assert.match(noteDetail, /OutlinePanel/);
-  assert.match(noteDetail, /DetachedReaderWindow/);
+  assert.equal((noteDetail.match(/<DetachedReaderWindow/g) ?? []).length, 2);
+  assert.equal(
+    (noteDetail.match(/buttonClassName="babel-reader-title-button"/g) ?? []).length,
+    2,
+  );
+  assert.match(noteDetail, /liveDraft=\{false\}/);
+  assert.match(noteDetail, /liveDraft=\{true\}/);
+  assert.doesNotMatch(noteDetail, /buttonPortalTargetId|babel-detached-reader-trigger-target/);
   assert.match(noteDetail, /windowKey=\{`mirror-notes-note-/);
   assert.match(noteDetail, /ownerDocument=\{readerDocument\}/);
   assert.match(noteDetail, /const NOTE_HEADING_ID_PREFIX = "mirror-notes-note-heading-"/);

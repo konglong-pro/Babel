@@ -19,10 +19,11 @@ private `data/` repository. The launcher supplies absolute
 
 The three-column workspace keeps the folder tree, note list, and reader/editor
 visible together. The editor uses the full writing area; rendered GitHub Flavored
-Markdown remains available in reading mode. While editing, **Read** sits above
-the second-column heading and opens a separate live reader window that follows
-the current draft and staged images. Bottom-left English **Markdown Guide** and
-**Typst Reference** panels span the folder and note columns.
+Markdown remains available in reading mode. **Read** sits above each note's
+eyebrow and title in the detail column, and opens a separate reader window for
+either saved content or the current live draft and staged images. Bottom-left
+English **Markdown Guide** and **Typst Reference** panels span the folder and
+note columns.
 PNG, JPEG, WebP, and GIF images up to
 10 MiB can be selected or pasted; images are committed to storage only when the
 note is saved. A save accepts up to 10 MiB of Markdown, 50 new images, and 100 MiB

@@ -35,7 +35,7 @@ test("shortcut loader rereads valid settings and falls back for missing or inval
     assert.deepEqual(loadShortcutSettings({ path: settingsPath }), DEFAULT_SHORTCUT_SETTINGS);
 
     const changed = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       bindings: { ...DEFAULT_SHORTCUT_SETTINGS.bindings, save: "Ctrl+Alt+S" },
     };
     writeFileSync(settingsPath, JSON.stringify(changed), "utf8");
@@ -47,6 +47,28 @@ test("shortcut loader rereads valid settings and falls back for missing or inval
     };
     writeFileSync(settingsPath, JSON.stringify(changedAgain), "utf8");
     assert.deepEqual(loadShortcutSettings({ path: settingsPath }), changedAgain);
+
+    const legacy = {
+      schemaVersion: 1,
+      bindings: {
+        save: "Ctrl+Alt+S",
+        new: "Ctrl+Alt+N",
+        edit: "Ctrl+Alt+E",
+        confirm: "Ctrl+Enter",
+        cancel: "Escape",
+        search: "Ctrl+F",
+        delete: "Ctrl+Delete",
+        commandPalette: "Ctrl+K",
+      },
+    };
+    writeFileSync(settingsPath, JSON.stringify(legacy), "utf8");
+    assert.deepEqual(loadShortcutSettings({ path: settingsPath }), {
+      schemaVersion: 2,
+      bindings: {
+        ...legacy.bindings,
+        read: "Ctrl+R",
+      },
+    });
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

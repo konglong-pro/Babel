@@ -1,9 +1,10 @@
-export const SHORTCUT_SCHEMA_VERSION = 1 as const;
+export const SHORTCUT_SCHEMA_VERSION = 2 as const;
 
 export const SHORTCUT_COMMANDS = [
   "save",
   "new",
   "edit",
+  "read",
   "confirm",
   "cancel",
   "search",
@@ -101,6 +102,7 @@ export const SHORTCUT_DEFINITIONS: readonly ShortcutDefinition[] = Object.freeze
   Object.freeze({ command: "save", label: "Save", defaultBinding: "Ctrl+S" }),
   Object.freeze({ command: "new", label: "New", defaultBinding: "Ctrl+Alt+N" }),
   Object.freeze({ command: "edit", label: "Edit", defaultBinding: "Ctrl+Alt+E" }),
+  Object.freeze({ command: "read", label: "Read", defaultBinding: "Ctrl+R" }),
   Object.freeze({ command: "confirm", label: "Confirm", defaultBinding: "Ctrl+Enter" }),
   Object.freeze({ command: "cancel", label: "Cancel", defaultBinding: "Escape" }),
   Object.freeze({ command: "search", label: "Search", defaultBinding: "Ctrl+F" }),
@@ -113,6 +115,16 @@ export const SHORTCUT_DEFINITIONS: readonly ShortcutDefinition[] = Object.freeze
 ]);
 
 const COMMAND_SET = new Set<string>(SHORTCUT_COMMANDS);
+const LEGACY_SHORTCUT_COMMANDS = [
+  "save",
+  "new",
+  "edit",
+  "confirm",
+  "cancel",
+  "search",
+  "delete",
+  "commandPalette",
+] as const;
 const MODIFIER_ORDER = ["Ctrl", "Alt", "Shift"] as const;
 const NAMED_KEYS = new Map<string, ShortcutKey>([
   ["enter", "Enter"],
@@ -137,7 +149,6 @@ const EXACT_DANGEROUS_BINDINGS = new Set([
   "Ctrl+T",
   "Ctrl+Shift+T",
   "Ctrl+L",
-  "Ctrl+R",
   "F5",
   "Ctrl+F5",
   "F11",
@@ -265,7 +276,7 @@ export function parseShortcutSettings(value: unknown): ShortcutSettings {
   }
   assertExactKeys(value, ["schemaVersion", "bindings"], "Shortcut settings");
 
-  if (value.schemaVersion !== SHORTCUT_SCHEMA_VERSION) {
+  if (value.schemaVersion !== 1 && value.schemaVersion !== SHORTCUT_SCHEMA_VERSION) {
     throw new ShortcutValidationError(
       `Unsupported shortcut settings schema version: ${String(value.schemaVersion)}.`,
     );
@@ -273,12 +284,17 @@ export function parseShortcutSettings(value: unknown): ShortcutSettings {
   if (!isRecord(value.bindings)) {
     throw new ShortcutValidationError("Shortcut bindings must be an object.");
   }
-  assertExactKeys(value.bindings, SHORTCUT_COMMANDS, "Shortcut bindings");
+  const commands =
+    value.schemaVersion === 1 ? LEGACY_SHORTCUT_COMMANDS : SHORTCUT_COMMANDS;
+  assertExactKeys(value.bindings, commands, "Shortcut bindings");
 
   const normalizedBindings = {} as Record<ShortcutCommand, string>;
   const assignedBindings = new Map<string, ShortcutCommand>();
   for (const command of SHORTCUT_COMMANDS) {
-    const rawBinding = value.bindings[command];
+    const rawBinding =
+      value.schemaVersion === 1 && command === "read"
+        ? DEFAULT_SHORTCUT_SETTINGS.bindings.read
+        : value.bindings[command];
     if (typeof rawBinding !== "string") {
       throw new ShortcutValidationError(`Shortcut binding for ${command} must be a string.`);
     }

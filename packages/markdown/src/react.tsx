@@ -670,7 +670,6 @@ export interface DetachedReaderWindowProps {
   windowKey: string;
   buttonLabel?: ReactNode;
   buttonClassName?: string;
-  buttonPortalTargetId?: string;
   disabled?: boolean;
   onBlocked?: () => void;
 }
@@ -784,24 +783,11 @@ export function DetachedReaderWindow({
   windowKey,
   buttonLabel = "Open reader",
   buttonClassName,
-  buttonPortalTargetId,
   disabled = false,
   onBlocked,
 }: DetachedReaderWindowProps) {
   const [host, setHost] = useState<DetachedReaderHost | null>(null);
-  const [buttonPortalTarget, setButtonPortalTarget] = useState<HTMLElement | null>(null);
   const hostRef = useRef<DetachedReaderHost | null>(null);
-
-  useEffect(() => {
-    const frame = window.requestAnimationFrame(() => {
-      setButtonPortalTarget(
-        buttonPortalTargetId === undefined
-          ? null
-          : document.getElementById(buttonPortalTargetId),
-      );
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [buttonPortalTargetId]);
 
   useEffect(() => {
     hostRef.current = host;
@@ -891,10 +877,11 @@ export function DetachedReaderWindow({
       ? children({ document: host.root.ownerDocument, window: host.popup })
       : children;
 
-  function readerButton(className = buttonClassName) {
-    return (
+  return (
+    <>
       <button
-        className={className}
+        className={buttonClassName}
+        data-babel-command="read"
         type="button"
         disabled={disabled}
         title="Open a live reading window"
@@ -902,26 +889,6 @@ export function DetachedReaderWindow({
       >
         {buttonLabel}
       </button>
-    );
-  }
-
-  const fallbackButtonClassName = [
-    buttonClassName,
-    "babel-detached-reader-fallback",
-  ].filter(Boolean).join(" ");
-
-  return (
-    <>
-      {buttonPortalTargetId === undefined
-        ? readerButton()
-        : buttonPortalTarget === null
-          ? readerButton(fallbackButtonClassName)
-          : (
-              <>
-                {createPortal(readerButton(), buttonPortalTarget)}
-                {readerButton(fallbackButtonClassName)}
-              </>
-            )}
       {host === null ? null : createPortal(readerContent, host.root)}
     </>
   );

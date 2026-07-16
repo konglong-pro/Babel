@@ -313,14 +313,15 @@ test("shared platform changes invalidate application builds", () => {
   );
 });
 
-test("the launcher edits the shared eight-command shortcut contract", () => {
-  assert.equal(shortcutDefaults.schemaVersion, 1);
+test("the launcher edits the shared nine-command shortcut contract", () => {
+  assert.equal(shortcutDefaults.schemaVersion, 2);
   assert.deepEqual(
     shortcutDefaults.commands?.map(({ command, defaultBinding }) => [command, defaultBinding]),
     [
       ["save", "Ctrl+S"],
       ["new", "Ctrl+Alt+N"],
       ["edit", "Ctrl+Alt+E"],
+      ["read", "Ctrl+R"],
       ["confirm", "Ctrl+Enter"],
       ["cancel", "Escape"],
       ["search", "Ctrl+F"],
@@ -355,7 +356,7 @@ test("shortcut settings are normalized, validated, and replaced atomically", () 
   assert.match(shortcutsHelperSource, /assigned to both/i, "duplicate bindings must be rejected");
   assert.match(shortcutsHelperSource, /must include Ctrl or Alt/i);
   assert.match(shortcutsHelperSource, /Only Escape may be used without a modifier/i);
-  for (const reservedBinding of ["Alt+F4", "Ctrl+W", "Ctrl+T", "Ctrl+L", "Ctrl+R", "Ctrl+Shift+T", "F5"]) {
+  for (const reservedBinding of ["Alt+F4", "Ctrl+W", "Ctrl+T", "Ctrl+L", "Ctrl+Shift+T", "F5"]) {
     assert.match(shortcutsHelperSource, new RegExp(`"${reservedBinding.replaceAll("+", "\\+")}"`));
   }
   assert.match(shortcutsHelperSource, /Write-Warning/i, "missing or invalid user settings must warn");
@@ -375,13 +376,35 @@ $ErrorActionPreference = "Stop"
 . ([Environment]::GetEnvironmentVariable("BABEL_TEST_SHORTCUT_HELPER"))
 $definitions = @(Get-BabelShortcutDefinitions -Path ([Environment]::GetEnvironmentVariable("BABEL_TEST_SHORTCUT_DEFAULTS")))
 $settingsPath = [Environment]::GetEnvironmentVariable("BABEL_TEST_SHORTCUT_SETTINGS")
-$bindings = Get-BabelDefaultShortcutBindings -Definitions $definitions
-[void](Write-BabelShortcutSettings -Definitions $definitions -Bindings $bindings -Path $settingsPath)
-$bindings["save"] = "Ctrl+Alt+S"
-[void](Write-BabelShortcutSettings -Definitions $definitions -Bindings $bindings -Path $settingsPath)
+$legacyDocument = [ordered]@{
+    schemaVersion = 1
+    bindings = [ordered]@{
+        save = "Ctrl+Alt+S"
+        new = "Ctrl+Alt+N"
+        edit = "Ctrl+Alt+E"
+        confirm = "Ctrl+Enter"
+        cancel = "Escape"
+        search = "Ctrl+F"
+        delete = "Ctrl+Delete"
+        commandPalette = "Ctrl+K"
+    }
+}
+[IO.File]::WriteAllText(
+    $settingsPath,
+    ($legacyDocument | ConvertTo-Json -Depth 4),
+    (New-Object Text.UTF8Encoding($false))
+)
 $loaded = Read-BabelShortcutSettings -Definitions $definitions -Path $settingsPath
-if ($loaded.Source -ne "User" -or $loaded.Bindings["save"] -ne "Ctrl+Alt+S") {
-    throw "Shortcut settings did not survive an atomic replacement round trip."
+if (
+    $loaded.Source -ne "User" -or
+    $loaded.Bindings["save"] -ne "Ctrl+Alt+S" -or
+    $loaded.Bindings["read"] -ne "Ctrl+R"
+) {
+    throw "Legacy shortcut settings were not migrated without losing custom bindings."
+}
+[void](Write-BabelShortcutSettings -Definitions $definitions -Bindings $loaded.Bindings -Path $settingsPath)
+if ((ConvertTo-BabelShortcutBinding -Binding "Ctrl+R") -ne "Ctrl+R") {
+    throw "Ctrl+R was not accepted as a Babel shortcut."
 }
 foreach ($forbiddenBinding in @("Ctrl", "A", "Shift+S", "Enter", "Ctrl+W", "F5")) {
     $wasRejected = $false
@@ -434,8 +457,9 @@ Write-Output "Babel shortcut replacement test passed."
         schemaVersion?: number;
         bindings?: Record<string, string>;
       };
-      assert.equal(savedSettings.schemaVersion, 1);
+      assert.equal(savedSettings.schemaVersion, 2);
       assert.equal(savedSettings.bindings?.save, "Ctrl+Alt+S");
+      assert.equal(savedSettings.bindings?.read, "Ctrl+R");
       assert.deepEqual(
         Object.keys(savedSettings.bindings ?? {}),
         shortcutDefaults.commands?.map(({ command }) => command),
@@ -542,7 +566,7 @@ test(
 
     assert.match(stdout, /Babel GUI smoke test passed/i);
     assert.match(stdout, /6 shortcut control\(s\)/i);
-    assert.match(stdout, /8 shortcut command\(s\)/i);
+    assert.match(stdout, /9 shortcut command\(s\)/i);
   },
 );
 

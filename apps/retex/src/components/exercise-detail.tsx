@@ -37,6 +37,7 @@ const EXERCISE_PROBLEM_HEADING_ID_PREFIX = "retex-exercise-problem-heading-";
 const EXERCISE_ANSWER_HEADING_ID_PREFIX = "retex-exercise-answer-heading-";
 const EXERCISE_SOLUTION_HEADING_ID_PREFIX = "retex-exercise-solution-heading-";
 const REMARK_FEATURES = ["gfm", "typst-math"] as const;
+const EMPTY_IMAGE_PREVIEWS: ReadonlyMap<string, string> = new Map();
 
 interface ExerciseReaderDraftProps {
   title: string;
@@ -45,6 +46,7 @@ interface ExerciseReaderDraftProps {
   answer: string;
   solution: string;
   imagePreviews: ReadonlyMap<string, string>;
+  live: boolean;
   ownerDocument: Document;
   resolveWikilink: (titleKey: string) => ResolvedWikilink | null;
   onNavigateWikilink: (target: ResolvedWikilink) => void;
@@ -104,18 +106,19 @@ function ExerciseReaderDraft({
   answer,
   solution,
   imagePreviews,
+  live,
   ownerDocument,
   resolveWikilink,
   onNavigateWikilink,
 }: ExerciseReaderDraftProps) {
   return (
-    <article className="document-view" aria-label="Live Exercise reader">
+    <article className="document-view" aria-label={live ? "Live Exercise reader" : "Exercise reader"}>
       <header className="document-header">
         <div>
           <span className="eyebrow">Exercise</span>
           <h1>{title.trim() || "Untitled Exercise"}</h1>
           <Tags tags={tags} />
-          <p className="document-meta">Live draft. Save changes in the editor.</p>
+          {live ? <p className="document-meta">Live draft. Save changes in the editor.</p> : null}
         </div>
       </header>
       <div className="exercise-sections">
@@ -250,6 +253,27 @@ export function ExerciseDetail({
     <article className="detail-panel document-view">
       <header className="document-header">
         <div>
+          <DetachedReaderWindow
+            title={`${detail.title} - Reader`}
+            windowKey={`retex-exercise-${detail.id}`}
+            buttonLabel="Read"
+            buttonClassName="babel-reader-title-button"
+          >
+            {({ document: readerDocument }) => (
+              <ExerciseReaderDraft
+                title={detail.title}
+                tags={detail.tags}
+                problem={detail.problemMd}
+                answer={detail.answerMd}
+                solution={detail.solutionMd}
+                imagePreviews={EMPTY_IMAGE_PREVIEWS}
+                live={false}
+                ownerDocument={readerDocument}
+                resolveWikilink={resolveWikilink}
+                onNavigateWikilink={navigateWikilink}
+              />
+            )}
+          </DetachedReaderWindow>
           <span className="eyebrow">Exercise</span>
           <h1>{detail.title}</h1>
           <p className="document-meta">Updated {formatDate(detail.updatedAt)}</p>
@@ -568,15 +592,11 @@ function ExerciseForm({
         <fieldset className="form-controls" disabled={pending}>
         <header className="document-header">
           <div>
-            <span className="eyebrow">{detail ? "Edit Exercise" : "New Exercise"}</span>
-            <h1>{detail ? detail.title : "Archive a Classic Problem"}</h1>
-          </div>
-          <div className="document-actions">
             <DetachedReaderWindow
               title={`${title.trim() || "Untitled Exercise"} - Reader`}
               windowKey={`retex-exercise-${detail?.id ?? "draft"}`}
               buttonLabel="Read"
-              buttonPortalTargetId="babel-detached-reader-trigger-target"
+              buttonClassName="babel-reader-title-button"
               disabled={pending}
             >
               {({ document: readerDocument }) => (
@@ -587,12 +607,17 @@ function ExerciseForm({
                   answer={answer}
                   solution={solution}
                   imagePreviews={imagePreviews}
+                  live
                   ownerDocument={readerDocument}
                   resolveWikilink={resolveWikilink}
                   onNavigateWikilink={onNavigateWikilink}
                 />
               )}
             </DetachedReaderWindow>
+            <span className="eyebrow">{detail ? "Edit Exercise" : "New Exercise"}</span>
+            <h1>{detail ? detail.title : "Archive a Classic Problem"}</h1>
+          </div>
+          <div className="document-actions">
             <button data-babel-command="cancel" type="button" onClick={onCancel}>
               Cancel
             </button>

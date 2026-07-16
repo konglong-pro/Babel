@@ -35,9 +35,15 @@ async function readSourceTree(directory: string): Promise<string> {
 }
 
 test("every registered app and the mirror template expose the global shortcut seam", async () => {
-  const registry = JSON.parse(
-    await readFile(path.join(root, "babel.apps.json"), "utf8"),
-  ) as RegistryDocument;
+  const [registrySource, sharedReaderSource] = await Promise.all([
+    readFile(path.join(root, "babel.apps.json"), "utf8"),
+    readFile(path.join(root, "packages", "markdown", "src", "react.tsx"), "utf8"),
+  ]);
+  const registry = JSON.parse(registrySource) as RegistryDocument;
+  assert.ok(
+    sharedReaderSource.includes('data-babel-command="read"'),
+    "the shared detached reader button must expose the read shortcut adapter",
+  );
   const targets = [
     ...registry.apps,
     { id: "mirror-app template", workspace: "templates/mirror-app" },
@@ -78,11 +84,46 @@ test("every registered app and the mirror template expose the global shortcut se
         `${target.id} is missing the ${command} shortcut adapter`,
       );
     }
+    assert.ok(
+      applicationSource.includes("<DetachedReaderWindow"),
+      `${target.id} is missing the shared read shortcut adapter`,
+    );
 
     assert.doesNotMatch(
       applicationSource,
       /function\s+saveShortcut\b|addEventListener\(["']keydown["'],\s*saveShortcut\)/,
       `${target.id} must not retain the legacy fixed save shortcut listener`,
+    );
+  }
+});
+
+test("every reader control sits above its detail eyebrow and title", async () => {
+  const targets = [
+    ["ReTex Knowledge", "apps/retex/src/components/knowledge-detail.tsx", 2],
+    ["ReTex Exercise", "apps/retex/src/components/exercise-detail.tsx", 2],
+    ["ReTex Scratch", "apps/retex/src/components/scratch-workspace.tsx", 1],
+    ["Vali Notes", "apps/vali/src/components/note-detail.tsx", 2],
+    ["Vali Reflection", "apps/vali/src/components/reflection-workspace.tsx", 2],
+    ["Herodotus", "apps/herodotus/src/components/note-detail.tsx", 2],
+    ["Leviathan", "apps/leviathan/src/components/note-detail.tsx", 2],
+    ["Esperanto", "apps/esperanto/src/components/note-detail.tsx", 2],
+    ["Neum", "apps/neum/src/components/entry-detail.tsx", 2],
+    ["mirror-app template", "templates/mirror-app/src/components/note-detail.tsx", 2],
+  ] as const;
+  const titleReaderPattern =
+    /<DetachedReaderWindow[\s\S]*?buttonClassName="babel-reader-title-button"[\s\S]*?<\/DetachedReaderWindow>\s*<span className="eyebrow"/g;
+
+  for (const [label, relativePath, expectedCount] of targets) {
+    const source = await readFile(path.join(root, relativePath), "utf8");
+    assert.equal(
+      (source.match(titleReaderPattern) ?? []).length,
+      expectedCount,
+      `${label} must place every Read button directly above the detail eyebrow`,
+    );
+    assert.doesNotMatch(
+      source,
+      /buttonPortalTargetId|babel-detached-reader-trigger-target/,
+      `${label} must not retain the old second-column reader portal`,
     );
   }
 });

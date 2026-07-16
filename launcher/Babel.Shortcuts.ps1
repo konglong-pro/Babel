@@ -164,7 +164,6 @@ function ConvertTo-BabelShortcutBinding {
         "Ctrl+T",
         "Ctrl+Shift+T",
         "Ctrl+L",
-        "Ctrl+R",
         "F5",
         "Ctrl+F5",
         "F11",
@@ -244,7 +243,7 @@ function Get-BabelShortcutDefinitions {
     if (-not (Test-BabelShortcutProperty -InputObject $document -Name "schemaVersion")) {
         throw "Shortcut defaults are missing schemaVersion."
     }
-    if (-not ($document.schemaVersion -is [int]) -or [int]$document.schemaVersion -ne 1) {
+    if (-not ($document.schemaVersion -is [int]) -or [int]$document.schemaVersion -ne 2) {
         throw "Unsupported shortcut defaults schemaVersion '$($document.schemaVersion)'."
     }
     if (-not (Test-BabelShortcutProperty -InputObject $document -Name "commands")) {
@@ -343,7 +342,13 @@ function Read-BabelShortcutSettings {
         if (-not (Test-BabelShortcutProperty -InputObject $document -Name "schemaVersion")) {
             throw "Shortcut settings are missing schemaVersion."
         }
-        if (-not ($document.schemaVersion -is [int]) -or [int]$document.schemaVersion -ne 1) {
+        if (
+            -not ($document.schemaVersion -is [int]) -or
+            (
+                [int]$document.schemaVersion -ne 1 -and
+                [int]$document.schemaVersion -ne 2
+            )
+        ) {
             throw "Unsupported shortcut settings schemaVersion '$($document.schemaVersion)'."
         }
         if (-not (Test-BabelShortcutProperty -InputObject $document -Name "bindings")) {
@@ -353,12 +358,36 @@ function Read-BabelShortcutSettings {
             throw "Shortcut settings bindings must be a JSON object."
         }
 
+        $currentCommandIds = @($Definitions | ForEach-Object { [string]$_.Id })
+        $legacyCommandIds = @(
+            "save",
+            "new",
+            "edit",
+            "confirm",
+            "cancel",
+            "search",
+            "delete",
+            "commandPalette"
+        )
+        $expectedCommandIds = if ([int]$document.schemaVersion -eq 1) {
+            $legacyCommandIds
+        } else {
+            $currentCommandIds
+        }
+        Assert-BabelShortcutExactProperties `
+            -InputObject $document.bindings `
+            -Names $expectedCommandIds `
+            -Description "Shortcut settings bindings"
+
         $bindings = [ordered]@{}
         foreach ($property in @($document.bindings.PSObject.Properties)) {
             if (-not ($property.Value -is [string])) {
                 throw "Shortcut setting '$($property.Name)' must be a string."
             }
             $bindings[[string]$property.Name] = [string]$property.Value
+        }
+        if ([int]$document.schemaVersion -eq 1) {
+            $bindings["read"] = [string]$defaults["read"]
         }
         $canonicalBindings = ConvertTo-BabelShortcutBindingMap `
             -Definitions $Definitions `
@@ -404,7 +433,7 @@ function Write-BabelShortcutSettings {
     }
 
     $document = [ordered]@{
-        schemaVersion = 1
+        schemaVersion = 2
         bindings = $canonicalBindings
     }
     $json = $document | ConvertTo-Json -Depth 4

@@ -133,16 +133,11 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
           >
             ← Back to Exercise
           </Link>
-          <span className="eyebrow">Scratch · Temporary Work</span>
-          <h1>{exercise.title}</h1>
-        </div>
-        <div className="scratch-actions">
-          {updatedAt ? <small>Last saved: {formatDate(updatedAt)}</small> : <small>Not saved yet</small>}
           <DetachedReaderWindow
             title={`${exercise.title} - Scratch reader`}
             windowKey={`retex-scratch-${exercise.id}`}
             buttonLabel="Read"
-            buttonPortalTargetId="babel-detached-reader-trigger-target"
+            buttonClassName="babel-reader-title-button"
             disabled={saving}
           >
             {({ document: readerDocument }) => {
@@ -194,6 +189,11 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
               );
             }}
           </DetachedReaderWindow>
+          <span className="eyebrow">Scratch · Temporary Work</span>
+          <h1>{exercise.title}</h1>
+        </div>
+        <div className="scratch-actions">
+          {updatedAt ? <small>Last saved: {formatDate(updatedAt)}</small> : <small>Not saved yet</small>}
           <ConfirmButton
             className="danger-ghost"
             title="Clear Scratch"
@@ -238,7 +238,6 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
             />
           </section>
           <section className="scratch-editor" aria-label="Temporary work editor">
-            <div id="babel-detached-reader-trigger-target" className="reader-trigger-slot" />
             <div className="editor-outline-layout">
               <MarkdownEditor
                 label="Work It Out Again"

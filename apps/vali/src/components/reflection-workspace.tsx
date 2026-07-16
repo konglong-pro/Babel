@@ -272,6 +272,47 @@ export function ReflectionWorkspace({ initialDate }: { initialDate: string | nul
     openDate(date);
   }
 
+  function renderReflectionReader(
+    date: string,
+    readerDocument: Document,
+    live: boolean,
+  ) {
+    const headingIdPrefix = `${REFLECTION_HEADING_ID_PREFIX}reader-`;
+    return (
+      <article aria-label={live ? "Live reflection reader" : "Reflection reader"}>
+        <header className="document-header">
+          <div>
+            <span className="eyebrow">Daily reflection</span>
+            <h1>{date}</h1>
+            {live ? (
+              <p className="document-meta">Live draft. Save changes in the editor.</p>
+            ) : null}
+          </div>
+        </header>
+        <div className="document-outline-layout">
+          <section className="document-content" aria-label="Reflection content">
+            <MarkdownRenderer
+              content={content}
+              emptyText="This reflection is empty."
+              imagePreviews={imagePreviews}
+              remarkFeatures={REMARK_FEATURES}
+              uploadScheme="vali-upload"
+              resolveWikilink={resolveWikilink}
+              onNavigateWikilink={navigateWikilink}
+              headingIdPrefix={headingIdPrefix}
+            />
+          </section>
+          <OutlinePanel
+            content={content}
+            mode="read"
+            ownerDocument={readerDocument}
+            headingIdPrefix={headingIdPrefix}
+          />
+        </div>
+      </article>
+    );
+  }
+
   return (
     <div className={`reflection-workspace${dirty ? " has-unsaved" : ""}`}>
       <aside className="reflection-index workspace-panel" aria-label="Reflection dates">
@@ -327,53 +368,20 @@ export function ReflectionWorkspace({ initialDate }: { initialDate: string | nul
           <form ref={formRef} onSubmit={submit}>
             <header className="document-header form-header">
               <div>
-                <div id="babel-detached-reader-trigger-target" className="reader-trigger-slot" />
-                <span className="eyebrow">{detail ? "Edit reflection" : "New reflection"}</span>
-                <h1>{selectedDate}</h1>
-              </div>
-              <div className="document-actions">
                 <DetachedReaderWindow
                   title={`${selectedDate} - Reflection reader`}
                   windowKey={`vali-reflection-${selectedDate}`}
                   buttonLabel="Read"
-                  buttonPortalTargetId="babel-detached-reader-trigger-target"
+                  buttonClassName="babel-reader-title-button"
                   disabled={pending}
                 >
-                  {({ document: readerDocument }) => {
-                    const headingIdPrefix = `${REFLECTION_HEADING_ID_PREFIX}reader-`;
-                    return (
-                      <article aria-label="Live reflection reader">
-                        <header className="document-header">
-                          <div>
-                            <span className="eyebrow">Daily reflection</span>
-                            <h1>{selectedDate}</h1>
-                            <p className="document-meta">Live draft. Save changes in the editor.</p>
-                          </div>
-                        </header>
-                        <div className="document-outline-layout">
-                          <section className="document-content" aria-label="Reflection content">
-                            <MarkdownRenderer
-                              content={content}
-                              emptyText="This reflection is empty."
-                              imagePreviews={imagePreviews}
-                              remarkFeatures={REMARK_FEATURES}
-                              uploadScheme="vali-upload"
-                              resolveWikilink={resolveWikilink}
-                              onNavigateWikilink={navigateWikilink}
-                              headingIdPrefix={headingIdPrefix}
-                            />
-                          </section>
-                          <OutlinePanel
-                            content={content}
-                            mode="read"
-                            ownerDocument={readerDocument}
-                            headingIdPrefix={headingIdPrefix}
-                          />
-                        </div>
-                      </article>
-                    );
-                  }}
+                  {({ document: readerDocument }) =>
+                    renderReflectionReader(selectedDate, readerDocument, true)}
                 </DetachedReaderWindow>
+                <span className="eyebrow">{detail ? "Edit reflection" : "New reflection"}</span>
+                <h1>{selectedDate}</h1>
+              </div>
+              <div className="document-actions">
                 {detail ? (
                   <button data-babel-command="cancel" type="button" onClick={() => {
                     if (!confirmDiscard()) return;
@@ -422,6 +430,15 @@ export function ReflectionWorkspace({ initialDate }: { initialDate: string | nul
           <article>
             <header className="document-header">
               <div>
+                <DetachedReaderWindow
+                  title={`${selectedDate} - Reflection reader`}
+                  windowKey={`vali-reflection-${selectedDate}`}
+                  buttonLabel="Read"
+                  buttonClassName="babel-reader-title-button"
+                >
+                  {({ document: readerDocument }) =>
+                    renderReflectionReader(selectedDate, readerDocument, false)}
+                </DetachedReaderWindow>
                 <span className="eyebrow">Daily reflection</span>
                 <h1>{selectedDate}</h1>
                 {detail ? <p className="document-meta">Updated {formatDate(detail.updatedAt)}</p> : null}

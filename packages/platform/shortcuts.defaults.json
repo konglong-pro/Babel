@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "commands": [
     {
       "command": "save",
@@ -15,6 +15,11 @@
       "command": "edit",
       "label": "Edit",
       "defaultBinding": "Ctrl+Alt+E"
+    },
+    {
+      "command": "read",
+      "label": "Read",
+      "defaultBinding": "Ctrl+R"
     },
     {
       "command": "confirm",
