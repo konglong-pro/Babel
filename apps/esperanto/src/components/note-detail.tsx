@@ -614,6 +614,7 @@ function NoteForm({
               title={`${title.trim() || "Untitled note"} - Reader`}
               windowKey={`esperanto-note-${detail?.id ?? "draft"}`}
               buttonLabel="Read"
+              buttonPortalTargetId="babel-detached-reader-trigger-target"
               disabled={pending}
             >
               {({ document: readerDocument }) => (

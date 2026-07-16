@@ -576,6 +576,7 @@ function ExerciseForm({
               title={`${title.trim() || "Untitled Exercise"} - Reader`}
               windowKey={`retex-exercise-${detail?.id ?? "draft"}`}
               buttonLabel="Read"
+              buttonPortalTargetId="babel-detached-reader-trigger-target"
               disabled={pending}
             >
               {({ document: readerDocument }) => (

@@ -1,9 +1,9 @@
 :root {
   color-scheme: light;
-  --paper: #44596b;
-  --paper-deep: #44596b;
+  --paper: #F8F8F2;
+  --paper-deep: #F8F8F2;
   --paper-raised: #e9edf0;
-  --paper-muted: #44596b;
+  --paper-muted: #F8F8F2;
   --ink: #000;
   --ink-soft: rgb(0 0 0 / 78%);
   --ink-faint: rgb(0 0 0 / 64%);
@@ -284,6 +284,21 @@ a {
   background: var(--paper-muted);
 }
 
+.reference-panel-trigger,
+.reference-board__close,
+.reference-board__field input,
+.reference-board__field select {
+  border-radius: 3px;
+}
+
+.reference-board {
+  --reference-board-surface: #F8F8F2;
+}
+
+.reference-board__table-wrap {
+  border-radius: 2px;
+}
+
 .detail-panel {
   background:
     linear-gradient(180deg, rgb(246 239 227 / 30%), transparent 160px),
@@ -473,13 +488,6 @@ a {
   border-radius: 0;
   padding-bottom: 0.72rem;
   font-weight: 700;
-}
-
-.folder-node.trash-node {
-  margin-top: 1rem;
-  border-top: 1px solid #d3c8b8;
-  border-radius: 0;
-  padding-top: 0.72rem;
 }
 
 .folder-node:hover:not(:disabled),
@@ -908,8 +916,7 @@ a {
   text-transform: uppercase;
 }
 
-.code-block,
-.trash-source {
+.code-block {
   overflow: auto;
   border-radius: 3px;
   background: #263136;
@@ -919,12 +926,6 @@ a {
   font-size: 0.82rem;
   line-height: 1.65;
   white-space: pre;
-}
-
-.trash-source {
-  background: #f1eadd;
-  color: var(--ink);
-  white-space: pre-wrap;
 }
 
 .form-view form {
@@ -1540,7 +1541,7 @@ a {
 
 .app-header {
   border-bottom-color: rgb(0 0 0 / 34%);
-  background: #44596b;
+  background: #F8F8F2;
   padding-inline: 1.9rem;
   backdrop-filter: none;
 }
@@ -1619,7 +1620,7 @@ a {
 .folder-panel,
 .entry-panel,
 .detail-panel {
-  background: #44596b;
+  background: #F8F8F2;
 }
 
 .workspace-panel {
@@ -1684,7 +1685,6 @@ a {
 
 .folder-tree ul ul,
 .folder-node.root,
-.folder-node.trash-node,
 .panel-hint,
 .document-header,
 .snippet-view,
@@ -1740,7 +1740,6 @@ a {
 }
 
 .markdown-body :not(pre) > code,
-.trash-source,
 .editor-grid textarea,
 .preview-pane,
 .code-block,

@@ -1,0 +1,365 @@
+.folder-panel:has(> .reference-panel-triggers) {
+  display: flex;
+  flex-direction: column;
+}
+
+.folder-panel:has(> .reference-panel-triggers) > .folder-tree {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.reference-panel-triggers {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 0.4rem;
+  margin-top: 0.7rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.7rem;
+}
+
+.reference-panel-trigger {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--panel-strong, var(--paper-raised));
+  color: var(--ink);
+  padding: 0.42rem 0.58rem;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 680;
+  text-align: left;
+  cursor: pointer;
+}
+
+.reference-panel-trigger:hover,
+.reference-panel-trigger.is-active {
+  background: var(--accent-soft, var(--blue-soft, var(--paper-muted)));
+  color: var(--accent-dark, var(--blue, var(--ink)));
+}
+
+.reference-panel-trigger:focus-visible {
+  outline: 2px solid var(--focus, var(--line-strong));
+  outline-offset: 2px;
+}
+
+.reference-board {
+  --reference-board-surface: var(--panel-strong, var(--paper-raised));
+  --reference-board-muted-surface: var(--panel, var(--paper-muted));
+  --reference-board-soft-surface: var(--accent-soft, var(--blue-soft, var(--paper-muted)));
+  --reference-board-ink: var(--ink);
+  --reference-board-muted: var(--muted, var(--ink-soft));
+  --reference-board-subtle: var(--muted, var(--ink-faint));
+  --reference-board-accent: var(--accent-dark, var(--blue, var(--ink)));
+  --reference-board-line: var(--line);
+  --reference-board-line-strong: var(--line-strong);
+  --reference-board-shadow: var(--shadow-subtle, var(--shadow-small));
+
+  z-index: 6;
+  display: grid;
+  grid-column: 1 / 3;
+  grid-row: 1;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-right: 1px solid var(--reference-board-line-strong);
+  background: var(--reference-board-surface);
+  color: var(--reference-board-ink);
+  padding: 0.9rem;
+}
+
+.reference-board__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--reference-board-line);
+  padding-bottom: 0.75rem;
+}
+
+.reference-board__header h2 {
+  margin: 0;
+  color: var(--reference-board-ink);
+  font-size: 1.15rem;
+}
+
+.reference-board__header p {
+  max-width: 78ch;
+  margin: 0.35rem 0 0;
+  color: var(--reference-board-muted);
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+.reference-board__eyebrow {
+  display: block;
+  margin-bottom: 0.2rem;
+  color: var(--reference-board-accent);
+  font-size: 0.68rem;
+  font-weight: 720;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.reference-board__close {
+  display: inline-grid;
+  flex: 0 0 auto;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border: 1px solid var(--reference-board-line-strong);
+  border-radius: 6px;
+  background: var(--reference-board-surface);
+  color: var(--reference-board-ink);
+  padding: 0;
+  font: inherit;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.reference-board__close:hover {
+  background: var(--reference-board-soft-surface);
+  color: var(--reference-board-accent);
+}
+
+.reference-board__close:focus-visible,
+.reference-board__field input:focus-visible,
+.reference-board__field select:focus-visible,
+.reference-board__table-wrap:focus-visible {
+  outline: 2px solid var(--focus, var(--reference-board-line-strong));
+  outline-offset: 2px;
+}
+
+.reference-board__filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 0.45fr);
+  gap: 0.6rem;
+  padding-top: 0.75rem;
+}
+
+.reference-board__field {
+  display: grid;
+  gap: 0.28rem;
+  min-width: 0;
+  color: var(--reference-board-ink);
+  font-size: 0.72rem;
+  font-weight: 680;
+}
+
+.reference-board__field input,
+.reference-board__field select {
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  border: 1px solid var(--reference-board-line-strong);
+  border-radius: 6px;
+  background: var(--reference-board-surface);
+  color: var(--reference-board-ink);
+  padding: 0.4rem 0.55rem;
+  font: inherit;
+  font-weight: 400;
+}
+
+.reference-board__field input::placeholder {
+  color: var(--reference-board-subtle);
+}
+
+.reference-board__count {
+  margin: 0;
+  color: var(--reference-board-subtle);
+  padding: 0.55rem 0 0.4rem;
+  font-size: 0.7rem;
+}
+
+.reference-board__table-wrap {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--reference-board-line);
+  border-radius: 7px;
+  scrollbar-gutter: stable;
+}
+
+.reference-board__table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  color: var(--reference-board-ink);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.reference-board__table--markdown {
+  min-width: 620px;
+}
+
+.reference-board__table--typst {
+  min-width: 860px;
+}
+
+.reference-board__table th,
+.reference-board__table td {
+  border-right: 1px solid var(--reference-board-line);
+  border-bottom: 1px solid var(--reference-board-line);
+  padding: 0.48rem 0.52rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.reference-board__table th:last-child,
+.reference-board__table td:last-child {
+  border-right: 0;
+}
+
+.reference-board__table thead th {
+  position: sticky;
+  z-index: 2;
+  top: 0;
+  background: var(--reference-board-muted-surface);
+  color: var(--reference-board-ink);
+  white-space: nowrap;
+}
+
+.reference-board__table code {
+  color: var(--reference-board-ink);
+  font-family: var(--mono, ui-monospace, "Cascadia Code", Consolas, monospace);
+  font-size: 0.68rem;
+  white-space: pre-wrap;
+}
+
+.reference-board__group-row th {
+  background: var(--reference-board-soft-surface);
+  color: var(--reference-board-accent);
+}
+
+.reference-board__group-row span {
+  display: block;
+  margin-top: 0.14rem;
+  color: var(--reference-board-muted);
+  font-weight: 400;
+}
+
+.reference-board__category {
+  display: inline-block;
+  border-radius: 999px;
+  background: var(--reference-board-muted-surface);
+  padding: 0.14rem 0.4rem;
+  white-space: nowrap;
+}
+
+.reference-board__preview {
+  display: grid;
+  min-width: 90px;
+  min-height: 32px;
+  align-items: center;
+  overflow-x: auto;
+}
+
+.reference-board__empty {
+  margin: 0;
+  color: var(--reference-board-muted);
+  padding: 1.5rem;
+  text-align: center;
+}
+
+.reference-board__visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+button.babel-detached-reader-fallback {
+  display: none !important;
+}
+
+@media (max-width: 1099px) {
+  .notes-workspace.stage-note
+    .detail-panel
+    .document-actions
+    > .babel-detached-reader-fallback,
+  .entries-workspace.stage-entry
+    .detail-panel
+    .document-actions
+    > .babel-detached-reader-fallback {
+    display: inline-flex !important;
+  }
+}
+
+@media (min-width: 1100px) {
+  .notes-workspace > .folder-panel,
+  .entries-workspace > .folder-panel {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .notes-workspace > .note-panel,
+  .entries-workspace > .entry-panel {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .notes-workspace > .detail-panel,
+  .entries-workspace > .detail-panel {
+    grid-column: 3;
+    grid-row: 1;
+  }
+}
+
+@media (max-width: 1100px) {
+  .archive-workspace > .reference-board {
+    grid-column: 1 / -1;
+    height: 36dvh;
+  }
+}
+
+@media (max-width: 1099px) {
+  .notes-workspace > .reference-board,
+  .entries-workspace > .reference-board {
+    grid-column: 1 / -1;
+    height: 36dvh;
+  }
+}
+
+@media (max-width: 780px) {
+  .archive-workspace > .reference-board {
+    order: 3;
+    width: 100%;
+    height: min(70dvh, 44rem);
+    border-right: 0;
+    border-bottom: 1px solid var(--reference-board-line-strong);
+    box-shadow: var(--reference-board-shadow);
+  }
+
+  .archive-workspace .reference-board__filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .notes-workspace,
+  .entries-workspace {
+    position: relative;
+  }
+
+  .notes-workspace > .reference-board,
+  .entries-workspace > .reference-board {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border-right: 0;
+    border-bottom: 0;
+    box-shadow: none;
+  }
+
+  .notes-workspace .reference-board__filters,
+  .entries-workspace .reference-board__filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

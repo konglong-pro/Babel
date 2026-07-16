@@ -22,7 +22,6 @@ const errorStatuses: Readonly<Record<string, number>> = {
   NOT_FOUND: 404,
   FOLDER_NOT_FOUND: 404,
   ENTRY_NOT_FOUND: 404,
-  TRASH_ENTRY_NOT_FOUND: 404,
   CONFLICT: 409,
   VERSION_CONFLICT: 409,
   NOT_EMPTY: 409,

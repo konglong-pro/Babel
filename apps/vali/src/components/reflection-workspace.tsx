@@ -327,6 +327,7 @@ export function ReflectionWorkspace({ initialDate }: { initialDate: string | nul
           <form ref={formRef} onSubmit={submit}>
             <header className="document-header form-header">
               <div>
+                <div id="babel-detached-reader-trigger-target" className="reader-trigger-slot" />
                 <span className="eyebrow">{detail ? "Edit reflection" : "New reflection"}</span>
                 <h1>{selectedDate}</h1>
               </div>
@@ -335,6 +336,7 @@ export function ReflectionWorkspace({ initialDate }: { initialDate: string | nul
                   title={`${selectedDate} - Reflection reader`}
                   windowKey={`vali-reflection-${selectedDate}`}
                   buttonLabel="Read"
+                  buttonPortalTargetId="babel-detached-reader-trigger-target"
                   disabled={pending}
                 >
                   {({ document: readerDocument }) => {

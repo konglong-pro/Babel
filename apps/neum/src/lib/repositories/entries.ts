@@ -43,6 +43,7 @@ import {
 import {
   assertPositiveId,
   descendantFolderIds,
+  detachTrashedEntryChildren,
   moveTrashedEntryDescendantsToFolder,
   normalizeEntryKind,
   normalizeOptionalText,
@@ -50,6 +51,7 @@ import {
   normalizeTags,
   normalizeVerbatimText,
   nowSql,
+  pruneUnusedTags,
   replaceEntryTags,
   requireFolder,
   tagsByEntryIds,
@@ -96,6 +98,10 @@ export interface UpdateEntryInput {
 export interface UpdatedEntryResult {
   entry: EntryDetailDto;
   removedImagePaths: string[];
+}
+
+export interface DeletedEntryResult {
+  imagePaths: string[];
 }
 
 type NormalizedEntryFields = Pick<
@@ -254,6 +260,46 @@ export function updateEntry(
   })();
 
   return { entry: updated, removedImagePaths };
+}
+
+export function deleteEntry(
+  id: number,
+  expectedVersion: number,
+  expectedImagePaths?: readonly string[],
+): DeletedEntryResult | null {
+  const { db, sqlite } = getNeumDatabase();
+  const current = findEntryRow(id);
+  if (!current) return null;
+  assertExpectedVersion(expectedVersion, current.version, id);
+
+  const child = db
+    .select({ id: entries.id })
+    .from(entries)
+    .where(eq(entries.parentId, id))
+    .get();
+  if (child) {
+    throw new RepositoryError(
+      "NOT_EMPTY",
+      "Entries with subpages cannot be deleted.",
+      { entryId: id, childId: child.id },
+    );
+  }
+
+  const imagePaths = listEntryImagePaths(id);
+  assertPreparedImageRemoval(imagePaths, expectedImagePaths);
+
+  return sqlite.transaction(() => {
+    detachTrashedEntryChildren(id);
+    const deleted = db
+      .delete(entries)
+      .where(and(eq(entries.id, id), eq(entries.version, expectedVersion)))
+      .returning({ id: entries.id })
+      .get();
+    if (!deleted) throw versionConflict(id, expectedVersion);
+    resolveIncomingLinksForTitle(sqlite, current.title);
+    pruneUnusedTags();
+    return { imagePaths };
+  })();
 }
 
 export function findEntryRow(id: number): EntryRow | null {

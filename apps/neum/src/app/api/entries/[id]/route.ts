@@ -17,12 +17,12 @@ import {
 } from "@/lib/http/request";
 import { withEntryMutationLock } from "@/lib/mutation-lock";
 import {
+  deleteEntry,
   getEntry,
   listEntryImagePaths,
   updateEntry,
   type UpdateEntryInput,
 } from "@/lib/repositories/entries";
-import { moveEntryToTrash } from "@/lib/repositories/trash";
 import {
   assertEntrySaveLimits,
   ensureEntryImageStorageRecovered,
@@ -156,13 +156,30 @@ export function DELETE(request: Request, context: RouteContext): Promise<Respons
     assertSameOrigin(request);
     await ensureEntryImageStorageRecovered();
     return withEntryMutationLock(async () => {
+      const id = await routeId(context);
       const body = await readJsonObject(request);
       assertOnlyFields(body, ["expectedVersion"]);
-      const deleted = moveEntryToTrash(
-        await routeId(context),
-        requiredPositiveInteger(body, "expectedVersion"),
-      );
-      if (!deleted) throw entryNotFound();
+      const expectedVersion = requiredPositiveInteger(body, "expectedVersion");
+      const imagePaths = listEntryImagePaths(id);
+
+      let quarantine: EntryImageQuarantine | undefined;
+      try {
+        quarantine = await quarantineEntryImages(imagePaths);
+        if (!deleteEntry(id, expectedVersion, imagePaths)) throw entryNotFound();
+      } catch (error) {
+        if (quarantine) {
+          try {
+            await restoreQuarantinedEntryImages(quarantine);
+          } catch (restoreError) {
+            throw new AggregateError(
+              [error, restoreError],
+              "Entry deletion failed and its images could not be restored.",
+            );
+          }
+        }
+        throw error;
+      }
+      await finalizeQuarantinedEntryImages(quarantine!);
       return new Response(null, { status: 204 });
     });
   });

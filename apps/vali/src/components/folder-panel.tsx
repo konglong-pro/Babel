@@ -1,6 +1,10 @@
 "use client";
 
 import { type FormEvent, useId, useMemo, useRef, useState } from "react";
+import {
+  ReferencePanelTriggers,
+  type ReferencePanelKind,
+} from "@babel-apps/markdown/reference";
 
 import {
   type FolderExpansionState,
@@ -15,6 +19,9 @@ interface FolderPanelProps {
   folders: FolderDto[];
   selectedId: number | null;
   busy?: boolean;
+  activeReferencePanel: ReferencePanelKind | null;
+  onOpenMarkdownReference: () => void;
+  onOpenTypstReference: () => void;
   onSelect: (id: number | null) => void;
   onCreate: (name: string, parentId: number | null) => Promise<void>;
   onRename: (id: number, name: string) => Promise<void>;
@@ -112,6 +119,9 @@ export function FolderPanel({
   folders,
   selectedId,
   busy,
+  activeReferencePanel,
+  onOpenMarkdownReference,
+  onOpenTypstReference,
   onSelect,
   onCreate,
   onRename,
@@ -204,7 +214,12 @@ export function FolderPanel({
   }
 
   return (
-    <aside className="workspace-panel folder-panel" aria-label="Note folders">
+    <aside
+      className="workspace-panel folder-panel"
+      aria-label="Note folders"
+      aria-hidden={activeReferencePanel !== null}
+      inert={activeReferencePanel !== null}
+    >
       <div className="panel-heading">
         <div>
           <span className="eyebrow">Library</span>
@@ -255,6 +270,12 @@ export function FolderPanel({
           />
         )}
       </nav>
+
+      <ReferencePanelTriggers
+        activePanel={activeReferencePanel}
+        onOpenMarkdown={onOpenMarkdownReference}
+        onOpenTypst={onOpenTypstReference}
+      />
 
       <dialog ref={dialogRef} className="dialog" aria-labelledby={dialogTitleId}>
         <form className="dialog-body" onSubmit={submit}>

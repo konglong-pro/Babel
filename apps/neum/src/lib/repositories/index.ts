@@ -3,4 +3,3 @@ export * from "./errors";
 export * from "./folders";
 export * from "./links";
 export * from "./tags";
-export * from "./trash";

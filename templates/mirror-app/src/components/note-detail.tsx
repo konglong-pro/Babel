@@ -614,6 +614,7 @@ function NoteForm({
               title={`${title.trim() || "Untitled note"} - Reader`}
               windowKey={`__APP_ID__-note-${detail?.id ?? "draft"}`}
               buttonLabel="Read"
+              buttonPortalTargetId="babel-detached-reader-trigger-target"
               disabled={pending}
             >
               {({ document: readerDocument }) => (

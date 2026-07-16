@@ -20,10 +20,6 @@ export default async function EntriesPage({ searchParams }: EntriesPageProps) {
   const kind: EntryKind = requestedKind === "snippet" ? "snippet" : "knowledge";
   const folderId = positiveIntegerParam(params.folder);
   const entryId = positiveIntegerParam(params.entry);
-  const view = Array.isArray(params.view) ? params.view[0] : params.view;
-  const trashId = view === "trash" ? positiveIntegerParam(params.trash) : undefined;
 
-  redirect(entryWorkspaceHref(kind, view === "trash"
-    ? { trashId: trashId ?? null }
-    : { folderId, entryId }));
+  redirect(entryWorkspaceHref(kind, { folderId, entryId }));
 }

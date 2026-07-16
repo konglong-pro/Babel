@@ -8,7 +8,6 @@ import type {
   PaginatedDto,
   SearchResultsDto,
   TagSummaryDto,
-  TrashEntryDto,
 } from "@/lib/types";
 
 interface ApiErrorBody {
@@ -246,24 +245,4 @@ export function searchEntries(filters: SearchFilters): Promise<SearchResultsDto>
 
 export function listTags(): Promise<TagSummaryDto[]> {
   return request("/api/tags");
-}
-
-export function listTrash(input: {
-  kind?: EntryKind;
-  limit?: number;
-  offset?: number;
-} = {}): Promise<PaginatedDto<TrashEntryDto>> {
-  return request(`/api/trash${queryString(input)}`);
-}
-
-export function getTrashEntry(id: number): Promise<TrashEntryDto> {
-  return request(`/api/trash/${id}`);
-}
-
-export function restoreTrashEntry(id: number): Promise<EntryDetailDto> {
-  return request(`/api/trash/${id}/restore`, { method: "POST" });
-}
-
-export function permanentlyDeleteTrashEntry(id: number): Promise<void> {
-  return request(`/api/trash/${id}`, { method: "DELETE" });
 }

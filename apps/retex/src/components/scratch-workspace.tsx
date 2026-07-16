@@ -142,6 +142,7 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
             title={`${exercise.title} - Scratch reader`}
             windowKey={`retex-scratch-${exercise.id}`}
             buttonLabel="Read"
+            buttonPortalTargetId="babel-detached-reader-trigger-target"
             disabled={saving}
           >
             {({ document: readerDocument }) => {
@@ -237,6 +238,7 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
             />
           </section>
           <section className="scratch-editor" aria-label="Temporary work editor">
+            <div id="babel-detached-reader-trigger-target" className="reader-trigger-slot" />
             <div className="editor-outline-layout">
               <MarkdownEditor
                 label="Work It Out Again"

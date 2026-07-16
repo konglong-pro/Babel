@@ -18,8 +18,10 @@ private `data/` repository. The launcher supplies absolute
 `VALI_DATABASE_PATH` and `VALI_UPLOAD_DIRECTORY` values.
 
 The editor uses the full writing area for GitHub Flavored Markdown. In both Notes
-and Reflection, **Read** opens a separate live reader window for the current
-unsaved draft and staged images. PNG, JPEG,
+and Reflection, **Read** sits above the second-column heading and opens a separate
+live reader window for the current unsaved draft and staged images. Notes also
+provides bottom-left English **Markdown Guide** and **Typst Reference** panels
+across the two navigation columns. PNG, JPEG,
 WebP, and GIF images up to 10 MB can be selected or pasted; images are committed
 to storage only when the document is saved. Notes can also import a strict UTF-8
 `.md` file and match its safe relative image references by filename. Reflection

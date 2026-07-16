@@ -558,6 +558,7 @@ function KnowledgeForm({
               title={`${title.trim() || "Untitled Knowledge note"} - Reader`}
               windowKey={`retex-knowledge-${detail?.id ?? "draft"}`}
               buttonLabel="Read"
+              buttonPortalTargetId="babel-detached-reader-trigger-target"
               disabled={pending}
             >
               {({ document: readerDocument }) => (

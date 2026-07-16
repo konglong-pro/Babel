@@ -7,7 +7,9 @@
     "./core": "./src/core.ts",
     "./editing": "./src/editing.ts",
     "./outline": "./src/outline.ts",
-    "./react": "./src/react.tsx"
+    "./react": "./src/react.tsx",
+    "./reference": "./src/reference.tsx",
+    "./reference.css": "./src/reference.css"
   },
   "scripts": {
     "lint": "eslint .",

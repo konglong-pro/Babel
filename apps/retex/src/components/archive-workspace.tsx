@@ -8,12 +8,16 @@ import {
   useRef,
   useState,
 } from "react";
+import {
+  MarkdownWritingGuidePanel,
+  TypstReferencePanel,
+  type ReferencePanelKind,
+} from "@babel-apps/markdown/reference";
 
 import { ExerciseDetail } from "@/components/exercise-detail";
 import { FolderPanel } from "@/components/folder-panel";
 import { ItemList } from "@/components/item-list";
 import { KnowledgeDetail } from "@/components/knowledge-detail";
-import { TypstReferencePanel } from "@/components/typst-reference-panel";
 import { useDirtyNavigationGuard } from "@/components/use-dirty-navigation-guard";
 import {
   createFolder,
@@ -86,14 +90,14 @@ export function ArchiveWorkspace({
   const [knowledgeFolders, setKnowledgeFolders] = useState<FolderDto[]>([]);
   const [knowledgeFoldersLoading, setKnowledgeFoldersLoading] = useState(false);
   const [knowledgeFoldersError, setKnowledgeFoldersError] = useState("");
-  const [typstReferenceOpen, setTypstReferenceOpen] = useState(false);
+  const [activeReferencePanel, setActiveReferencePanel] = useState<ReferencePanelKind | null>(null);
   const selectionGenerationRef = useRef(0);
   const navigationGenerationRef = useRef(0);
   const folderRequestGenerationRef = useRef(0);
   const wikilinkCreateGenerationRef = useRef(0);
   const wikilinkCreatePendingRef = useRef(false);
   const importRequestGenerationRef = useRef(0);
-  const typstReferenceTriggerRef = useRef<HTMLButtonElement>(null);
+  const referenceTriggerRef = useRef<HTMLElement | null>(null);
   const {
     dirty,
     setDirty,
@@ -104,9 +108,15 @@ export function ArchiveWorkspace({
   } = useDirtyNavigationGuard();
 
   const basePath = type === "knowledge" ? "/knowledge" : "/exercise";
-  const closeTypstReference = useCallback(() => {
-    setTypstReferenceOpen(false);
-    window.requestAnimationFrame(() => typstReferenceTriggerRef.current?.focus());
+  const openReferencePanel = useCallback((panel: ReferencePanelKind) => {
+    referenceTriggerRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    setActiveReferencePanel(panel);
+  }, []);
+  const closeReferencePanel = useCallback(() => {
+    setActiveReferencePanel(null);
+    window.requestAnimationFrame(() => referenceTriggerRef.current?.focus());
   }, []);
   const beginNavigation = useCallback(() => {
     setNavigationError("");
@@ -525,9 +535,9 @@ export function ArchiveWorkspace({
           folders={folders}
           selectedId={selectedFolderId}
           busy={indexLoading}
-          typstReferenceOpen={typstReferenceOpen}
-          typstReferenceTriggerRef={typstReferenceTriggerRef}
-          onOpenTypstReference={() => setTypstReferenceOpen(true)}
+          activeReferencePanel={activeReferencePanel}
+          onOpenMarkdownReference={() => openReferencePanel("markdown")}
+          onOpenTypstReference={() => openReferencePanel("typst")}
           onSelect={selectFolder}
           onCreate={handleCreateFolder}
           onRename={handleRenameFolder}
@@ -540,7 +550,7 @@ export function ArchiveWorkspace({
           selectedId={selectedItemId}
           selectedFolderId={selectedFolderId}
           loading={indexLoading}
-          typstReferenceOpen={typstReferenceOpen}
+          referencePanelOpen={activeReferencePanel !== null}
           onSelect={selectItem}
           onCreate={beginCreate}
           onImport={type === "knowledge" ? handleImportMarkdown : undefined}
@@ -603,8 +613,11 @@ export function ArchiveWorkspace({
           />
         )}
 
-        {typstReferenceOpen ? (
-          <TypstReferencePanel onClose={closeTypstReference} />
+        {activeReferencePanel === "markdown" ? (
+          <MarkdownWritingGuidePanel onClose={closeReferencePanel} />
+        ) : null}
+        {activeReferencePanel === "typst" ? (
+          <TypstReferencePanel onClose={closeReferencePanel} />
         ) : null}
       </div>
 

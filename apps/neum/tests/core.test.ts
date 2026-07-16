@@ -104,6 +104,25 @@ test("Neum core persistence", async (t) => {
       () => repository.deleteFolder(systems.id),
       repositoryConflict("NOT_EMPTY"),
     );
+
+    const historical = repository.createFolder({ name: "Historical records" });
+    const historicalRow = database.sqlite
+      .prepare(
+        `INSERT INTO trash_entry (original_entry_id, folder_id, snapshot_json)
+         VALUES (?, ?, ?)`,
+      )
+      .run(900_000_000, historical.id, "{}");
+    try {
+      assert.throws(
+        () => repository.deleteFolder(historical.id),
+        /preserved historical records/u,
+      );
+    } finally {
+      database.sqlite
+        .prepare("DELETE FROM trash_entry WHERE id = ?")
+        .run(historicalRow.lastInsertRowid);
+    }
+    assert.equal(repository.deleteFolder(historical.id), true);
   });
 
   await t.test("entries preserve raw code, relational tags, filters, and versions", () => {
@@ -587,24 +606,33 @@ test("Neum core persistence", async (t) => {
       database.sqlite.exec("DROP TRIGGER fail_wikilink_insert");
     }
 
-    const trashedSource = repository.moveEntryToTrash(
-      source.id,
-      beforeStale.version,
+    assert.deepEqual(
+      repository.deleteEntry(source.id, beforeStale.version, []),
+      { imagePaths: [] },
     );
-    assert.ok(trashedSource);
     assert.deepEqual(repository.listEntryBacklinks(firstTarget.id), []);
-    const restoredSource = repository.restoreTrashEntry(trashedSource.trashId);
-    assert.equal(restoredSource.links[0]?.targetId, firstTarget.id);
 
-    const trashedTarget = repository.moveEntryToTrash(
-      restoredName.id,
-      restoredName.version,
+    const survivingSource = repository.createEntry({
+      folderId: inbox.id,
+      kind: "knowledge",
+      title: "Wikilink surviving source",
+      notesMd: "[[Wikilink lifecycle target]]",
+    });
+    assert.equal(repository.getEntry(survivingSource.id)?.links[0]?.targetId, firstTarget.id);
+    assert.deepEqual(
+      repository.deleteEntry(restoredName.id, restoredName.version, []),
+      { imagePaths: [] },
     );
-    assert.ok(trashedTarget);
-    assert.equal(repository.getEntry(restoredSource.id)?.links[0]?.targetId, null);
-    const restoredTarget = repository.restoreTrashEntry(trashedTarget.trashId);
-    assert.equal(restoredTarget.id, firstTarget.id);
-    assert.equal(repository.getEntry(restoredSource.id)?.links[0]?.targetId, firstTarget.id);
+    assert.equal(repository.getEntry(survivingSource.id)?.links[0]?.targetId, null);
+    const replacementTarget = repository.createEntry({
+      folderId: inbox.id,
+      kind: "knowledge",
+      title: "Wikilink lifecycle target",
+    });
+    assert.equal(
+      repository.getEntry(survivingSource.id)?.links[0]?.targetId,
+      replacementTarget.id,
+    );
   });
 
   await t.test("title suggestions use escaped SQL prefixes and bounded results", () => {
@@ -701,7 +729,7 @@ test("Neum core persistence", async (t) => {
       repositoryConflict("CONFLICT"),
     );
     assert.throws(
-      () => repository.moveEntryToTrash(root.id, root.version),
+      () => repository.deleteEntry(root.id, root.version, []),
       repositoryConflict("NOT_EMPTY"),
     );
 
@@ -722,61 +750,84 @@ test("Neum core persistence", async (t) => {
     assert.ok(completeTree.items.length >= 3);
 
     const movedGrandchild = repository.getEntry(grandchild.id)!;
-    const trashed = repository.moveEntryToTrash(
-      grandchild.id,
-      movedGrandchild.version,
+    assert.deepEqual(
+      repository.deleteEntry(grandchild.id, movedGrandchild.version, []),
+      { imagePaths: [] },
     );
-    assert.ok(trashed);
-    assert.equal(trashed.parentId, child.id);
-    const restored = repository.restoreTrashEntry(trashed.trashId);
-    assert.equal(restored.parentId, child.id);
-    const detached = repository.updateEntry(restored.id, {
-      expectedVersion: restored.version,
-      parentId: null,
-    }).entry;
-    assert.equal(detached.parentId, null);
+    assert.equal(repository.getEntry(grandchild.id), null);
   });
 
-  await t.test("trashed subpages follow parent folder moves and protect trash parents", () => {
-    const source = repository.createFolder({ name: "Trash page source" });
-    const target = repository.createFolder({ name: "Trash page target" });
+  await t.test("legacy trash snapshots stay valid when their active parent moves", () => {
+    const source = repository.createFolder({ name: "Legacy snapshot source" });
+    const target = repository.createFolder({ name: "Legacy snapshot target" });
     const root = repository.createEntry({
       folderId: source.id,
       kind: "knowledge",
-      title: "Trash-linked root",
+      title: "Legacy snapshot root",
     });
     const child = repository.createEntry({
       folderId: source.id,
       parentId: root.id,
       kind: "knowledge",
-      title: "Trash-linked child",
+      title: "Legacy snapshot child",
     });
 
-    const firstTrash = repository.moveEntryToTrash(child.id, child.version);
-    assert.ok(firstTrash);
+    const legacySnapshot = {
+      entry: {
+        id: child.id,
+        parentId: child.parentId,
+        folderId: child.folderId,
+        kind: child.kind,
+        title: child.title,
+        notesMd: child.notesMd,
+        code: child.code,
+        language: child.language,
+        filename: child.filename,
+        version: child.version,
+        createdAt: child.createdAt,
+        updatedAt: child.updatedAt,
+      },
+      tags: child.tags,
+      imagePaths: [],
+    };
+    const legacyTrashId = Number(database.sqlite.transaction(() => {
+      const inserted = database.sqlite
+        .prepare(
+          `INSERT INTO trash_entry (original_entry_id, folder_id, snapshot_json)
+           VALUES (?, ?, ?)`,
+        )
+        .run(child.id, child.folderId, JSON.stringify(legacySnapshot));
+      database.sqlite.prepare("DELETE FROM entry WHERE id = ?").run(child.id);
+      return inserted.lastInsertRowid;
+    })());
+
     const movedRoot = repository.updateEntry(root.id, {
       expectedVersion: root.version,
       folderId: target.id,
     }).entry;
-    const movedTrash = repository.getTrashEntry(firstTrash.trashId);
-    assert.ok(movedTrash);
-    assert.equal(movedTrash.folderId, target.id);
-    assert.equal(movedTrash.parentId, root.id);
-
-    const restoredChild = repository.restoreTrashEntry(firstTrash.trashId);
-    assert.equal(restoredChild.folderId, target.id);
-    assert.equal(restoredChild.parentId, root.id);
-    const childTrash = repository.moveEntryToTrash(
-      restoredChild.id,
-      restoredChild.version,
+    const movedLegacy = database.sqlite
+      .prepare(
+        `SELECT folder_id AS folderId, snapshot_json AS snapshotJson
+         FROM trash_entry WHERE id = ?`,
+      )
+      .get(legacyTrashId) as { folderId: number; snapshotJson: string };
+    const movedSnapshot = JSON.parse(movedLegacy.snapshotJson) as {
+      entry: { folderId: number; parentId: number | null };
+    };
+    assert.equal(movedLegacy.folderId, target.id);
+    assert.equal(movedSnapshot.entry.folderId, target.id);
+    assert.equal(movedSnapshot.entry.parentId, root.id);
+    assert.deepEqual(
+      repository.deleteEntry(root.id, movedRoot.version, []),
+      { imagePaths: [] },
     );
-    assert.ok(childTrash);
-    const parentTrash = repository.moveEntryToTrash(root.id, movedRoot.version);
-    assert.ok(parentTrash);
-    assert.throws(
-      () => repository.purgeTrashEntry(parentTrash.trashId),
-      repositoryConflict("NOT_EMPTY"),
-    );
+    const detachedSnapshot = JSON.parse(
+      database.sqlite
+        .prepare("SELECT snapshot_json FROM trash_entry WHERE id = ?")
+        .pluck()
+        .get(legacyTrashId) as string,
+    ) as { entry: { parentId: number | null } };
+    assert.equal(detachedSnapshot.entry.parentId, null);
 
     const snapshot = readNeumDatabaseSnapshot(database.sqlite);
     assert.doesNotThrow(() =>
@@ -790,8 +841,8 @@ test("Neum core persistence", async (t) => {
     );
   });
 
-  await t.test("owned images survive trash, restore, and only purge deletes them", async () => {
-    const inbox = repository.listFolders()[0];
+  await t.test("permanent deletion removes owned images without creating trash", async () => {
+    const folder = repository.createFolder({ name: "Permanent image deletion" });
     const staged = await storage.stageEntryImages(
       "![diagram](neum-upload://diagram)",
       new Map([
@@ -803,7 +854,7 @@ test("Neum core persistence", async (t) => {
     );
     const entry = repository.createEntry(
       {
-        folderId: inbox.id,
+        folderId: folder.id,
         kind: "knowledge",
         title: "Owned diagram",
         notesMd: staged.notesMd,
@@ -813,7 +864,7 @@ test("Neum core persistence", async (t) => {
     assert.throws(
       () =>
         repository.createEntry({
-          folderId: inbox.id,
+          folderId: folder.id,
           kind: "knowledge",
           title: "Foreign diagram",
           notesMd: staged.notesMd,
@@ -821,26 +872,18 @@ test("Neum core persistence", async (t) => {
       repositoryConflict("CONFLICT"),
     );
 
-    const trashed = repository.moveEntryToTrash(entry.id, entry.version);
-    assert.ok(trashed);
-    assert.equal(repository.getEntry(entry.id), null);
-    assert.deepEqual((await storage.readEntryImage(staged.imagePaths[0])).data.length, 8);
     assert.throws(
-      () => repository.deleteFolder(inbox.id),
-      repositoryConflict("NOT_EMPTY"),
+      () => repository.deleteEntry(entry.id, entry.version, []),
+      repositoryConflict("CONFLICT"),
     );
-
-    const restored = repository.restoreTrashEntry(trashed.trashId);
-    assert.equal(restored.id, entry.id);
-    assert.equal(restored.version, entry.version + 1);
-    assert.deepEqual(repository.listEntryImagePaths(entry.id), staged.imagePaths);
-
-    const trashedAgain = repository.moveEntryToTrash(restored.id, restored.version);
-    assert.ok(trashedAgain);
+    const trashCountBefore = database.sqlite
+      .prepare("SELECT count(*) FROM trash_entry")
+      .pluck()
+      .get() as number;
     const quarantine = await storage.quarantineEntryImages(staged.imagePaths);
     try {
       assert.deepEqual(
-        repository.purgeTrashEntry(trashedAgain.trashId, staged.imagePaths),
+        repository.deleteEntry(entry.id, entry.version, staged.imagePaths),
         { imagePaths: staged.imagePaths },
       );
     } catch (error) {
@@ -848,9 +891,16 @@ test("Neum core persistence", async (t) => {
       throw error;
     }
     await storage.finalizeQuarantinedEntryImages(quarantine);
+    assert.equal(repository.getEntry(entry.id), null);
+    assert.deepEqual(repository.listEntryImagePaths(entry.id), []);
     await assert.rejects(storage.readEntryImage(staged.imagePaths[0]), {
       code: "NOT_FOUND",
     });
+    assert.equal(
+      database.sqlite.prepare("SELECT count(*) FROM trash_entry").pluck().get(),
+      trashCountBefore,
+    );
+    assert.equal(repository.deleteFolder(folder.id), true);
   });
 });
 

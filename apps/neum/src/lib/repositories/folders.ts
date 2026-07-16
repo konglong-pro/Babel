@@ -120,7 +120,14 @@ export function deleteFolder(id: number): boolean {
     .from(trashEntries)
     .where(eq(trashEntries.folderId, id))
     .get();
-  if (hasChild || hasEntry || hasTrash) {
+  if (hasTrash) {
+    throw new RepositoryError(
+      "NOT_EMPTY",
+      "Folders with preserved historical records cannot be deleted.",
+      { folderId: id },
+    );
+  }
+  if (hasChild || hasEntry) {
     throw new RepositoryError("NOT_EMPTY", "Non-empty folders cannot be deleted.", {
       folderId: id,
     });

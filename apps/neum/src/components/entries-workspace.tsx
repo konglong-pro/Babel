@@ -1,6 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  MarkdownWritingGuidePanel,
+  TypstReferencePanel,
+  type ReferencePanelKind,
+} from "@babel-apps/markdown/reference";
 
 import {
   BEFORE_NAVIGATE_EVENT,
@@ -9,21 +14,15 @@ import {
 import { EntryDetail, type EntryViewMode } from "@/components/entry-detail";
 import { EntryList } from "@/components/entry-list";
 import { FolderPanel } from "@/components/folder-panel";
-import { TrashDetail, TrashList } from "@/components/trash-panel";
 import {
-  ApiError,
   createEntry,
   createFolder,
   deleteFolder,
   getEntry,
   getErrorMessage,
-  getTrashEntry,
   listEntryBacklinks,
   listEntries,
   listFolders,
-  listTrash,
-  permanentlyDeleteTrashEntry,
-  restoreTrashEntry,
   updateFolder,
 } from "@/lib/api-client";
 import { entryUnitPath, entryWorkspaceHref } from "@/lib/entry-routes";
@@ -38,11 +37,9 @@ import type {
   EntrySummaryDto,
   EntryKind,
   FolderDto,
-  TrashEntryDto,
 } from "@/lib/types";
 
 type ResponsiveStage = "library" | "entries" | "entry";
-type WorkspaceView = "library" | "trash";
 
 const HISTORY_GUARD_KEY = "__neumDirtyGuard";
 const PAGE_LIMIT = 100;
@@ -71,45 +68,34 @@ interface EntriesWorkspaceProps {
   kind: EntryKind;
   initialFolderId?: number | null;
   initialEntryId?: number | null;
-  initialTrash?: boolean;
-  initialTrashId?: number | null;
 }
 
 export function EntriesWorkspace({
   kind,
   initialFolderId = null,
   initialEntryId = null,
-  initialTrash = false,
-  initialTrashId = null,
 }: EntriesWorkspaceProps) {
   const [folders, setFolders] = useState<FolderDto[]>([]);
   const [entries, setEntries] = useState<EntrySummaryDto[]>([]);
   const [entryTotal, setEntryTotal] = useState(0);
-  const [trashItems, setTrashItems] = useState<TrashEntryDto[]>([]);
-  const [trashTotal, setTrashTotal] = useState(0);
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(
-    initialTrash ? null : initialFolderId,
+    initialFolderId,
   );
   const [selectedEntryId, setSelectedEntryId] = useState<number | null>(
-    initialTrash ? null : initialEntryId,
+    initialEntryId,
   );
-  const [selectedTrash, setSelectedTrash] = useState<TrashEntryDto | null>(null);
   const [detail, setDetail] = useState<EntryDetailDto | null>(null);
   const [backlinks, setBacklinks] = useState<EntryBacklinkDto[]>([]);
   const [importDraft, setImportDraft] = useState<MarkdownImportDraft | null>(null);
   const [draftParentId, setDraftParentId] = useState<number | null>(null);
   const [draftVersion, setDraftVersion] = useState(0);
   const [mode, setMode] = useState<EntryViewMode>("view");
-  const [view, setView] = useState<WorkspaceView>(initialTrash ? "trash" : "library");
   const [stage, setStage] = useState<ResponsiveStage>(
-    initialTrash
-      ? initialTrashId === null ? "entries" : "entry"
-      : initialEntryId !== null ? "entry" : initialFolderId !== null ? "entries" : "library",
+    initialEntryId !== null ? "entry" : initialFolderId !== null ? "entries" : "library",
   );
   const [indexLoading, setIndexLoading] = useState(true);
   const [entryPageLoading, setEntryPageLoading] = useState(false);
-  const [trashPageLoading, setTrashPageLoading] = useState(false);
-  const [detailLoading, setDetailLoading] = useState(!initialTrash && initialEntryId !== null);
+  const [detailLoading, setDetailLoading] = useState(initialEntryId !== null);
   const [detailRequestVersion, setDetailRequestVersion] = useState(0);
   const [error, setError] = useState("");
   const [detailError, setDetailError] = useState("");
@@ -130,6 +116,20 @@ export function EntriesWorkspace({
   const mountedRef = useRef(false);
   const selectedFolderIdRef = useRef(selectedFolderId);
   const importRequestVersionRef = useRef(0);
+  const referenceTriggerRef = useRef<HTMLElement | null>(null);
+  const [activeReferencePanel, setActiveReferencePanel] = useState<ReferencePanelKind | null>(null);
+
+  const openReferencePanel = useCallback((panel: ReferencePanelKind) => {
+    referenceTriggerRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    setActiveReferencePanel(panel);
+  }, []);
+
+  const closeReferencePanel = useCallback(() => {
+    setActiveReferencePanel(null);
+    window.requestAnimationFrame(() => referenceTriggerRef.current?.focus());
+  }, []);
 
   const invalidateImportRequest = useCallback(() => {
     importRequestVersionRef.current += 1;
@@ -181,15 +181,6 @@ export function EntriesWorkspace({
     return { folders: nextFolders, page };
   }, [kind]);
 
-  const refreshTrash = useCallback(async () => {
-    const requestId = ++indexRequestRef.current;
-    const page = await listTrash({ kind, limit: PAGE_LIMIT });
-    if (requestId !== indexRequestRef.current) return page;
-    setTrashItems(page.items);
-    setTrashTotal(page.total);
-    return page;
-  }, [kind]);
-
   const setActiveEntryId = useCallback((
     id: number | null,
     exactFolder = false,
@@ -203,7 +194,6 @@ export function EntriesWorkspace({
   const replaceLocation = useCallback((input: {
     folderId?: number | null;
     entryId?: number | null;
-    trashId?: number | null;
   }) => {
     const nextUrl = entryWorkspaceHref(kind, input);
     guardedUrlRef.current = nextUrl;
@@ -236,58 +226,26 @@ export function EntriesWorkspace({
     const requestId = ++indexRequestRef.current;
     async function initialize() {
       try {
-        if (initialTrash) {
-          const [nextFolders, trashPage, initialTrashDetail] = await Promise.all([
-            listFolders(),
-            listTrash({ kind, limit: PAGE_LIMIT }),
-            initialTrashId === null
-              ? Promise.resolve(null)
-              : getTrashEntry(initialTrashId).catch((caught: unknown) => {
-                  if (caught instanceof ApiError && caught.status === 404) return null;
-                  throw caught;
-                }),
-          ]);
-          if (!active || requestId !== indexRequestRef.current) return;
-          if (initialTrashDetail && initialTrashDetail.kind !== kind) {
-            window.location.replace(entryWorkspaceHref(initialTrashDetail.kind, {
-              trashId: initialTrashDetail.trashId,
-            }));
-            return;
-          }
-          setFolders(nextFolders);
-          setTrashItems(trashPage.items);
-          setTrashTotal(trashPage.total);
-          setSelectedTrash(initialTrashDetail);
-          if (initialTrashId !== null && initialTrashDetail === null) {
-            setStage("entries");
-            window.history.replaceState(
-              window.history.state,
-              "",
-              entryWorkspaceHref(kind, { trashId: null }),
-            );
-          }
-        } else {
-          const [nextFolders, entryPage] = await Promise.all([
-            listFolders(),
-            listEntries({
-              folderId: initialFolderId ?? undefined,
-              includeDescendants: true,
-              kind,
-              completeTree: true,
-              limit: PAGE_LIMIT,
-            }),
-          ]);
-          if (!active || requestId !== indexRequestRef.current) return;
-          setFolders(nextFolders);
-          setEntries(entryPage.items);
-          setEntryTotal(entryPage.total);
-          if (
-            initialFolderId !== null &&
-            !nextFolders.some((folder) => folder.id === initialFolderId)
-          ) {
-            setSelectedFolderId(null);
-            setStage(initialEntryId !== null ? "entry" : "library");
-          }
+        const [nextFolders, entryPage] = await Promise.all([
+          listFolders(),
+          listEntries({
+            folderId: initialFolderId ?? undefined,
+            includeDescendants: true,
+            kind,
+            completeTree: true,
+            limit: PAGE_LIMIT,
+          }),
+        ]);
+        if (!active || requestId !== indexRequestRef.current) return;
+        setFolders(nextFolders);
+        setEntries(entryPage.items);
+        setEntryTotal(entryPage.total);
+        if (
+          initialFolderId !== null &&
+          !nextFolders.some((folder) => folder.id === initialFolderId)
+        ) {
+          setSelectedFolderId(null);
+          setStage(initialEntryId !== null ? "entry" : "library");
         }
       } catch (caught) {
         if (active) setError(getErrorMessage(caught));
@@ -299,13 +257,13 @@ export function EntriesWorkspace({
     return () => {
       active = false;
     };
-  }, [initialEntryId, initialFolderId, initialTrash, initialTrashId, kind]);
+  }, [initialEntryId, initialFolderId, kind]);
 
   const selectedEntryIsListed = selectedEntryId !== null && entries.some(
     (entry) => entry.id === selectedEntryId,
   );
   useEffect(() => {
-    if (view !== "library" || indexLoading || selectedEntryId === null) return;
+    if (indexLoading || selectedEntryId === null) return;
     if (detail?.id === selectedEntryId && detailRequestVersion === 0) return;
 
     let active = true;
@@ -351,7 +309,6 @@ export function EntriesWorkspace({
     replaceLocation,
     selectedEntryId,
     selectedEntryIsListed,
-    view,
   ]);
 
   const setDirtyState = useCallback((nextDirty: boolean) => {
@@ -378,10 +335,8 @@ export function EntriesWorkspace({
   const resetToLibraryRoot = useCallback(() => {
     invalidateImportRequest();
     setDirtyState(false);
-    setView("library");
     setSelectedFolderId(null);
     setActiveEntryId(null);
-    setSelectedTrash(null);
     setDetail(null);
     setBacklinks([]);
     setImportDraft(null);
@@ -488,7 +443,6 @@ export function EntriesWorkspace({
       });
       if (
         requestId !== indexRequestRef.current ||
-        view !== "library" ||
         selectedFolderId !== folderId
       ) return;
       setEntries((current) => {
@@ -503,35 +457,11 @@ export function EntriesWorkspace({
     }
   }
 
-  async function loadMoreTrash() {
-    if (trashPageLoading || trashItems.length >= trashTotal) return;
-    const requestId = indexRequestRef.current;
-    setTrashPageLoading(true);
-    try {
-      const page = await listTrash({ kind, limit: PAGE_LIMIT, offset: trashItems.length });
-      if (requestId !== indexRequestRef.current || view !== "trash") return;
-      setTrashItems((current) => {
-        const existing = new Set(current.map(({ trashId }) => trashId));
-        return [
-          ...current,
-          ...page.items.filter(({ trashId }) => !existing.has(trashId)),
-        ];
-      });
-      setTrashTotal(page.total);
-    } catch (caught) {
-      setError(getErrorMessage(caught));
-    } finally {
-      setTrashPageLoading(false);
-    }
-  }
-
   function selectFolder(id: number | null) {
     if (!confirmDiscard()) return;
     invalidateImportRequest();
-    setView("library");
     setSelectedFolderId(id);
     setActiveEntryId(null);
-    setSelectedTrash(null);
     setDetail(null);
     setBacklinks([]);
     setImportDraft(null);
@@ -583,38 +513,12 @@ export function EntriesWorkspace({
     }));
   }
 
-  async function openTrash() {
-    if (!confirmDiscard()) return;
-    invalidateImportRequest();
-    setView("trash");
-    setSelectedFolderId(null);
-    setActiveEntryId(null);
-    setSelectedTrash(null);
-    setDetail(null);
-    setBacklinks([]);
-    setImportDraft(null);
-    setDraftParentId(null);
-    setMode("view");
-    setStage("entries");
-    setIndexLoading(true);
-    replaceLocation({ trashId: null });
-    try {
-      await refreshTrash();
-    } catch (caught) {
-      setError(getErrorMessage(caught));
-    } finally {
-      setIndexLoading(false);
-    }
-  }
-
   async function handleCreateFolder(name: string, parentId: number | null) {
     if (!confirmDiscard()) return;
     const created = await createFolder({ name, parentId });
     await refreshIndex(created.id);
-    setView("library");
     setSelectedFolderId(created.id);
     setActiveEntryId(null);
-    setSelectedTrash(null);
     setDetail(null);
     setBacklinks([]);
     setImportDraft(null);
@@ -734,53 +638,6 @@ export function EntriesWorkspace({
     }
   }
 
-  function selectTrash(item: TrashEntryDto) {
-    setSelectedTrash(item);
-    setStage("entry");
-    replaceLocation({ trashId: item.trashId });
-  }
-
-  async function handleRestore(item: TrashEntryDto) {
-    const restored = await restoreTrashEntry(item.trashId);
-    if (restored.kind !== kind) {
-      window.location.assign(entryWorkspaceHref(restored.kind, {
-        folderId: restored.folderId,
-        entryId: restored.id,
-      }));
-      return;
-    }
-    setView("library");
-    setSelectedTrash(null);
-    setSelectedFolderId(restored.folderId);
-    const selectionVersion = setActiveEntryId(restored.id);
-    setDetail(restored);
-    setBacklinks([]);
-    setImportDraft(null);
-    setDraftParentId(null);
-    setMode("view");
-    setStage("entry");
-    replaceLocation({ folderId: restored.folderId, entryId: restored.id });
-    try {
-      const [nextBacklinks] = await Promise.all([
-        listEntryBacklinks(restored.id),
-        refreshIndex(restored.folderId),
-      ]);
-      if (selectionVersionRef.current === selectionVersion) {
-        setBacklinks(nextBacklinks);
-      }
-    } catch (caught) {
-      setError(getErrorMessage(caught));
-    }
-  }
-
-  async function handlePermanentlyDelete(item: TrashEntryDto) {
-    await permanentlyDeleteTrashEntry(item.trashId);
-    setSelectedTrash(null);
-    setStage("entries");
-    replaceLocation({ trashId: null });
-    await refreshTrash();
-  }
-
   async function handleImportMarkdown(file: File) {
     if (kind !== "knowledge" || selectedFolderId === null) return;
     const requestVersion = importRequestVersionRef.current + 1;
@@ -810,10 +667,8 @@ export function EntriesWorkspace({
         return;
       }
       setError("");
-      setView("library");
       setSelectedFolderId(targetFolderId);
       setActiveEntryId(null);
-      setSelectedTrash(null);
       setDetail(null);
       setBacklinks([]);
       setImportDraft(draft);
@@ -887,55 +742,36 @@ export function EntriesWorkspace({
       <FolderPanel
         folders={folders}
         selectedId={selectedFolderId}
-        trashActive={view === "trash"}
         busy={indexLoading && folders.length === 0}
+        activeReferencePanel={activeReferencePanel}
+        onOpenMarkdownReference={() => openReferencePanel("markdown")}
+        onOpenTypstReference={() => openReferencePanel("typst")}
         onSelect={selectFolder}
-        onOpenTrash={openTrash}
         onCreate={handleCreateFolder}
         onRename={handleRenameFolder}
         onMove={handleMoveFolder}
         onDelete={handleDeleteFolder}
       />
 
-      {view === "library" ? (
-        <EntryList
-          kind={kind}
-          entries={entries}
-          total={entryTotal}
-          folders={folderMap}
-          selectedFolderId={selectedFolderId}
-          selectedEntryId={selectedEntryId}
-          loading={indexLoading}
-          loadingMore={entryPageLoading}
-          onSelect={selectEntry}
-          onLoadMore={loadMoreEntries}
-          onImport={kind === "knowledge" ? handleImportMarkdown : undefined}
-          onCreate={() => beginCreateEntry(null)}
-          onCreateChild={beginCreateEntry}
-          onBack={() => setStage("library")}
-        />
-      ) : (
-        <TrashList
-          items={trashItems}
-          total={trashTotal}
-          selectedTrashId={selectedTrash?.trashId ?? null}
-          loading={indexLoading}
-          loadingMore={trashPageLoading}
-          onSelect={selectTrash}
-          onLoadMore={loadMoreTrash}
-          onBack={() => setStage("library")}
-        />
-      )}
+      <EntryList
+        kind={kind}
+        entries={entries}
+        total={entryTotal}
+        folders={folderMap}
+        selectedFolderId={selectedFolderId}
+        selectedEntryId={selectedEntryId}
+        loading={indexLoading}
+        loadingMore={entryPageLoading}
+        referencePanelOpen={activeReferencePanel !== null}
+        onSelect={selectEntry}
+        onLoadMore={loadMoreEntries}
+        onImport={kind === "knowledge" ? handleImportMarkdown : undefined}
+        onCreate={() => beginCreateEntry(null)}
+        onCreateChild={beginCreateEntry}
+        onBack={() => setStage("library")}
+      />
 
-      {view === "trash" ? (
-        <TrashDetail
-          key={selectedTrash?.trashId ?? "empty"}
-          item={selectedTrash}
-          onRestore={handleRestore}
-          onPermanentlyDelete={handlePermanentlyDelete}
-          onBack={backToEntries}
-        />
-      ) : detailError ? (
+      {detailError ? (
         <section className="detail-panel error-state" role="alert">
           <button className="content-back" type="button" onClick={backToEntries}>← Entries</button>
           <span aria-hidden="true">!</span>
@@ -976,6 +812,12 @@ export function EntriesWorkspace({
           onBack={backToEntries}
         />
       )}
+      {activeReferencePanel === "markdown" ? (
+        <MarkdownWritingGuidePanel onClose={closeReferencePanel} />
+      ) : null}
+      {activeReferencePanel === "typst" ? (
+        <TypstReferencePanel onClose={closeReferencePanel} />
+      ) : null}
     </div>
   );
 }

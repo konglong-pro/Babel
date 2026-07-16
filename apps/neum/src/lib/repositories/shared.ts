@@ -139,10 +139,6 @@ export function tagsByEntryIds(entryIds: readonly number[]): Map<number, string[
   return result;
 }
 
-export function tagNamesForEntry(entryId: number): string[] {
-  return tagsByEntryIds([entryId]).get(entryId) ?? [];
-}
-
 export function replaceEntryTags(entryId: number, rawTags: readonly string[]): void {
   const { db } = getNeumDatabase();
   const normalized = normalizeTags(rawTags);
@@ -232,14 +228,16 @@ export function moveTrashedEntryDescendantsToFolder(
   }
 }
 
-export function assertNoTrashedEntryChildren(parentEntryId: number): void {
-  const child = trashHierarchyRows().find(({ parentId }) => parentId === parentEntryId);
-  if (!child) return;
-  throw new RepositoryError(
-    "NOT_EMPTY",
-    "Trash entries with child pages cannot be permanently deleted.",
-    { entryId: parentEntryId, childEntryId: child.originalEntryId },
-  );
+export function detachTrashedEntryChildren(parentEntryId: number): void {
+  const { db } = getNeumDatabase();
+  for (const row of trashHierarchyRows()) {
+    if (row.parentId !== parentEntryId) continue;
+    row.snapshotEntry.parentId = null;
+    db.update(trashEntries)
+      .set({ snapshotJson: JSON.stringify(row.snapshot) })
+      .where(eq(trashEntries.id, row.trashId))
+      .run();
+  }
 }
 
 function trashHierarchyRows(): TrashHierarchyRow[] {

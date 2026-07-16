@@ -14,16 +14,12 @@ import type * as EntryTitlesRoute from "@/app/api/entries/titles/route";
 import type * as FolderCollectionRoute from "@/app/api/folders/route";
 import type * as HealthRoute from "@/app/api/health/route";
 import type * as SearchRoute from "@/app/api/search/route";
-import type * as TrashCollectionRoute from "@/app/api/trash/route";
-import type * as TrashItemRoute from "@/app/api/trash/[id]/route";
-import type * as TrashRestoreRoute from "@/app/api/trash/[id]/restore/route";
 import type {
   EntryBacklinkDto,
   EntryDetailDto,
   EntryTitleDto,
   PaginatedDto,
   SearchResultsDto,
-  TrashEntryDto,
 } from "@/lib/types";
 import { withEntryMutationLock } from "@/lib/mutation-lock";
 
@@ -34,9 +30,6 @@ let entryTitlesRoute: typeof EntryTitlesRoute;
 let folderCollectionRoute: typeof FolderCollectionRoute;
 let healthRoute: typeof HealthRoute;
 let searchRoute: typeof SearchRoute;
-let trashCollectionRoute: typeof TrashCollectionRoute;
-let trashItemRoute: typeof TrashItemRoute;
-let trashRestoreRoute: typeof TrashRestoreRoute;
 
 test("Neum HTTP contract", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "neum-http-"));
@@ -56,9 +49,6 @@ test("Neum HTTP contract", async (t) => {
       import("@/app/api/folders/route"),
       import("@/app/api/health/route"),
       import("@/app/api/search/route"),
-      import("@/app/api/trash/route"),
-      import("@/app/api/trash/[id]/route"),
-      import("@/app/api/trash/[id]/restore/route"),
     ]),
   ]);
   assert.equal(existsSync(databasePath), false);
@@ -72,9 +62,6 @@ test("Neum HTTP contract", async (t) => {
     folderCollectionRoute,
     healthRoute,
     searchRoute,
-    trashCollectionRoute,
-    trashItemRoute,
-    trashRestoreRoute,
   ] = routes;
 
   migrate(db, { migrationsFolder: path.resolve(import.meta.dirname, "..", "drizzle") });
@@ -458,7 +445,7 @@ test("Neum HTTP contract", async (t) => {
     snippet = updated;
   });
 
-  await t.test("delete, inspect, restore, and purge use the trash contract", async () => {
+  await t.test("delete permanently removes entries without creating trash records", async () => {
     const deletedKnowledge = await entryItemRoute.DELETE(
       jsonRequest(
         `http://localhost/api/entries/${childPage.id}`,
@@ -479,59 +466,20 @@ test("Neum HTTP contract", async (t) => {
     );
     assert.equal(deleted.status, 204);
 
-    const trashPageResponse = await trashCollectionRoute.GET(
-      new Request("http://localhost/api/trash?kind=snippet&limit=50&offset=0"),
+    const missingKnowledge = await entryItemRoute.GET(
+      new Request(`http://localhost/api/entries/${childPage.id}`),
+      routeContext(childPage.id),
     );
-    const trashPage = (await trashPageResponse.json()) as PaginatedDto<TrashEntryDto>;
-    assert.equal(trashPage.total, 1);
-    const trash = trashPage.items[0];
-    assert.equal(trash.id, snippet.id);
-    const knowledgeTrash = (await (
-      await trashCollectionRoute.GET(
-        new Request("http://localhost/api/trash?kind=knowledge&limit=50&offset=0"),
-      )
-    ).json()) as PaginatedDto<TrashEntryDto>;
-    assert.equal(knowledgeTrash.total, 1);
-    assert.equal(knowledgeTrash.items[0]?.id, childPage.id);
-
-    const detail = await trashItemRoute.GET(
-      new Request(`http://localhost/api/trash/${trash.trashId}`),
-      routeContext(trash.trashId),
+    assert.equal(missingKnowledge.status, 404);
+    const missingSnippet = await entryItemRoute.GET(
+      new Request(`http://localhost/api/entries/${snippet.id}`),
+      routeContext(snippet.id),
     );
-    assert.equal(detail.status, 200);
-
-    const restoredResponse = await trashRestoreRoute.POST(
-      new Request(`http://localhost/api/trash/${trash.trashId}/restore`, {
-        method: "POST",
-      }),
-      routeContext(trash.trashId),
+    assert.equal(missingSnippet.status, 404);
+    assert.equal(
+      (sqlite.prepare("SELECT count(*) FROM trash_entry").pluck().get() as number),
+      0,
     );
-    assert.equal(restoredResponse.status, 200);
-    const restored = (await restoredResponse.json()) as EntryDetailDto;
-    assert.equal(restored.id, snippet.id);
-    assert.equal(restored.version, snippet.version + 1);
-
-    const deleteAgain = await entryItemRoute.DELETE(
-      jsonRequest(
-        `http://localhost/api/entries/${restored.id}`,
-        { expectedVersion: restored.version },
-        "DELETE",
-      ),
-      routeContext(restored.id),
-    );
-    assert.equal(deleteAgain.status, 204);
-    const nextTrash = (await (
-      await trashCollectionRoute.GET(
-        new Request("http://localhost/api/trash?kind=snippet"),
-      )
-    ).json()) as PaginatedDto<TrashEntryDto>;
-    const purged = await trashItemRoute.DELETE(
-      new Request(`http://localhost/api/trash/${nextTrash.items[0].trashId}`, {
-        method: "DELETE",
-      }),
-      routeContext(nextTrash.items[0].trashId),
-    );
-    assert.equal(purged.status, 204);
   });
 });
 

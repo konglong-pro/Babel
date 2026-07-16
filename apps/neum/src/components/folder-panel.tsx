@@ -1,6 +1,10 @@
 "use client";
 
 import { type FormEvent, useId, useMemo, useRef, useState } from "react";
+import {
+  ReferencePanelTriggers,
+  type ReferencePanelKind,
+} from "@babel-apps/markdown/reference";
 
 import { folderPathLabel } from "@/components/shared";
 import {
@@ -14,10 +18,11 @@ import type { FolderDto } from "@/lib/types";
 interface FolderPanelProps {
   folders: FolderDto[];
   selectedId: number | null;
-  trashActive: boolean;
   busy?: boolean;
+  activeReferencePanel: ReferencePanelKind | null;
+  onOpenMarkdownReference: () => void;
+  onOpenTypstReference: () => void;
   onSelect: (id: number | null) => void;
-  onOpenTrash: () => void;
   onCreate: (name: string, parentId: number | null) => Promise<void>;
   onRename: (id: number, name: string) => Promise<void>;
   onMove: (id: number, parentId: number | null) => Promise<void>;
@@ -118,10 +123,11 @@ type DialogMode = "create" | "rename" | "move" | "delete";
 export function FolderPanel({
   folders,
   selectedId,
-  trashActive,
   busy,
+  activeReferencePanel,
+  onOpenMarkdownReference,
+  onOpenTypstReference,
   onSelect,
-  onOpenTrash,
   onCreate,
   onRename,
   onMove,
@@ -215,7 +221,12 @@ export function FolderPanel({
   }
 
   return (
-    <aside className="workspace-panel folder-panel" aria-label="Knowledge folders">
+    <aside
+      className="workspace-panel folder-panel"
+      aria-label="Knowledge folders"
+      aria-hidden={activeReferencePanel !== null}
+      inert={activeReferencePanel !== null}
+    >
       <div className="panel-heading">
         <div>
           <span className="eyebrow">Knowledge base</span>
@@ -244,8 +255,8 @@ export function FolderPanel({
       <nav className="folder-tree" aria-label="Folder tree">
         <button
           type="button"
-          className={!trashActive && selectedId === null ? "folder-node root selected" : "folder-node root"}
-          aria-current={!trashActive && selectedId === null ? "page" : undefined}
+          className={selectedId === null ? "folder-node root selected" : "folder-node root"}
+          aria-current={selectedId === null ? "page" : undefined}
           onClick={() => onSelect(null)}
         >
           <span className="all-entries-glyph" aria-hidden="true">A</span>
@@ -265,16 +276,13 @@ export function FolderPanel({
             onCreateChild={(parentId) => openDialog("create", parentId)}
           />
         )}
-        <button
-          type="button"
-          className={trashActive ? "folder-node trash-node selected" : "folder-node trash-node"}
-          aria-current={trashActive ? "page" : undefined}
-          onClick={onOpenTrash}
-        >
-          <span className="all-entries-glyph" aria-hidden="true">T</span>
-          <span>Trash</span>
-        </button>
       </nav>
+
+      <ReferencePanelTriggers
+        activePanel={activeReferencePanel}
+        onOpenMarkdown={onOpenMarkdownReference}
+        onOpenTypst={onOpenTypstReference}
+      />
 
       <dialog ref={dialogRef} className="dialog" aria-labelledby={dialogTitleId}>
         <form className="dialog-body" onSubmit={submit}>
@@ -317,7 +325,8 @@ export function FolderPanel({
 
           {dialogMode === "delete" ? (
             <p>
-              Delete “{selectedFolder?.name}”? Folders containing active or trashed entries, or subfolders, cannot be deleted.
+              Delete “{selectedFolder?.name}”? Folders containing entries,
+              subfolders, or preserved historical records cannot be deleted.
             </p>
           ) : null}
 

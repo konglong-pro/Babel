@@ -15,20 +15,14 @@ export function entryWorkspaceHref(
   input: {
     folderId?: number | null;
     entryId?: number | null;
-    trashId?: number | null;
   } = {},
 ): string {
   const params = new URLSearchParams();
-  if (input.trashId !== undefined) {
-    params.set("view", "trash");
-    if (input.trashId !== null) params.set("trash", String(input.trashId));
-  } else {
-    if (input.folderId !== null && input.folderId !== undefined) {
-      params.set("folder", String(input.folderId));
-    }
-    if (input.entryId !== null && input.entryId !== undefined) {
-      params.set("entry", String(input.entryId));
-    }
+  if (input.folderId !== null && input.folderId !== undefined) {
+    params.set("folder", String(input.folderId));
+  }
+  if (input.entryId !== null && input.entryId !== undefined) {
+    params.set("entry", String(input.entryId));
   }
   const query = params.toString();
   const path = entryUnitPath(kind);

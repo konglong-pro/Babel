@@ -310,6 +310,17 @@ a {
   background: var(--paper-muted);
 }
 
+.reference-panel-trigger,
+.reference-board__close,
+.reference-board__field input,
+.reference-board__field select {
+  border-radius: 3px;
+}
+
+.reference-board__table-wrap {
+  border-radius: 2px;
+}
+
 .detail-panel {
   background: #020203;
   padding: clamp(1.6rem, 3.6vw, 4.2rem);

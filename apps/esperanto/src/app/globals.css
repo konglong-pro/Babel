@@ -258,6 +258,17 @@ a {
   background: var(--paper-muted);
 }
 
+.reference-panel-trigger,
+.reference-board__close,
+.reference-board__field input,
+.reference-board__field select {
+  border-radius: 3px;
+}
+
+.reference-board__table-wrap {
+  border-radius: 2px;
+}
+
 .detail-panel {
   background:
     linear-gradient(180deg, rgb(246 239 227 / 30%), transparent 160px),

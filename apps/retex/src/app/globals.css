@@ -296,31 +296,14 @@ a {
   overscroll-behavior: contain;
 }
 
-.folder-panel-footer {
-  margin-top: auto;
-  border-top: 1px solid var(--line);
-  padding-top: 0.7rem;
+.item-panel {
+  background: #fbfbfc;
 }
 
-.typst-reference-trigger {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  gap: 0.55rem;
-  justify-content: flex-start;
+.reference-panel-trigger {
   border-color: var(--accent-border);
   background: var(--accent-soft);
   color: var(--accent-dark);
-  font-weight: 680;
-}
-
-.typst-reference-trigger:hover,
-.typst-reference-trigger[aria-expanded="true"] {
-  background: var(--accent-soft-strong);
-}
-
-.item-panel {
-  background: #fbfbfc;
 }
 
 .detail-panel {
@@ -1405,158 +1388,6 @@ a {
   min-width: 0;
 }
 
-.typst-reference-panel {
-  z-index: 6;
-  display: grid;
-  grid-column: 1 / 3;
-  grid-row: 1;
-  grid-template-rows: auto auto auto minmax(0, 1fr);
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-  border-right: 1px solid var(--line-strong);
-  background: var(--panel-strong);
-  padding: 0.9rem;
-}
-
-.typst-reference-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  border-bottom: 1px solid var(--line);
-  padding-bottom: 0.75rem;
-}
-
-.typst-reference-header h2 {
-  margin: 0;
-  font-size: 1.15rem;
-}
-
-.typst-reference-header p {
-  margin: 0.35rem 0 0;
-  color: var(--muted);
-  font-size: 0.76rem;
-  line-height: 1.5;
-}
-
-.typst-reference-filters {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(150px, 0.45fr);
-  gap: 0.6rem;
-  padding-top: 0.75rem;
-}
-
-.typst-reference-filters label {
-  display: grid;
-  gap: 0.28rem;
-  min-width: 0;
-  font-size: 0.72rem;
-  font-weight: 680;
-}
-
-.typst-reference-filters input,
-.typst-reference-filters select {
-  width: 100%;
-  min-width: 0;
-  min-height: 34px;
-  border: 1px solid var(--line-strong);
-  border-radius: 6px;
-  background: var(--panel-strong);
-  color: var(--ink);
-  padding: 0.4rem 0.55rem;
-}
-
-.typst-reference-count {
-  margin: 0;
-  color: var(--muted);
-  padding: 0.55rem 0 0.4rem;
-  font-size: 0.7rem;
-}
-
-.typst-reference-table-wrap {
-  min-height: 0;
-  overflow: auto;
-  overscroll-behavior: contain;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  scrollbar-gutter: stable;
-}
-
-.typst-reference-table {
-  width: 100%;
-  min-width: 860px;
-  border-collapse: separate;
-  border-spacing: 0;
-  font-size: 0.72rem;
-  line-height: 1.45;
-}
-
-.typst-reference-table th,
-.typst-reference-table td {
-  border-right: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
-  padding: 0.48rem 0.52rem;
-  text-align: left;
-  vertical-align: top;
-}
-
-.typst-reference-table th:last-child,
-.typst-reference-table td:last-child {
-  border-right: 0;
-}
-
-.typst-reference-table thead th {
-  position: sticky;
-  z-index: 2;
-  top: 0;
-  background: #f3f3f5;
-  color: var(--ink);
-  white-space: nowrap;
-}
-
-.typst-reference-table code {
-  color: #444650;
-  font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 0.68rem;
-  white-space: pre-wrap;
-}
-
-.typst-reference-group-row th {
-  background: var(--accent-soft);
-  color: var(--accent-dark);
-}
-
-.typst-reference-group-row span {
-  display: block;
-  margin-top: 0.14rem;
-  color: var(--muted);
-  font-weight: 400;
-}
-
-.typst-reference-category {
-  display: inline-block;
-  border-radius: 999px;
-  background: #f0f0f2;
-  padding: 0.14rem 0.4rem;
-  white-space: nowrap;
-}
-
-.typst-reference-preview {
-  display: grid;
-  min-width: 90px;
-  min-height: 32px;
-  align-items: center;
-  overflow-x: auto;
-}
-
-.typst-reference-empty {
-  margin: 0;
-  color: var(--muted);
-  padding: 1.5rem;
-  text-align: center;
-}
-
 .scratch-editor .editor-grid {
   grid-template-columns: minmax(0, 1fr);
 }
@@ -1688,11 +1519,6 @@ a {
     overflow: hidden;
   }
 
-  .typst-reference-panel {
-    grid-column: 1 / -1;
-    height: 36dvh;
-  }
-
   .item-panel {
     border-right: 0;
   }
@@ -1777,19 +1603,7 @@ a {
 
   .folder-panel { order: 1; }
   .item-panel { order: 2; }
-  .typst-reference-panel {
-    order: 3;
-    width: 100%;
-    height: min(70dvh, 44rem);
-    border-right: 0;
-    border-bottom: 1px solid var(--line-strong);
-    box-shadow: 0 12px 28px rgb(45 47 55 / 0.08);
-  }
   .detail-panel { order: 4; }
-
-  .typst-reference-filters {
-    grid-template-columns: minmax(0, 1fr);
-  }
 
   .detail-panel {
     min-height: 70dvh;

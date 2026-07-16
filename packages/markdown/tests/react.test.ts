@@ -37,6 +37,23 @@ test("renders an accessible detached reader control without inline content", () 
   assert.doesNotMatch(html, /Detached content/u);
 });
 
+test("renders a responsive inline fallback when a portal target is configured", () => {
+  const html = renderToStaticMarkup(createElement(
+    DetachedReaderWindow,
+    {
+      title: "Draft note - Reader",
+      windowKey: "note-42",
+      buttonLabel: "Read",
+      buttonPortalTargetId: "note-reader-trigger",
+    },
+    createElement("p", null, "Detached content"),
+  ));
+
+  assert.match(html, /class="babel-detached-reader-fallback"/u);
+  assert.match(html, />Read<\/button>/u);
+  assert.doesNotMatch(html, /Detached content/u);
+});
+
 test("renders resolved and unresolved wikilinks with deterministic classes and typed hrefs", () => {
   const html = renderToStaticMarkup(createElement(MarkdownRenderer, {
     content: "[[Known]] and [[Missing|Create it]]",

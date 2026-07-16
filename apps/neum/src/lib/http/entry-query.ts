@@ -38,19 +38,6 @@ export function parseSearchQuery(request: Request): SearchQueryOptions {
   };
 }
 
-export function parseTrashQuery(request: Request): Pick<
-  EntryQueryOptions,
-  "kind" | "limit" | "offset"
-> {
-  const params = new URL(request.url).searchParams;
-  const allowed = new Set(["kind", "limit", "offset"]);
-  assertOnlyQueryFields(params, allowed);
-  return {
-    ...parseKind(params),
-    ...parsePagination(params),
-  };
-}
-
 function parseFilters(
   params: URLSearchParams,
   allowCompleteTree: boolean,

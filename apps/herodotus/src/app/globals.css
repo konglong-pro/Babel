@@ -311,6 +311,23 @@ a {
   background: rgb(255 255 255 / 16%);
 }
 
+.reference-panel-trigger,
+.reference-board__close {
+  border-width: 2px;
+  border-radius: 7px;
+  box-shadow: var(--shadow-small);
+}
+
+.reference-board {
+  border-right-width: 2px;
+}
+
+.reference-board__table-wrap {
+  border-width: 2px;
+  border-radius: 4px;
+  box-shadow: var(--shadow-small);
+}
+
 .detail-panel {
   background: var(--lavender);
   padding: clamp(1.6rem, 3.2vw, 3.8rem);

@@ -2,12 +2,15 @@
 
 import {
   type FormEvent,
-  type RefObject,
   useId,
   useMemo,
   useRef,
   useState,
 } from "react";
+import {
+  ReferencePanelTriggers,
+  type ReferencePanelKind,
+} from "@babel-apps/markdown/reference";
 
 import {
   type FolderExpansionState,
@@ -22,8 +25,8 @@ interface FolderPanelProps {
   folders: FolderDto[];
   selectedId: number | null;
   busy?: boolean;
-  typstReferenceOpen: boolean;
-  typstReferenceTriggerRef: RefObject<HTMLButtonElement | null>;
+  activeReferencePanel: ReferencePanelKind | null;
+  onOpenMarkdownReference: () => void;
   onOpenTypstReference: () => void;
   onSelect: (id: number | null) => void;
   onCreate: (name: string, parentId: number | null) => Promise<void>;
@@ -141,8 +144,8 @@ export function FolderPanel({
   folders,
   selectedId,
   busy,
-  typstReferenceOpen,
-  typstReferenceTriggerRef,
+  activeReferencePanel,
+  onOpenMarkdownReference,
   onOpenTypstReference,
   onSelect,
   onCreate,
@@ -249,8 +252,8 @@ export function FolderPanel({
     <aside
       className="archive-panel folder-panel"
       aria-label={`${spaceName} folders`}
-      aria-hidden={typstReferenceOpen}
-      inert={typstReferenceOpen}
+      aria-hidden={activeReferencePanel !== null}
+      inert={activeReferencePanel !== null}
     >
       <div className="panel-heading">
         <div>
@@ -303,20 +306,11 @@ export function FolderPanel({
         )}
       </nav>
 
-      <div className="folder-panel-footer">
-        <button
-          ref={typstReferenceTriggerRef}
-          id="retex-typst-reference-trigger"
-          type="button"
-          className="typst-reference-trigger"
-          aria-controls="retex-typst-reference-panel"
-          aria-expanded={typstReferenceOpen}
-          onClick={onOpenTypstReference}
-        >
-          <span aria-hidden="true">ƒ</span>
-          <span>Typst 公式表</span>
-        </button>
-      </div>
+      <ReferencePanelTriggers
+        activePanel={activeReferencePanel}
+        onOpenMarkdown={onOpenMarkdownReference}
+        onOpenTypst={onOpenTypstReference}
+      />
 
       <dialog ref={dialogRef} className="dialog" aria-labelledby={dialogTitleId}>
         <form className="dialog-body" onSubmit={submit}>

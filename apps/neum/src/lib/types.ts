@@ -53,12 +53,6 @@ export interface TagSummaryDto {
   entryCount: number;
 }
 
-export interface TrashEntryDto extends Omit<EntryDetailDto, "links"> {
-  trashId: number;
-  deletedAt: string;
-  imagePaths: string[];
-}
-
 export interface PaginatedDto<T> {
   items: T[];
   total: number;

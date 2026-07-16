@@ -17,6 +17,7 @@ interface NoteListProps {
   selectedFolderId: number | null;
   selectedNoteId: number | null;
   loading?: boolean;
+  referencePanelOpen?: boolean;
   onSelect: (id: number) => void;
   onCreate: (parentId: number | null) => void;
   onImport: (file: File) => Promise<void> | void;
@@ -129,6 +130,7 @@ export function NoteList({
   selectedFolderId,
   selectedNoteId,
   loading,
+  referencePanelOpen = false,
   onSelect,
   onCreate,
   onImport,
@@ -176,12 +178,18 @@ export function NoteList({
   }
 
   return (
-    <aside className="workspace-panel note-panel" aria-label="Notes list">
+    <aside
+      className="workspace-panel note-panel"
+      aria-label="Notes list"
+      aria-hidden={referencePanelOpen}
+      inert={referencePanelOpen}
+    >
       <button className="mobile-back" type="button" onClick={onBack}>
         <span aria-hidden="true">←</span> Library
       </button>
       <div className="panel-heading note-list-heading">
         <div>
+          <div id="babel-detached-reader-trigger-target" className="reader-trigger-slot" />
           <span className="eyebrow">Notes</span>
           <h2>{selectedFolder?.name ?? "All Notes"}</h2>
           <p>{notes.length} {notes.length === 1 ? "note" : "notes"}</p>

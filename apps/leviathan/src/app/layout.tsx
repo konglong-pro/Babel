@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 
+import "@babel-apps/markdown/reference.css";
 import "@babel-apps/platform/shortcuts.css";
 import "./globals.css";
 

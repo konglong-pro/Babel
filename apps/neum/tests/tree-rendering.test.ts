@@ -45,9 +45,10 @@ test("folder leaves retain disclosure controls and selected ancestors reveal", (
     createElement(FolderPanel, {
       folders,
       selectedId: 2,
-      trashActive: false,
+      activeReferencePanel: null,
+      onOpenMarkdownReference() {},
+      onOpenTypstReference() {},
       onSelect() {},
-      onOpenTrash() {},
       async onCreate() {},
       async onRename() {},
       async onMove() {},

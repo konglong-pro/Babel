@@ -16,8 +16,5 @@ test("entry units expose stable workspace routes", () => {
     entryWorkspaceHref("knowledge", { folderId: 3, entryId: 8 }),
     "/knowledge?folder=3&entry=8",
   );
-  assert.equal(
-    entryWorkspaceHref("snippet", { trashId: 5 }),
-    "/code?view=trash&trash=5",
-  );
+  assert.equal(entryWorkspaceHref("snippet"), "/code");
 });

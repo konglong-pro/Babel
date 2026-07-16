@@ -1,6 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  MarkdownWritingGuidePanel,
+  TypstReferencePanel,
+  type ReferencePanelKind,
+} from "@babel-apps/markdown/reference";
 
 import {
   BEFORE_NAVIGATE_EVENT,
@@ -127,6 +132,20 @@ export function NotesWorkspace({
   const allowNextPopRef = useRef(false);
   const allowUnloadRef = useRef(false);
   const popFallbackTimerRef = useRef<number | null>(null);
+  const referenceTriggerRef = useRef<HTMLElement | null>(null);
+  const [activeReferencePanel, setActiveReferencePanel] = useState<ReferencePanelKind | null>(null);
+
+  const openReferencePanel = useCallback((panel: ReferencePanelKind) => {
+    referenceTriggerRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    setActiveReferencePanel(panel);
+  }, []);
+
+  const closeReferencePanel = useCallback(() => {
+    setActiveReferencePanel(null);
+    window.requestAnimationFrame(() => referenceTriggerRef.current?.focus());
+  }, []);
 
   const refreshIndex = useCallback(async () => {
     const [nextFolders, nextNotes] = await Promise.all([listFolders(), listNotes()]);
@@ -649,6 +668,9 @@ export function NotesWorkspace({
         folders={folders}
         selectedId={selectedFolderId}
         busy={indexLoading}
+        activeReferencePanel={activeReferencePanel}
+        onOpenMarkdownReference={() => openReferencePanel("markdown")}
+        onOpenTypstReference={() => openReferencePanel("typst")}
         onSelect={selectFolder}
         onCreate={handleCreateFolder}
         onRename={handleRenameFolder}
@@ -661,6 +683,7 @@ export function NotesWorkspace({
         selectedFolderId={selectedFolderId}
         selectedNoteId={selectedNoteId}
         loading={indexLoading}
+        referencePanelOpen={activeReferencePanel !== null}
         onSelect={openNote}
         onCreate={startCreateNote}
         onImport={handleImportMarkdown}
@@ -708,6 +731,12 @@ export function NotesWorkspace({
           onBack={backToNotes}
         />
       )}
+      {activeReferencePanel === "markdown" ? (
+        <MarkdownWritingGuidePanel onClose={closeReferencePanel} />
+      ) : null}
+      {activeReferencePanel === "typst" ? (
+        <TypstReferencePanel onClose={closeReferencePanel} />
+      ) : null}
     </div>
   );
 }

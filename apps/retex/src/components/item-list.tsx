@@ -19,7 +19,7 @@ interface ItemListProps {
   selectedId: number | null;
   selectedFolderId: number | null;
   loading?: boolean;
-  typstReferenceOpen?: boolean;
+  referencePanelOpen?: boolean;
   onSelect: (id: number) => void;
   onCreate: (parentId: number | null) => void;
   onImport?: (file: File) => Promise<void> | void;
@@ -119,7 +119,7 @@ export function ItemList({
   selectedId,
   selectedFolderId,
   loading,
-  typstReferenceOpen = false,
+  referencePanelOpen = false,
   onSelect,
   onCreate,
   onImport,
@@ -171,11 +171,12 @@ export function ItemList({
     <aside
       className="archive-panel item-panel"
       aria-label={`${itemName} list`}
-      aria-hidden={typstReferenceOpen}
-      inert={typstReferenceOpen}
+      aria-hidden={referencePanelOpen}
+      inert={referencePanelOpen}
     >
       <div className="panel-heading compact">
         <div>
+          <div id="babel-detached-reader-trigger-target" className="reader-trigger-slot" />
           <span className="eyebrow">Content</span>
           <h2>{selectedFolderId === null ? `All ${itemName}` : itemName}</h2>
         </div>

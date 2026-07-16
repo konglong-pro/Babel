@@ -2,7 +2,7 @@
 
 Neum is Babel's local, single-user computer-science notebook. It stores Markdown
 knowledge entries and exact code/configuration snippets in nested folders, with
-relational tags, literal search, recoverable trash, and managed images.
+relational tags, literal search, permanent deletion, and managed images.
 
 From the Babel root:
 
@@ -18,14 +18,21 @@ private `data/` repository. The launcher supplies absolute `NEUM_DATABASE_PATH`
 and `NEUM_UPLOAD_DIRECTORY` values.
 
 The editor preserves incomplete JSON, YAML, and other snippets exactly as typed.
-While editing, **Read** opens a separate live reader window; knowledge entries
-show live Markdown and snippets show both their notes and exact code.
+While editing, **Read** sits above the second-column heading and opens a separate
+live reader window; knowledge entries show live Markdown and snippets show both
+their notes and exact code. Bottom-left English **Markdown Guide** and **Typst
+Reference** panels span the folder and entry columns.
+Deleting an entry is permanent and cannot be undone.
 Knowledge folders can import UTF-8 `.md` files and match referenced local images
 by filename; the Code unit intentionally has no Markdown-file import action.
 Markdown notes and code are each limited to 10 MiB. A save may add at most 50
 PNG, JPEG, WebP, or GIF images (10 MiB each), with a 100 MiB logical-save limit
 and a 160 MiB multipart wire limit. Images are committed only when the entry
 save succeeds.
+
+Existing databases and older snapshot bundles may contain historical
+`trash_entry` records. Neum preserves those private records for storage and
+snapshot compatibility, but no longer exposes Trash UI or runtime API routes.
 
 The App build runs against temporary database and upload paths, so `npm.cmd run
 build -w @babel-apps/neum` does not open or modify the configured notebook data.

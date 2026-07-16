@@ -10,7 +10,7 @@ import type { EntryImageUpload } from "../src/lib/storage";
 
 const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
-test("storage recovery preserves trash-owned images and removes generated orphans", async (t) => {
+test("storage recovery preserves legacy trash-owned images and removes generated orphans", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "neum-recovery-"));
   const uploadDirectory = path.join(root, "uploads");
   process.env.NEUM_DATABASE_PATH = path.join(root, "sqlite.db");
@@ -45,7 +45,33 @@ test("storage recovery preserves trash-owned images and removes generated orphan
     },
     staged.imagePaths,
   );
-  assert.ok(repositories.moveEntryToTrash(entry.id, entry.version));
+  const legacySnapshot = {
+    entry: {
+      id: entry.id,
+      parentId: entry.parentId,
+      folderId: entry.folderId,
+      kind: entry.kind,
+      title: entry.title,
+      notesMd: entry.notesMd,
+      code: entry.code,
+      language: entry.language,
+      filename: entry.filename,
+      version: entry.version,
+      createdAt: entry.createdAt,
+      updatedAt: entry.updatedAt,
+    },
+    tags: entry.tags,
+    imagePaths: staged.imagePaths,
+  };
+  sqlite.transaction(() => {
+    sqlite
+      .prepare(
+        `INSERT INTO trash_entry (original_entry_id, folder_id, snapshot_json)
+         VALUES (?, ?, ?)`,
+      )
+      .run(entry.id, entry.folderId, JSON.stringify(legacySnapshot));
+    sqlite.prepare("DELETE FROM entry WHERE id = ?").run(entry.id);
+  })();
 
   await storage.quarantineEntryImages(staged.imagePaths);
   await assert.rejects(storage.readEntryImage(staged.imagePaths[0]), {

@@ -319,9 +319,9 @@ export function EntryDetail({
           <button data-babel-command="edit" type="button" onClick={onEdit}>Edit</button>
           <ConfirmButton
             className="danger-ghost"
-            title="Move entry to trash"
-            description={`Move “${detail.title}” to trash? You can restore it later.`}
-            confirmLabel="Move to trash"
+            title="Delete entry permanently"
+            description={`Permanently delete "${detail.title}"? This cannot be undone.`}
+            confirmLabel="Delete permanently"
             onConfirm={async () => {
               await deleteEntry(detail.id, detail.version);
               await onDeleted();
@@ -650,6 +650,7 @@ function EntryForm({
               title={`${title.trim() || "Untitled entry"} - Reader`}
               windowKey={`neum-${kind}-${detail?.id ?? "draft"}`}
               buttonLabel="Read"
+              buttonPortalTargetId="babel-detached-reader-trigger-target"
               disabled={pending}
             >
               {({ document: readerDocument }) => (

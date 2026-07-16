@@ -25,10 +25,11 @@ normal backups; never commit notebook data to the public Babel repository.
 
 Knowledge can import UTF-8 `.md` files and match referenced local PNG, JPEG,
 WebP, or GIF files before saving. Exercise problems, answers, and solutions use
-the same Markdown editor and managed-image workflow. **Read** opens a separate
-live reader window for Knowledge, whole Exercises, and Scratch work. The bottom-left Typst
-reference opens across the two navigation columns without covering the writing
-column. A Markdown save is limited to 10 MiB of content, 50 new images, 100 MiB
+the same Markdown editor and managed-image workflow. **Read**, placed above the
+second-column heading, opens a separate live reader window for Knowledge, whole
+Exercises, and Scratch work. The bottom-left English **Markdown Guide** and
+**Typst Reference** open across the two navigation columns without covering the
+writing column. A Markdown save is limited to 10 MiB of content, 50 new images, 100 MiB
 logically, and 160 MiB on the multipart wire. ReTex serializes managed-note
 image mutations and reconciles interrupted image transactions during health
 checks and before later writes.

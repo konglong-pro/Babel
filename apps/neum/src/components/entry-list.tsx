@@ -21,6 +21,7 @@ interface EntryListProps {
   selectedEntryId: number | null;
   loading?: boolean;
   loadingMore?: boolean;
+  referencePanelOpen?: boolean;
   onSelect: (id: number) => void;
   onLoadMore: () => Promise<void>;
   onImport?: (file: File) => Promise<void> | void;
@@ -140,6 +141,7 @@ export function EntryList({
   selectedEntryId,
   loading,
   loadingMore,
+  referencePanelOpen = false,
   onSelect,
   onLoadMore,
   onImport,
@@ -193,12 +195,18 @@ export function EntryList({
   }
 
   return (
-    <aside className="workspace-panel entry-panel" aria-label={`${unitLabel} entries`}>
+    <aside
+      className="workspace-panel entry-panel"
+      aria-label={`${unitLabel} entries`}
+      aria-hidden={referencePanelOpen}
+      inert={referencePanelOpen}
+    >
       <button className="mobile-back" type="button" onClick={onBack}>
         <span aria-hidden="true">←</span> Library
       </button>
       <div className="panel-heading entry-list-heading">
         <div>
+          <div id="babel-detached-reader-trigger-target" className="reader-trigger-slot" />
           <span className="eyebrow">{unitLabel}</span>
           <h2>{selectedFolder?.name ?? "All entries"}</h2>
           <p>{total} {total === 1 ? "entry" : "entries"}</p>
