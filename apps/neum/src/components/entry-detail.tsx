@@ -2,6 +2,10 @@
 
 import type { Wikilink } from "@babel-apps/markdown/core";
 import {
+  DetachedEditorWindow,
+  prepareDetachedEditorWindow,
+} from "@babel-apps/markdown/detached-editor";
+import {
   DetachedReaderWindow,
   MarkdownRenderer,
   OutlinePanel,
@@ -311,7 +315,7 @@ export function EntryDetail({
             title={`${detail.title} - Reader`}
             windowKey={`neum-${detail.kind}-${detail.id}`}
             buttonLabel="Read"
-            buttonClassName="babel-reader-title-button"
+            buttonPortalTargetId="babel-detached-reader-trigger-target"
           >
             {({ document: readerDocument }) => (
               <EntryReaderDraft
@@ -343,7 +347,20 @@ export function EntryDetail({
           </p>
         </div>
         <div className="document-actions">
-          <button data-babel-command="edit" type="button" onClick={onEdit}>Edit</button>
+          <button
+            data-babel-command="edit"
+            type="button"
+            onClick={(event) => {
+              prepareDetachedEditorWindow({
+                title: `${detail.title} - Editor`,
+                windowKey: `neum-${detail.kind}-${detail.id}`,
+                anchorElement: event.currentTarget.closest<HTMLElement>(".detail-panel"),
+              });
+              onEdit();
+            }}
+          >
+            Edit
+          </button>
           <ConfirmButton
             className="danger-ghost"
             title="Delete entry permanently"
@@ -660,6 +677,31 @@ function EntryForm({
     void onCreateWikilink(title, folderId);
   }
 
+  const notesEditor = (
+    <div className="editor-outline-layout">
+      <MarkdownEditor
+        label="Notes"
+        name="notesMd"
+        value={notesMd}
+        imagePreviews={imagePreviews}
+        onChange={changeNotes}
+        onImageError={setError}
+        onStageImage={(image) => setStagedImages((current) => [...current, image])}
+        resolveWikilink={resolveWikilink}
+        onNavigateWikilink={onNavigateWikilink}
+        onCreateFromWikilink={onCreateWikilink === undefined ? undefined : createFromWikilink}
+        textareaRef={textareaRef}
+        headingIdPrefix={ENTRY_HEADING_ID_PREFIX}
+      />
+      <OutlinePanel
+        content={notesMd}
+        mode="edit"
+        textareaRef={textareaRef}
+        headingIdPrefix={ENTRY_HEADING_ID_PREFIX}
+      />
+    </div>
+  );
+
   return (
     <section className="detail-panel form-view">
       <form ref={formRef} onSubmit={submit}>
@@ -669,7 +711,7 @@ function EntryForm({
               title={`${title.trim() || "Untitled entry"} - Reader`}
               windowKey={`neum-${kind}-${detail?.id ?? "draft"}`}
               buttonLabel="Read"
-              buttonClassName="babel-reader-title-button"
+              buttonPortalTargetId="babel-detached-reader-trigger-target"
               disabled={pending}
             >
               {({ document: readerDocument }) => (
@@ -785,78 +827,62 @@ function EntryForm({
           />
         ) : null}
 
-        <div className="editor-outline-layout">
-          <MarkdownEditor
-            label="Notes"
-            name="notesMd"
-            value={notesMd}
-            imagePreviews={imagePreviews}
-            onChange={changeNotes}
-            onImageError={setError}
-            onStageImage={(image) => setStagedImages((current) => [...current, image])}
-            resolveWikilink={resolveWikilink}
-            onNavigateWikilink={onNavigateWikilink}
-            onCreateFromWikilink={onCreateWikilink === undefined ? undefined : createFromWikilink}
-            textareaRef={textareaRef}
-            headingIdPrefix={ENTRY_HEADING_ID_PREFIX}
-            footerExtras={(
-              <>
-                <p className="editor-footnote">
-                  Images remain in this browser until you save the entry.
-                </p>
-                {kind === "snippet" ? (
-                  <section className="snippet-fields" aria-label="Code snippet fields">
-                    <div className="form-row form-columns snippet-meta-fields">
-                      <label className="field">
-                        <span>Language</span>
-                        <input
-                          name="language"
-                          autoComplete="off"
-                          required
-                          maxLength={80}
-                          value={language}
-                          placeholder="json, yaml, bash, typescript"
-                          onChange={(event) => setLanguage(event.target.value)}
-                        />
-                      </label>
-                      <label className="field">
-                        <span>Display filename (optional)</span>
-                        <input
-                          name="filename"
-                          autoComplete="off"
-                          maxLength={240}
-                          value={filename}
-                          placeholder="docker-compose.yml"
-                          onChange={(event) => setFilename(event.target.value)}
-                        />
-                      </label>
-                    </div>
-                    <label className="field code-field">
-                      <span>Code</span>
-                      <textarea
-                        name="code"
-                        rows={18}
-                        value={code}
-                        spellCheck={false}
-                        placeholder="Paste the snippet exactly as you want to preserve it."
-                        onChange={(event) => setCode(event.target.value)}
-                      />
-                    </label>
-                    <p className="editor-footnote">
-                      JSON and YAML are stored as written, even when incomplete.
-                    </p>
-                  </section>
-                ) : null}
-              </>
-            )}
-          />
-          <OutlinePanel
-            content={notesMd}
-            mode="edit"
-            textareaRef={textareaRef}
-            headingIdPrefix={ENTRY_HEADING_ID_PREFIX}
-          />
-        </div>
+        {detail ? (
+          <DetachedEditorWindow
+            title={`${title.trim() || "Untitled entry"} - Editor`}
+            windowKey={`neum-${kind}-${detail.id}`}
+            disabled={pending}
+            onSave={() => formRef.current?.requestSubmit()}
+          >
+            {notesEditor}
+          </DetachedEditorWindow>
+        ) : notesEditor}
+        <p className="editor-footnote">
+          Images remain in this browser until you save the entry.
+        </p>
+        {kind === "snippet" ? (
+          <section className="snippet-fields" aria-label="Code snippet fields">
+            <div className="form-row form-columns snippet-meta-fields">
+              <label className="field">
+                <span>Language</span>
+                <input
+                  name="language"
+                  autoComplete="off"
+                  required
+                  maxLength={80}
+                  value={language}
+                  placeholder="json, yaml, bash, typescript"
+                  onChange={(event) => setLanguage(event.target.value)}
+                />
+              </label>
+              <label className="field">
+                <span>Display filename (optional)</span>
+                <input
+                  name="filename"
+                  autoComplete="off"
+                  maxLength={240}
+                  value={filename}
+                  placeholder="docker-compose.yml"
+                  onChange={(event) => setFilename(event.target.value)}
+                />
+              </label>
+            </div>
+            <label className="field code-field">
+              <span>Code</span>
+              <textarea
+                name="code"
+                rows={18}
+                value={code}
+                spellCheck={false}
+                placeholder="Paste the snippet exactly as you want to preserve it."
+                onChange={(event) => setCode(event.target.value)}
+              />
+            </label>
+            <p className="editor-footnote">
+              JSON and YAML are stored as written, even when incomplete.
+            </p>
+          </section>
+        ) : null}
       </form>
     </section>
   );

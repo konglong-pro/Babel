@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./core": "./src/core.ts",
+    "./detached-editor": "./src/detached-editor.tsx",
     "./editing": "./src/editing.ts",
     "./outline": "./src/outline.ts",
     "./react": "./src/react.tsx",

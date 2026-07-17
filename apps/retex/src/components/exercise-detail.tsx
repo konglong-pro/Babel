@@ -2,13 +2,25 @@
 
 import type { Wikilink } from "@babel-apps/markdown/core";
 import {
+  DetachedEditorWindow,
+  prepareDetachedEditorWindow,
+} from "@babel-apps/markdown/detached-editor";
+import {
   DetachedReaderWindow,
   MarkdownRenderer,
   OutlinePanel,
   type ResolvedWikilink,
 } from "@babel-apps/markdown/react";
 import Link from "next/link";
-import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type FormEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import { LinkedMentions } from "@/components/linked-mentions";
 import { MarkdownEditor, type StagedImage } from "@/components/markdown-editor";
@@ -257,7 +269,7 @@ export function ExerciseDetail({
             title={`${detail.title} - Reader`}
             windowKey={`retex-exercise-${detail.id}`}
             buttonLabel="Read"
-            buttonClassName="babel-reader-title-button"
+            buttonPortalTargetId="babel-detached-reader-trigger-target"
           >
             {({ document: readerDocument }) => (
               <ExerciseReaderDraft
@@ -279,7 +291,18 @@ export function ExerciseDetail({
           <p className="document-meta">Updated {formatDate(detail.updatedAt)}</p>
         </div>
         <div className="document-actions">
-          <button data-babel-command="edit" type="button" onClick={onEdit}>
+          <button
+            data-babel-command="edit"
+            type="button"
+            onClick={(event) => {
+              prepareDetachedEditorWindow({
+                title: `${detail.title} - Content`,
+                windowKey: `retex-exercise-content-${detail.id}`,
+                anchorElement: event.currentTarget.closest<HTMLElement>(".detail-panel"),
+              });
+              onEdit();
+            }}
+          >
             Edit
           </button>
           <ConfirmButton
@@ -411,6 +434,28 @@ interface ExerciseFormProps {
   onCreateKnowledgeWikilink: (title: string) => void;
   onDirtyChange?: (dirty: boolean) => void;
   onRegisterSave?: (action: (() => void) | null) => void;
+}
+
+interface ExerciseEditorHostProps {
+  children: ReactNode;
+  detail: ExerciseDetailDto | null;
+  disabled: boolean;
+  onSave: () => void;
+}
+
+function ExerciseEditorHost({ children, detail, disabled, onSave }: ExerciseEditorHostProps) {
+  if (detail === null) return <>{children}</>;
+
+  return (
+    <DetachedEditorWindow
+      title={`${detail.title} - Content`}
+      windowKey={`retex-exercise-content-${detail.id}`}
+      disabled={disabled}
+      onSave={onSave}
+    >
+      <div className="babel-detached-editor-sections">{children}</div>
+    </DetachedEditorWindow>
+  );
 }
 
 function ExerciseForm({
@@ -596,7 +641,7 @@ function ExerciseForm({
               title={`${title.trim() || "Untitled Exercise"} - Reader`}
               windowKey={`retex-exercise-${detail?.id ?? "draft"}`}
               buttonLabel="Read"
-              buttonClassName="babel-reader-title-button"
+              buttonPortalTargetId="babel-detached-reader-trigger-target"
               disabled={pending}
             >
               {({ document: readerDocument }) => (
@@ -663,6 +708,11 @@ function ExerciseForm({
           </label>
         </div>
 
+        <ExerciseEditorHost
+          detail={detail}
+          disabled={pending}
+          onSave={() => formRef.current?.requestSubmit()}
+        >
         <div className="editor-outline-layout">
           <MarkdownEditor
             label="Problem"
@@ -742,15 +792,6 @@ function ExerciseForm({
             onCreateFromWikilink={createFromWikilink}
             textareaRef={solutionTextareaRef}
             headingIdPrefix={EXERCISE_SOLUTION_HEADING_ID_PREFIX}
-            footerExtras={(
-              <RelationPicker
-                legend="Link Knowledge"
-                items={knowledge}
-                selectedIds={knowledgeIds}
-                loading={relationsLoading}
-                onChange={setKnowledgeIds}
-              />
-            )}
           />
           <OutlinePanel
             content={solution}
@@ -759,6 +800,15 @@ function ExerciseForm({
             headingIdPrefix={EXERCISE_SOLUTION_HEADING_ID_PREFIX}
           />
         </div>
+        </ExerciseEditorHost>
+
+        <RelationPicker
+          legend="Link Knowledge"
+          items={knowledge}
+          selectedIds={knowledgeIds}
+          loading={relationsLoading}
+          onChange={setKnowledgeIds}
+        />
         </fieldset>
       </form>
     </section>

@@ -206,6 +206,7 @@ export function EntryList({
       </button>
       <div className="panel-heading entry-list-heading">
         <div>
+          <div id="babel-detached-reader-trigger-target" className="reader-trigger-slot" />
           <span className="eyebrow">{unitLabel}</span>
           <h2>{selectedFolder?.name ?? "All entries"}</h2>
           <p>{total} {total === 1 ? "entry" : "entries"}</p>

@@ -18,7 +18,7 @@ private `data/` repository. The launcher supplies absolute
 `VALI_DATABASE_PATH` and `VALI_UPLOAD_DIRECTORY` values.
 
 The editor uses the full writing area for GitHub Flavored Markdown. In both Notes
-and Reflection, **Read** sits above the detail eyebrow and title and opens a separate
+and Reflection, **Read** sits above the content-index heading and opens a separate
 reader window for saved content or the current unsaved draft and staged images. Notes also
 provides bottom-left English **Markdown Guide** and **Typst Reference** panels
 across the two navigation columns. PNG, JPEG,

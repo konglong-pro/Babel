@@ -269,17 +269,22 @@ test("renders the repository mirror template as an independent app", async (t) =
   assert.match(noteDetail, /OutlinePanel/);
   assert.equal((noteDetail.match(/<DetachedReaderWindow/g) ?? []).length, 2);
   assert.equal(
-    (noteDetail.match(/buttonClassName="babel-reader-title-button"/g) ?? []).length,
+    (noteDetail.match(/buttonPortalTargetId="babel-detached-reader-trigger-target"/g) ?? []).length,
     2,
   );
   assert.match(noteDetail, /liveDraft=\{false\}/);
   assert.match(noteDetail, /liveDraft=\{true\}/);
-  assert.doesNotMatch(noteDetail, /buttonPortalTargetId|babel-detached-reader-trigger-target/);
+  assert.match(noteDetail, /from "@babel-apps\/markdown\/detached-editor"/);
+  assert.equal((noteDetail.match(/<DetachedEditorWindow/g) ?? []).length, 1);
+  assert.match(noteDetail, /prepareDetachedEditorWindow\(\{/);
+  assert.match(noteDetail, /closest<HTMLElement>\("\.detail-panel"\)/);
+  assert.doesNotMatch(noteDetail, /babel-reader-title-button/);
   assert.match(noteDetail, /windowKey=\{`mirror-notes-note-/);
   assert.match(noteDetail, /ownerDocument=\{readerDocument\}/);
   assert.match(noteDetail, /const NOTE_HEADING_ID_PREFIX = "mirror-notes-note-heading-"/);
   assert.match(noteDetail, /textareaRef=\{textareaRef\}/);
-  assert.match(noteDetail, /footerExtras=/);
+  assert.match(noteDetail, /onSave=\{\(\) => formRef\.current\?\.requestSubmit\(\)\}/);
+  assert.doesNotMatch(noteDetail, /footerExtras=/);
   await assert.rejects(
     access(path.join(generatedRoot, "src", "components", "markdown.tsx")),
     { code: "ENOENT" },
@@ -324,6 +329,10 @@ test("renders the repository mirror template as an independent app", async (t) =
   );
   assert.match(noteList, /className="note-disclosure"/);
   assert.match(noteList, /New subnote/);
+  assert.match(
+    noteList,
+    /id="babel-detached-reader-trigger-target"[\s\S]*?<span className="eyebrow">Notes<\/span>/,
+  );
   await access(path.join(generatedRoot, "src", "components", "note-tree-state.ts"));
   await access(path.join(generatedRoot, "tests", "note-tree-state.test.ts"));
   assert.match(initialMigration, /`parent_id` integer/);

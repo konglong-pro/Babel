@@ -97,8 +97,8 @@ test("every registered app and the mirror template expose the global shortcut se
   }
 });
 
-test("every reader control sits above its detail eyebrow and title", async () => {
-  const targets = [
+test("every reader control is portaled above its content heading", async () => {
+  const readerTargets = [
     ["ReTex Knowledge", "apps/retex/src/components/knowledge-detail.tsx", 2],
     ["ReTex Exercise", "apps/retex/src/components/exercise-detail.tsx", 2],
     ["ReTex Scratch", "apps/retex/src/components/scratch-workspace.tsx", 1],
@@ -110,20 +110,52 @@ test("every reader control sits above its detail eyebrow and title", async () =>
     ["Neum", "apps/neum/src/components/entry-detail.tsx", 2],
     ["mirror-app template", "templates/mirror-app/src/components/note-detail.tsx", 2],
   ] as const;
-  const titleReaderPattern =
-    /<DetachedReaderWindow[\s\S]*?buttonClassName="babel-reader-title-button"[\s\S]*?<\/DetachedReaderWindow>\s*<span className="eyebrow"/g;
+  const portalReaderPattern =
+    /<DetachedReaderWindow[\s\S]*?buttonPortalTargetId="babel-detached-reader-trigger-target"[\s\S]*?<\/DetachedReaderWindow>/g;
 
-  for (const [label, relativePath, expectedCount] of targets) {
+  for (const [label, relativePath, expectedCount] of readerTargets) {
     const source = await readFile(path.join(root, relativePath), "utf8");
     assert.equal(
-      (source.match(titleReaderPattern) ?? []).length,
+      (source.match(portalReaderPattern) ?? []).length,
       expectedCount,
-      `${label} must place every Read button directly above the detail eyebrow`,
+      `${label} must portal every Read button to its content heading`,
     );
     assert.doesNotMatch(
       source,
-      /buttonPortalTargetId|babel-detached-reader-trigger-target/,
-      `${label} must not retain the old second-column reader portal`,
+      /babel-reader-title-button/,
+      `${label} must not retain the old detail-title button placement`,
     );
   }
+
+  const contentHeadingTargets = [
+    ["ReTex", "apps/retex/src/components/item-list.tsx"],
+    ["Vali Notes", "apps/vali/src/components/note-list.tsx"],
+    ["Vali Reflection", "apps/vali/src/components/reflection-workspace.tsx"],
+    ["Herodotus", "apps/herodotus/src/components/note-list.tsx"],
+    ["Leviathan", "apps/leviathan/src/components/note-list.tsx"],
+    ["Esperanto", "apps/esperanto/src/components/note-list.tsx"],
+    ["Neum", "apps/neum/src/components/entry-list.tsx"],
+    ["mirror-app template", "templates/mirror-app/src/components/note-list.tsx"],
+  ] as const;
+  const contentHeadingPattern =
+    /<div id="babel-detached-reader-trigger-target" className="reader-trigger-slot"\s*\/>\s*<span className="eyebrow"/;
+
+  for (const [label, relativePath] of contentHeadingTargets) {
+    const source = await readFile(path.join(root, relativePath), "utf8");
+    assert.match(
+      source,
+      contentHeadingPattern,
+      `${label} must place the Read target directly above its content eyebrow`,
+    );
+  }
+
+  const scratchSource = await readFile(
+    path.join(root, "apps/retex/src/components/scratch-workspace.tsx"),
+    "utf8",
+  );
+  assert.match(
+    scratchSource,
+    /<section className="scratch-editor"[\s\S]*?<div id="babel-detached-reader-trigger-target" className="reader-trigger-slot"\s*\/>\s*<div className="editor-outline-layout">/,
+    "ReTex Scratch must place the Read target above its editor content",
+  );
 });

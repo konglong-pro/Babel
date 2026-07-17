@@ -17,9 +17,9 @@ private `data/` repository. The launcher supplies absolute
 `ESPERANTO_DATABASE_PATH` and `ESPERANTO_UPLOAD_DIRECTORY` values.
 
 The editor uses the full writing area; rendered GitHub Flavored Markdown remains
-available in reading mode. **Read** sits above each note's eyebrow and title in
-the detail column, and opens a separate reader window for either saved content
-or the current live draft and staged images. Bottom-left English **Markdown
+available in reading mode. **Read** sits above the note-list heading in the
+middle column and opens a separate reader window for either saved content or
+the current live draft and staged images. Bottom-left English **Markdown
 Guide** and **Typst Reference** panels span the folder and note columns. PNG,
 JPEG, WebP, and GIF images up to 10 MiB can be selected or pasted and are
 committed only when the note is saved. A save accepts

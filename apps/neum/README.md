@@ -18,8 +18,8 @@ private `data/` repository. The launcher supplies absolute `NEUM_DATABASE_PATH`
 and `NEUM_UPLOAD_DIRECTORY` values.
 
 The editor preserves incomplete JSON, YAML, and other snippets exactly as typed.
-**Read** sits above the detail eyebrow and title and opens a separate reader
-window for saved or live content; knowledge entries show Markdown and snippets show both
+**Read** sits above the entry-list heading in the middle column and opens a
+separate reader window for saved or live content; knowledge entries show Markdown and snippets show both
 their notes and exact code. Bottom-left English **Markdown Guide** and **Typst
 Reference** panels span the folder and entry columns.
 Deleting an entry is permanent and cannot be undone.

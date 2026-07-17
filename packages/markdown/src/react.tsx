@@ -295,6 +295,7 @@ export interface WikilinkAutocompleteController {
   suggestions: readonly WikilinkTitleSuggestion[];
   activeIndex: number;
   listboxId: string;
+  ownerDocument: Document | null;
   position: AutocompletePosition | null;
   close: () => void;
   selectSuggestion: (index: number) => void;
@@ -419,10 +420,13 @@ export function useWikilinkAutocomplete(
     setSuggestions([]);
     setIsLoading(false);
     setNativeTextareaValue(textarea, nextText);
-    requestAnimationFrame(() => {
+    const restoreSelection = () => {
       textarea.focus();
       textarea.setSelectionRange(nextCursor, nextCursor);
-    });
+    };
+    const view = textarea.ownerDocument.defaultView;
+    if (view === null) restoreSelection();
+    else view.requestAnimationFrame(restoreSelection);
   }, [options.fetchScope, suggestionScope, textareaRef]);
 
   useEffect(() => {
@@ -578,6 +582,7 @@ export function useWikilinkAutocomplete(
     suggestions: visibleSuggestions,
     activeIndex,
     listboxId,
+    ownerDocument: textareaElement?.ownerDocument ?? null,
     position,
     close,
     selectSuggestion,
@@ -596,18 +601,23 @@ export function WikilinkAutocomplete({
   style,
 }: WikilinkAutocompleteProps) {
   useEffect(() => {
-    if (!autocomplete.isOpen || typeof document === "undefined") return;
-    document
+    if (!autocomplete.isOpen || autocomplete.ownerDocument === null) return;
+    autocomplete.ownerDocument
       .getElementById(optionId(autocomplete.listboxId, autocomplete.activeIndex))
       ?.scrollIntoView({ block: "nearest" });
   }, [
     autocomplete.activeIndex,
     autocomplete.isOpen,
     autocomplete.listboxId,
+    autocomplete.ownerDocument,
     autocomplete.suggestions,
   ]);
 
-  if (!autocomplete.isOpen || autocomplete.position === null || typeof document === "undefined") {
+  if (
+    !autocomplete.isOpen ||
+    autocomplete.position === null ||
+    autocomplete.ownerDocument === null
+  ) {
     return null;
   }
 
@@ -653,7 +663,7 @@ export function WikilinkAutocomplete({
         ))
       )}
     </div>,
-    document.body,
+    autocomplete.ownerDocument.body,
   );
 }
 
@@ -670,6 +680,7 @@ export interface DetachedReaderWindowProps {
   windowKey: string;
   buttonLabel?: ReactNode;
   buttonClassName?: string;
+  buttonPortalTargetId?: string;
   disabled?: boolean;
   onBlocked?: () => void;
 }
@@ -783,11 +794,24 @@ export function DetachedReaderWindow({
   windowKey,
   buttonLabel = "Open reader",
   buttonClassName,
+  buttonPortalTargetId,
   disabled = false,
   onBlocked,
 }: DetachedReaderWindowProps) {
   const [host, setHost] = useState<DetachedReaderHost | null>(null);
+  const [buttonPortalTarget, setButtonPortalTarget] = useState<HTMLElement | null>(null);
   const hostRef = useRef<DetachedReaderHost | null>(null);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      setButtonPortalTarget(
+        buttonPortalTargetId === undefined
+          ? null
+          : document.getElementById(buttonPortalTargetId),
+      );
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [buttonPortalTargetId]);
 
   useEffect(() => {
     hostRef.current = host;
@@ -877,10 +901,10 @@ export function DetachedReaderWindow({
       ? children({ document: host.root.ownerDocument, window: host.popup })
       : children;
 
-  return (
-    <>
+  function readerButton(className = buttonClassName) {
+    return (
       <button
-        className={buttonClassName}
+        className={className}
         data-babel-command="read"
         type="button"
         disabled={disabled}
@@ -889,6 +913,26 @@ export function DetachedReaderWindow({
       >
         {buttonLabel}
       </button>
+    );
+  }
+
+  const fallbackButtonClassName = [
+    buttonClassName,
+    "babel-detached-reader-fallback",
+  ].filter(Boolean).join(" ");
+
+  return (
+    <>
+      {buttonPortalTargetId === undefined
+        ? readerButton()
+        : buttonPortalTarget === null
+          ? readerButton(fallbackButtonClassName)
+          : (
+              <>
+                {createPortal(readerButton(), buttonPortalTarget)}
+                {readerButton(fallbackButtonClassName)}
+              </>
+            )}
       {host === null ? null : createPortal(readerContent, host.root)}
     </>
   );

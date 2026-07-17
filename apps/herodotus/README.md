@@ -19,9 +19,9 @@ private `data/` repository. The launcher supplies absolute
 
 The three-column workspace keeps the folder tree, note list, and reader/editor
 visible together. The editor uses its full content area for GitHub Flavored
-Markdown, while saved notes render in the reader. **Read** sits above each
-note's eyebrow and title in the detail column, and opens a separate reader
-window for either saved content or the current live draft and staged images.
+Markdown, while saved notes render in the reader. **Read** sits above the
+note-list heading in the middle column and opens a separate reader window for
+either saved content or the current live draft and staged images.
 Bottom-left English **Markdown
 Guide** and **Typst Reference** panels span the folder and note columns.
 PNG, JPEG, WebP, and GIF

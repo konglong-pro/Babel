@@ -2,6 +2,10 @@
 
 import type { Wikilink } from "@babel-apps/markdown/core";
 import {
+  DetachedEditorWindow,
+  prepareDetachedEditorWindow,
+} from "@babel-apps/markdown/detached-editor";
+import {
   DetachedReaderWindow,
   MarkdownRenderer,
   OutlinePanel,
@@ -280,7 +284,7 @@ export function NoteDetail({
             title={`${detail.title} - Reader`}
             windowKey={`herodotus-note-${detail.id}`}
             buttonLabel="Read"
-            buttonClassName="babel-reader-title-button"
+            buttonPortalTargetId="babel-detached-reader-trigger-target"
           >
             {({ document: readerDocument }) => (
               <NoteReaderDraft
@@ -305,7 +309,20 @@ export function NoteDetail({
         </div>
         <div className="document-actions">
           <button data-babel-command="new" data-babel-priority="10" type="button" onClick={onCreateSubnote}>New subnote</button>
-          <button data-babel-command="edit" type="button" onClick={onEdit}>Edit</button>
+          <button
+            data-babel-command="edit"
+            type="button"
+            onClick={(event) => {
+              prepareDetachedEditorWindow({
+                title: `${detail.title} - Editor`,
+                windowKey: `herodotus-note-${detail.id}`,
+                anchorElement: event.currentTarget.closest<HTMLElement>(".detail-panel"),
+              });
+              onEdit();
+            }}
+          >
+            Edit
+          </button>
           <ConfirmButton
             className="danger-ghost"
             title="Delete note"
@@ -627,6 +644,36 @@ function NoteForm({
     }
   }
 
+  const editorLayout = (
+    <div className="editor-outline-layout">
+      <MarkdownEditor
+        label="Content"
+        name="contentMd"
+        value={content}
+        disabled={pending}
+        imagePreviews={imagePreviews}
+        onChange={changeContent}
+        onImageError={setError}
+        onStageImage={(image) => {
+          if (!pendingRef.current) {
+            setStagedImages((current) => [...current, image]);
+          }
+        }}
+        resolveWikilink={resolveWikilink}
+        onNavigateWikilink={onNavigateWikilink}
+        onCreateFromWikilink={createFromWikilink}
+        textareaRef={textareaRef}
+        headingIdPrefix={NOTE_HEADING_ID_PREFIX}
+      />
+      <OutlinePanel
+        content={content}
+        mode="edit"
+        textareaRef={textareaRef}
+        headingIdPrefix={NOTE_HEADING_ID_PREFIX}
+      />
+    </div>
+  );
+
   return (
     <section className="detail-panel form-view">
       <form ref={formRef} onSubmit={submit}>
@@ -636,7 +683,7 @@ function NoteForm({
               title={`${title.trim() || "Untitled note"} - Reader`}
               windowKey={`herodotus-note-${detail?.id ?? "draft"}`}
               buttonLabel="Read"
-              buttonClassName="babel-reader-title-button"
+              buttonPortalTargetId="babel-detached-reader-trigger-target"
               disabled={pending}
             >
               {({ document: readerDocument }) => (
@@ -755,38 +802,19 @@ function NoteForm({
           onError={setError}
         />
 
-        <div className="editor-outline-layout">
-          <MarkdownEditor
-            label="Content"
-            name="contentMd"
-            value={content}
+        {detail ? (
+          <DetachedEditorWindow
+            title={`${title.trim() || "Untitled note"} - Editor`}
+            windowKey={`herodotus-note-${detail.id}`}
             disabled={pending}
-            imagePreviews={imagePreviews}
-            onChange={changeContent}
-            onImageError={setError}
-            onStageImage={(image) => {
-              if (!pendingRef.current) {
-                setStagedImages((current) => [...current, image]);
-              }
-            }}
-            resolveWikilink={resolveWikilink}
-            onNavigateWikilink={onNavigateWikilink}
-            onCreateFromWikilink={createFromWikilink}
-            textareaRef={textareaRef}
-            headingIdPrefix={NOTE_HEADING_ID_PREFIX}
-            footerExtras={(
-              <p className="editor-footnote">
-                Images remain in this browser until you save the note.
-              </p>
-            )}
-          />
-          <OutlinePanel
-            content={content}
-            mode="edit"
-            textareaRef={textareaRef}
-            headingIdPrefix={NOTE_HEADING_ID_PREFIX}
-          />
-        </div>
+            onSave={() => formRef.current?.requestSubmit()}
+          >
+            {editorLayout}
+          </DetachedEditorWindow>
+        ) : editorLayout}
+        <p className="editor-footnote">
+          Images remain in this browser until you save the note.
+        </p>
       </form>
     </section>
   );

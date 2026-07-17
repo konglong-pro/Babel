@@ -2,6 +2,10 @@
 
 import type { Wikilink } from "@babel-apps/markdown/core";
 import {
+  DetachedEditorWindow,
+  prepareDetachedEditorWindow,
+} from "@babel-apps/markdown/detached-editor";
+import {
   DetachedReaderWindow,
   MarkdownRenderer,
   OutlinePanel,
@@ -241,7 +245,7 @@ export function KnowledgeDetail({
             title={`${detail.title} - Reader`}
             windowKey={`retex-knowledge-${detail.id}`}
             buttonLabel="Read"
-            buttonClassName="babel-reader-title-button"
+            buttonPortalTargetId="babel-detached-reader-trigger-target"
           >
             {({ document: readerDocument }) => (
               <KnowledgeReaderDraft
@@ -265,7 +269,18 @@ export function KnowledgeDetail({
           <button data-babel-command="new" data-babel-priority="10" type="button" onClick={onCreateChild}>
             New subnote
           </button>
-          <button data-babel-command="edit" type="button" onClick={onEdit}>
+          <button
+            data-babel-command="edit"
+            type="button"
+            onClick={(event) => {
+              prepareDetachedEditorWindow({
+                title: `${detail.title} - Content`,
+                windowKey: `retex-knowledge-content-${detail.id}`,
+                anchorElement: event.currentTarget.closest<HTMLElement>(".detail-panel"),
+              });
+              onEdit();
+            }}
+          >
             Edit
           </button>
           <ConfirmButton
@@ -558,6 +573,33 @@ function KnowledgeForm({
     onNavigateWikilink(target);
   }
 
+  const contentEditor = (
+    <div className="editor-outline-layout">
+      <MarkdownEditor
+        label="Content"
+        name="contentMd"
+        value={content}
+        disabled={pending}
+        imagePreviews={imagePreviews}
+        onChange={changeContent}
+        onImageError={setError}
+        onStageImage={(image) => setStagedImages((current) => [...current, image])}
+        hint="Use native Typst math inside $…$ and [[title]] to link another note."
+        enableWikilinkAutocomplete
+        resolveWikilink={resolveWikilink}
+        onNavigateWikilink={navigateFromPreview}
+        onCreateFromWikilink={createFromWikilink}
+        textareaRef={textareaRef}
+      />
+      <OutlinePanel
+        content={content}
+        mode="edit"
+        textareaRef={textareaRef}
+        headingIdPrefix={KNOWLEDGE_HEADING_ID_PREFIX}
+      />
+    </div>
+  );
+
   return (
     <section className="detail-panel form-view">
       <form ref={formRef} onSubmit={submit} aria-busy={pending}>
@@ -568,7 +610,7 @@ function KnowledgeForm({
               title={`${title.trim() || "Untitled Knowledge note"} - Reader`}
               windowKey={`retex-knowledge-${detail?.id ?? "draft"}`}
               buttonLabel="Read"
-              buttonClassName="babel-reader-title-button"
+              buttonPortalTargetId="babel-detached-reader-trigger-target"
               disabled={pending}
             >
               {({ document: readerDocument }) => (
@@ -669,39 +711,24 @@ function KnowledgeForm({
           onError={setError}
         />
 
-        <div className="editor-outline-layout">
-          <MarkdownEditor
-            label="Content"
-            name="contentMd"
-            value={content}
+        {detail ? (
+          <DetachedEditorWindow
+            title={`${detail.title} - Content`}
+            windowKey={`retex-knowledge-content-${detail.id}`}
             disabled={pending}
-            imagePreviews={imagePreviews}
-            onChange={changeContent}
-            onImageError={setError}
-            onStageImage={(image) => setStagedImages((current) => [...current, image])}
-            hint="Use native Typst math inside $…$ and [[title]] to link another note."
-            enableWikilinkAutocomplete
-            resolveWikilink={resolveWikilink}
-            onNavigateWikilink={navigateFromPreview}
-            onCreateFromWikilink={createFromWikilink}
-            textareaRef={textareaRef}
-            footerExtras={(
-              <RelationPicker
-                legend="Link Exercises"
-                items={exercises}
-                selectedIds={exerciseIds}
-                loading={relationsLoading}
-                onChange={setExerciseIds}
-              />
-            )}
-          />
-          <OutlinePanel
-            content={content}
-            mode="edit"
-            textareaRef={textareaRef}
-            headingIdPrefix={KNOWLEDGE_HEADING_ID_PREFIX}
-          />
-        </div>
+            onSave={() => formRef.current?.requestSubmit()}
+          >
+            {contentEditor}
+          </DetachedEditorWindow>
+        ) : contentEditor}
+
+        <RelationPicker
+          legend="Link Exercises"
+          items={exercises}
+          selectedIds={exerciseIds}
+          loading={relationsLoading}
+          onChange={setExerciseIds}
+        />
         </fieldset>
       </form>
     </section>

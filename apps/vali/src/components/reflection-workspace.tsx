@@ -2,6 +2,10 @@
 
 import type { Wikilink } from "@babel-apps/markdown/core";
 import {
+  DetachedEditorWindow,
+  prepareDetachedEditorWindow,
+} from "@babel-apps/markdown/detached-editor";
+import {
   DetachedReaderWindow,
   MarkdownRenderer,
   OutlinePanel,
@@ -313,11 +317,38 @@ export function ReflectionWorkspace({ initialDate }: { initialDate: string | nul
     );
   }
 
+  const reflectionEditor = (
+    <div className="editor-outline-layout">
+      <MarkdownEditor
+        label="Reflection"
+        name="contentMd"
+        value={content}
+        disabled={pending}
+        imagePreviews={imagePreviews}
+        onChange={changeContent}
+        onImageError={setError}
+        onStageImage={(image) => setStagedImages((current) => [...current, image])}
+        resolveWikilink={resolveWikilink}
+        onNavigateWikilink={navigateWikilink}
+        onCreateFromWikilink={createFromWikilink}
+        textareaRef={textareaRef}
+        headingIdPrefix={REFLECTION_HEADING_ID_PREFIX}
+      />
+      <OutlinePanel
+        content={content}
+        mode="edit"
+        textareaRef={textareaRef}
+        headingIdPrefix={REFLECTION_HEADING_ID_PREFIX}
+      />
+    </div>
+  );
+
   return (
     <div className={`reflection-workspace${dirty ? " has-unsaved" : ""}`}>
       <aside className="reflection-index workspace-panel" aria-label="Reflection dates">
         <div className="panel-heading">
           <div>
+            <div id="babel-detached-reader-trigger-target" className="reader-trigger-slot" />
             <span className="eyebrow">Daily unit</span>
             <h1>Reflection</h1>
           </div>
@@ -372,7 +403,7 @@ export function ReflectionWorkspace({ initialDate }: { initialDate: string | nul
                   title={`${selectedDate} - Reflection reader`}
                   windowKey={`vali-reflection-${selectedDate}`}
                   buttonLabel="Read"
-                  buttonClassName="babel-reader-title-button"
+                  buttonPortalTargetId="babel-detached-reader-trigger-target"
                   disabled={pending}
                 >
                   {({ document: readerDocument }) =>
@@ -401,30 +432,17 @@ export function ReflectionWorkspace({ initialDate }: { initialDate: string | nul
                 </button>
               </div>
             </header>
-            <div className="editor-outline-layout">
-              <MarkdownEditor
-                label="Reflection"
-                name="contentMd"
-                value={content}
+            {detail ? (
+              <DetachedEditorWindow
+                title={`${selectedDate} - Reflection editor`}
+                windowKey={`vali-reflection-${selectedDate}`}
                 disabled={pending}
-                imagePreviews={imagePreviews}
-                onChange={changeContent}
-                onImageError={setError}
-                onStageImage={(image) => setStagedImages((current) => [...current, image])}
-                resolveWikilink={resolveWikilink}
-                onNavigateWikilink={navigateWikilink}
-                onCreateFromWikilink={createFromWikilink}
-                textareaRef={textareaRef}
-                headingIdPrefix={REFLECTION_HEADING_ID_PREFIX}
-                footerExtras={<p className="editor-footnote">Images are committed with this reflection.</p>}
-              />
-              <OutlinePanel
-                content={content}
-                mode="edit"
-                textareaRef={textareaRef}
-                headingIdPrefix={REFLECTION_HEADING_ID_PREFIX}
-              />
-            </div>
+                onSave={() => formRef.current?.requestSubmit()}
+              >
+                {reflectionEditor}
+              </DetachedEditorWindow>
+            ) : reflectionEditor}
+            <p className="editor-footnote">Images are committed with this reflection.</p>
           </form>
         ) : (
           <article>
@@ -434,7 +452,7 @@ export function ReflectionWorkspace({ initialDate }: { initialDate: string | nul
                   title={`${selectedDate} - Reflection reader`}
                   windowKey={`vali-reflection-${selectedDate}`}
                   buttonLabel="Read"
-                  buttonClassName="babel-reader-title-button"
+                  buttonPortalTargetId="babel-detached-reader-trigger-target"
                 >
                   {({ document: readerDocument }) =>
                     renderReflectionReader(selectedDate, readerDocument, false)}
@@ -444,7 +462,20 @@ export function ReflectionWorkspace({ initialDate }: { initialDate: string | nul
                 {detail ? <p className="document-meta">Updated {formatDate(detail.updatedAt)}</p> : null}
               </div>
               <div className="document-actions">
-                <button data-babel-command="edit" type="button" onClick={() => setMode("edit")}>Edit</button>
+                <button
+                  data-babel-command="edit"
+                  type="button"
+                  onClick={(event) => {
+                    prepareDetachedEditorWindow({
+                      title: `${selectedDate} - Reflection editor`,
+                      windowKey: `vali-reflection-${selectedDate}`,
+                      anchorElement: event.currentTarget.closest<HTMLElement>(".detail-panel"),
+                    });
+                    setMode("edit");
+                  }}
+                >
+                  Edit
+                </button>
               </div>
             </header>
             <div className="document-outline-layout">

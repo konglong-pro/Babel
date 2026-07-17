@@ -16,10 +16,12 @@ Open `http://127.0.0.1:__APP_PORT__`. Private data lives in
 private `data/` repository. The launcher supplies absolute
 `__APP_ENV_PREFIX___DATABASE_PATH` and `__APP_ENV_PREFIX___UPLOAD_DIRECTORY` values.
 
-The editor uses the full writing area; rendered GitHub Flavored Markdown remains
-available in reading mode. **Read** sits above each note's eyebrow and title in
-the detail column, and opens a separate reader window for either saved content
-or the current live title, tags, Markdown, outline, and staged images.
+Editing an existing note opens a focused **Content + Outline** window aligned
+to the note-detail column. The main edit page continues to manage the title,
+folder, parent page, tags, Save, and Cancel; new-note drafts remain inline.
+Rendered GitHub Flavored Markdown remains available in reading mode. **Read** sits above the note-list heading in the
+middle column and opens a separate reader window for either saved content or
+the current live title, tags, Markdown, outline, and staged images.
 Bottom-left English **Markdown Guide** and **Typst Reference** panels span the
 folder and note columns.
 PNG, JPEG, WebP, and GIF images up to 10 MiB can be
