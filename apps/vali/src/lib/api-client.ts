@@ -159,8 +159,14 @@ export function deleteNote(id: number): Promise<void> {
   return request(`/api/notes/${id}`, { method: "DELETE" });
 }
 
-export function searchNotes(query: string): Promise<DocumentSearchResultsDto> {
-  return request(`/api/search?q=${encodeURIComponent(query)}`);
+export function searchNotes(
+  query: string,
+  options: { limit?: number; offset?: number } = {},
+): Promise<DocumentSearchResultsDto> {
+  const params = new URLSearchParams({ q: query });
+  if (options.limit !== undefined) params.set("limit", String(options.limit));
+  if (options.offset !== undefined) params.set("offset", String(options.offset));
+  return request(`/api/search?${params}`);
 }
 
 export function listNoteTitles(

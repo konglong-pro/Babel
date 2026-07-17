@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./build/next": "./src/build/next.ts",
     "./shortcuts/core": "./src/shortcuts/core.ts",
     "./shortcuts/server": "./src/shortcuts/server.ts",
     "./shortcuts/react": "./src/shortcuts/react.tsx",
@@ -15,7 +16,9 @@
     "./db/readiness": "./src/db/readiness.ts",
     "./db/readiness-snapshot": "./src/db/readiness-snapshot.ts",
     "./http/errors": "./src/http/errors.ts",
+    "./http/folder-routes": "./src/http/folder-routes.ts",
     "./http/request": "./src/http/request.ts",
+    "./search/page": "./src/search/page.ts",
     "./search/text": "./src/search/text.ts"
   },
   "scripts": {

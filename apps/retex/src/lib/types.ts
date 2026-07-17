@@ -127,6 +127,11 @@ export interface ExerciseSearchResultDto extends ExerciseSummaryDto {
 export interface SearchResultsDto {
   knowledge: KnowledgeSearchResultDto[];
   exercises: ExerciseSearchResultDto[];
+  knowledgeTotal: number;
+  exerciseTotal: number;
+  limit: number;
+  knowledgeOffset: number;
+  exerciseOffset: number;
 }
 
 export function noteImageUrl(imagePath: string): string {

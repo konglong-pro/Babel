@@ -5,7 +5,7 @@ import type BetterSqlite3 from "better-sqlite3";
 import { resolveDatabasePath } from "@babel-apps/platform/db/client";
 import { assertLiveDatabaseMigrationsCurrent } from "@babel-apps/platform/db/readiness";
 
-export const NEUM_SCHEMA_MIGRATION_TIMESTAMP = 1_783_937_572_499;
+export const NEUM_SCHEMA_MIGRATION_TIMESTAMP = 1_784_217_600_000;
 
 const databasePathOptions = {
   envVar: "NEUM_DATABASE_PATH",
@@ -20,6 +20,24 @@ export const appDatabaseReadinessOptions = {
     entry: ["parent_id"],
     entry_link: ["source_entry_id", "target_title_key", "target_entry_id"],
   },
+  requiredSchemaObjects: [
+    {
+      type: "table",
+      name: "entry_search",
+      sqlIncludes: ["USING fts5", "content='entry'", "tokenize='trigram'"],
+    },
+    { type: "trigger", name: "entry_search_ai" },
+    { type: "trigger", name: "entry_search_ad" },
+    { type: "trigger", name: "entry_search_au" },
+    {
+      type: "table",
+      name: "tag_search",
+      sqlIncludes: ["USING fts5", "content='tag'", "tokenize='trigram'"],
+    },
+    { type: "trigger", name: "tag_search_ai" },
+    { type: "trigger", name: "tag_search_ad" },
+    { type: "trigger", name: "tag_search_au" },
+  ],
 } as const;
 
 export function resolveAppDatabasePath(): string {
@@ -63,6 +81,8 @@ const requiredTables = {
     "snapshot_json",
     "deleted_at",
   ],
+  entry_search: ["title", "notes_md", "code", "language", "filename"],
+  tag_search: ["name"],
 } as const;
 
 const requiredIndexes = {
@@ -162,6 +182,20 @@ const requiredChecks = {
   trash_entry: ["trash_entry_snapshot_json_valid"],
 } as const;
 
+const requiredTableSqlFragments = {
+  entry_search: ["using fts5", "content='entry'", "tokenize='trigram'"],
+  tag_search: ["using fts5", "content='tag'", "tokenize='trigram'"],
+} as const;
+
+const requiredTriggers = [
+  "entry_search_ai",
+  "entry_search_ad",
+  "entry_search_au",
+  "tag_search_ai",
+  "tag_search_ad",
+  "tag_search_au",
+] as const;
+
 export function assertCurrentNeumSchema(sqlite: BetterSqlite3.Database): void {
   assertMigrationApplied(sqlite);
 
@@ -182,6 +216,17 @@ export function assertCurrentNeumSchema(sqlite: BetterSqlite3.Database): void {
     for (const constraint of requiredChecks[table as keyof typeof requiredChecks] ?? []) {
       if (!schemaSql.includes(constraint)) {
         throw new Error(`Missing Neum constraint: ${constraint}.`);
+      }
+    }
+    const normalizedSchemaSql = schemaSql.toLowerCase();
+    for (
+      const fragment of
+        requiredTableSqlFragments[
+          table as keyof typeof requiredTableSqlFragments
+        ] ?? []
+    ) {
+      if (!normalizedSchemaSql.includes(fragment)) {
+        throw new Error(`Neum table has wrong schema: ${table}.`);
       }
     }
   }
@@ -242,6 +287,15 @@ export function assertCurrentNeumSchema(sqlite: BetterSqlite3.Database): void {
     );
     if (!matches) {
       throw new Error(`Missing Neum foreign key: ${table}.${from}.`);
+    }
+  }
+
+  for (const trigger of requiredTriggers) {
+    const exists = sqlite
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = ?")
+      .get(trigger);
+    if (exists === undefined) {
+      throw new Error(`Missing Neum trigger: ${trigger}.`);
     }
   }
 }

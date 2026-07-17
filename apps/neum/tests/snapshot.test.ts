@@ -426,6 +426,30 @@ function createSchema(sqlite: BetterSqlite3.Database): void {
     CREATE INDEX entry_kind_idx ON entry(kind);
     CREATE INDEX entry_title_idx ON entry(title);
     CREATE INDEX entry_updated_idx ON entry(updated_at, id);
+    CREATE VIRTUAL TABLE entry_search USING fts5(
+      title,
+      notes_md,
+      code,
+      language,
+      filename,
+      content='entry',
+      content_rowid='id',
+      tokenize='trigram'
+    );
+    CREATE TRIGGER entry_search_ai AFTER INSERT ON entry BEGIN
+      INSERT INTO entry_search(rowid, title, notes_md, code, language, filename)
+      VALUES (new.id, new.title, new.notes_md, new.code, new.language, new.filename);
+    END;
+    CREATE TRIGGER entry_search_ad AFTER DELETE ON entry BEGIN
+      INSERT INTO entry_search(entry_search, rowid, title, notes_md, code, language, filename)
+      VALUES ('delete', old.id, old.title, old.notes_md, old.code, old.language, old.filename);
+    END;
+    CREATE TRIGGER entry_search_au AFTER UPDATE ON entry BEGIN
+      INSERT INTO entry_search(entry_search, rowid, title, notes_md, code, language, filename)
+      VALUES ('delete', old.id, old.title, old.notes_md, old.code, old.language, old.filename);
+      INSERT INTO entry_search(rowid, title, notes_md, code, language, filename)
+      VALUES (new.id, new.title, new.notes_md, new.code, new.language, new.filename);
+    END;
     CREATE TABLE entry_link (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       source_entry_id INTEGER NOT NULL REFERENCES entry(id) ON DELETE CASCADE,
@@ -444,6 +468,24 @@ function createSchema(sqlite: BetterSqlite3.Database): void {
       CONSTRAINT tag_name_not_blank CHECK(length(trim(name)) > 0)
     );
     CREATE UNIQUE INDEX tag_name_unique ON tag(name_key);
+    CREATE VIRTUAL TABLE tag_search USING fts5(
+      name,
+      content='tag',
+      content_rowid='id',
+      tokenize='trigram'
+    );
+    CREATE TRIGGER tag_search_ai AFTER INSERT ON tag BEGIN
+      INSERT INTO tag_search(rowid, name) VALUES (new.id, new.name);
+    END;
+    CREATE TRIGGER tag_search_ad AFTER DELETE ON tag BEGIN
+      INSERT INTO tag_search(tag_search, rowid, name)
+      VALUES ('delete', old.id, old.name);
+    END;
+    CREATE TRIGGER tag_search_au AFTER UPDATE ON tag BEGIN
+      INSERT INTO tag_search(tag_search, rowid, name)
+      VALUES ('delete', old.id, old.name);
+      INSERT INTO tag_search(rowid, name) VALUES (new.id, new.name);
+    END;
     CREATE TABLE entry_tag (
       entry_id INTEGER NOT NULL REFERENCES entry(id) ON DELETE CASCADE,
       tag_id INTEGER NOT NULL REFERENCES tag(id) ON DELETE CASCADE,

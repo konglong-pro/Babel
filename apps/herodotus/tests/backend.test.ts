@@ -599,7 +599,12 @@ test("Herodotus backend integration", async (t) => {
       assert.ok(repositories.listNotes(history.id).some(({ id }) => id === note.id));
       assert.equal(repositories.searchNotes("古罗马").notes[0]?.id, note.id);
       assert.equal(repositories.searchNotes("history").notes[0]?.id, note.id);
-      assert.deepEqual(repositories.searchNotes("   "), { notes: [] });
+      assert.deepEqual(repositories.searchNotes("   "), {
+        notes: [],
+        total: 0,
+        limit: 50,
+        offset: 0,
+      });
 
       const literature = repositories.listFolders()[1];
       const moved = repositories.updateNote(note.id, { folderId: literature.id }).note;

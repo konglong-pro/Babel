@@ -7,7 +7,11 @@ export const runtime = "nodejs";
 
 export function GET(request: Request): Promise<Response> {
   return handleApi(() => {
-    const query = new URL(request.url).searchParams.get("q") ?? "";
-    return NextResponse.json(searchNotes(query));
+    const searchParams = new URL(request.url).searchParams;
+    const query = searchParams.get("q") ?? "";
+    return NextResponse.json(searchNotes(query, {
+      limit: Number(searchParams.get("limit")),
+      offset: Number(searchParams.get("offset")),
+    }));
   });
 }

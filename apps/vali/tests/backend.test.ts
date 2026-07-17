@@ -347,7 +347,12 @@ test("Vali backend integration", async (t) => {
       assert.ok(repositories.listNotes(vocabulary.id).some(({ id }) => id === note.id));
       assert.equal(repositories.searchNotes("departure").notes[0]?.id, note.id);
       assert.equal(repositories.searchNotes("travel").notes[0]?.id, note.id);
-      assert.deepEqual(repositories.searchNotes("   "), { notes: [] });
+      assert.deepEqual(repositories.searchNotes("   "), {
+        notes: [],
+        total: 0,
+        limit: 50,
+        offset: 0,
+      });
 
       const grammar = repositories.listFolders()[1];
       const moved = repositories.updateNote(note.id, { folderId: grammar.id }).note;
@@ -422,6 +427,20 @@ test("Vali backend integration", async (t) => {
         ),
         [emojiEarlier.id, asciiLater.id],
       );
+    });
+
+    await t.test("search paginates notes and reflections in one global order", () => {
+      const folderId = repositories.listFolders()[0].id;
+      const query = "vali-pagination-needle";
+      const note = repositories.createNote({ folderId, title: query });
+      repositories.saveReflection("2038-06-07", `Reflection body ${query}`);
+
+      const firstPage = repositories.searchDocuments(query, { limit: 1, offset: 0 });
+      const secondPage = repositories.searchDocuments(query, { limit: 1, offset: 1 });
+      assert.equal(firstPage.total, 2);
+      assert.equal(firstPage.results[0]?.kind, "note");
+      assert.equal(firstPage.results[0]?.kind === "note" && firstPage.results[0].id, note.id);
+      assert.equal(secondPage.results[0]?.kind, "reflection");
     });
 
     await t.test("search returns safe match metadata for mixed and literal results", async () => {

@@ -1,6 +1,5 @@
 import {
   hasOwn,
-  normalizeLoopbackOrigin,
   type JsonObject,
 } from "@babel-apps/platform/http/request";
 
@@ -12,7 +11,9 @@ import {
 import { assertUploadToken, type NoteImageUpload } from "@/lib/storage";
 
 export {
+  assertOnlyFields,
   assertPatchHasFields,
+  assertSameOrigin,
   optionalNullablePositiveInteger,
   optionalPositiveInteger,
   optionalString,
@@ -26,25 +27,6 @@ export {
 export interface NoteMultipartRequest {
   payload: JsonObject;
   uploads: Map<string, NoteImageUpload>;
-}
-
-export function assertSameOrigin(request: Request): void {
-  const requestOrigin = normalizeLoopbackOrigin(request.url);
-  if (requestOrigin === undefined) {
-    throw new ApiError(403, "FORBIDDEN_ORIGIN", "Cross-origin mutations are not allowed.");
-  }
-
-  const origin = request.headers.get("origin");
-  if (origin === null) return;
-
-  const suppliedOrigin = normalizeLoopbackOrigin(origin);
-  if (suppliedOrigin === undefined || suppliedOrigin !== requestOrigin) {
-    throw new ApiError(
-      403,
-      "FORBIDDEN_ORIGIN",
-      "Cross-origin mutations are not allowed.",
-    );
-  }
 }
 
 export async function readNoteMultipart(
@@ -192,15 +174,6 @@ export function optionalStringArray(
     });
   }
   return [...value] as string[];
-}
-
-export function assertOnlyFields(body: JsonObject, allowed: readonly string[]): void {
-  const unknown = Object.keys(body).find((field) => !allowed.includes(field));
-  if (unknown) {
-    throw new ApiError(400, "VALIDATION_ERROR", `Unexpected field: ${unknown}.`, {
-      field: unknown,
-    });
-  }
 }
 
 function asJsonObject(value: unknown, message: string): JsonObject {

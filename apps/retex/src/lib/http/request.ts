@@ -1,6 +1,5 @@
 import {
   hasOwn,
-  normalizeLoopbackOrigin,
   readJsonObject,
   type JsonObject,
 } from "@babel-apps/platform/http/request";
@@ -17,6 +16,7 @@ import {
 import { folderTypes, type FolderType } from "@/lib/types";
 
 export {
+  assertSameOrigin,
   assertPatchHasFields,
   optionalNullablePositiveInteger,
   optionalPositiveInteger,
@@ -67,25 +67,6 @@ export function queryFolderType(value: string | null): FolderType {
 export interface NoteMutationRequest {
   payload: JsonObject;
   uploads: Map<string, NoteImageUpload>;
-}
-
-export function assertSameOrigin(request: Request): void {
-  const requestOrigin = normalizeLoopbackOrigin(request.url);
-  if (requestOrigin === undefined) {
-    throw new ApiError(403, "FORBIDDEN_ORIGIN", "Cross-origin mutations are not allowed.");
-  }
-
-  const origin = request.headers.get("origin");
-  if (origin === null) return;
-
-  const suppliedOrigin = normalizeLoopbackOrigin(origin);
-  if (suppliedOrigin === undefined || suppliedOrigin !== requestOrigin) {
-    throw new ApiError(
-      403,
-      "FORBIDDEN_ORIGIN",
-      "Cross-origin mutations are not allowed.",
-    );
-  }
 }
 
 export async function readNoteMutationRequest(

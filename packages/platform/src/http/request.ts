@@ -24,6 +24,25 @@ export function normalizeLoopbackOrigin(value: string): string | undefined {
   return url.origin;
 }
 
+export function assertSameOrigin(request: Request): void {
+  const requestOrigin = normalizeLoopbackOrigin(request.url);
+  if (requestOrigin === undefined) {
+    throw new ApiError(403, "FORBIDDEN_ORIGIN", "Cross-origin mutations are not allowed.");
+  }
+
+  const origin = request.headers.get("origin");
+  if (origin === null) return;
+
+  const suppliedOrigin = normalizeLoopbackOrigin(origin);
+  if (suppliedOrigin === undefined || suppliedOrigin !== requestOrigin) {
+    throw new ApiError(
+      403,
+      "FORBIDDEN_ORIGIN",
+      "Cross-origin mutations are not allowed.",
+    );
+  }
+}
+
 export async function readJsonObject(request: Request): Promise<JsonObject> {
   let value: unknown;
 
@@ -137,5 +156,17 @@ export function assertPatchHasFields(
 ): void {
   if (Object.values(patch).every((value) => value === undefined)) {
     throw new ApiError(400, "VALIDATION_ERROR", message);
+  }
+}
+
+export function assertOnlyFields(
+  body: JsonObject,
+  allowed: readonly string[],
+): void {
+  const unknown = Object.keys(body).find((field) => !allowed.includes(field));
+  if (unknown) {
+    throw new ApiError(400, "VALIDATION_ERROR", `Unexpected field: ${unknown}.`, {
+      field: unknown,
+    });
   }
 }

@@ -17,6 +17,7 @@
     "db:backfill-links": "tsx scripts/backfill-links.ts",
     "db:check": "tsx scripts/check-database.ts",
     "db:checkpoint": "tsx scripts/checkpoint-database.ts",
+    "benchmark:search": "tsx scripts/benchmark-search.ts",
     "test": "tsx --test tests/*.test.ts",
     "check": "npm run lint && npm run typecheck && npm run test && npm run build"
   },

@@ -1,6 +1,5 @@
 import {
   hasOwn,
-  normalizeLoopbackOrigin,
   type JsonObject,
 } from "@babel-apps/platform/http/request";
 
@@ -12,7 +11,9 @@ import {
 import { assertUploadToken, type EntryImageUpload } from "@/lib/storage";
 
 export {
+  assertOnlyFields,
   assertPatchHasFields,
+  assertSameOrigin,
   optionalNullablePositiveInteger,
   optionalPositiveInteger,
   optionalString,
@@ -26,19 +27,6 @@ export {
 export interface EntryMultipartRequest {
   payload: JsonObject;
   uploads: Map<string, EntryImageUpload>;
-}
-
-export function assertSameOrigin(request: Request): void {
-  const requestOrigin = normalizeLoopbackOrigin(request.url);
-  if (requestOrigin === undefined) throw forbiddenOrigin();
-
-  const origin = request.headers.get("origin");
-  if (origin === null) return;
-
-  const suppliedOrigin = normalizeLoopbackOrigin(origin);
-  if (suppliedOrigin === undefined || suppliedOrigin !== requestOrigin) {
-    throw forbiddenOrigin();
-  }
 }
 
 export async function readEntryMultipart(
@@ -228,15 +216,6 @@ export function parseBoolean(value: string, field: string): boolean {
   throw new ApiError(400, "VALIDATION_ERROR", `${field} must be true or false.`, { field });
 }
 
-export function assertOnlyFields(body: JsonObject, allowed: readonly string[]): void {
-  const unknown = Object.keys(body).find((field) => !allowed.includes(field));
-  if (unknown) {
-    throw new ApiError(400, "VALIDATION_ERROR", `Unexpected field: ${unknown}.`, {
-      field: unknown,
-    });
-  }
-}
-
 function asJsonObject(value: unknown, message: string): JsonObject {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new ApiError(400, "INVALID_JSON", message);
@@ -251,8 +230,4 @@ function isEntryImageUpload(value: FormDataEntryValue): value is File {
     typeof value.size === "number" &&
     typeof value.arrayBuffer === "function"
   );
-}
-
-function forbiddenOrigin(): ApiError {
-  return new ApiError(403, "FORBIDDEN_ORIGIN", "Cross-origin mutations are not allowed.");
 }

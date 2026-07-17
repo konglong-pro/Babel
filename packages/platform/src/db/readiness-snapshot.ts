@@ -5,6 +5,7 @@ import path from "node:path";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 
 import { assertLiveDatabaseMigrationsCurrent } from "./readiness";
+import type { RequiredSchemaObject } from "./readiness";
 
 export type AssertDatabaseMigrationsCurrentOptions = {
   appName: string;
@@ -12,6 +13,7 @@ export type AssertDatabaseMigrationsCurrentOptions = {
   databasePath: string;
   migrationsFolder: string;
   requiredColumns?: Readonly<Record<string, readonly string[]>>;
+  requiredSchemaObjects?: readonly RequiredSchemaObject[];
 };
 
 export function assertDatabaseMigrationsCurrent(
@@ -31,6 +33,7 @@ export function assertDatabaseMigrationsCurrent(
       databasePath: snapshot.databasePath,
       expectedMigration: latestCodeMigration,
       requiredColumns: options.requiredColumns,
+      requiredSchemaObjects: options.requiredSchemaObjects,
     });
   } finally {
     rmSync(snapshot.directory, { recursive: true, force: true });

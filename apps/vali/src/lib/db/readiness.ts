@@ -18,7 +18,7 @@ const databasePathOptions = {
 export const appDatabaseReadinessOptions = {
   appName: "Vali",
   packageName: "@babel-apps/vali",
-  expectedMigration: 1_783_669_000_000,
+  expectedMigration: 1_784_217_600_000,
   requiredColumns: {
     note: ["parent_id"],
     reflection: ["date", "content_md"],
@@ -35,7 +35,27 @@ export const appDatabaseReadinessOptions = {
       "target_reflection_date",
     ],
     document_image: ["note_id", "reflection_date", "image_path"],
+    note_search: ["title", "content_md", "tags"],
+    reflection_search: ["date", "content_md"],
   },
+  requiredSchemaObjects: [
+    {
+      type: "table",
+      name: "note_search",
+      sqlIncludes: ["USING fts5", "content='note'", "tokenize='trigram'"],
+    },
+    { type: "trigger", name: "note_search_ai" },
+    { type: "trigger", name: "note_search_ad" },
+    { type: "trigger", name: "note_search_au" },
+    {
+      type: "table",
+      name: "reflection_search",
+      sqlIncludes: ["USING fts5", "tokenize='trigram'"],
+    },
+    { type: "trigger", name: "reflection_search_ai" },
+    { type: "trigger", name: "reflection_search_ad" },
+    { type: "trigger", name: "reflection_search_au" },
+  ],
 } as const;
 
 export function resolveAppDatabasePath(): string {

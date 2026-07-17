@@ -13,7 +13,13 @@ import type {
   SearchTextPartDto,
 } from "@/lib/types";
 
-const EMPTY_RESULTS: DocumentSearchResultsDto = { results: [] };
+const SEARCH_PAGE_LIMIT = 50;
+const EMPTY_RESULTS: DocumentSearchResultsDto = {
+  results: [],
+  total: 0,
+  limit: SEARCH_PAGE_LIMIT,
+  offset: 0,
+};
 const SEARCH_FIELD_LABELS: Record<DocumentSearchField, string> = {
   title: "Title",
   content: "Body",
@@ -27,13 +33,14 @@ const DOCUMENT_KIND_LABELS: Record<DocumentKind, string> = {
 export function SearchResults({ query }: { query: string }) {
   const [results, setResults] = useState<DocumentSearchResultsDto>(EMPTY_RESULTS);
   const [loading, setLoading] = useState(Boolean(query));
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (!query) return;
 
     let active = true;
-    searchNotes(query)
+    searchNotes(query, { limit: SEARCH_PAGE_LIMIT, offset: 0 })
       .then((nextResults) => {
         if (active) setResults(nextResults);
       })
@@ -48,7 +55,27 @@ export function SearchResults({ query }: { query: string }) {
     };
   }, [query]);
 
-  const total = results.results.length;
+  const total = results.total;
+  const canLoadMore = results.results.length < results.total;
+
+  function loadMore() {
+    if (loadingMore || !canLoadMore) return;
+    setLoadingMore(true);
+    setError("");
+    searchNotes(query, {
+      limit: SEARCH_PAGE_LIMIT,
+      offset: results.results.length,
+    })
+      .then((nextResults) => {
+        setResults((current) => ({
+          ...nextResults,
+          results: [...current.results, ...nextResults.results],
+          offset: 0,
+        }));
+      })
+      .catch((caught) => setError(getErrorMessage(caught)))
+      .finally(() => setLoadingMore(false));
+  }
 
   return (
     <div className="search-page">
@@ -79,6 +106,7 @@ export function SearchResults({ query }: { query: string }) {
       ) : null}
 
       {!loading && total > 0 ? (
+        <>
         <ul className="search-result-list" aria-label="Search results">
           {results.results.map((result) => (
             <li key={result.kind === "note" ? `note:${result.id}` : `reflection:${result.date}`}>
@@ -104,6 +132,17 @@ export function SearchResults({ query }: { query: string }) {
             </li>
           ))}
         </ul>
+        {canLoadMore ? (
+          <button
+            type="button"
+            className="primary-button"
+            disabled={loadingMore}
+            onClick={loadMore}
+          >
+            {loadingMore ? "Loading\u2026" : "Load more"}
+          </button>
+        ) : null}
+        </>
       ) : null}
     </div>
   );

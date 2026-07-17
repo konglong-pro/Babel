@@ -40,6 +40,18 @@ test("selects the smallest free registry port", () => {
 test("renders a mirror app and updates registry metadata", async (t) => {
   const fixture = await createFixture();
   t.after(() => rm(fixture.root, { recursive: true, force: true }));
+  const templateRoot = path.join(fixture.root, "templates", "mirror-app");
+  await mkdir(path.join(templateRoot, ".next", "node_modules"), {
+    recursive: true,
+  });
+  await mkdir(path.join(templateRoot, "node_modules"), { recursive: true });
+  await mkdir(path.join(templateRoot, "public", "_typst"), { recursive: true });
+  await writeFile(path.join(templateRoot, "tsconfig.tsbuildinfo"), "generated");
+  await writeFile(path.join(templateRoot, "build.log"), "generated");
+  await writeFile(
+    path.join(templateRoot, "public", "_typst", "runtime.js"),
+    "generated",
+  );
 
   const commands: CommandInvocation[] = [];
   const result = await scaffoldApp("My Notes", {
@@ -94,6 +106,17 @@ test("renders a mirror app and updates registry metadata", async (t) => {
   );
   await access(path.join(generatedRoot, "src", "components", "markdown.tsx"));
   await access(path.join(generatedRoot, "src", "lib", "repositories", "index.ts"));
+  for (const generatedPath of [
+    ".next",
+    "node_modules",
+    "public/_typst",
+    "tsconfig.tsbuildinfo",
+    "build.log",
+  ]) {
+    await assert.rejects(access(path.join(generatedRoot, generatedPath)), {
+      code: "ENOENT",
+    });
+  }
 
   const registry = await readJson<{
     apps: Array<Record<string, unknown>>;
@@ -157,6 +180,7 @@ test("renders the repository mirror template as an independent app", async (t) =
   assert.equal(manifest.scripts.prestart, "npm run typst:assets");
   assert.equal(manifest.scripts["db:backfill-links"], "tsx scripts/backfill-links.ts");
   assert.equal(manifest.scripts["db:check"], "tsx scripts/check-database.ts");
+  assert.equal(manifest.scripts["benchmark:search"], "tsx scripts/benchmark-search.ts");
   assert.equal(manifest.scripts.build, "tsx scripts/build.ts");
   assert.match(
     await readFile(path.join(generatedRoot, "next.config.ts"), "utf8"),
@@ -172,6 +196,7 @@ test("renders the repository mirror template as an independent app", async (t) =
   );
   await access(path.join(generatedRoot, "scripts", "check-database.ts"));
   await access(path.join(generatedRoot, "scripts", "build.ts"));
+  await access(path.join(generatedRoot, "scripts", "benchmark-search.ts"));
   await access(path.join(generatedRoot, "src", "lib", "markdown-import.ts"));
   await access(path.join(generatedRoot, "src", "lib", "note-limits.ts"));
   await access(path.join(generatedRoot, "src", "lib", "storage", "recovery.ts"));
@@ -193,6 +218,8 @@ test("renders the repository mirror template as an independent app", async (t) =
     readinessSource,
     /note_link:\s*\[[\s\S]*?"source_note_id"[\s\S]*?"target_title_key"[\s\S]*?"target_note_id"[\s\S]*?\]/,
   );
+  assert.match(readinessSource, /note_search:\s*\["title", "content_md", "tags"\]/);
+  assert.match(readinessSource, /name:\s*"note_search"/);
   const initialMigration = await readFile(
     path.join(generatedRoot, "drizzle", "0000_mirror-notes_notes.sql"),
     "utf8",
@@ -209,6 +236,12 @@ test("renders the repository mirror template as an independent app", async (t) =
   assert.match(initialMigration, /CREATE UNIQUE INDEX `note_link_source_title_unique`/);
   assert.match(initialMigration, /CREATE INDEX `note_link_target_idx`/);
   assert.match(initialMigration, /CREATE INDEX `note_link_title_key_idx`/);
+  const searchMigration = await readFile(
+    path.join(generatedRoot, "drizzle", "0001_mirror-notes_search_trigram.sql"),
+    "utf8",
+  );
+  assert.match(searchMigration, /tokenize='trigram'/);
+  assert.match(searchMigration, /CREATE TRIGGER `note_search_au`/);
 
   const markdownEditor = await readFile(
     path.join(generatedRoot, "src", "components", "markdown-editor.tsx"),
@@ -358,6 +391,8 @@ test("renders the repository mirror template as an independent app", async (t) =
     "utf8",
   );
   assert.match(generatedSearchRepository, /@babel-apps\/platform\/search\/text/);
+  assert.match(generatedSearchRepository, /@babel-apps\/platform\/search\/page/);
+  assert.match(generatedSearchRepository, /note_search/);
   assert.match(generatedSearchRepository, /compareRankedNotes/);
   assert.match(generatedSearchRepository, /hasStoredTagOnlyMatch/);
   assert.match(generatedSearchRepository, /literalTextPosition/);
@@ -372,6 +407,7 @@ test("renders the repository mirror template as an independent app", async (t) =
     "utf8",
   );
   assert.match(generatedSearchResults, /<mark/);
+  assert.match(generatedSearchResults, /Load more/);
   assert.doesNotMatch(generatedSearchResults, /dangerouslySetInnerHTML/);
   assert.match(globalStyles, /\.search-result-list mark/);
   assert.match(generatedBackendTests, /storage recovery waits for an active image mutation/);

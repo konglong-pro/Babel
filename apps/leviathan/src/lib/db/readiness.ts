@@ -18,11 +18,22 @@ const databasePathOptions = {
 export const appDatabaseReadinessOptions = {
   appName: "Leviathan",
   packageName: "@babel-apps/leviathan",
-  expectedMigration: 1_783_935_760_283,
+  expectedMigration: 1_784_217_600_000,
   requiredColumns: {
     note: ["parent_id"],
     note_link: ["source_note_id", "target_title_key", "target_note_id"],
+    note_search: ["title", "content_md", "tags"],
   },
+  requiredSchemaObjects: [
+    {
+      type: "table",
+      name: "note_search",
+      sqlIncludes: ["USING fts5", "content='note'", "tokenize='trigram'"],
+    },
+    { type: "trigger", name: "note_search_ai" },
+    { type: "trigger", name: "note_search_ad" },
+    { type: "trigger", name: "note_search_au" },
+  ],
 } as const;
 
 export function resolveAppDatabasePath(): string {

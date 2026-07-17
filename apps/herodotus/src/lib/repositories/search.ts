@@ -1,4 +1,9 @@
-import { or, sql, type AnyColumn, type SQL } from "drizzle-orm";
+import {
+  collectRankedSearchPage,
+  normalizeSearchPage,
+  trigramFtsQuery,
+  type SearchPageOptions,
+} from "@babel-apps/platform/search/page";
 import {
   asciiFold,
   countLiteralOccurrences,
@@ -7,7 +12,7 @@ import {
   literalTextPosition,
 } from "@babel-apps/platform/search/text";
 
-import { db } from "@/lib/db/client";
+import { sqlite } from "@/lib/db/client";
 import { notes } from "@/lib/db/schema";
 import type {
   NoteSearchField,
@@ -17,26 +22,32 @@ import type {
 
 import { tagsFromJson } from "./shared";
 
-export function searchNotes(query: string): SearchResultsDto {
-  const normalized = typeof query === "string" ? query.trim() : "";
-  if (!normalized) return { notes: [] };
+type SearchableNoteRow = Pick<
+  typeof notes.$inferSelect,
+  "id" | "folderId" | "parentId" | "title" | "contentMd" | "tags" | "updatedAt"
+>;
 
-  const pattern = `%${escapeLike(normalized)}%`;
-  const matches = db
-    .select()
-    .from(notes)
-    .where(
-      or(
-        likeLiteral(notes.title, pattern),
-        likeLiteral(notes.contentMd, pattern),
-        likeLiteral(notes.tags, pattern),
-      ),
-    )
-    .all()
-    .map((row) => rankNote(row, normalized))
-    .sort(compareRankedNotes)
-    .map(({ result }) => result);
-  return { notes: matches };
+export function searchNotes(
+  query: string,
+  options: SearchPageOptions = {},
+): SearchResultsDto {
+  const normalized = typeof query === "string" ? query.trim() : "";
+  if (!normalized) {
+    return { notes: [], total: 0, ...normalizeSearchPage(options) };
+  }
+
+  const page = collectRankedSearchPage(
+    matchingNoteRows(normalized),
+    (row) => rankNote(row, normalized),
+    compareRankedNotes,
+    options,
+  );
+  return {
+    notes: page.items.map(({ result }) => result),
+    total: page.total,
+    limit: page.limit,
+    offset: page.offset,
+  };
 }
 
 interface RankedNote {
@@ -48,7 +59,7 @@ interface RankedNote {
 }
 
 function rankNote(
-  row: typeof notes.$inferSelect,
+  row: SearchableNoteRow,
   query: string,
 ): RankedNote {
   const tags = tagsFromJson(row.tags);
@@ -154,6 +165,28 @@ function escapeLike(value: string): string {
   return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
 }
 
-function likeLiteral(column: AnyColumn, pattern: string): SQL {
-  return sql`${column} LIKE ${pattern} ESCAPE ${"\\"}`;
+function matchingNoteRows(query: string): Iterable<SearchableNoteRow> {
+  const pattern = `%${escapeLike(query)}%`;
+  const ftsQuery = trigramFtsQuery(query);
+  const candidate = ftsQuery === undefined
+    ? ""
+    : "`id` IN (SELECT `rowid` FROM `note_search` WHERE `note_search` MATCH @ftsQuery) AND";
+  const statement = sqlite.prepare(`
+    SELECT
+      \`id\`,
+      \`folder_id\` AS \`folderId\`,
+      \`parent_id\` AS \`parentId\`,
+      \`title\`,
+      \`content_md\` AS \`contentMd\`,
+      \`tags\`,
+      \`updated_at\` AS \`updatedAt\`
+    FROM \`note\`
+    WHERE ${candidate} (
+      \`title\` LIKE @pattern ESCAPE '\\'
+      OR \`content_md\` LIKE @pattern ESCAPE '\\'
+      OR \`tags\` LIKE @pattern ESCAPE '\\'
+    )
+  `);
+  const parameters = ftsQuery === undefined ? { pattern } : { pattern, ftsQuery };
+  return statement.iterate(parameters) as Iterable<SearchableNoteRow>;
 }

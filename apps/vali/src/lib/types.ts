@@ -65,6 +65,9 @@ export interface NoteDetailDto extends NoteSummaryDto {
 
 export interface SearchResultsDto {
   notes: NoteSummaryDto[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface ReflectionSummaryDto {
@@ -112,6 +115,9 @@ export type DocumentSearchResultDto =
 
 export interface DocumentSearchResultsDto {
   results: DocumentSearchResultDto[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export function noteImageUrl(imagePath: string): string {

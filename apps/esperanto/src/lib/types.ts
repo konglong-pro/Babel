@@ -39,6 +39,9 @@ export interface NoteTitleDto {
 
 export interface SearchResultsDto {
   notes: NoteSearchResultDto[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export type NoteSearchField = "title" | "content" | "tags";

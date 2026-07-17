@@ -8,6 +8,13 @@
       "when": 1783669000000,
       "tag": "0000_vali_notes",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1784217600000,
+      "tag": "0001_search_trigram",
+      "breakpoints": true
     }
   ]
 }

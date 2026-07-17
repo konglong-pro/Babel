@@ -1,4 +1,9 @@
-import { or, sql, type AnyColumn, type SQL } from "drizzle-orm";
+import {
+  collectRankedSearchPage,
+  normalizeSearchPage,
+  trigramFtsQuery,
+  type SearchPageOptions,
+} from "@babel-apps/platform/search/page";
 import {
   asciiFold,
   countLiteralOccurrences,
@@ -7,7 +12,7 @@ import {
   literalTextPosition,
 } from "@babel-apps/platform/search/text";
 
-import { db } from "@/lib/db/client";
+import { sqlite } from "@/lib/db/client";
 import { notes, reflections } from "@/lib/db/schema";
 import type {
   DocumentSearchField,
@@ -19,57 +24,63 @@ import type {
 
 import { tagsFromJson } from "./shared";
 
-export function searchNotes(query: string): SearchResultsDto {
-  const normalized = typeof query === "string" ? query.trim() : "";
-  if (!normalized) return { notes: [] };
+type SearchableNoteRow = Pick<
+  typeof notes.$inferSelect,
+  "id" | "folderId" | "parentId" | "title" | "contentMd" | "tags" | "updatedAt"
+>;
+type SearchableReflectionRow = Pick<
+  typeof reflections.$inferSelect,
+  "date" | "contentMd" | "updatedAt"
+>;
+type SearchableDocumentRow =
+  | { kind: "note"; row: SearchableNoteRow }
+  | { kind: "reflection"; row: SearchableReflectionRow };
 
-  const pattern = `%${escapeLike(normalized)}%`;
-  const matches = db
-    .select()
-    .from(notes)
-    .where(
-      or(
-        likeLiteral(notes.title, pattern),
-        likeLiteral(notes.contentMd, pattern),
-        likeLiteral(notes.tags, pattern),
-      ),
-    )
-    .all()
-    .map((row) => rankNote(row, normalized))
-    .sort(compareRankedDocuments)
-    .map(({ result }) => noteSummary(result));
-  return { notes: matches };
+export function searchNotes(
+  query: string,
+  options: SearchPageOptions = {},
+): SearchResultsDto {
+  const normalized = typeof query === "string" ? query.trim() : "";
+  if (!normalized) {
+    return { notes: [], total: 0, ...normalizeSearchPage(options) };
+  }
+
+  const page = collectRankedSearchPage(
+    matchingNoteRows(normalized),
+    (row) => rankNote(row, normalized),
+    compareRankedDocuments,
+    options,
+  );
+  return {
+    notes: page.items.map(({ result }) => noteSummary(result)),
+    total: page.total,
+    limit: page.limit,
+    offset: page.offset,
+  };
 }
 
-export function searchDocuments(query: string): DocumentSearchResultsDto {
+export function searchDocuments(
+  query: string,
+  options: SearchPageOptions = {},
+): DocumentSearchResultsDto {
   const normalized = typeof query === "string" ? query.trim() : "";
-  if (!normalized) return { results: [] };
+  if (!normalized) {
+    return { results: [], total: 0, ...normalizeSearchPage(options) };
+  }
 
-  const pattern = `%${escapeLike(normalized)}%`;
-  const noteMatches = db
-    .select()
-    .from(notes)
-    .where(or(
-      likeLiteral(notes.title, pattern),
-      likeLiteral(notes.contentMd, pattern),
-      likeLiteral(notes.tags, pattern),
-    ))
-    .all()
-    .map((row) => rankNote(row, normalized));
-  const reflectionMatches = db
-    .select()
-    .from(reflections)
-    .where(or(
-      likeLiteral(reflections.date, pattern),
-      likeLiteral(reflections.contentMd, pattern),
-    ))
-    .all()
-    .map((row) => rankReflection(row, normalized));
-
+  const page = collectRankedSearchPage(
+    matchingDocumentRows(normalized),
+    (document) => document.kind === "note"
+      ? rankNote(document.row, normalized)
+      : rankReflection(document.row, normalized),
+    compareRankedDocuments,
+    options,
+  );
   return {
-    results: [...noteMatches, ...reflectionMatches]
-      .sort(compareRankedDocuments)
-      .map(({ result }) => result),
+    results: page.items.map(({ result }) => result),
+    total: page.total,
+    limit: page.limit,
+    offset: page.offset,
   };
 }
 
@@ -82,7 +93,7 @@ interface RankedDocument {
   stableKey: string;
 }
 
-function rankNote(row: typeof notes.$inferSelect, query: string): RankedDocument {
+function rankNote(row: SearchableNoteRow, query: string): RankedDocument {
   const tags = tagsFromJson(row.tags);
   const titlePosition = literalTextPosition(row.title, query);
   const contentPosition = literalTextPosition(row.contentMd, query);
@@ -153,7 +164,7 @@ function rankNote(row: typeof notes.$inferSelect, query: string): RankedDocument
 }
 
 function rankReflection(
-  row: typeof reflections.$inferSelect,
+  row: SearchableReflectionRow,
   query: string,
 ): RankedDocument {
   const titlePosition = literalTextPosition(row.date, query);
@@ -262,6 +273,62 @@ function escapeLike(value: string): string {
   return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
 }
 
-function likeLiteral(column: AnyColumn, pattern: string): SQL {
-  return sql`${column} LIKE ${pattern} ESCAPE ${"\\"}`;
+function matchingNoteRows(query: string): Iterable<SearchableNoteRow> {
+  const pattern = `%${escapeLike(query)}%`;
+  const ftsQuery = trigramFtsQuery(query);
+  const candidate = ftsQuery === undefined
+    ? ""
+    : "`id` IN (SELECT `rowid` FROM `note_search` WHERE `note_search` MATCH @ftsQuery) AND";
+  const statement = sqlite.prepare(`
+    SELECT
+      \`id\`,
+      \`folder_id\` AS \`folderId\`,
+      \`parent_id\` AS \`parentId\`,
+      \`title\`,
+      \`content_md\` AS \`contentMd\`,
+      \`tags\`,
+      \`updated_at\` AS \`updatedAt\`
+    FROM \`note\`
+    WHERE ${candidate} (
+      \`title\` LIKE @pattern ESCAPE '\\'
+      OR \`content_md\` LIKE @pattern ESCAPE '\\'
+      OR \`tags\` LIKE @pattern ESCAPE '\\'
+    )
+  `);
+  const parameters = ftsQuery === undefined ? { pattern } : { pattern, ftsQuery };
+  return statement.iterate(parameters) as Iterable<SearchableNoteRow>;
+}
+
+function matchingReflectionRows(query: string): Iterable<SearchableReflectionRow> {
+  const pattern = `%${escapeLike(query)}%`;
+  const ftsQuery = trigramFtsQuery(query);
+  const candidate = ftsQuery === undefined
+    ? ""
+    : `(
+        \`date\` LIKE @pattern ESCAPE '\\'
+        OR \`date\` IN (
+          SELECT \`date\` FROM \`reflection_search\`
+          WHERE \`reflection_search\` MATCH @ftsQuery
+        )
+      ) AND`;
+  const statement = sqlite.prepare(`
+    SELECT
+      \`date\`,
+      \`content_md\` AS \`contentMd\`,
+      \`updated_at\` AS \`updatedAt\`
+    FROM \`reflection\`
+    WHERE ${candidate} (
+      \`date\` LIKE @pattern ESCAPE '\\'
+      OR \`content_md\` LIKE @pattern ESCAPE '\\'
+    )
+  `);
+  const parameters = ftsQuery === undefined ? { pattern } : { pattern, ftsQuery };
+  return statement.iterate(parameters) as Iterable<SearchableReflectionRow>;
+}
+
+function* matchingDocumentRows(query: string): Iterable<SearchableDocumentRow> {
+  for (const row of matchingNoteRows(query)) yield { kind: "note", row };
+  for (const row of matchingReflectionRows(query)) {
+    yield { kind: "reflection", row };
+  }
 }

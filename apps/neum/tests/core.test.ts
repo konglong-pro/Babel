@@ -55,6 +55,8 @@ test("Neum core persistence", async (t) => {
       .prepare(
         `SELECT name FROM sqlite_schema
          WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '__drizzle_%'
+           AND name NOT GLOB 'entry_search_*'
+           AND name NOT GLOB 'tag_search_*'
          ORDER BY name`,
       )
       .pluck()
@@ -63,9 +65,11 @@ test("Neum core persistence", async (t) => {
       "entry",
       "entry_image",
       "entry_link",
+      "entry_search",
       "entry_tag",
       "folder",
       "tag",
+      "tag_search",
       "trash_entry",
     ]);
 

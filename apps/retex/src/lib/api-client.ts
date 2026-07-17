@@ -231,8 +231,23 @@ export function deleteScratch(exerciseId: number): Promise<void> {
   return request(`/api/exercises/${exerciseId}/scratch`, { method: "DELETE" });
 }
 
-export function searchArchive(query: string): Promise<SearchResultsDto> {
-  return request(`/api/search?q=${encodeURIComponent(query)}`);
+export function searchArchive(
+  query: string,
+  options: {
+    limit?: number;
+    knowledgeOffset?: number;
+    exerciseOffset?: number;
+  } = {},
+): Promise<SearchResultsDto> {
+  const params = new URLSearchParams({ q: query });
+  if (options.limit !== undefined) params.set("limit", String(options.limit));
+  if (options.knowledgeOffset !== undefined) {
+    params.set("knowledgeOffset", String(options.knowledgeOffset));
+  }
+  if (options.exerciseOffset !== undefined) {
+    params.set("exerciseOffset", String(options.exerciseOffset));
+  }
+  return request(`/api/search?${params}`);
 }
 
 export function listNoteTitles(

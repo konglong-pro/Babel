@@ -10,6 +10,7 @@ import {
   type AnyColumn,
   type SQL,
 } from "drizzle-orm";
+import { trigramFtsQuery } from "@babel-apps/platform/search/page";
 
 import { getNeumDatabase } from "@/lib/db/client";
 import { entries, entryImages, entryTags, tags } from "@/lib/db/schema";
@@ -493,7 +494,7 @@ function searchRank(query: string): SearchRankSql {
   const filenameMatch = likeLiteral(entries.filename, containsPattern);
   const exactTag = tagLike(exactPattern);
   const tagMatch = tagLike(containsPattern);
-  const condition = or(
+  const exactCondition = or(
     titleMatch,
     notesMatch,
     codeMatch,
@@ -501,6 +502,26 @@ function searchRank(query: string): SearchRankSql {
     filenameMatch,
     tagMatch,
   )!;
+  const ftsQuery = trigramFtsQuery(query);
+  const condition = ftsQuery === undefined
+    ? exactCondition
+    : and(
+        or(
+          sql`${entries.id} IN (
+            SELECT rowid FROM entry_search
+            WHERE entry_search MATCH ${ftsQuery}
+          )`,
+          sql`EXISTS (
+            SELECT 1 FROM ${entryTags}
+            WHERE ${entryTags.entryId} = ${entries.id}
+              AND ${entryTags.tagId} IN (
+                SELECT rowid FROM tag_search
+                WHERE tag_search MATCH ${ftsQuery}
+              )
+          )`,
+        ),
+        exactCondition,
+      )!;
   const metadataMatch = or(tagMatch, filenameMatch, languageMatch)!;
   const tier = sql<number>`CASE
     WHEN ${titleExact} THEN 0

@@ -12,7 +12,13 @@ import type {
   SearchTextPartDto,
 } from "@/lib/types";
 
-const EMPTY_RESULTS: SearchResultsDto = { notes: [] };
+const SEARCH_PAGE_LIMIT = 50;
+const EMPTY_RESULTS: SearchResultsDto = {
+  notes: [],
+  total: 0,
+  limit: SEARCH_PAGE_LIMIT,
+  offset: 0,
+};
 const SEARCH_FIELD_LABELS: Record<NoteSearchField, string> = {
   title: "Title",
   content: "Body",
@@ -22,13 +28,14 @@ const SEARCH_FIELD_LABELS: Record<NoteSearchField, string> = {
 export function SearchResults({ query }: { query: string }) {
   const [results, setResults] = useState<SearchResultsDto>(EMPTY_RESULTS);
   const [loading, setLoading] = useState(Boolean(query));
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (!query) return;
 
     let active = true;
-    searchNotes(query)
+    searchNotes(query, { limit: SEARCH_PAGE_LIMIT, offset: 0 })
       .then((nextResults) => {
         if (active) setResults(nextResults);
       })
@@ -43,7 +50,27 @@ export function SearchResults({ query }: { query: string }) {
     };
   }, [query]);
 
-  const total = results.notes.length;
+  const total = results.total;
+  const canLoadMore = results.notes.length < results.total;
+
+  function loadMore() {
+    if (loadingMore || !canLoadMore) return;
+    setLoadingMore(true);
+    setError("");
+    searchNotes(query, {
+      limit: SEARCH_PAGE_LIMIT,
+      offset: results.notes.length,
+    })
+      .then((nextResults) => {
+        setResults((current) => ({
+          ...nextResults,
+          notes: [...current.notes, ...nextResults.notes],
+          offset: 0,
+        }));
+      })
+      .catch((caught) => setError(getErrorMessage(caught)))
+      .finally(() => setLoadingMore(false));
+  }
 
   return (
     <div className="search-page">
@@ -74,6 +101,7 @@ export function SearchResults({ query }: { query: string }) {
       ) : null}
 
       {!loading && total > 0 ? (
+        <>
         <ul className="search-result-list" aria-label="Search results">
           {results.notes.map((note) => (
             <li key={note.id}>
@@ -94,6 +122,17 @@ export function SearchResults({ query }: { query: string }) {
             </li>
           ))}
         </ul>
+        {canLoadMore ? (
+          <button
+            type="button"
+            className="primary-button"
+            disabled={loadingMore}
+            onClick={loadMore}
+          >
+            {loadingMore ? "Loading\u2026" : "Load more"}
+          </button>
+        ) : null}
+        </>
       ) : null}
     </div>
   );

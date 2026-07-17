@@ -21,18 +21,20 @@ const SEARCH_FIELD_LABELS: Record<EntrySearchField, string> = {
   filename: "Filename",
   language: "Language",
 };
+const SEARCH_PAGE_LIMIT = 50;
 
 export function SearchResults({ query }: { query: string }) {
   const [items, setItems] = useState<EntrySearchResultDto[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(Boolean(query));
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (!query) return;
 
     let active = true;
-    searchEntries({ query, limit: 100 })
+    searchEntries({ query, limit: SEARCH_PAGE_LIMIT, offset: 0 })
       .then((page) => {
         if (!active) return;
         setItems(page.items);
@@ -48,6 +50,23 @@ export function SearchResults({ query }: { query: string }) {
       active = false;
     };
   }, [query]);
+
+  function loadMore() {
+    if (loadingMore || items.length >= total) return;
+    setLoadingMore(true);
+    setError("");
+    searchEntries({
+      query,
+      limit: SEARCH_PAGE_LIMIT,
+      offset: items.length,
+    })
+      .then((page) => {
+        setItems((current) => [...current, ...page.items]);
+        setTotal(page.total);
+      })
+      .catch((caught) => setError(getErrorMessage(caught)))
+      .finally(() => setLoadingMore(false));
+  }
 
   return (
     <div className="search-page">
@@ -101,7 +120,14 @@ export function SearchResults({ query }: { query: string }) {
         </ul>
       ) : null}
       {items.length < total ? (
-        <p className="result-count">Showing {items.length} of {total} results.</p>
+        <button
+          type="button"
+          className="primary-button"
+          disabled={loadingMore}
+          onClick={loadMore}
+        >
+          {loadingMore ? "Loading\u2026" : `Load more (${items.length} of ${total})`}
+        </button>
       ) : null}
     </div>
   );

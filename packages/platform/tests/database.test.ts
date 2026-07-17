@@ -228,6 +228,64 @@ test("database readiness requires the exact code migration without writing", asy
       );
     });
 
+    await context.test("requires declared tables and triggers", () => {
+      const databasePath = createFixture("schema-objects", 200);
+      const sqlite = new BetterSqlite3(databasePath);
+      try {
+        sqlite.exec(`
+          CREATE TRIGGER note_touch AFTER UPDATE ON note
+          BEGIN
+            SELECT new.id;
+          END;
+        `);
+      } finally {
+        sqlite.close();
+      }
+
+      assert.doesNotThrow(() =>
+        assertDatabaseMigrationsCurrent({
+          appName: "Platform Test",
+          packageName: "@babel-apps/platform",
+          databasePath,
+          migrationsFolder,
+          requiredSchemaObjects: [
+            { type: "table", name: "note" },
+            {
+              type: "trigger",
+              name: "note_touch",
+              sqlIncludes: ["AFTER UPDATE ON note", "SELECT new.id"],
+            },
+          ],
+        }),
+      );
+      assert.throws(
+        () =>
+          assertDatabaseMigrationsCurrent({
+            appName: "Platform Test",
+            packageName: "@babel-apps/platform",
+            databasePath,
+            migrationsFolder,
+            requiredSchemaObjects: [
+              { type: "table", name: "note", sqlIncludes: ["USING fts5"] },
+            ],
+          }),
+        /does not match the required schema/i,
+      );
+      assert.throws(
+        () =>
+          assertDatabaseMigrationsCurrent({
+            appName: "Platform Test",
+            packageName: "@babel-apps/platform",
+            databasePath,
+            migrationsFolder,
+            requiredSchemaObjects: [
+              { type: "trigger", name: "missing_trigger" },
+            ],
+          }),
+        /missing required trigger: missing_trigger/i,
+      );
+    });
+
     await context.test("live readiness stays consistent during WAL writes", async () => {
       const databasePath = createFixture("live-writer", 200);
       const writer = new Worker(

@@ -599,7 +599,12 @@ test("Leviathan backend integration", async (t) => {
       assert.ok(repositories.listNotes(politics.id).some(({ id }) => id === note.id));
       assert.equal(repositories.searchNotes("古罗马").notes[0]?.id, note.id);
       assert.equal(repositories.searchNotes("politics").notes[0]?.id, note.id);
-      assert.deepEqual(repositories.searchNotes("   "), { notes: [] });
+      assert.deepEqual(repositories.searchNotes("   "), {
+        notes: [],
+        total: 0,
+        limit: 50,
+        offset: 0,
+      });
 
       const economics = repositories.listFolders()[1];
       const moved = repositories.updateNote(note.id, { folderId: economics.id }).note;

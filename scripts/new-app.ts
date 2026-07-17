@@ -243,9 +243,14 @@ async function copyRenderedEntries(
   sourceRoot: string,
   targetRoot: string,
   values: Readonly<Record<string, string>>,
+  relativeSegments: readonly string[] = [],
 ): Promise<void> {
   const entries = await readdir(sourceRoot, { withFileTypes: true });
   for (const entry of entries) {
+    const entrySegments = [...relativeSegments, entry.name];
+    if (isGeneratedTemplateEntry(entrySegments, entry.isDirectory())) {
+      continue;
+    }
     const renderedName = renderTemplateText(
       entry.name,
       values,
@@ -265,7 +270,7 @@ async function copyRenderedEntries(
     const targetPath = path.join(targetRoot, renderedName);
     if (entry.isDirectory()) {
       await mkdir(targetPath);
-      await copyRenderedEntries(sourcePath, targetPath, values);
+      await copyRenderedEntries(sourcePath, targetPath, values, entrySegments);
       continue;
     }
     if (!entry.isFile()) {
@@ -278,6 +283,28 @@ async function copyRenderedEntries(
     const sourceStat = await lstat(sourcePath);
     await chmod(targetPath, sourceStat.mode & 0o777);
   }
+}
+
+function isGeneratedTemplateEntry(
+  segments: readonly string[],
+  isDirectory: boolean,
+): boolean {
+  const name = segments.at(-1) ?? "";
+  if (
+    isDirectory &&
+    [".next", ".playwright-cli", "node_modules", "out", "output"].includes(name)
+  ) {
+    return true;
+  }
+  if (
+    isDirectory &&
+    segments.length === 2 &&
+    segments[0] === "public" &&
+    segments[1] === "_typst"
+  ) {
+    return true;
+  }
+  return name.endsWith(".tsbuildinfo") || name.endsWith(".log") || name === ".DS_Store";
 }
 
 function renderTemplateBytes(

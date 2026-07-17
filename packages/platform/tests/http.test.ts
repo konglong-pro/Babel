@@ -6,7 +6,9 @@ import {
   createHttpErrorHandlers,
 } from "../src/http/errors";
 import {
+  assertOnlyFields,
   assertPatchHasFields,
+  assertSameOrigin,
   normalizeLoopbackOrigin,
   optionalNullablePositiveInteger,
   optionalString,
@@ -78,10 +80,26 @@ test("shared request helpers preserve validation and normalization", async () =>
   assert.equal(optionalNullablePositiveInteger(body, "parentId"), null);
   assert.equal(optionalString(body, "missing"), undefined);
   assert.equal(parsePositiveInteger("42", "id"), 42);
+  assert.doesNotThrow(() =>
+    assertSameOrigin(new Request("http://127.0.0.1:3001/test")),
+  );
 
   assert.throws(
     () => assertPatchHasFields({ title: undefined, parentId: undefined }),
     (error: unknown) => error instanceof ApiError && error.code === "VALIDATION_ERROR",
+  );
+  assert.throws(
+    () => assertOnlyFields({ title: "ok", extra: true }, ["title"]),
+    (error: unknown) => error instanceof ApiError && error.code === "VALIDATION_ERROR",
+  );
+  assert.throws(
+    () =>
+      assertSameOrigin(
+        new Request("http://localhost:3001/test", {
+          headers: { origin: "https://attacker.example" },
+        }),
+      ),
+    (error: unknown) => error instanceof ApiError && error.code === "FORBIDDEN_ORIGIN",
   );
 
   await assert.rejects(

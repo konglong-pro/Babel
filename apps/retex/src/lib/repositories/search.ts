@@ -5,9 +5,13 @@ import {
   highlightLiteral,
   literalTextPosition,
 } from "@babel-apps/platform/search/text";
-import { or, sql, type AnyColumn, type SQL } from "drizzle-orm";
+import {
+  collectRankedSearchPage,
+  normalizeSearchPage,
+  trigramFtsQuery,
+} from "@babel-apps/platform/search/page";
 
-import { db } from "@/lib/db/client";
+import { sqlite } from "@/lib/db/client";
 import { exercises, knowledgeNotes } from "@/lib/db/schema";
 import type {
   ExerciseSearchField,
@@ -20,61 +24,75 @@ import type {
 
 import { tagsFromJson } from "./shared";
 
-export function searchArchive(query: string): SearchResultsDto {
+export interface ArchiveSearchOptions {
+  limit?: number;
+  knowledgeOffset?: number;
+  exerciseOffset?: number;
+}
+
+type SearchableKnowledgeRow = Pick<
+  typeof knowledgeNotes.$inferSelect,
+  "id" | "parentId" | "folderId" | "title" | "contentMd" | "tags" | "updatedAt"
+>;
+type SearchableExerciseRow = Pick<
+  typeof exercises.$inferSelect,
+  | "id"
+  | "folderId"
+  | "title"
+  | "problemMd"
+  | "answerMd"
+  | "solutionMd"
+  | "tags"
+  | "updatedAt"
+>;
+
+export function searchArchive(
+  query: string,
+  options: ArchiveSearchOptions = {},
+): SearchResultsDto {
   const normalized = typeof query === "string" ? query.trim() : "";
-  if (!normalized) return { knowledge: [], exercises: [] };
+  const knowledgePagination = normalizeSearchPage({
+    limit: options.limit,
+    offset: options.knowledgeOffset,
+  });
+  const exercisePagination = normalizeSearchPage({
+    limit: options.limit,
+    offset: options.exerciseOffset,
+  });
+  if (!normalized) {
+    return {
+      knowledge: [],
+      exercises: [],
+      knowledgeTotal: 0,
+      exerciseTotal: 0,
+      limit: knowledgePagination.limit,
+      knowledgeOffset: knowledgePagination.offset,
+      exerciseOffset: exercisePagination.offset,
+    };
+  }
 
-  const pattern = `%${escapeLike(normalized)}%`;
-  const knowledge = db
-    .select({
-      id: knowledgeNotes.id,
-      parentId: knowledgeNotes.parentId,
-      folderId: knowledgeNotes.folderId,
-      title: knowledgeNotes.title,
-      contentMd: knowledgeNotes.contentMd,
-      tags: knowledgeNotes.tags,
-      updatedAt: knowledgeNotes.updatedAt,
-    })
-    .from(knowledgeNotes)
-    .where(
-      or(
-        likeLiteral(knowledgeNotes.title, pattern),
-        likeLiteral(knowledgeNotes.contentMd, pattern),
-        likeLiteral(knowledgeNotes.tags, pattern),
-      ),
-    )
-    .all()
-    .map((row) => rankKnowledge(row, normalized))
-    .sort(compareRankedResults)
-    .map(({ result }) => result);
+  const knowledgePage = collectRankedSearchPage(
+    matchingKnowledgeRows(normalized),
+    (row) => rankKnowledge(row, normalized),
+    compareRankedResults,
+    knowledgePagination,
+  );
+  const exercisePage = collectRankedSearchPage(
+    matchingExerciseRows(normalized),
+    (row) => rankExercise(row, normalized),
+    compareRankedResults,
+    exercisePagination,
+  );
 
-  const matchingExercises = db
-    .select({
-      id: exercises.id,
-      folderId: exercises.folderId,
-      title: exercises.title,
-      problemMd: exercises.problemMd,
-      answerMd: exercises.answerMd,
-      solutionMd: exercises.solutionMd,
-      tags: exercises.tags,
-      updatedAt: exercises.updatedAt,
-    })
-    .from(exercises)
-    .where(
-      or(
-        likeLiteral(exercises.title, pattern),
-        likeLiteral(exercises.problemMd, pattern),
-        likeLiteral(exercises.answerMd, pattern),
-        likeLiteral(exercises.solutionMd, pattern),
-        likeLiteral(exercises.tags, pattern),
-      ),
-    )
-    .all()
-    .map((row) => rankExercise(row, normalized))
-    .sort(compareRankedResults)
-    .map(({ result }) => result);
-
-  return { knowledge, exercises: matchingExercises };
+  return {
+    knowledge: knowledgePage.items.map(({ result }) => result),
+    exercises: exercisePage.items.map(({ result }) => result),
+    knowledgeTotal: knowledgePage.total,
+    exerciseTotal: exercisePage.total,
+    limit: knowledgePage.limit,
+    knowledgeOffset: knowledgePage.offset,
+    exerciseOffset: exercisePage.offset,
+  };
 }
 
 interface RankMetrics {
@@ -98,15 +116,7 @@ interface RankedResult<T extends { id: number; updatedAt: string }> {
 }
 
 function rankKnowledge(
-  row: {
-    id: number;
-    parentId: number | null;
-    folderId: number;
-    title: string;
-    contentMd: string;
-    tags: string;
-    updatedAt: string;
-  },
+  row: SearchableKnowledgeRow,
   query: string,
 ): RankedResult<KnowledgeSearchResultDto> {
   const tags = tagsFromJson(row.tags);
@@ -133,16 +143,7 @@ function rankKnowledge(
 }
 
 function rankExercise(
-  row: {
-    id: number;
-    folderId: number;
-    title: string;
-    problemMd: string;
-    answerMd: string;
-    solutionMd: string;
-    tags: string;
-    updatedAt: string;
-  },
+  row: SearchableExerciseRow,
   query: string,
 ): RankedResult<ExerciseSearchResultDto> {
   const tags = tagsFromJson(row.tags);
@@ -302,6 +303,57 @@ function escapeLike(value: string): string {
   return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_");
 }
 
-function likeLiteral(column: AnyColumn, pattern: string): SQL {
-  return sql`${column} LIKE ${pattern} ESCAPE ${"\\"}`;
+function matchingKnowledgeRows(query: string): Iterable<SearchableKnowledgeRow> {
+  const pattern = `%${escapeLike(query)}%`;
+  const ftsQuery = trigramFtsQuery(query);
+  const candidate = ftsQuery === undefined
+    ? ""
+    : "`id` IN (SELECT `rowid` FROM `knowledge_search` WHERE `knowledge_search` MATCH @ftsQuery) AND";
+  const statement = sqlite.prepare(`
+    SELECT
+      \`id\`,
+      \`parent_id\` AS \`parentId\`,
+      \`folder_id\` AS \`folderId\`,
+      \`title\`,
+      \`content_md\` AS \`contentMd\`,
+      \`tags\`,
+      \`updated_at\` AS \`updatedAt\`
+    FROM \`knowledge_note\`
+    WHERE ${candidate} (
+      \`title\` LIKE @pattern ESCAPE '\\'
+      OR \`content_md\` LIKE @pattern ESCAPE '\\'
+      OR \`tags\` LIKE @pattern ESCAPE '\\'
+    )
+  `);
+  const parameters = ftsQuery === undefined ? { pattern } : { pattern, ftsQuery };
+  return statement.iterate(parameters) as Iterable<SearchableKnowledgeRow>;
+}
+
+function matchingExerciseRows(query: string): Iterable<SearchableExerciseRow> {
+  const pattern = `%${escapeLike(query)}%`;
+  const ftsQuery = trigramFtsQuery(query);
+  const candidate = ftsQuery === undefined
+    ? ""
+    : "`id` IN (SELECT `rowid` FROM `exercise_search` WHERE `exercise_search` MATCH @ftsQuery) AND";
+  const statement = sqlite.prepare(`
+    SELECT
+      \`id\`,
+      \`folder_id\` AS \`folderId\`,
+      \`title\`,
+      \`problem_md\` AS \`problemMd\`,
+      \`answer_md\` AS \`answerMd\`,
+      \`solution_md\` AS \`solutionMd\`,
+      \`tags\`,
+      \`updated_at\` AS \`updatedAt\`
+    FROM \`exercise\`
+    WHERE ${candidate} (
+      \`title\` LIKE @pattern ESCAPE '\\'
+      OR \`problem_md\` LIKE @pattern ESCAPE '\\'
+      OR \`answer_md\` LIKE @pattern ESCAPE '\\'
+      OR \`solution_md\` LIKE @pattern ESCAPE '\\'
+      OR \`tags\` LIKE @pattern ESCAPE '\\'
+    )
+  `);
+  const parameters = ftsQuery === undefined ? { pattern } : { pattern, ftsQuery };
+  return statement.iterate(parameters) as Iterable<SearchableExerciseRow>;
 }

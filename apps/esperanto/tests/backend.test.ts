@@ -600,7 +600,12 @@ test("Esperanto backend integration", async (t) => {
       assert.ok(repositories.listNotes(history.id).some(({ id }) => id === note.id));
       assert.equal(repositories.searchNotes("古罗马").notes[0]?.id, note.id);
       assert.equal(repositories.searchNotes("vocabulary").notes[0]?.id, note.id);
-      assert.deepEqual(repositories.searchNotes("   "), { notes: [] });
+      assert.deepEqual(repositories.searchNotes("   "), {
+        notes: [],
+        total: 0,
+        limit: 50,
+        offset: 0,
+      });
 
       const literature = repositories.listFolders()[1];
       const moved = repositories.updateNote(note.id, { folderId: literature.id }).note;
@@ -643,6 +648,36 @@ test("Esperanto backend integration", async (t) => {
           .map(({ id }) => id),
         [emojiPrefix.id, asciiPrefix.id],
       );
+    });
+
+    await t.test("search paginates globally ranked results and keeps its index synchronized", () => {
+      const folderId = repositories.listFolders()[0].id;
+      const query = "esperanto-page-index-needle";
+      const first = repositories.createNote({ folderId, title: query });
+      const second = repositories.createNote({
+        folderId,
+        title: `Prefix ${query}`,
+      });
+      const third = repositories.createNote({
+        folderId,
+        title: "Body result",
+        contentMd: query,
+      });
+
+      const firstPage = repositories.searchNotes(query, { limit: 1, offset: 0 });
+      const secondPage = repositories.searchNotes(query, { limit: 1, offset: 1 });
+      assert.equal(firstPage.total, 3);
+      assert.deepEqual(firstPage.notes.map(({ id }) => id), [first.id]);
+      assert.deepEqual(secondPage.notes.map(({ id }) => id), [second.id]);
+
+      const later = repositories.createNote({ folderId, title: "Not indexed yet" });
+      repositories.updateNote(later.id, { title: `Updated ${query}` });
+      assert.equal(
+        repositories.searchNotes(query).notes.some(({ id }) => id === later.id),
+        true,
+      );
+      repositories.deleteNote(third.id);
+      assert.equal(repositories.searchNotes(query).total, 3);
     });
 
     await t.test("search API returns safe match details without full bodies", async () => {

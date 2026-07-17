@@ -15,7 +15,16 @@ import type {
 } from "@/lib/types";
 import { formatDate } from "@/components/shared";
 
-const EMPTY_RESULTS: SearchResultsDto = { knowledge: [], exercises: [] };
+const SEARCH_PAGE_LIMIT = 50;
+const EMPTY_RESULTS: SearchResultsDto = {
+  knowledge: [],
+  exercises: [],
+  knowledgeTotal: 0,
+  exerciseTotal: 0,
+  limit: SEARCH_PAGE_LIMIT,
+  knowledgeOffset: 0,
+  exerciseOffset: 0,
+};
 const SEARCH_FIELD_LABELS: Record<SearchField, string> = {
   title: "Title",
   content: "Content",
@@ -28,14 +37,17 @@ const SEARCH_FIELD_LABELS: Record<SearchField, string> = {
 export function SearchResults({ query }: { query: string }) {
   const [results, setResults] = useState<SearchResultsDto>(EMPTY_RESULTS);
   const [loading, setLoading] = useState(Boolean(query));
+  const [loadingMore, setLoadingMore] = useState<"knowledge" | "exercise" | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!query) {
-      return;
-    }
+    if (!query) return;
     let active = true;
-    searchArchive(query)
+    searchArchive(query, {
+      limit: SEARCH_PAGE_LIMIT,
+      knowledgeOffset: 0,
+      exerciseOffset: 0,
+    })
       .then((nextResults) => {
         if (active) setResults(nextResults);
       })
@@ -50,7 +62,33 @@ export function SearchResults({ query }: { query: string }) {
     };
   }, [query]);
 
-  const total = results.knowledge.length + results.exercises.length;
+  const total = results.knowledgeTotal + results.exerciseTotal;
+
+  function loadMore(kind: "knowledge" | "exercise") {
+    if (loadingMore !== null) return;
+    setLoadingMore(kind);
+    setError("");
+    searchArchive(query, {
+      limit: SEARCH_PAGE_LIMIT,
+      knowledgeOffset: kind === "knowledge" ? results.knowledge.length : 0,
+      exerciseOffset: kind === "exercise" ? results.exercises.length : 0,
+    })
+      .then((nextResults) => {
+        setResults((current) => kind === "knowledge"
+          ? {
+              ...current,
+              knowledge: [...current.knowledge, ...nextResults.knowledge],
+              knowledgeTotal: nextResults.knowledgeTotal,
+            }
+          : {
+              ...current,
+              exercises: [...current.exercises, ...nextResults.exercises],
+              exerciseTotal: nextResults.exerciseTotal,
+            });
+      })
+      .catch((caught) => setError(getErrorMessage(caught)))
+      .finally(() => setLoadingMore(null));
+  }
 
   return (
     <div className="search-page">
@@ -86,7 +124,7 @@ export function SearchResults({ query }: { query: string }) {
         <section aria-labelledby="knowledge-results-heading">
           <div className="result-group-heading">
             <h2 id="knowledge-results-heading">Knowledge</h2>
-            <span>{results.knowledge.length}</span>
+            <span>{results.knowledgeTotal}</span>
           </div>
           <ul className="search-result-list">
             {results.knowledge.map((item) => (
@@ -97,12 +135,22 @@ export function SearchResults({ query }: { query: string }) {
               </li>
             ))}
           </ul>
+          {results.knowledge.length < results.knowledgeTotal ? (
+            <button
+              type="button"
+              className="primary-button"
+              disabled={loadingMore !== null}
+              onClick={() => loadMore("knowledge")}
+            >
+              {loadingMore === "knowledge" ? "Loading\u2026" : "Load more knowledge"}
+            </button>
+          ) : null}
         </section>
 
         <section aria-labelledby="exercise-results-heading">
           <div className="result-group-heading">
             <h2 id="exercise-results-heading">Exercise</h2>
-            <span>{results.exercises.length}</span>
+            <span>{results.exerciseTotal}</span>
           </div>
           <ul className="search-result-list">
             {results.exercises.map((item) => (
@@ -113,6 +161,16 @@ export function SearchResults({ query }: { query: string }) {
               </li>
             ))}
           </ul>
+          {results.exercises.length < results.exerciseTotal ? (
+            <button
+              type="button"
+              className="primary-button"
+              disabled={loadingMore !== null}
+              onClick={() => loadMore("exercise")}
+            >
+              {loadingMore === "exercise" ? "Loading\u2026" : "Load more exercises"}
+            </button>
+          ) : null}
         </section>
       </div>
     </div>

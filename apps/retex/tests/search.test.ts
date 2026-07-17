@@ -117,6 +117,51 @@ test("Knowledge and Exercise keep independent relevance tiers", () => {
   assert.equal(results.exercises[5]?.match.snippet.field, "solution");
 });
 
+test("Knowledge and Exercise paginate independently without changing rank order", () => {
+  const knowledgeFolder = repositories.createFolder({
+    type: "knowledge",
+    name: "Paged knowledge",
+  });
+  const exerciseFolder = repositories.createFolder({
+    type: "exercise",
+    name: "Paged exercises",
+  });
+  const query = "retex-pagination-needle";
+  const exactKnowledge = repositories.createKnowledge({
+    folderId: knowledgeFolder.id,
+    title: query,
+  });
+  const bodyKnowledge = repositories.createKnowledge({
+    folderId: knowledgeFolder.id,
+    title: "Paged knowledge body",
+    contentMd: query,
+  });
+  const exactExercise = createExercise(
+    exerciseFolder.id,
+    query,
+    "paged-exact",
+  );
+  const bodyExercise = createExercise(
+    exerciseFolder.id,
+    "Paged exercise body",
+    "paged-body",
+    { solutionMd: query },
+  );
+
+  const first = repositories.searchArchive(query, { limit: 1 });
+  const second = repositories.searchArchive(query, {
+    limit: 1,
+    knowledgeOffset: 1,
+    exerciseOffset: 1,
+  });
+  assert.equal(first.knowledgeTotal, 2);
+  assert.equal(first.exerciseTotal, 2);
+  assert.deepEqual(first.knowledge.map(({ id }) => id), [exactKnowledge.id]);
+  assert.deepEqual(first.exercises.map(({ id }) => id), [exactExercise.id]);
+  assert.deepEqual(second.knowledge.map(({ id }) => id), [bodyKnowledge.id]);
+  assert.deepEqual(second.exercises.map(({ id }) => id), [bodyExercise.id]);
+});
+
 test("search tie breakers use field count, capped occurrences, position, updated time, and id", () => {
   const folder = repositories.createFolder({ type: "knowledge", name: "Search ties" });
 

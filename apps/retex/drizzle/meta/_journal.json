@@ -36,6 +36,13 @@
       "when": 1784095200000,
       "tag": "0004_exercise_problem_markdown",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1784217600000,
+      "tag": "0005_search_trigram",
+      "breakpoints": true
     }
   ]
 }

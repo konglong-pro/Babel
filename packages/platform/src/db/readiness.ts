@@ -6,6 +6,13 @@ export type AssertLiveDatabaseMigrationsCurrentOptions = {
   databasePath: string;
   expectedMigration: number;
   requiredColumns?: Readonly<Record<string, readonly string[]>>;
+  requiredSchemaObjects?: readonly RequiredSchemaObject[];
+};
+
+export type RequiredSchemaObject = {
+  type: "table" | "trigger";
+  name: string;
+  sqlIncludes?: readonly string[];
 };
 
 export type AssertOpenDatabaseMigrationsCurrentOptions = Omit<
@@ -59,6 +66,39 @@ export function assertOpenDatabaseMigrationsCurrent(
   }
 
   assertRequiredColumns(options.sqlite, options.appName, options.requiredColumns);
+  assertRequiredSchemaObjects(
+    options.sqlite,
+    options.appName,
+    options.requiredSchemaObjects,
+  );
+}
+
+function assertRequiredSchemaObjects(
+  sqlite: BetterSqlite3.Database,
+  appName: string,
+  requiredSchemaObjects: readonly RequiredSchemaObject[] | undefined,
+): void {
+  const statement = sqlite.prepare(
+    "SELECT sql FROM sqlite_master WHERE type = ? AND name = ?",
+  );
+  for (const object of requiredSchemaObjects ?? []) {
+    const row = statement.get(object.type, object.name) as
+      | { sql: string | null }
+      | undefined;
+    if (row === undefined) {
+      throw new Error(
+        `${appName} database is missing required ${object.type}: ${object.name}.`,
+      );
+    }
+    const actualSql = row.sql?.toLowerCase() ?? "";
+    for (const fragment of object.sqlIncludes ?? []) {
+      if (!actualSql.includes(fragment.toLowerCase())) {
+        throw new Error(
+          `${appName} database ${object.type} ${object.name} does not match the required schema.`,
+        );
+      }
+    }
+  }
 }
 
 function readLatestDatabaseMigration(
