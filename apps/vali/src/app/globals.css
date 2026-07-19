@@ -340,6 +340,12 @@ a {
   margin-bottom: 0.9rem;
 }
 
+.reflection-heading-actions {
+  display: grid;
+  justify-items: end;
+  gap: 0.4rem;
+}
+
 .panel-heading h1,
 .panel-heading h2,
 .document-header h1,

@@ -686,17 +686,25 @@ export interface DetachedReaderWindowProps {
 }
 
 interface DetachedReaderHost {
+  windowKey: string;
   popup: Window;
   root: HTMLElement;
+  owners: Set<symbol>;
 }
 
-const DETACHED_READER_FEATURES = [
-  "popup=yes",
-  "width=1040",
-  "height=860",
-  "resizable=yes",
-  "scrollbars=yes",
-].join(",");
+const detachedReaderHosts = new Map<string, DetachedReaderHost>();
+let nextDetachedReaderPortalId = 1;
+
+export function detachedReaderWindowFeatures(): string {
+  return [
+    // Request normal browser chrome so the reader has native window controls.
+    "popup=no",
+    "width=1040",
+    "height=860",
+    "resizable=yes",
+    "scrollbars=yes",
+  ].join(",");
+}
 
 const DETACHED_READER_STYLE = `
 html {
@@ -788,7 +796,11 @@ function updateDetachedReaderTitle(popup: Window, title: string) {
   popup.document.title = title;
 }
 
-export function DetachedReaderWindow({
+export function DetachedReaderWindow(props: DetachedReaderWindowProps) {
+  return <DetachedReaderWindowInstance key={props.windowKey} {...props} />;
+}
+
+function DetachedReaderWindowInstance({
   children,
   title,
   windowKey,
@@ -798,9 +810,15 @@ export function DetachedReaderWindow({
   disabled = false,
   onBlocked,
 }: DetachedReaderWindowProps) {
-  const [host, setHost] = useState<DetachedReaderHost | null>(null);
+  const [host, setHost] = useState<DetachedReaderHost | null>(() =>
+    peekDetachedReaderHost(windowKey)
+  );
   const [buttonPortalTarget, setButtonPortalTarget] = useState<HTMLElement | null>(null);
-  const hostRef = useRef<DetachedReaderHost | null>(null);
+  const [portalKey] = useState(() =>
+    `babel-reader-portal-${nextDetachedReaderPortalId++}`
+  );
+  const hostRef = useRef<DetachedReaderHost | null>(host);
+  const ownerRef = useRef(Symbol(windowKey));
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -815,7 +833,22 @@ export function DetachedReaderWindow({
 
   useEffect(() => {
     hostRef.current = host;
-  }, [host]);
+    if (host === null) return;
+
+    const owner = ownerRef.current;
+    host.owners.add(owner);
+    detachedReaderHosts.set(windowKey, host);
+    return () => {
+      host.owners.delete(owner);
+      window.setTimeout(() => {
+        if (host.owners.size > 0) return;
+        if (detachedReaderHosts.get(host.windowKey) === host) {
+          detachedReaderHosts.delete(host.windowKey);
+        }
+        if (detachedReaderHostIsUsable(host)) host.popup.close();
+      }, 0);
+    };
+  }, [host, windowKey]);
 
   useEffect(() => {
     if (host === null) return;
@@ -850,21 +883,9 @@ export function DetachedReaderWindow({
     };
   }, [host]);
 
-  useEffect(() => {
-    return () => {
-      const current = hostRef.current;
-      hostRef.current = null;
-      if (
-        current !== null &&
-        current.root.isConnected &&
-        !current.popup.closed
-      ) current.popup.close();
-    };
-  }, []);
-
   function openReader() {
     const current = hostRef.current;
-    if (current !== null && !current.popup.closed && current.root.isConnected) {
+    if (current !== null && detachedReaderHostIsUsable(current)) {
       current.popup.focus();
       return;
     }
@@ -872,7 +893,7 @@ export function DetachedReaderWindow({
     const popup = window.open(
       "",
       detachedReaderWindowName(windowKey),
-      DETACHED_READER_FEATURES,
+      detachedReaderWindowFeatures(),
     );
     if (popup === null) {
       if (onBlocked !== undefined) onBlocked();
@@ -883,7 +904,13 @@ export function DetachedReaderWindow({
     try {
       popup.opener = null;
       const root = prepareDetachedReaderDocument(popup, document, title);
-      const nextHost = { popup, root };
+      const nextHost: DetachedReaderHost = {
+        windowKey,
+        popup,
+        root,
+        owners: new Set(),
+      };
+      detachedReaderHosts.set(windowKey, nextHost);
       hostRef.current = nextHost;
       setHost(nextHost);
       popup.focus();
@@ -933,9 +960,26 @@ export function DetachedReaderWindow({
                 {readerButton(fallbackButtonClassName)}
               </>
             )}
-      {host === null ? null : createPortal(readerContent, host.root)}
+      {host === null ? null : createPortal(readerContent, host.root, portalKey)}
     </>
   );
+}
+
+function peekDetachedReaderHost(windowKey: string): DetachedReaderHost | null {
+  const host = detachedReaderHosts.get(windowKey);
+  if (host !== undefined && detachedReaderHostIsUsable(host)) return host;
+  detachedReaderHosts.delete(windowKey);
+  return null;
+}
+
+function detachedReaderHostIsUsable(host: DetachedReaderHost): boolean {
+  try {
+    return !host.popup.closed &&
+      host.root.isConnected &&
+      host.popup.document === host.root.ownerDocument;
+  } catch {
+    return false;
+  }
 }
 
 export const ACCEPTED_IMAGE_TYPES = new Set([

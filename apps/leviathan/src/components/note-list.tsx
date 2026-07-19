@@ -189,12 +189,11 @@ export function NoteList({
       </button>
       <div className="panel-heading note-list-heading">
         <div>
-          <div id="babel-detached-reader-trigger-target" className="reader-trigger-slot" />
           <span className="eyebrow">Notes</span>
           <h2>{selectedFolder?.name ?? "All Notes"}</h2>
           <p>{notes.length} {notes.length === 1 ? "note" : "notes"}</p>
         </div>
-        <div className="note-list-actions">
+        <div className="note-list-actions content-list-actions">
           <input
             ref={importInputRef}
             className="sr-only"
@@ -210,7 +209,7 @@ export function NoteList({
             title={selectedFolderId === null ? "Select a folder before importing Markdown" : undefined}
             onClick={() => importInputRef.current?.click()}
           >
-            Import .md
+            Import
           </button>
           <button
             type="button"
@@ -221,8 +220,9 @@ export function NoteList({
             title={selectedFolderId === null ? "Select a folder before creating a note" : undefined}
             onClick={() => onCreate(null)}
           >
-            New Note
+            New
           </button>
+          <div id="babel-detached-reader-trigger-target" className="reader-trigger-slot" />
         </div>
       </div>
 

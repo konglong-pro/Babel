@@ -3,6 +3,7 @@
 import React, {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type ReactNode,
@@ -80,7 +81,13 @@ export function TypstFormula({
   }, [result]);
 
   const wrapperStyle: CSSProperties = display === "block"
-    ? { display: "block", maxWidth: "100%", overflowX: "auto", textAlign: "center" }
+    ? {
+        display: "block",
+        maxWidth: "100%",
+        overflowX: "auto",
+        paddingBlock: "0.25em",
+        textAlign: "center",
+      }
     : { display: "inline-flex", maxWidth: "100%", verticalAlign: "baseline" };
 
   if (result?.ok === true) {
@@ -134,20 +141,36 @@ function ReadyTypstImage({
   wrapperStyle,
   ariaLabel,
 }: ReadyImage) {
-  const [url] = useState(() => URL.createObjectURL(
-    new Blob([result.svg], { type: "image/svg+xml" }),
-  ));
-  useEffect(() => () => URL.revokeObjectURL(url), [url]);
+  const imageRef = useRef<HTMLImageElement>(null);
+  useEffect(() => {
+    const image = imageRef.current;
+    if (image === null) return;
+    const nextUrl = URL.createObjectURL(
+      new Blob([result.svg], { type: "image/svg+xml" }),
+    );
+    image.src = nextUrl;
+    return () => {
+      if (image.src === nextUrl) image.removeAttribute("src");
+      URL.revokeObjectURL(nextUrl);
+    };
+  }, [result.svg]);
   const imageStyle: CSSProperties = {
     display: "inline-block",
-    maxWidth: "100%",
+    maxWidth: display === "block" ? "none" : "100%",
+    maxHeight: "none",
     height: "auto",
+    margin: 0,
+    border: 0,
+    borderRadius: 0,
+    background: "transparent",
+    boxShadow: "none",
+    objectFit: "fill",
     verticalAlign: display === "inline" ? `${-result.baselineEm}em` : undefined,
   };
   return (
     <span className={classes} style={wrapperStyle} data-typst-display={display}>
       <img
-        src={url}
+        ref={imageRef}
         alt={ariaLabel ?? `Typst formula: ${source}`}
         width={result.width}
         height={result.height}

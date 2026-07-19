@@ -52,7 +52,9 @@ test("wraps formulas in a transparent auto-sized Typst document", () => {
   const inline = buildTypstFormulaDocument("x^2", "inline", "#ABC");
   const block = buildTypstFormulaDocument("sum_(i=1)^n i", "block");
 
-  assert.match(inline.document, /page\(width: auto, height: auto, margin: 0pt, fill: none\)/u);
+  assert.match(inline.document, /page\(width: auto, height: auto, margin: 1pt, fill: none\)/u);
+  assert.match(inline.document, /text\(size: 12pt,/u);
+  assert.match(block.document, /text\(size: 14pt,/u);
   assert.match(inline.document, /rgb\("#aabbcc"\)/u);
   assert.match(inline.document, /#box\(\$x\^2\$\)$/u);
   assert.match(block.document, /#box\(\$ sum_\(i=1\)\^n i \$\)$/u);
@@ -62,7 +64,11 @@ test("wraps formulas in a transparent auto-sized Typst document", () => {
 test("sanitizes SVG and extracts positive dimensions", () => {
   const svg = sanitizeTypstSvg("<?xml version=\"1.0\"?><svg width=\"20pt\" height=\"8.5pt\"><path d=\"M0 0\"/></svg>");
   assert.equal(svg.startsWith("<svg"), true);
-  assert.deepEqual(parseSvgDimensions(svg), { width: 20, height: 8.5 });
+  assert.deepEqual(parseSvgDimensions(svg), { width: 80 / 3, height: 34 / 3 });
+  assert.deepEqual(
+    parseSvgDimensions('<svg width="20px" height="8.5"></svg>'),
+    { width: 20, height: 8.5 },
+  );
   assert.throws(() => sanitizeTypstSvg("<svg><script>alert(1)</script></svg>"), /forbidden/u);
   assert.throws(() => sanitizeTypstSvg("<svg><a href=\"https://example.test\"/></svg>"), /external/u);
   assert.throws(() => sanitizeTypstSvg("<svg><image href=\"data:image/png;base64,AA==\"/></svg>"), /external/u);

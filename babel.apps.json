@@ -108,6 +108,42 @@
         "data/leviathan/sqlite.db",
         "data/leviathan/uploads/notes"
       ]
+    },
+    {
+      "name": "KLsche",
+      "id": "klsche",
+      "workspace": "apps/klsche",
+      "port": 3006,
+      "healthPath": "/api/health",
+      "identityPath": "/notes",
+      "identityText": "KLsche",
+      "readyTimeoutSeconds": 60,
+      "env": {
+        "KLSCHE_DATABASE_PATH": "data/klsche/sqlite.db",
+        "KLSCHE_UPLOAD_DIRECTORY": "data/klsche/uploads/notes"
+      },
+      "requiredDataPaths": [
+        "data/klsche/sqlite.db",
+        "data/klsche/uploads/notes"
+      ]
+    },
+    {
+      "name": "Ruider",
+      "id": "ruider",
+      "workspace": "apps/ruider",
+      "port": 3007,
+      "healthPath": "/api/health",
+      "identityPath": "/canvases",
+      "identityText": "Ruider",
+      "readyTimeoutSeconds": 60,
+      "env": {
+        "RUIDER_DATABASE_PATH": "data/ruider/sqlite.db",
+        "RUIDER_UPLOAD_DIRECTORY": "data/ruider/uploads/notes"
+      },
+      "requiredDataPaths": [
+        "data/ruider/sqlite.db",
+        "data/ruider/uploads/notes"
+      ]
     }
   ]
 }

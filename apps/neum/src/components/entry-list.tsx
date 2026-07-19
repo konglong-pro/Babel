@@ -206,12 +206,11 @@ export function EntryList({
       </button>
       <div className="panel-heading entry-list-heading">
         <div>
-          <div id="babel-detached-reader-trigger-target" className="reader-trigger-slot" />
           <span className="eyebrow">{unitLabel}</span>
           <h2>{selectedFolder?.name ?? "All entries"}</h2>
           <p>{total} {total === 1 ? "entry" : "entries"}</p>
         </div>
-        <div className="entry-list-actions">
+        <div className="entry-list-actions content-list-actions">
           {kind === "knowledge" && onImport ? (
             <>
               <input
@@ -230,20 +229,10 @@ export function EntryList({
                   : undefined}
                 onClick={() => importInputRef.current?.click()}
               >
-                Import .md
+                Import
               </button>
             </>
           ) : null}
-          <button
-            type="button"
-            data-babel-command="new"
-            data-babel-priority="10"
-            disabled={selectedEntryId === null}
-            title={selectedEntryId === null ? "Select an entry before creating a subnote" : undefined}
-            onClick={() => selectedEntryId !== null && onCreateChild(selectedEntryId)}
-          >
-            New subnote
-          </button>
           <button
             type="button"
             data-babel-command="new"
@@ -252,8 +241,9 @@ export function EntryList({
             title={selectedFolderId === null ? "Select a folder before creating an entry" : undefined}
             onClick={onCreate}
           >
-            {kind === "snippet" ? "New code" : "New note"}
+            New
           </button>
+          <div id="babel-detached-reader-trigger-target" className="reader-trigger-slot" />
         </div>
       </div>
 

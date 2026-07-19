@@ -278,6 +278,26 @@ button.babel-detached-reader-fallback {
   display: none !important;
 }
 
+.panel-heading > .content-list-actions {
+  display: grid;
+  grid-template-columns: max-content;
+  justify-items: end;
+  align-content: start;
+  flex: 0 0 auto;
+  gap: 0.4rem;
+}
+
+.panel-heading > .content-list-actions > .reader-trigger-slot {
+  display: flex;
+  width: 100%;
+  justify-content: flex-end;
+}
+
+.panel-heading > .content-list-actions button {
+  width: fit-content;
+  white-space: nowrap;
+}
+
 .babel-detached-editor-launcher {
   display: flex;
   align-items: center;

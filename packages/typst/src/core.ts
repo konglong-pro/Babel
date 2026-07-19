@@ -89,11 +89,12 @@ export function buildTypstFormulaDocument(
   color = "#111827",
 ): TypstFormulaDocument {
   const normalizedColor = normalizeColor(color);
+  const fontSize = display === "block" ? "14pt" : "12pt";
   const beforeSource = display === "block" ? "#box($ " : "#box($";
   const afterSource = display === "block" ? " $)" : "$)";
   const lines = [
-    "#set page(width: auto, height: auto, margin: 0pt, fill: none)",
-    `#set text(size: 12pt, fill: rgb(\"${normalizedColor}\"))`,
+    "#set page(width: auto, height: auto, margin: 1pt, fill: none)",
+    `#set text(size: ${fontSize}, fill: rgb(\"${normalizedColor}\"))`,
     `${beforeSource}${source}${afterSource}`,
   ];
   return {
@@ -471,10 +472,11 @@ function normalizeColor(color: string): string {
 }
 
 function positiveNumberAttribute(svg: string, name: string): number | undefined {
-  const match = new RegExp(`\\b${name}=[\"']([0-9]+(?:\\.[0-9]+)?)(?:pt|px)?[\"']`, "iu").exec(svg);
+  const match = new RegExp(`\\b${name}=[\"']([0-9]+(?:\\.[0-9]+)?)(pt|px)?[\"']`, "iu").exec(svg);
   if (match === null) return undefined;
   const value = Number.parseFloat(match[1]);
-  return Number.isFinite(value) && value > 0 ? value : undefined;
+  if (!Number.isFinite(value) || value <= 0) return undefined;
+  return match[2]?.toLowerCase() === "pt" ? value * 4 / 3 : value;
 }
 
 function failure(message: string, request?: TypstCompileRequest): TypstCompileFailure {

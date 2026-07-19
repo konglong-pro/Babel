@@ -174,10 +174,6 @@ export function NoteList({
     if (file) void onImport(file);
   }
 
-  const selectedNote = selectedNoteId === null
-    ? undefined
-    : notes.find((note) => note.id === selectedNoteId);
-
   return (
     <aside
       className="workspace-panel note-panel"
@@ -190,12 +186,11 @@ export function NoteList({
       </button>
       <div className="panel-heading note-list-heading">
         <div>
-          <div id="babel-detached-reader-trigger-target" className="reader-trigger-slot" />
           <span className="eyebrow">Notes</span>
           <h2>{selectedFolder?.name ?? "All Notes"}</h2>
           <p>{notes.length} {notes.length === 1 ? "note" : "notes"}</p>
         </div>
-        <div className="note-create-actions">
+        <div className="note-create-actions content-list-actions">
           <input
             ref={importInputRef}
             className="sr-only"
@@ -210,7 +205,7 @@ export function NoteList({
             title={selectedFolderId === null ? "Select a folder before importing Markdown" : undefined}
             onClick={() => importInputRef.current?.click()}
           >
-            Import .md
+            Import
           </button>
           <button
             type="button"
@@ -220,15 +215,9 @@ export function NoteList({
             title={selectedFolderId === null ? "Select a folder before creating a note" : undefined}
             onClick={() => onCreate(null)}
           >
-            New Note
+            New
           </button>
-          <button
-            type="button"
-            disabled={!selectedNote}
-            onClick={() => selectedNote && onCreate(selectedNote.id, selectedNote.folderId)}
-          >
-            New subnote
-          </button>
+          <div id="babel-detached-reader-trigger-target" className="reader-trigger-slot" />
         </div>
       </div>
 

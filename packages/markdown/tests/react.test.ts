@@ -9,6 +9,7 @@ import {
   MarkdownEditor,
   MarkdownRenderer,
   OutlinePanel,
+  detachedReaderWindowFeatures,
   detachedReaderWindowName,
 } from "@babel-apps/markdown/react";
 
@@ -18,6 +19,13 @@ test("normalizes stable detached reader window names", () => {
     "babel-reader-Leviathan-note-42",
   );
   assert.equal(detachedReaderWindowName("***"), "babel-reader-document");
+});
+
+test("opens detached readers with normal browser window controls", () => {
+  assert.equal(
+    detachedReaderWindowFeatures(),
+    "popup=no,width=1040,height=860,resizable=yes,scrollbars=yes",
+  );
 });
 
 test("renders an accessible detached reader control without inline content", () => {

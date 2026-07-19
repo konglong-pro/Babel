@@ -348,11 +348,13 @@ export function ReflectionWorkspace({ initialDate }: { initialDate: string | nul
       <aside className="reflection-index workspace-panel" aria-label="Reflection dates">
         <div className="panel-heading">
           <div>
-            <div id="babel-detached-reader-trigger-target" className="reader-trigger-slot" />
             <span className="eyebrow">Daily unit</span>
             <h1>Reflection</h1>
           </div>
-          <span className="count-badge">{summaries.length}</span>
+          <div className="reflection-heading-actions">
+            <span className="count-badge">{summaries.length}</span>
+            <div id="babel-detached-reader-trigger-target" className="reader-trigger-slot" />
+          </div>
         </div>
         <form
           className="reflection-date-picker"

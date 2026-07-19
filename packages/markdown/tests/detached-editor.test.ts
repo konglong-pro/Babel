@@ -31,7 +31,7 @@ test("aligns detached editor geometry with the source detail panel", () => {
         outerHeight: 1088,
       },
     ),
-    "popup=yes,left=628,top=180,width=1240,height=948,resizable=yes,scrollbars=yes",
+    "popup=no,left=628,top=180,width=1240,height=948,resizable=yes,scrollbars=yes",
   );
 });
 

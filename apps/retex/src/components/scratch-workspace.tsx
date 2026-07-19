@@ -218,6 +218,7 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
           >
             {saving ? "Saving…" : "Save Scratch"}
           </button>
+          <div id="babel-detached-reader-trigger-target" className="reader-trigger-slot" />
         </div>
       </header>
 
@@ -238,7 +239,6 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
             />
           </section>
           <section className="scratch-editor" aria-label="Temporary work editor">
-            <div id="babel-detached-reader-trigger-target" className="reader-trigger-slot" />
             <div className="editor-outline-layout">
               <MarkdownEditor
                 label="Work It Out Again"

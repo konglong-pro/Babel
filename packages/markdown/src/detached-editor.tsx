@@ -184,7 +184,8 @@ export function detachedEditorWindowFeatures(
   const height = Math.max(320, Math.round(rect.height));
 
   return [
-    "popup=yes",
+    // Request normal browser chrome so the editor has native window controls.
+    "popup=no",
     `left=${left}`,
     `top=${top}`,
     `width=${width}`,
