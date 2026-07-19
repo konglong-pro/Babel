@@ -176,6 +176,7 @@ export function ItemList({
     >
       <div className="panel-heading compact">
         <div>
+          <div id="babel-detached-reader-trigger-target" className="reader-trigger-slot" />
           <span className="eyebrow">Content</span>
           <h2>{selectedFolderId === null ? `All ${itemName}` : itemName}</h2>
         </div>
@@ -211,7 +212,6 @@ export function ItemList({
           >
             New
           </button>
-          <div id="babel-detached-reader-trigger-target" className="reader-trigger-slot" />
         </div>
       </div>
 

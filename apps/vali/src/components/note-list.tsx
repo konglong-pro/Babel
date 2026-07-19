@@ -186,6 +186,7 @@ export function NoteList({
       </button>
       <div className="panel-heading note-list-heading">
         <div>
+          <div id="babel-detached-reader-trigger-target" className="reader-trigger-slot" />
           <span className="eyebrow">Notes</span>
           <h2>{selectedFolder?.name ?? "All Notes"}</h2>
           <p>{notes.length} {notes.length === 1 ? "note" : "notes"}</p>
@@ -217,7 +218,6 @@ export function NoteList({
           >
             New
           </button>
-          <div id="babel-detached-reader-trigger-target" className="reader-trigger-slot" />
         </div>
       </div>
 
