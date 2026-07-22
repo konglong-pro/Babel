@@ -72,6 +72,52 @@ test("database factory resolves paths, applies options, and isolates app caches"
   }
 });
 
+test("database factory applies the busy timeout before enabling WAL", async () => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "babel-platform-lock-"));
+  const databasePath = path.join(temporaryRoot, "sqlite.db");
+  const envVar = "BABEL_PLATFORM_LOCKED_DATABASE_PATH";
+  const previousPath = process.env[envVar];
+  process.env[envVar] = databasePath;
+
+  const locker = new Worker(
+    `
+      const { parentPort, workerData } = require("node:worker_threads");
+      const Database = require("better-sqlite3");
+      const database = new Database(workerData.databasePath);
+      database.exec("BEGIN EXCLUSIVE");
+      parentPort.postMessage("locked");
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 150);
+      database.exec("COMMIT");
+      database.close();
+    `,
+    { eval: true, workerData: { databasePath } },
+  );
+  const lockerExit = once(locker, "exit");
+
+  try {
+    await once(locker, "message");
+    const client = createDatabase({
+      envVar,
+      defaultPath: databasePath,
+      schema: {},
+      busyTimeoutMs: 1000,
+    });
+
+    assert.equal(client.sqlite.pragma("journal_mode", { simple: true }), "wal");
+    assert.equal(client.sqlite.pragma("busy_timeout", { simple: true }), 1000);
+    client.sqlite.close();
+    const [exitCode] = await lockerExit;
+    assert.equal(exitCode, 0);
+  } finally {
+    if (previousPath === undefined) {
+      delete process.env[envVar];
+    } else {
+      process.env[envVar] = previousPath;
+    }
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
 test("migration and checkpoint helpers operate on explicit app parameters", async () => {
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "babel-platform-scripts-"));
   const databasePath = path.join(temporaryRoot, "sqlite.db");

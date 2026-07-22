@@ -51,11 +51,11 @@ export function createDatabase<TSchema extends Record<string, unknown>>(
   }
 
   const sqlite = new BetterSqlite3(databasePath);
-  sqlite.pragma("journal_mode = WAL");
-  sqlite.pragma("foreign_keys = ON");
   if (options.busyTimeoutMs !== undefined) {
     sqlite.pragma(`busy_timeout = ${options.busyTimeoutMs}`);
   }
+  sqlite.pragma("journal_mode = WAL");
+  sqlite.pragma("foreign_keys = ON");
 
   const state: DatabaseClient<TSchema> = {
     databasePath,
