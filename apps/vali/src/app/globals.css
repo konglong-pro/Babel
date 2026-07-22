@@ -307,7 +307,82 @@ a {
 }
 
 .note-panel {
+  display: flex;
+  flex-direction: column;
   background: var(--paper-muted);
+}
+
+.note-panel > .note-tree,
+.note-panel > .template-list {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+}
+
+.template-manager-trigger {
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  margin-top: 0.7rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.7rem;
+}
+
+.template-manager-trigger button {
+  width: auto;
+  padding: 0.42rem 0.58rem;
+  font-size: 0.75rem;
+  font-weight: 680;
+  text-align: center;
+}
+
+.template-list-heading p {
+  margin: 0.28rem 0 0;
+  color: var(--ink-faint);
+  font-size: 0.72rem;
+}
+
+.template-list-actions {
+  display: grid;
+  justify-items: end;
+  gap: 0.35rem;
+}
+
+.template-list {
+  display: grid;
+  align-content: start;
+  gap: 0.45rem;
+}
+
+.template-card {
+  display: grid;
+  width: 100%;
+  gap: 0.35rem;
+  border-color: transparent;
+  background: transparent;
+  padding: 0.65rem 0.72rem;
+  text-align: left;
+}
+
+.template-card:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--blue-soft);
+}
+
+.template-card.selected {
+  border-color: var(--blue-line);
+  background: var(--blue-soft);
+  color: var(--blue-hover);
+  box-shadow: inset 3px 0 var(--blue);
+}
+
+.template-card span {
+  color: var(--ink-faint);
+  font-size: 0.69rem;
+}
+
+.template-name-field {
+  max-width: 720px;
 }
 
 .reference-panel-trigger,
@@ -1653,9 +1728,13 @@ a {
   }
 
   .notes-workspace.stage-library .folder-panel,
-  .notes-workspace.stage-notes .note-panel,
   .notes-workspace.stage-note .detail-panel {
     display: block !important;
+  }
+
+  .notes-workspace.stage-notes .note-panel {
+    display: flex !important;
+    flex-direction: column;
   }
 
   .reflection-workspace .reflection-index {

@@ -12,7 +12,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { assertAppDatabaseReady } from "@/lib/db/readiness";
 import { GET as getHealth } from "@/app/api/health/route";
 
-const latestMigration = 1_784_217_600_000;
+const latestMigration = 1_784_683_347_921;
 const migrationsFolder = path.resolve(process.cwd(), "drizzle");
 
 test("Vali database readiness", async (t) => {
@@ -45,6 +45,19 @@ test("Vali database readiness", async (t) => {
     assert.throws(
       () => assertAppDatabaseReady(databasePath),
       /missing required column: note_link\.source_note_id/i,
+    );
+  });
+
+  await t.test("rejects a migrated database without note templates", () => {
+    const databasePath = path.join(root, "missing-templates.db");
+    const sqlite = new BetterSqlite3(databasePath);
+    migrate(drizzle(sqlite), { migrationsFolder });
+    sqlite.exec("DROP TABLE note_template");
+    sqlite.close();
+
+    assert.throws(
+      () => assertAppDatabaseReady(databasePath),
+      /missing required column: note_template\.name/i,
     );
   });
 
@@ -83,6 +96,7 @@ function createLatestLookingDatabase(
         id integer PRIMARY KEY
         ${includeParentId ? ", parent_id integer" : ""}
       );
+      ${includeParentId ? "CREATE TABLE note_template (name text, content_md text, created_at text, updated_at text);" : ""}
       ${includeParentId ? "CREATE TABLE reflection (date text PRIMARY KEY, content_md text);" : ""}
       CREATE TABLE __drizzle_migrations (
         id integer PRIMARY KEY AUTOINCREMENT,

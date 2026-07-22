@@ -16,6 +16,8 @@ import type * as ReflectionCollectionRoute from "@/app/api/reflections/route";
 import type * as ReflectionItemRoute from "@/app/api/reflections/[date]/route";
 import type * as ReflectionBacklinksRoute from "@/app/api/reflections/[date]/backlinks/route";
 import type * as SearchRoute from "@/app/api/search/route";
+import type * as TemplateCollectionRoute from "@/app/api/templates/route";
+import type * as TemplateItemRoute from "@/app/api/templates/[id]/route";
 import type * as UploadRoute from "@/app/api/uploads/notes/[filename]/route";
 import type * as DatabaseModule from "@/lib/db/client";
 import type * as RepositoryModule from "@/lib/repositories";
@@ -37,6 +39,8 @@ let reflectionCollectionRoute: typeof ReflectionCollectionRoute;
 let reflectionItemRoute: typeof ReflectionItemRoute;
 let reflectionBacklinksRoute: typeof ReflectionBacklinksRoute;
 let searchRoute: typeof SearchRoute;
+let templateCollectionRoute: typeof TemplateCollectionRoute;
+let templateItemRoute: typeof TemplateItemRoute;
 let uploadRoute: typeof UploadRoute;
 
 before(async () => {
@@ -59,6 +63,8 @@ before(async () => {
     reflectionItemRoute,
     reflectionBacklinksRoute,
     searchRoute,
+    templateCollectionRoute,
+    templateItemRoute,
     uploadRoute,
   ] =
     await Promise.all([
@@ -74,6 +80,8 @@ before(async () => {
       import("@/app/api/reflections/[date]/route"),
       import("@/app/api/reflections/[date]/backlinks/route"),
       import("@/app/api/search/route"),
+      import("@/app/api/templates/route"),
+      import("@/app/api/templates/[id]/route"),
       import("@/app/api/uploads/notes/[filename]/route"),
     ]);
 });
@@ -203,6 +211,95 @@ test("Vali backend integration", async (t) => {
         repositories.listNotes().some(({ title }) => title === "Cross-origin note"),
         false,
       );
+    });
+
+    await t.test("note templates support static Markdown CRUD", async () => {
+      assert.deepEqual(repositories.listNoteTemplates(), []);
+
+      const createdResponse = await templateCollectionRoute.POST(
+        new Request("http://localhost/api/templates", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: "Weekly review",
+            contentMd: "# Wins\n\n## Questions",
+          }),
+        }),
+      );
+      assert.equal(createdResponse.status, 201);
+      const created = await createdResponse.json() as {
+        id: number;
+        name: string;
+        contentMd: string;
+      };
+      assert.equal(created.name, "Weekly review");
+
+      assert.throws(
+        () => repositories.createNoteTemplate({
+          name: "weekly REVIEW",
+          contentMd: "duplicate",
+        }),
+        (error: unknown) =>
+          error instanceof repositories.RepositoryError && error.code === "CONFLICT",
+      );
+      assert.throws(
+        () => repositories.createNoteTemplate({
+          name: "x".repeat(121),
+          contentMd: "too long",
+        }),
+        (error: unknown) =>
+          error instanceof repositories.RepositoryError && error.code === "VALIDATION",
+      );
+      assert.throws(
+        () => database.sqlite
+          .prepare("INSERT INTO note_template (name, content_md) VALUES (?, '')")
+          .run("x".repeat(121)),
+        /note_template_name_length/,
+      );
+      for (const contentMd of [
+        "![Pending](vali-upload://pending)",
+        "![Owned](/api/uploads/notes/owned.png)",
+      ]) {
+        assert.throws(
+          () => repositories.createNoteTemplate({ name: `Blocked ${contentMd}`, contentMd }),
+          (error: unknown) =>
+            error instanceof repositories.RepositoryError && error.code === "VALIDATION",
+        );
+      }
+
+      const patchedResponse = await templateItemRoute.PATCH(
+        new Request(`http://localhost/api/templates/${created.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: "Monthly review",
+            contentMd: "![External](https://example.com/reference.png)",
+          }),
+        }),
+        { params: Promise.resolve({ id: String(created.id) }) },
+      );
+      assert.equal(patchedResponse.status, 200);
+      assert.equal(repositories.getNoteTemplate(created.id)?.name, "Monthly review");
+
+      const listedResponse = await templateCollectionRoute.GET();
+      assert.equal(listedResponse.status, 200);
+      assert.equal((await listedResponse.json() as unknown[]).length, 1);
+
+      const foreignDelete = await templateItemRoute.DELETE(
+        new Request(`http://localhost/api/templates/${created.id}`, {
+          method: "DELETE",
+          headers: { Origin: "https://attacker.example" },
+        }),
+        { params: Promise.resolve({ id: String(created.id) }) },
+      );
+      assert.equal(foreignDelete.status, 403);
+
+      const deletedResponse = await templateItemRoute.DELETE(
+        new Request(`http://localhost/api/templates/${created.id}`, { method: "DELETE" }),
+        { params: Promise.resolve({ id: String(created.id) }) },
+      );
+      assert.equal(deletedResponse.status, 204);
+      assert.equal(repositories.getNoteTemplate(created.id), null);
     });
 
     await t.test("notes and reflections enforce the 10 MiB UTF-8 Markdown limit", async () => {

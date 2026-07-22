@@ -21,6 +21,7 @@ interface NoteListProps {
   onSelect: (id: number) => void;
   onCreate: (parentId: number | null, folderId?: number) => void;
   onImport: (file: File) => Promise<void> | void;
+  onEditTemplates: () => void;
   onBack: () => void;
 }
 
@@ -134,6 +135,7 @@ export function NoteList({
   onSelect,
   onCreate,
   onImport,
+  onEditTemplates,
   onBack,
 }: NoteListProps) {
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -246,6 +248,9 @@ export function NoteList({
           onCreate={(parentId, folderId) => onCreate(parentId, folderId)}
         />
       </nav>
+      <div className="template-manager-trigger">
+        <button type="button" onClick={onEditTemplates}>Edit Templates</button>
+      </div>
     </aside>
   );
 }

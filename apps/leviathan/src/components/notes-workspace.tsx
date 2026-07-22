@@ -14,6 +14,7 @@ import {
 import { FolderPanel } from "@/components/folder-panel";
 import { NoteDetail, type NoteViewMode } from "@/components/note-detail";
 import { NoteList } from "@/components/note-list";
+import { TemplateEditor, TemplateList } from "@/components/template-manager";
 import {
   createNote,
   createFolder,
@@ -23,6 +24,7 @@ import {
   listBacklinks,
   listFolders,
   listNotes,
+  listNoteTemplates,
   updateFolder,
 } from "@/lib/api-client";
 import {
@@ -35,6 +37,7 @@ import type {
   FolderDto,
   NoteDetailDto,
   NoteSummaryDto,
+  NoteTemplateDto,
 } from "@/lib/types";
 
 type ResponsiveStage = "library" | "notes" | "note";
@@ -93,12 +96,21 @@ function newestFirst(a: NoteSummaryDto, b: NoteSummaryDto): number {
   return timeDifference || a.title.localeCompare(b.title, "en-US") || a.id - b.id;
 }
 
+function templateNameOrder(a: NoteTemplateDto, b: NoteTemplateDto): number {
+  return a.name.localeCompare(b.name, "en-US", { sensitivity: "base" }) || a.id - b.id;
+}
+
 export function NotesWorkspace({
   initialFolderId = null,
   initialNoteId = null,
 }: NotesWorkspaceProps) {
   const [folders, setFolders] = useState<FolderDto[]>([]);
   const [notes, setNotes] = useState<NoteSummaryDto[]>([]);
+  const [templates, setTemplates] = useState<NoteTemplateDto[]>([]);
+  const [managingTemplates, setManagingTemplates] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
+  const [creatingTemplate, setCreatingTemplate] = useState(false);
+  const [templateDraftVersion, setTemplateDraftVersion] = useState(0);
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(initialFolderId);
   const [selectedNoteId, setSelectedNoteId] = useState<number | null>(initialNoteId);
   const [detail, setDetail] = useState<NoteDetailDto | null>(null);
@@ -196,11 +208,12 @@ export function NotesWorkspace({
 
   useEffect(() => {
     let active = true;
-    Promise.all([listFolders(), listNotes()])
-      .then(([nextFolders, nextNotes]) => {
+    Promise.all([listFolders(), listNotes(), listNoteTemplates()])
+      .then(([nextFolders, nextNotes, nextTemplates]) => {
         if (!active) return;
         setFolders(nextFolders);
         setNotes(nextNotes);
+        setTemplates(nextTemplates);
         if (
           initialFolderId !== null &&
           !nextFolders.some((folder) => folder.id === initialFolderId)
@@ -275,7 +288,7 @@ export function NotesWorkspace({
 
   const confirmDiscard = useCallback((): boolean => {
     if (savingRef.current || wikilinkCreatePendingRef.current) {
-      window.alert("Please wait for the note to finish saving.");
+      window.alert("Please wait for the current save to finish.");
       return false;
     }
     if (!dirtyRef.current) return true;
@@ -286,6 +299,9 @@ export function NotesWorkspace({
     invalidateImportRequest();
     selectedFolderIdRef.current = null;
     setDirtyState(false);
+    setManagingTemplates(false);
+    setSelectedTemplateId(null);
+    setCreatingTemplate(false);
     setSelectedFolderId(null);
     setActiveNoteId(null);
     setDetail(null);
@@ -400,6 +416,10 @@ export function NotesWorkspace({
   ]);
 
   const folderMap = useMemo(() => new Map(folders.map((folder) => [folder.id, folder])), [folders]);
+  const selectedTemplate = useMemo(
+    () => templates.find((template) => template.id === selectedTemplateId) ?? null,
+    [selectedTemplateId, templates],
+  );
   const visibleNotes = useMemo(() => {
     const scopedFolderIds = selectedFolderId === null ? null : subtreeIds(selectedFolderId, folders);
     const filtered = scopedFolderIds === null
@@ -420,6 +440,10 @@ export function NotesWorkspace({
 
   function selectFolder(id: number | null) {
     if (!confirmDiscard()) return;
+    setDirtyState(false);
+    setManagingTemplates(false);
+    setSelectedTemplateId(null);
+    setCreatingTemplate(false);
     invalidateImportRequest();
     selectedFolderIdRef.current = id;
     setSelectedFolderId(id);
@@ -457,6 +481,10 @@ export function NotesWorkspace({
 
   async function handleCreateFolder(name: string, parentId: number | null) {
     if (!confirmDiscard()) return;
+    setDirtyState(false);
+    setManagingTemplates(false);
+    setSelectedTemplateId(null);
+    setCreatingTemplate(false);
     invalidateImportRequest();
     invalidateWikilinkCreate();
     const created = await createFolder({ name, parentId });
@@ -487,6 +515,10 @@ export function NotesWorkspace({
 
   async function handleDeleteFolder(id: number) {
     if (!confirmDiscard()) return;
+    setDirtyState(false);
+    setManagingTemplates(false);
+    setSelectedTemplateId(null);
+    setCreatingTemplate(false);
     invalidateImportRequest();
     invalidateWikilinkCreate();
     await deleteFolder(id);
@@ -674,8 +706,82 @@ export function NotesWorkspace({
     setStage("library");
   }
 
+  function beginManagingTemplates() {
+    if (!confirmDiscard()) return;
+    invalidateImportRequest();
+    invalidateWikilinkCreate();
+    setDirtyState(false);
+    setActiveReferencePanel(null);
+    setImportDraft(null);
+    setDraftParentId(null);
+    setMode("view");
+    setManagingTemplates(true);
+    setSelectedTemplateId(null);
+    setCreatingTemplate(false);
+    setTemplateDraftVersion((version) => version + 1);
+    setStage("notes");
+  }
+
+  function closeTemplateManager(nextStage: ResponsiveStage = "notes") {
+    if (!confirmDiscard()) return;
+    setDirtyState(false);
+    setManagingTemplates(false);
+    setSelectedTemplateId(null);
+    setCreatingTemplate(false);
+    setTemplateDraftVersion((version) => version + 1);
+    setStage(nextStage);
+  }
+
+  function selectManagedTemplate(id: number) {
+    if (!confirmDiscard()) return;
+    setDirtyState(false);
+    setSelectedTemplateId(id);
+    setCreatingTemplate(false);
+    setTemplateDraftVersion((version) => version + 1);
+    setStage("note");
+  }
+
+  function beginTemplateCreation() {
+    if (!confirmDiscard()) return;
+    setDirtyState(false);
+    setSelectedTemplateId(null);
+    setCreatingTemplate(true);
+    setTemplateDraftVersion((version) => version + 1);
+    setStage("note");
+  }
+
+  function cancelTemplateEditing() {
+    if (!confirmDiscard()) return;
+    setDirtyState(false);
+    setSelectedTemplateId(null);
+    setCreatingTemplate(false);
+    setTemplateDraftVersion((version) => version + 1);
+    setStage("notes");
+  }
+
+  function handleTemplateSaved(saved: NoteTemplateDto) {
+    setDirtyState(false);
+    setTemplates((current) => [
+      ...current.filter((template) => template.id !== saved.id),
+      saved,
+    ].sort(templateNameOrder));
+    setSelectedTemplateId(saved.id);
+    setCreatingTemplate(false);
+    setTemplateDraftVersion((version) => version + 1);
+    setStage("note");
+  }
+
+  function handleTemplateDeleted(id: number) {
+    setDirtyState(false);
+    setTemplates((current) => current.filter((template) => template.id !== id));
+    setSelectedTemplateId(null);
+    setCreatingTemplate(false);
+    setTemplateDraftVersion((version) => version + 1);
+    setStage("notes");
+  }
+
   return (
-    <div className={`notes-workspace stage-${stage}${dirty ? " has-unsaved" : ""}`}>
+    <div className={`notes-workspace stage-${stage}${dirty ? " has-unsaved" : ""}${managingTemplates ? " managing-templates" : ""}`}>
       {error ? (
         <div className="workspace-alert" role="alert">
           <span>{error}</span>
@@ -696,6 +802,19 @@ export function NotesWorkspace({
         onMove={handleMoveFolder}
         onDelete={handleDeleteFolder}
       />
+      {managingTemplates ? (
+        <TemplateList
+          templates={templates}
+          selectedId={selectedTemplateId}
+          creating={creatingTemplate}
+          loading={indexLoading}
+          referencePanelOpen={activeReferencePanel !== null}
+          onSelect={selectManagedTemplate}
+          onCreate={beginTemplateCreation}
+          onExit={() => closeTemplateManager("notes")}
+          onBack={() => closeTemplateManager("library")}
+        />
+      ) : (
       <NoteList
         notes={visibleNotes}
         folders={folderMap}
@@ -705,6 +824,7 @@ export function NotesWorkspace({
         referencePanelOpen={activeReferencePanel !== null}
         onSelect={openNote}
         onImport={handleImportMarkdown}
+        onManageTemplates={beginManagingTemplates}
         onCreate={(parentId) => {
           if ((selectedFolderId === null && parentId === null) || !confirmDiscard()) return;
           const targetFolderId = parentId === null
@@ -729,8 +849,22 @@ export function NotesWorkspace({
         }}
         onBack={backToLibrary}
       />
+      )}
 
-      {detailError ? (
+      {managingTemplates ? (
+        <TemplateEditor
+          key={`template-${templateDraftVersion}-${selectedTemplateId ?? "new"}-${creatingTemplate}`}
+          template={selectedTemplate}
+          creating={creatingTemplate}
+          onSaved={handleTemplateSaved}
+          onDeleted={handleTemplateDeleted}
+          onCancel={cancelTemplateEditing}
+          onDirtyChange={setDirtyState}
+          onPendingChange={setSavingState}
+          onRegisterSave={registerSave}
+          onBack={cancelTemplateEditing}
+        />
+      ) : detailError ? (
         <section className="detail-panel error-state" role="alert">
           <button className="content-back" type="button" onClick={backToNotes}>← Notes</button>
           <span aria-hidden="true">!</span>
@@ -757,6 +891,7 @@ export function NotesWorkspace({
           parentId={mode === "create" ? draftParentId : detail?.parentId ?? null}
           folders={folders}
           notes={notes}
+          templates={templates}
           backlinks={backlinks}
           loading={detailLoading}
           onEdit={() => {

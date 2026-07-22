@@ -12,7 +12,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { assertAppDatabaseReady } from "@/lib/db/readiness";
 import { GET as getHealth } from "@/app/api/health/route";
 
-const latestMigration = 1_784_217_600_000;
+const latestMigration = 1_784_684_003_438;
 const migrationsFolder = path.resolve(process.cwd(), "drizzle");
 
 test("Esperanto database readiness", async (t) => {
@@ -26,6 +26,32 @@ test("Esperanto database readiness", async (t) => {
     sqlite.close();
 
     assert.doesNotThrow(() => assertAppDatabaseReady(databasePath));
+  });
+
+  await t.test("rejects a current database without note templates", () => {
+    const databasePath = path.join(root, "missing-note-template.db");
+    const sqlite = new BetterSqlite3(databasePath);
+    migrate(drizzle(sqlite), { migrationsFolder });
+    sqlite.exec("DROP TABLE note_template;");
+    sqlite.close();
+
+    assert.throws(
+      () => assertAppDatabaseReady(databasePath),
+      /missing required column: note_template\.name/i,
+    );
+  });
+
+  await t.test("rejects a note template table without creation timestamps", () => {
+    const databasePath = path.join(root, "missing-template-created-at.db");
+    const sqlite = new BetterSqlite3(databasePath);
+    migrate(drizzle(sqlite), { migrationsFolder });
+    sqlite.exec("ALTER TABLE note_template DROP COLUMN created_at;");
+    sqlite.close();
+
+    assert.throws(
+      () => assertAppDatabaseReady(databasePath),
+      /missing required column: note_template\.created_at/i,
+    );
   });
 
   await t.test("rejects a latest-looking database without page hierarchy", () => {

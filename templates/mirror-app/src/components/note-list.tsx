@@ -21,6 +21,7 @@ interface NoteListProps {
   onSelect: (id: number) => void;
   onCreate: (parentId: number | null) => void;
   onImport: (file: File) => Promise<void> | void;
+  onManageTemplates: () => void;
   onBack: () => void;
 }
 
@@ -134,6 +135,7 @@ export function NoteList({
   onSelect,
   onCreate,
   onImport,
+  onManageTemplates,
   onBack,
 }: NoteListProps) {
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -253,6 +255,9 @@ export function NoteList({
           onCreate={onCreate}
         />
       </nav>
+      <div className="note-panel-footer">
+        <button type="button" onClick={onManageTemplates}>Edit Templates</button>
+      </div>
     </aside>
   );
 }

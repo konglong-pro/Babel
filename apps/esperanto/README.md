@@ -20,8 +20,10 @@ The editor uses the full writing area; rendered GitHub Flavored Markdown remains
 available in reading mode. **Read** sits above the note-list heading in the
 middle column and opens a separate reader window for either saved content or
 the current live draft and staged images. Bottom-left English **Markdown
-Guide** and **Typst Reference** panels span the folder and note columns. PNG,
-JPEG, WebP, and GIF images up to 10 MiB can be selected or pasted and are
+Guide** and **Typst Reference** panels span the folder and note columns.
+The middle-column **Edit Templates** control manages notebook-local static
+Markdown templates that can be copied into a new note.
+PNG, JPEG, WebP, and GIF images up to 10 MiB can be selected or pasted and are
 committed only when the note is saved. A save accepts
 up to 10 MiB of Markdown, 50 new images, and 100 MiB in total; multipart transport
 is limited to 160 MiB. Image mutations are serialized, and interrupted

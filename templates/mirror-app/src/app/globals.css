@@ -258,6 +258,11 @@ a {
   background: var(--paper-muted);
 }
 
+.note-panel:has(> .note-panel-footer) {
+  display: flex;
+  flex-direction: column;
+}
+
 .reference-panel-trigger,
 .reference-board__close,
 .reference-board__field input,
@@ -333,6 +338,7 @@ a {
 
 .folder-tree ul,
 .note-tree ul,
+.template-list ul,
 .note-list,
 .tag-list,
 .search-result-list {
@@ -545,6 +551,58 @@ a {
 .note-list {
   display: grid;
   gap: 0.3rem;
+}
+
+.note-panel > .note-tree,
+.note-panel > .template-list {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: auto;
+}
+
+.template-list {
+  margin-inline: -0.2rem;
+}
+
+.template-card {
+  display: grid;
+  width: 100%;
+  gap: 0.38rem;
+  border-color: transparent;
+  background: transparent;
+  padding: 0.72rem;
+  text-align: left;
+}
+
+.template-card strong {
+  font-family: var(--serif);
+  font-size: 1.02rem;
+  font-weight: 600;
+}
+
+.template-card time {
+  color: var(--ink-faint);
+  font-size: 0.69rem;
+}
+
+.template-card.selected {
+  border-color: var(--blue-line);
+  background: var(--blue-soft);
+  color: var(--blue-hover);
+}
+
+.note-panel-footer {
+  display: flex;
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  margin-top: 0.7rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.7rem;
+}
+
+.note-panel-footer button {
+  width: auto;
+  text-align: center;
 }
 
 .note-card {
@@ -881,6 +939,10 @@ a {
 }
 
 .tags-field {
+  grid-column: 1 / -1;
+}
+
+.template-field {
   grid-column: 1 / -1;
 }
 
@@ -1449,9 +1511,13 @@ a {
   }
 
   .notes-workspace.stage-library .folder-panel,
-  .notes-workspace.stage-notes .note-panel,
   .notes-workspace.stage-note .detail-panel {
     display: block !important;
+  }
+
+  .notes-workspace.stage-notes .note-panel {
+    display: flex !important;
+    flex-direction: column;
   }
 
   .workspace-panel {

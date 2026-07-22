@@ -42,6 +42,7 @@ import type {
   FolderDto,
   NoteDetailDto,
   NoteSummaryDto,
+  NoteTemplateDto,
 } from "@/lib/types";
 
 const NOTE_HEADING_ID_PREFIX = "vali-note-heading-";
@@ -117,6 +118,7 @@ interface NoteDetailProps {
   parentId: number | null;
   folders: FolderDto[];
   notes: NoteSummaryDto[];
+  templates: NoteTemplateDto[];
   backlinks: DocumentBacklinkDto[];
   loading?: boolean;
   onEdit: () => void;
@@ -140,6 +142,7 @@ export function NoteDetail({
   parentId,
   folders,
   notes,
+  templates,
   backlinks,
   loading,
   onEdit,
@@ -208,6 +211,7 @@ export function NoteDetail({
         initialParentId={parentId}
         folders={folders}
         notes={notes}
+        templates={templates}
         onCancel={onCancel}
         onSaved={onSaved}
         onDirtyChange={onDirtyChange}
@@ -349,6 +353,7 @@ interface NoteFormProps {
   initialParentId: number | null;
   folders: FolderDto[];
   notes: NoteSummaryDto[];
+  templates: NoteTemplateDto[];
   onCancel: () => void;
   onSaved: (detail: NoteDetailDto) => Promise<void> | void;
   onDirtyChange: (dirty: boolean) => void;
@@ -365,6 +370,7 @@ function NoteForm({
   initialParentId,
   folders,
   notes,
+  templates,
   onCancel,
   onSaved,
   onDirtyChange,
@@ -386,6 +392,7 @@ function NoteForm({
   const [content, setContent] = useState(initialContent);
   const [folderId, setFolderId] = useState<number | null>(initialFolder);
   const [parentId, setParentId] = useState<number | null>(initialParent);
+  const [templateId, setTemplateId] = useState("");
   const [stagedImages, setStagedImages] = useState<StagedImage[]>([]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -499,6 +506,21 @@ function NoteForm({
       });
       return retained.length === current.length ? current : retained;
     });
+  }
+
+  function applyTemplate(nextTemplateId: string) {
+    if (pending) return;
+    const template = templates.find(({ id }) => String(id) === nextTemplateId);
+    const nextContent = template?.contentMd ?? "";
+    if (
+      content !== initialContent &&
+      content !== nextContent &&
+      !window.confirm("Replace the current note content with this template?")
+    ) {
+      return;
+    }
+    setTemplateId(nextTemplateId);
+    changeContent(nextContent);
   }
 
   function resolveImportedImages(images: readonly StagedImage[]) {
@@ -651,6 +673,22 @@ function NoteForm({
               ))}
             </select>
           </label>
+          {!detail && !importDraft ? (
+            <label className="field">
+              <span>Template</span>
+              <select
+                name="templateId"
+                disabled={pending}
+                value={templateId}
+                onChange={(event) => applyTemplate(event.target.value)}
+              >
+                <option value="">No template</option>
+                {templates.map((template) => (
+                  <option key={template.id} value={template.id}>{template.name}</option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <label className="field tags-field">
             <span>Tags</span>
             <input

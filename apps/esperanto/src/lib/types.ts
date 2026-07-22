@@ -21,6 +21,14 @@ export interface NoteDetailDto extends NoteSummaryDto {
   links: NoteLinkDto[];
 }
 
+export interface NoteTemplateDto {
+  id: number;
+  name: string;
+  contentMd: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface NoteLinkDto {
   titleKey: string;
   targetId: number | null;

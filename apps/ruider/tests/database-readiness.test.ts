@@ -12,7 +12,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { assertAppDatabaseReady } from "@/lib/db/readiness";
 import { GET as getHealth } from "@/app/api/health/route";
 
-const latestMigration = 1_784_376_813_135;
+const latestMigration = 1_784_684_795_407;
 const migrationsFolder = path.resolve(process.cwd(), "drizzle");
 
 test("Ruider database readiness", async (t) => {
@@ -45,6 +45,18 @@ test("Ruider database readiness", async (t) => {
     assert.throws(
       () => assertAppDatabaseReady(databasePath),
       /missing required column: note_link\.source_note_id/i,
+    );
+  });
+
+  await t.test("rejects a current database without the template table", () => {
+    const databasePath = path.join(root, "missing-template.db");
+    const sqlite = new BetterSqlite3(databasePath);
+    migrate(drizzle(sqlite), { migrationsFolder });
+    sqlite.exec("DROP TABLE note_template");
+    sqlite.close();
+    assert.throws(
+      () => assertAppDatabaseReady(databasePath),
+      /missing required column: note_template\.name/i,
     );
   });
 

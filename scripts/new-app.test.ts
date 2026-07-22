@@ -218,6 +218,10 @@ test("renders the repository mirror template as an independent app", async (t) =
     readinessSource,
     /note_link:\s*\[[\s\S]*?"source_note_id"[\s\S]*?"target_title_key"[\s\S]*?"target_note_id"[\s\S]*?\]/,
   );
+  assert.match(
+    readinessSource,
+    /note_template:\s*\[[\s\S]*?"name"[\s\S]*?"content_md"[\s\S]*?"updated_at"[\s\S]*?\]/,
+  );
   assert.match(readinessSource, /note_search:\s*\["title", "content_md", "tags"\]/);
   assert.match(readinessSource, /name:\s*"note_search"/);
   const initialMigration = await readFile(
@@ -242,6 +246,12 @@ test("renders the repository mirror template as an independent app", async (t) =
   );
   assert.match(searchMigration, /tokenize='trigram'/);
   assert.match(searchMigration, /CREATE TRIGGER `note_search_au`/);
+  const templateMigration = await readFile(
+    path.join(generatedRoot, "drizzle", "0002_mirror-notes_templates.sql"),
+    "utf8",
+  );
+  assert.match(templateMigration, /CREATE TABLE `note_template`/);
+  assert.match(templateMigration, /CREATE UNIQUE INDEX `note_template_name_unique`/);
 
   const markdownEditor = await readFile(
     path.join(generatedRoot, "src", "components", "markdown-editor.tsx"),
@@ -284,6 +294,8 @@ test("renders the repository mirror template as an independent app", async (t) =
   assert.match(noteDetail, /const NOTE_HEADING_ID_PREFIX = "mirror-notes-note-heading-"/);
   assert.match(noteDetail, /textareaRef=\{textareaRef\}/);
   assert.match(noteDetail, /onSave=\{\(\) => formRef\.current\?\.requestSubmit\(\)\}/);
+  assert.match(noteDetail, />No template<\/option>/);
+  assert.match(noteDetail, /Copies static Markdown into this new note/);
   assert.doesNotMatch(noteDetail, /footerExtras=/);
   await assert.rejects(
     access(path.join(generatedRoot, "src", "components", "markdown.tsx")),
@@ -332,6 +344,19 @@ test("renders the repository mirror template as an independent app", async (t) =
   assert.match(
     noteList,
     /id="babel-detached-reader-trigger-target"[\s\S]*?<span className="eyebrow">Notes<\/span>/,
+  );
+  assert.match(noteList, /Edit Templates/);
+  await access(
+    path.join(generatedRoot, "src", "components", "note-template-manager.tsx"),
+  );
+  await access(
+    path.join(generatedRoot, "src", "app", "api", "templates", "route.ts"),
+  );
+  await access(
+    path.join(generatedRoot, "src", "app", "api", "templates", "[id]", "route.ts"),
+  );
+  await access(
+    path.join(generatedRoot, "src", "lib", "repositories", "note-templates.ts"),
   );
   await access(path.join(generatedRoot, "src", "components", "note-tree-state.ts"));
   await access(path.join(generatedRoot, "tests", "note-tree-state.test.ts"));

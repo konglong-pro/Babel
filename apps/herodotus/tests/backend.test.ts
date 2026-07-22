@@ -13,6 +13,8 @@ import type * as NoteItemRoute from "@/app/api/notes/[id]/route";
 import type * as NoteBacklinksRoute from "@/app/api/notes/[id]/backlinks/route";
 import type * as NoteTitlesRoute from "@/app/api/notes/titles/route";
 import type * as SearchRoute from "@/app/api/search/route";
+import type * as TemplateCollectionRoute from "@/app/api/templates/route";
+import type * as TemplateItemRoute from "@/app/api/templates/[id]/route";
 import type * as UploadRoute from "@/app/api/uploads/notes/[filename]/route";
 import type * as DatabaseModule from "@/lib/db/client";
 import type * as HttpRequestModule from "@/lib/http/request";
@@ -33,6 +35,8 @@ let noteItemRoute: typeof NoteItemRoute;
 let noteBacklinksRoute: typeof NoteBacklinksRoute;
 let noteTitlesRoute: typeof NoteTitlesRoute;
 let searchRoute: typeof SearchRoute;
+let templateCollectionRoute: typeof TemplateCollectionRoute;
+let templateItemRoute: typeof TemplateItemRoute;
 let uploadRoute: typeof UploadRoute;
 
 before(async () => {
@@ -53,6 +57,8 @@ before(async () => {
     noteBacklinksRoute,
     noteTitlesRoute,
     searchRoute,
+    templateCollectionRoute,
+    templateItemRoute,
     uploadRoute,
   ] =
     await Promise.all([
@@ -66,6 +72,8 @@ before(async () => {
       import("@/app/api/notes/[id]/backlinks/route"),
       import("@/app/api/notes/titles/route"),
       import("@/app/api/search/route"),
+      import("@/app/api/templates/route"),
+      import("@/app/api/templates/[id]/route"),
       import("@/app/api/uploads/notes/[filename]/route"),
     ]);
 });
@@ -200,6 +208,110 @@ test("Herodotus backend integration", async (t) => {
         repositories.listNotes().some(({ title }) => title === "Cross-origin note"),
         false,
       );
+    });
+
+    await t.test("note template CRUD is independent and enforces names, size, and image safety", async () => {
+      const foreign = await templateCollectionRoute.POST(
+        new Request("http://localhost/api/templates", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Origin: "https://attacker.example",
+          },
+          body: JSON.stringify({ name: "Foreign", contentMd: "" }),
+        }),
+      );
+      assert.equal(foreign.status, 403);
+
+      const contentMd = "# Source analysis\n\n## Context\n\n## Evidence";
+      const createdResponse = await templateCollectionRoute.POST(
+        new Request("http://localhost/api/templates", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: "Source Analysis", contentMd }),
+        }),
+      );
+      assert.equal(createdResponse.status, 201);
+      const created = (await createdResponse.json()) as { id: number; name: string; contentMd: string };
+      assert.equal(created.name, "Source Analysis");
+      assert.equal(created.contentMd, contentMd);
+
+      const duplicate = await templateCollectionRoute.POST(
+        new Request("http://localhost/api/templates", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: "source analysis", contentMd: "" }),
+        }),
+      );
+      assert.equal(duplicate.status, 409);
+      assert.equal(((await duplicate.json()) as { error: { code: string } }).error.code, "CONFLICT");
+
+      const longName = await templateCollectionRoute.POST(
+        new Request("http://localhost/api/templates", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: "x".repeat(121), contentMd: "" }),
+        }),
+      );
+      assert.equal(longName.status, 400);
+
+      for (const forbiddenContent of [
+        "![Pending](herodotus-upload://draft-image)",
+        "![Owned](/api/uploads/notes/00000000-0000-0000-0000-000000000000.png)",
+      ]) {
+        const response = await templateCollectionRoute.POST(
+          new Request("http://localhost/api/templates", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: `Forbidden ${forbiddenContent.length}`, contentMd: forbiddenContent }),
+          }),
+        );
+        assert.equal(response.status, 400);
+        assert.equal(
+          ((await response.json()) as { error: { code: string } }).error.code,
+          "VALIDATION",
+        );
+      }
+
+      assert.throws(
+        () => repositories.createNoteTemplate({
+          name: "Oversized",
+          contentMd: "x".repeat((10 * 1024 * 1024) + 1),
+        }),
+        (error: unknown) =>
+          error instanceof repositories.RepositoryError && error.code === "CONTENT_TOO_LARGE",
+      );
+
+      const copiedNote = repositories.createNote({
+        folderId: repositories.listFolders()[0].id,
+        title: "Copied template body",
+        contentMd: created.contentMd,
+      });
+      const updatedResponse = await templateItemRoute.PATCH(
+        new Request(`http://localhost/api/templates/${created.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: "SOURCE ANALYSIS", contentMd: "# Changed" }),
+        }),
+        { params: Promise.resolve({ id: String(created.id) }) },
+      );
+      assert.equal(updatedResponse.status, 200);
+      assert.equal(repositories.getNote(copiedNote.id)?.contentMd, contentMd);
+
+      const listed = await templateCollectionRoute.GET();
+      assert.equal(listed.status, 200);
+      assert.deepEqual(
+        ((await listed.json()) as Array<{ id: number }>).map(({ id }) => id),
+        [created.id],
+      );
+
+      const deleted = await templateItemRoute.DELETE(
+        new Request(`http://localhost/api/templates/${created.id}`, { method: "DELETE" }),
+        { params: Promise.resolve({ id: String(created.id) }) },
+      );
+      assert.equal(deleted.status, 204);
+      assert.equal(repositories.getNote(copiedNote.id)?.contentMd, contentMd);
+      assert.ok(repositories.deleteNote(copiedNote.id));
     });
 
     await t.test("note writes enforce the 10 MiB UTF-8 Markdown limit", async () => {

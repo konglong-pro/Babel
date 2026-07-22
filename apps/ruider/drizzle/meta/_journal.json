@@ -22,6 +22,13 @@
       "when": 1784376813135,
       "tag": "0002_canvases",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1784684795407,
+      "tag": "0003_ruider_templates",
+      "breakpoints": true
     }
   ]
 }

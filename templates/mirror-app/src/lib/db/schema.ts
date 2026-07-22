@@ -57,6 +57,27 @@ export const notes = sqliteTable(
   ],
 );
 
+export const noteTemplates = sqliteTable(
+  "note_template",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    name: text("name").notNull(),
+    contentMd: text("content_md").notNull().default(""),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("note_template_name_unique").on(sql`lower(${table.name})`),
+    check(
+      "note_template_name_not_blank",
+      sql`length(trim(${table.name})) > 0`,
+    ),
+    check(
+      "note_template_name_max_length",
+      sql`length(${table.name}) <= 120`,
+    ),
+  ],
+);
+
 export const noteLinks = sqliteTable(
   "note_link",
   {

@@ -13,6 +13,8 @@ import type * as NoteItemRoute from "@/app/api/notes/[id]/route";
 import type * as NoteBacklinksRoute from "@/app/api/notes/[id]/backlinks/route";
 import type * as NoteTitlesRoute from "@/app/api/notes/titles/route";
 import type * as SearchRoute from "@/app/api/search/route";
+import type * as TemplateCollectionRoute from "@/app/api/templates/route";
+import type * as TemplateItemRoute from "@/app/api/templates/[id]/route";
 import type * as UploadRoute from "@/app/api/uploads/notes/[filename]/route";
 import type * as DatabaseModule from "@/lib/db/client";
 import type * as HttpRequestModule from "@/lib/http/request";
@@ -33,6 +35,8 @@ let noteItemRoute: typeof NoteItemRoute;
 let noteBacklinksRoute: typeof NoteBacklinksRoute;
 let noteTitlesRoute: typeof NoteTitlesRoute;
 let searchRoute: typeof SearchRoute;
+let templateCollectionRoute: typeof TemplateCollectionRoute;
+let templateItemRoute: typeof TemplateItemRoute;
 let uploadRoute: typeof UploadRoute;
 
 before(async () => {
@@ -53,6 +57,8 @@ before(async () => {
     noteBacklinksRoute,
     noteTitlesRoute,
     searchRoute,
+    templateCollectionRoute,
+    templateItemRoute,
     uploadRoute,
   ] =
     await Promise.all([
@@ -66,6 +72,8 @@ before(async () => {
       import("@/app/api/notes/[id]/backlinks/route"),
       import("@/app/api/notes/titles/route"),
       import("@/app/api/search/route"),
+      import("@/app/api/templates/route"),
+      import("@/app/api/templates/[id]/route"),
       import("@/app/api/uploads/notes/[filename]/route"),
     ]);
 });
@@ -94,6 +102,98 @@ test("Leviathan backend integration", async (t) => {
           { name: "Economics", parentId: null },
         ],
       );
+    });
+
+    await t.test("note templates support static Markdown CRUD", async () => {
+      assert.deepEqual(repositories.listNoteTemplates(), []);
+
+      const createdResponse = await templateCollectionRoute.POST(
+        new Request("http://localhost/api/templates", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: "Policy analysis",
+            contentMd: "# Claim\n\n## Evidence",
+          }),
+        }),
+      );
+      assert.equal(createdResponse.status, 201);
+      const created = await createdResponse.json() as {
+        id: number;
+        name: string;
+        contentMd: string;
+      };
+      assert.equal(created.name, "Policy analysis");
+
+      assert.throws(
+        () => repositories.createNoteTemplate({
+          name: "policy ANALYSIS",
+          contentMd: "duplicate",
+        }),
+        (error: unknown) =>
+          error instanceof repositories.RepositoryError && error.code === "CONFLICT",
+      );
+      assert.throws(
+        () => repositories.createNoteTemplate({
+          name: "x".repeat(121),
+          contentMd: "too long",
+        }),
+        (error: unknown) =>
+          error instanceof repositories.RepositoryError && error.code === "VALIDATION",
+      );
+      assert.throws(
+        () => database.sqlite
+          .prepare("INSERT INTO note_template (name, content_md) VALUES (?, '')")
+          .run("x".repeat(121)),
+        /note_template_name_max_length/,
+      );
+      for (const [name, contentMd] of [
+        ["Pending image", "![Pending](leviathan-upload://pending)"],
+        ["Owned image", "![Owned](/api/uploads/notes/owned.png)"],
+      ] as const) {
+        assert.throws(
+          () => repositories.createNoteTemplate({ name, contentMd }),
+          (error: unknown) =>
+            error instanceof repositories.RepositoryError && error.code === "VALIDATION",
+        );
+      }
+
+      const patchedResponse = await templateItemRoute.PATCH(
+        new Request(`http://localhost/api/templates/${created.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: "Institutional analysis",
+            contentMd: "![External](https://example.com/reference.png)",
+          }),
+        }),
+        { params: Promise.resolve({ id: String(created.id) }) },
+      );
+      assert.equal(patchedResponse.status, 200);
+      assert.equal(
+        repositories.getNoteTemplate(created.id)?.name,
+        "Institutional analysis",
+      );
+
+      const listedResponse = await templateCollectionRoute.GET();
+      assert.equal(listedResponse.status, 200);
+      assert.equal((await listedResponse.json() as unknown[]).length, 1);
+
+      const foreignDelete = await templateItemRoute.DELETE(
+        new Request(`http://localhost/api/templates/${created.id}`, {
+          method: "DELETE",
+          headers: { Origin: "https://attacker.example" },
+        }),
+        { params: Promise.resolve({ id: String(created.id) }) },
+      );
+      assert.equal(foreignDelete.status, 403);
+
+      const deletedResponse = await templateItemRoute.DELETE(
+        new Request(`http://localhost/api/templates/${created.id}`, { method: "DELETE" }),
+        { params: Promise.resolve({ id: String(created.id) }) },
+      );
+      assert.equal(deletedResponse.status, 204);
+      assert.equal(repositories.getNoteTemplate(created.id), null);
     });
 
     await t.test("folder hierarchy prevents cycles and non-empty deletion", () => {

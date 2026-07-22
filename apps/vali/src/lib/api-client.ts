@@ -5,6 +5,7 @@ import type {
   FolderDto,
   NoteDetailDto,
   NoteSummaryDto,
+  NoteTemplateDto,
   ReflectionDetailDto,
   ReflectionSummaryDto,
 } from "@/lib/types";
@@ -157,6 +158,38 @@ export function updateNote(
 
 export function deleteNote(id: number): Promise<void> {
   return request(`/api/notes/${id}`, { method: "DELETE" });
+}
+
+export interface NoteTemplateInput {
+  name: string;
+  contentMd: string;
+}
+
+export function listNoteTemplates(): Promise<NoteTemplateDto[]> {
+  return request("/api/templates");
+}
+
+export function createNoteTemplate(
+  input: NoteTemplateInput,
+): Promise<NoteTemplateDto> {
+  return request("/api/templates", {
+    method: "POST",
+    ...jsonBody(input),
+  });
+}
+
+export function updateNoteTemplate(
+  id: number,
+  input: Partial<NoteTemplateInput>,
+): Promise<NoteTemplateDto> {
+  return request(`/api/templates/${id}`, {
+    method: "PATCH",
+    ...jsonBody(input),
+  });
+}
+
+export function deleteNoteTemplate(id: number): Promise<void> {
+  return request(`/api/templates/${id}`, { method: "DELETE" });
 }
 
 export function searchNotes(

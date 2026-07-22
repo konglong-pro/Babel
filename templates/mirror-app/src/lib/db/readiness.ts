@@ -18,11 +18,12 @@ const databasePathOptions = {
 export const appDatabaseReadinessOptions = {
   appName: "__APP_NAME__",
   packageName: "@babel-apps/__APP_ID__",
-  expectedMigration: 1_784_217_600_000,
+  expectedMigration: 1_784_683_409_295,
   requiredColumns: {
     note: ["parent_id"],
     note_link: ["source_note_id", "target_title_key", "target_note_id"],
     note_search: ["title", "content_md", "tags"],
+    note_template: ["name", "content_md", "created_at", "updated_at"],
   },
   requiredSchemaObjects: [
     {

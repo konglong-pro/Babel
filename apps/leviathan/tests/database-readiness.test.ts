@@ -12,7 +12,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { assertAppDatabaseReady } from "@/lib/db/readiness";
 import { GET as getHealth } from "@/app/api/health/route";
 
-const latestMigration = 1_784_217_600_000;
+const latestMigration = 1_784_684_953_198;
 const migrationsFolder = path.resolve(process.cwd(), "drizzle");
 
 test("Leviathan database readiness", async (t) => {
@@ -45,6 +45,32 @@ test("Leviathan database readiness", async (t) => {
     assert.throws(
       () => assertAppDatabaseReady(databasePath),
       /missing required column: note_link\.source_note_id/i,
+    );
+  });
+
+  await t.test("rejects a migrated database without note templates", () => {
+    const databasePath = path.join(root, "missing-templates.db");
+    const sqlite = new BetterSqlite3(databasePath);
+    migrate(drizzle(sqlite), { migrationsFolder });
+    sqlite.exec("DROP TABLE note_template");
+    sqlite.close();
+
+    assert.throws(
+      () => assertAppDatabaseReady(databasePath),
+      /missing required column: note_template\.name/i,
+    );
+  });
+
+  await t.test("rejects a note template table without creation timestamps", () => {
+    const databasePath = path.join(root, "missing-template-created-at.db");
+    const sqlite = new BetterSqlite3(databasePath);
+    migrate(drizzle(sqlite), { migrationsFolder });
+    sqlite.exec("ALTER TABLE note_template DROP COLUMN created_at;");
+    sqlite.close();
+
+    assert.throws(
+      () => assertAppDatabaseReady(databasePath),
+      /missing required column: note_template\.created_at/i,
     );
   });
 
@@ -88,6 +114,7 @@ function createLatestLookingDatabase(
         id integer PRIMARY KEY
         ${includeParentId ? ", parent_id integer" : ""}
       );
+      ${includeParentId ? "CREATE TABLE note_template (name text, content_md text, updated_at text);" : ""}
       CREATE TABLE __drizzle_migrations (
         id integer PRIMARY KEY AUTOINCREMENT,
         hash text NOT NULL,

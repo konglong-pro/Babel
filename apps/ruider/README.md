@@ -29,6 +29,8 @@ middle column and opens a separate reader window for either saved content or
 the current live title, tags, Markdown, outline, and staged images.
 Bottom-left English **Markdown Guide** and **Typst Reference** panels span the
 folder and note columns.
+The middle-column **Edit Templates** control manages notebook-local static
+Markdown templates that can be copied into a new note.
 PNG, JPEG, WebP, and GIF images up to 10 MiB can be
 selected or pasted and are committed only when the note is saved. A save accepts
 up to 10 MiB of Markdown, 50 new images, and 100 MiB in total; multipart transport

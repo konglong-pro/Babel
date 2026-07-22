@@ -4,3 +4,4 @@ export * from "./links";
 export * from "./notes";
 export * from "./reflections";
 export * from "./search";
+export * from "./templates";

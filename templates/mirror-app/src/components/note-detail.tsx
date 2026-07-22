@@ -22,6 +22,7 @@ import {
 
 import { ImportedImageMatcher } from "@/components/imported-image-matcher";
 import { MarkdownEditor, type StagedImage } from "@/components/markdown-editor";
+import { shouldConfirmTemplateContentReplacement } from "@/components/note-template-state";
 import {
   ConfirmButton,
   folderPathLabel,
@@ -47,6 +48,7 @@ import type {
   FolderDto,
   NoteDetailDto,
   NoteSummaryDto,
+  NoteTemplateDto,
 } from "@/lib/types";
 
 export type NoteViewMode = "view" | "edit" | "create";
@@ -174,6 +176,7 @@ interface NoteDetailProps {
   parentId: number | null;
   folders: FolderDto[];
   notes: NoteSummaryDto[];
+  templates: NoteTemplateDto[];
   backlinks: BacklinkDto[];
   loading?: boolean;
   onEdit: () => void;
@@ -198,6 +201,7 @@ export function NoteDetail({
   parentId,
   folders,
   notes,
+  templates,
   backlinks,
   loading,
   onEdit,
@@ -248,6 +252,7 @@ export function NoteDetail({
         initialParentId={parentId}
         folders={folders}
         notes={notes}
+        templates={templates}
         onCancel={onCancel}
         onSaved={onSaved}
         onDirtyChange={onDirtyChange}
@@ -385,6 +390,7 @@ interface NoteFormProps {
   initialParentId: number | null;
   folders: FolderDto[];
   notes: NoteSummaryDto[];
+  templates: NoteTemplateDto[];
   onCancel: () => void;
   onSaved: (detail: NoteDetailDto) => Promise<void> | void;
   onDirtyChange: (dirty: boolean) => void;
@@ -402,6 +408,7 @@ function NoteForm({
   initialParentId,
   folders,
   notes,
+  templates,
   onCancel,
   onSaved,
   onDirtyChange,
@@ -426,6 +433,7 @@ function NoteForm({
   const [content, setContent] = useState(initialContent);
   const [folderId, setFolderId] = useState<number | null>(initialFolder);
   const [parentId, setParentId] = useState<number | null>(initialParentId);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const [stagedImages, setStagedImages] = useState<StagedImage[]>([]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -596,6 +604,26 @@ function NoteForm({
     });
   }
 
+  function applyTemplate(templateId: string) {
+    if (pendingRef.current) return;
+    const nextContent = templateId
+      ? templates.find((template) => template.id === Number(templateId))?.contentMd
+      : "";
+    if (nextContent === undefined) return;
+    if (
+      shouldConfirmTemplateContentReplacement(
+        content,
+        nextContent,
+        stagedImages.length > 0,
+      ) &&
+      !window.confirm("Replace the current note content with this template?")
+    ) {
+      return;
+    }
+    setSelectedTemplateId(templateId);
+    changeContent(nextContent);
+  }
+
   function resolveImportedImages(images: readonly StagedImage[]) {
     if (pendingRef.current) return;
     setStagedImages((current) => {
@@ -725,6 +753,23 @@ function NoteForm({
         {!error && limitError ? <p className="form-error" role="alert">{limitError}</p> : null}
 
         <div className="form-row form-columns">
+          {detail === null && importDraft === null ? (
+            <label className="field template-field">
+              <span>Template</span>
+              <select
+                name="templateId"
+                disabled={pending}
+                value={selectedTemplateId}
+                onChange={(event) => applyTemplate(event.target.value)}
+              >
+                <option value="">No template</option>
+                {templates.map((template) => (
+                  <option key={template.id} value={template.id}>{template.name}</option>
+                ))}
+              </select>
+              <small>Copies static Markdown into this new note.</small>
+            </label>
+          ) : null}
           <label className="field title-field">
             <span>Title</span>
             <input
