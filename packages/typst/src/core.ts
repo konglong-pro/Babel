@@ -89,11 +89,11 @@ export function buildTypstFormulaDocument(
   color = "#111827",
 ): TypstFormulaDocument {
   const normalizedColor = normalizeColor(color);
-  const fontSize = display === "block" ? "14pt" : "12pt";
+  const fontSize = display === "block" ? "24pt" : "18pt";
   const beforeSource = display === "block" ? "#box($ " : "#box($";
   const afterSource = display === "block" ? " $)" : "$)";
   const lines = [
-    "#set page(width: auto, height: auto, margin: 1pt, fill: none)",
+    "#set page(width: auto, height: auto, margin: 2pt, fill: none)",
     `#set text(size: ${fontSize}, fill: rgb(\"${normalizedColor}\"))`,
     `${beforeSource}${source}${afterSource}`,
   ];

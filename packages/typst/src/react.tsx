@@ -86,7 +86,6 @@ export function TypstFormula({
         maxWidth: "100%",
         overflowX: "auto",
         paddingBlock: "0.25em",
-        textAlign: "center",
       }
     : { display: "inline-flex", maxWidth: "100%", verticalAlign: "baseline" };
 
@@ -155,11 +154,12 @@ function ReadyTypstImage({
     };
   }, [result.svg]);
   const imageStyle: CSSProperties = {
-    display: "inline-block",
+    display: display === "block" ? "block" : "inline-block",
     maxWidth: display === "block" ? "none" : "100%",
     maxHeight: "none",
     height: "auto",
-    margin: 0,
+    marginBlock: 0,
+    marginInline: display === "block" ? "auto" : 0,
     border: 0,
     borderRadius: 0,
     background: "transparent",

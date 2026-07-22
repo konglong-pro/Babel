@@ -52,9 +52,9 @@ test("wraps formulas in a transparent auto-sized Typst document", () => {
   const inline = buildTypstFormulaDocument("x^2", "inline", "#ABC");
   const block = buildTypstFormulaDocument("sum_(i=1)^n i", "block");
 
-  assert.match(inline.document, /page\(width: auto, height: auto, margin: 1pt, fill: none\)/u);
-  assert.match(inline.document, /text\(size: 12pt,/u);
-  assert.match(block.document, /text\(size: 14pt,/u);
+  assert.match(inline.document, /page\(width: auto, height: auto, margin: 2pt, fill: none\)/u);
+  assert.match(inline.document, /text\(size: 18pt,/u);
+  assert.match(block.document, /text\(size: 24pt,/u);
   assert.match(inline.document, /rgb\("#aabbcc"\)/u);
   assert.match(inline.document, /#box\(\$x\^2\$\)$/u);
   assert.match(block.document, /#box\(\$ sum_\(i=1\)\^n i \$\)$/u);
