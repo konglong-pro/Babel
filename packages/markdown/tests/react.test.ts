@@ -140,6 +140,51 @@ test("renders standalone spaced dollars as a Typst display formula", () => {
   assert.match(html, /<code>sum_\(i=1\)\^n i<\/code>/u);
 });
 
+test("renders explicit Typst and LaTeX formulas through separate engines", () => {
+  const html = renderToStaticMarkup(createElement(MarkdownRenderer, {
+    content: String.raw`Typst $x^2$ and LaTeX \(\frac{x}{2}\).`,
+    remarkFeatures: ["formula-math"],
+  }));
+
+  assert.match(html, /class="typst-formula typst-formula-inline"/u);
+  assert.match(html, /data-typst-display="inline"/u);
+  assert.match(html, /data-formula-engine="latex"/u);
+  assert.match(html, /data-katex-display="inline"/u);
+  assert.match(html, /class="katex"/u);
+  assert.match(html, /<math/u);
+});
+
+test("renders traditional single-dollar LaTeX commands through KaTeX", () => {
+  const html = renderToStaticMarkup(createElement(MarkdownRenderer, {
+    content: [
+      String.raw`Half: $\frac{b}{2a}$.`,
+      String.raw`Squared: $\left(\frac{b}{2a}\right)^2 = \frac{b^2}{4a^2}$.`,
+      String.raw`Discriminant: $b^2 - 4ac < 0$.`,
+      String.raw`Root: $x + \frac{b}{2a} = \frac{\pm\sqrt{\b^2 - 4ac}}{2a}$.`,
+      String.raw`Native Typst: $sum_(i=1)^n i$.`,
+    ].join("\n\n"),
+    remarkFeatures: ["formula-math"],
+  }));
+
+  assert.equal((html.match(/data-formula-engine="latex"/gu) ?? []).length, 4);
+  assert.equal((html.match(/class="katex"/gu) ?? []).length, 4);
+  assert.match(html, /class="typst-formula typst-formula-inline"/u);
+  assert.doesNotMatch(html, /data-katex-error="true"/u);
+});
+
+test("renders double dollars and bracket delimiters as LaTeX display formulas", () => {
+  const html = renderToStaticMarkup(createElement(MarkdownRenderer, {
+    content: String.raw`$$\sum_{i=1}^{n} i$$
+
+\[\frac{a}{b}\]`,
+    remarkFeatures: ["formula-math"],
+  }));
+
+  assert.equal((html.match(/data-katex-display="block"/gu) ?? []).length, 2);
+  assert.equal((html.match(/class="katex-display"/gu) ?? []).length, 2);
+  assert.doesNotMatch(html, /aria-busy="true"/u);
+});
+
 test("does not allow internal note schemes in image sources or malformed links", () => {
   const html = renderToStaticMarkup(createElement(MarkdownRenderer, {
     content: "![Bad](babel-note://note) [Opaque](babel-note:opaque)",

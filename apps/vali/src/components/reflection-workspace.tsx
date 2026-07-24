@@ -40,7 +40,7 @@ import type {
 } from "@/lib/types";
 
 const REFLECTION_HEADING_ID_PREFIX = "vali-reflection-heading-";
-const REMARK_FEATURES = ["gfm", "typst-math"] as const;
+const REMARK_FEATURES = ["gfm", "formula-math"] as const;
 type ValiResolvedWikilink = ResolvedWikilink & { date?: string };
 
 function localToday(): string {

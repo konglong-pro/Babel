@@ -1,3 +1,5 @@
+@import "./formula.css";
+
 .folder-panel:has(> .reference-panel-triggers) {
   display: flex;
   flex-direction: column;
@@ -137,6 +139,44 @@
   grid-template-columns: minmax(0, 1fr) minmax(150px, 0.45fr);
   gap: 0.6rem;
   padding-top: 0.75rem;
+}
+
+.reference-board__formula-controls {
+  display: grid;
+  gap: 0.55rem;
+  padding-top: 0.75rem;
+}
+
+.reference-board__formula-controls .reference-board__filters {
+  padding-top: 0;
+}
+
+.reference-board__engine-tabs {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.reference-board__engine-tabs button {
+  border: 1px solid var(--reference-board-line-strong);
+  border-radius: 999px;
+  background: var(--reference-board-surface);
+  color: var(--reference-board-muted);
+  padding: 0.3rem 0.65rem;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 680;
+  cursor: pointer;
+}
+
+.reference-board__engine-tabs button:hover,
+.reference-board__engine-tabs button.is-active {
+  background: var(--reference-board-soft-surface);
+  color: var(--reference-board-accent);
+}
+
+.reference-board__engine-tabs button:focus-visible {
+  outline: 2px solid var(--focus, var(--reference-board-line-strong));
+  outline-offset: 2px;
 }
 
 .reference-board__field {

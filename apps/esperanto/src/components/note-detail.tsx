@@ -53,7 +53,7 @@ import type {
 export type NoteViewMode = "view" | "edit" | "create";
 
 const NOTE_HEADING_ID_PREFIX = "esperanto-note-heading-";
-const REMARK_FEATURES = ["gfm", "typst-math"] as const;
+const REMARK_FEATURES = ["gfm", "formula-math"] as const;
 const PENDING_IMAGE_URL_PATTERN = /esperanto-upload:\/\/[A-Za-z0-9._-]+/g;
 const MAX_MANAGED_IMAGE_URL =
   "/api/uploads/notes/00000000-0000-0000-0000-000000000000.webp";

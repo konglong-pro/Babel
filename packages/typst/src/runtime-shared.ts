@@ -29,7 +29,7 @@ export function buildTypstFormulaDocument(
   color = "#111827",
 ): TypstFormulaDocument {
   const normalizedColor = normalizeTypstColor(color);
-  const fontSize = display === "block" ? "24pt" : "18pt";
+  const fontSize = display === "block" ? "21pt" : "16pt";
   const beforeSource = display === "block" ? "#box($ " : "#box($";
   const afterSource = display === "block" ? " $)" : "$)";
   const lines = [

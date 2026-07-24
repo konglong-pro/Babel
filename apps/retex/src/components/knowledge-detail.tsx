@@ -48,7 +48,7 @@ import type {
 } from "@/lib/types";
 
 const KNOWLEDGE_HEADING_ID_PREFIX = "retex-knowledge-heading-";
-const REMARK_FEATURES = ["gfm", "typst-math"] as const;
+const REMARK_FEATURES = ["gfm", "formula-math"] as const;
 const EMPTY_IMAGE_PREVIEWS: ReadonlyMap<string, string> = new Map();
 const PENDING_IMAGE_URL_PATTERN = /retex-upload:\/\/[A-Za-z0-9._-]+/g;
 const MAX_MANAGED_IMAGE_URL =

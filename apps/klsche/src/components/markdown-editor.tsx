@@ -5,7 +5,7 @@ import {
   type MarkdownEditorProps as SharedMarkdownEditorProps,
 } from "@babel-apps/markdown/react";
 
-const REMARK_FEATURES = ["gfm", "typst-math"] as const;
+const REMARK_FEATURES = ["gfm", "formula-math"] as const;
 
 import { listNoteTitles } from "@/lib/api-client";
 

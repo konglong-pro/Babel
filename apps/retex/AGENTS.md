@@ -1,7 +1,7 @@
 # ReTex instructions
 
 ReTex is the mathematics notebook Module. Preserve its knowledge, exercise,
-scratch-work, search, native Typst math, Markdown, and managed-image behavior.
+scratch-work, search, native Typst math, LaTeX/KaTeX math, Markdown, and managed-image behavior.
 Its private data is rooted at `data/retex/` from the Babel root and configured
 with `RETEX_DATABASE_PATH` and `RETEX_NOTE_UPLOAD_DIRECTORY`.
 

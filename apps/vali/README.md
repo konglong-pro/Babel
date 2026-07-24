@@ -20,7 +20,7 @@ private `data/` repository. The launcher supplies absolute
 The editor uses the full writing area for GitHub Flavored Markdown. In both Notes
 and Reflection, **Read** sits above the content-index heading and opens a separate
 reader window for saved content or the current unsaved draft and staged images. Notes also
-provides bottom-left English **Markdown Guide** and **Typst Reference** panels
+provides bottom-left English **Markdown Guide** and **Formula Reference** panels
 across the two navigation columns. The middle-column **Edit Templates** control
 manages Vali-local static Markdown templates that can be copied into a new
 note. PNG, JPEG,

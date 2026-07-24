@@ -48,7 +48,7 @@ import type {
 const EXERCISE_PROBLEM_HEADING_ID_PREFIX = "retex-exercise-problem-heading-";
 const EXERCISE_ANSWER_HEADING_ID_PREFIX = "retex-exercise-answer-heading-";
 const EXERCISE_SOLUTION_HEADING_ID_PREFIX = "retex-exercise-solution-heading-";
-const REMARK_FEATURES = ["gfm", "typst-math"] as const;
+const REMARK_FEATURES = ["gfm", "formula-math"] as const;
 const EMPTY_IMAGE_PREVIEWS: ReadonlyMap<string, string> = new Map();
 
 interface ExerciseReaderDraftProps {

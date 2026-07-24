@@ -30,6 +30,7 @@ import ReactMarkdown, {
   type UrlTransform,
 } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { KatexFormula } from "@babel-apps/katex/react";
 import { TypstFormula } from "@babel-apps/typst/react";
 
 import { findAutocompleteQuery, type AutocompleteQuery } from "./autocomplete";
@@ -48,9 +49,9 @@ import {
   type TextEditResult,
 } from "./editing";
 import { extractOutline, outlineSlugs } from "./outline";
-import { createRemarkTypstMath, prepareTypstMath } from "./typst-math";
+import { createRemarkFormulaMath, prepareFormulaMath } from "./formula-math";
 
-export type RemarkFeature = "gfm" | "typst-math";
+export type RemarkFeature = "gfm" | "typst-math" | "formula-math";
 
 export interface ResolvedWikilink {
   id: number;
@@ -98,12 +99,14 @@ export function MarkdownRenderer({
     return withImagePreviews(content, uploadScheme, imagePreviews);
   }, [content, imagePreviews, uploadScheme]);
 
-  const preparedTypstMath = useMemo(() => {
-    return remarkFeatures.includes("typst-math")
-      ? prepareTypstMath(renderedContent)
+  const preparedFormulaMath = useMemo(() => {
+    const dualEngine = remarkFeatures.includes("formula-math");
+    const typst = dualEngine || remarkFeatures.includes("typst-math");
+    return typst
+      ? prepareFormulaMath(renderedContent, { typst, latex: dualEngine })
       : null;
   }, [remarkFeatures, renderedContent]);
-  const contentWithoutFormulaSyntax = preparedTypstMath?.content ?? renderedContent;
+  const contentWithoutFormulaSyntax = preparedFormulaMath?.content ?? renderedContent;
 
   const headingIds = useMemo(() => {
     const outline = extractOutline(renderedContent);
@@ -205,11 +208,21 @@ export function MarkdownRenderer({
         return <img {...props} src={src} alt={alt ?? ""} loading="lazy" />;
       };
     }
-    if (preparedTypstMath !== null) {
-      const componentsWithTypst = nextComponents as Components & Record<string, unknown>;
-      componentsWithTypst["typst-formula"] = ({ formulaIndex }: { formulaIndex?: number | string }) => {
-        const occurrence = preparedTypstMath.occurrences[Number(formulaIndex)];
+    if (preparedFormulaMath !== null) {
+      const componentsWithFormula = nextComponents as Components & Record<string, unknown>;
+      componentsWithFormula["babel-formula"] = ({ formulaIndex }: { formulaIndex?: number | string }) => {
+        const occurrence = preparedFormulaMath.occurrences[Number(formulaIndex)];
         if (occurrence === undefined) return null;
+        if (occurrence.engine === "latex") {
+          return (
+            <KatexFormula
+              source={occurrence.source}
+              display={occurrence.display}
+              sourceLine={occurrence.sourceLine}
+              sourceColumn={occurrence.sourceColumn}
+            />
+          );
+        }
         return (
           <TypstFormula
             source={occurrence.source}
@@ -225,7 +238,7 @@ export function MarkdownRenderer({
     onCreateFromWikilink,
     onNavigateWikilink,
     headingIds,
-    preparedTypstMath,
+    preparedFormulaMath,
     targetsByKey,
     uploadScheme,
     wikilinksByOffset,
@@ -250,7 +263,7 @@ export function MarkdownRenderer({
           components={components}
           remarkPlugins={[
             ...(useGfm ? [remarkGfm] : []),
-            ...(preparedTypstMath === null ? [] : [createRemarkTypstMath(preparedTypstMath)]),
+            ...(preparedFormulaMath === null ? [] : [createRemarkFormulaMath(preparedFormulaMath)]),
           ]}
           urlTransform={urlTransform}
         >

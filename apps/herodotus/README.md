@@ -23,7 +23,7 @@ Markdown, while saved notes render in the reader. **Read** sits above the
 note-list heading in the middle column and opens a separate reader window for
 either saved content or the current live draft and staged images.
 Bottom-left English **Markdown
-Guide** and **Typst Reference** panels span the folder and note columns.
+Guide** and **Formula Reference** panels span the folder and note columns.
 The middle-column **Edit Templates** control manages notebook-local static
 Markdown templates that can be copied into a new note.
 PNG, JPEG, WebP, and GIF

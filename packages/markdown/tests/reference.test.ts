@@ -3,6 +3,10 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
+  katexMathReferenceGroups,
+  katexMathReferenceRows,
+} from "@babel-apps/katex/reference";
+import {
   typstMathReferenceGroups,
   typstMathReferenceRows,
 } from "@babel-apps/typst/reference";
@@ -10,6 +14,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import {
+  FormulaReferencePanel,
   MarkdownWritingGuidePanel,
   ReferencePanelTriggers,
   TypstReferencePanel,
@@ -29,13 +34,15 @@ test("publishes a concise English Markdown guide for supported Babel syntax", ()
       "Media",
       "Tables",
       "Code",
-      "Typst Math",
+      "Formula Math",
     ],
   );
   assert.ok(markdownWritingGuideRows.some((row) => row.syntax === "[[Note Title]]"));
   assert.ok(markdownWritingGuideRows.some((row) => row.syntax === "Paste, drop, or Add image"));
   assert.ok(markdownWritingGuideRows.some((row) => row.syntax === "```js\ncode\n```"));
   assert.ok(markdownWritingGuideRows.some((row) => row.syntax === "$x^2 + y^2$"));
+  assert.ok(markdownWritingGuideRows.some((row) => row.syntax === "\\(x^2 + y^2\\)"));
+  assert.ok(markdownWritingGuideRows.some((row) => row.syntax === "$$x^2 + y^2$$"));
   assert.doesNotMatch(
     JSON.stringify(markdownWritingGuideGroups),
     /[\u3400-\u9fff]/u,
@@ -65,12 +72,14 @@ test("renders the Markdown guide with exactly Category, Syntax, and Usage column
   assert.doesNotMatch(header, />Preview<\/th>/u);
 });
 
-test("renders the complete English Typst reference with lazy preview placeholders", () => {
+test("renders the complete English Typst reference as the default formula tab", () => {
   const html = renderToStaticMarkup(createElement(TypstReferencePanel, {
     onClose: () => undefined,
   }));
 
-  assert.match(html, />Typst Formula Reference<\/h2>/u);
+  assert.match(html, />Formula Reference<\/h2>/u);
+  assert.match(html, /role="tab" aria-selected="true" class="is-active">Typst<\/button>/u);
+  assert.match(html, /role="tab" aria-selected="false">LaTeX \/ KaTeX<\/button>/u);
   assert.match(html, />Example source<\/th>/u);
   assert.match(html, />Preview<\/th>/u);
   assert.match(html, />Notes<\/th>/u);
@@ -83,6 +92,24 @@ test("renders the complete English Typst reference with lazy preview placeholder
   assert.match(html, /class="reference-board__preview"><span aria-hidden="true">…<\/span>/u);
   assert.doesNotMatch(html, /aria-busy="true"/u);
   assert.doesNotMatch(html, /[\u3400-\u9fff]/u);
+});
+
+test("renders the curated LaTeX and KaTeX reference tab", () => {
+  const html = renderToStaticMarkup(createElement(FormulaReferencePanel, {
+    onClose: () => undefined,
+    initialEngine: "latex",
+  }));
+
+  assert.match(html, /LaTeX Math · KaTeX 0\.16\.22/u);
+  assert.match(html, /role="tab" aria-selected="true" class="is-active">LaTeX \/ KaTeX<\/button>/u);
+  assert.match(html, new RegExp(`>${katexMathReferenceRows.length} rules<`, "u"));
+  assert.match(
+    html,
+    /class="reference-board__table-wrap" role="region" aria-label="LaTeX formula reference table" tabindex="0"/u,
+  );
+  assert.equal((html.match(/<tbody>/gu) ?? []).length, katexMathReferenceGroups.length);
+  assert.match(html, /class="reference-board__preview"><span aria-hidden="true">…<\/span>/u);
+  assert.doesNotMatch(html, /aria-busy="true"/u);
 });
 
 test("renders shared English triggers with accessible panel relationships", () => {
@@ -101,7 +128,7 @@ test("renders shared English triggers with accessible panel relationships", () =
   );
   assert.match(
     html,
-    /aria-controls="typst-panel" aria-expanded="false">Typst Reference<\/button>/u,
+    /aria-controls="typst-panel" aria-expanded="false">Formula Reference<\/button>/u,
   );
 });
 
@@ -110,6 +137,8 @@ test("keeps desktop notebook panels pinned while a reference board overlays the 
     new URL("../src/reference.css", import.meta.url),
     "utf8",
   );
+
+  assert.match(css, /^@import "\.\/formula\.css";/u);
 
   assert.match(
     css,

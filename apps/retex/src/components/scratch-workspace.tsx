@@ -23,7 +23,7 @@ import { ConfirmButton, formatDate, Tags } from "@/components/shared";
 import { useDirtyNavigationGuard } from "@/components/use-dirty-navigation-guard";
 
 const SCRATCH_HEADING_ID_PREFIX = "retex-scratch-heading-";
-const REMARK_FEATURES = ["gfm", "typst-math"] as const;
+const REMARK_FEATURES = ["gfm", "formula-math"] as const;
 
 export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
   const router = useRouter();

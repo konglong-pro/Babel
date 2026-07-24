@@ -56,7 +56,7 @@ import type {
 export type EntryViewMode = "view" | "edit" | "create";
 
 const ENTRY_HEADING_ID_PREFIX = "neum-entry-heading-";
-const REMARK_FEATURES = ["gfm", "typst-math"] as const;
+const REMARK_FEATURES = ["gfm", "formula-math"] as const;
 const EMPTY_IMAGE_PREVIEWS: ReadonlyMap<string, string> = new Map();
 const PENDING_IMAGE_URL_PATTERN = /neum-upload:\/\/[A-Za-z0-9._-]+/g;
 const MAX_MANAGED_IMAGE_URL =

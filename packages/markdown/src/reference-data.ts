@@ -98,10 +98,14 @@ export const markdownWritingGuideGroups = [
   },
   {
     id: "math",
-    title: "Typst Math",
+    title: "Formula Math",
     rows: [
-      row("inline-math", "Inline math", "$x^2 + y^2$", "Display native Typst math inside a paragraph."),
-      row("block-math", "Block math", "$ x^2 + y^2 $", "Display a standalone formula when the spaced delimiters are on their own line."),
+      row("typst-inline-math", "Typst inline", "$x^2 + y^2$", "Display native Typst math inside a paragraph."),
+      row("typst-block-math", "Typst block", "$ x^2 + y^2 $", "Display native Typst math as a standalone block when spaced delimiters occupy the whole line."),
+      row("latex-compatible-dollar", "LaTeX inline", "$\\frac{a}{b}$", "Render recognizable traditional single-dollar LaTeX with KaTeX for compatibility."),
+      row("latex-inline-math", "LaTeX inline", "\\(x^2 + y^2\\)", "Display inline LaTeX math with KaTeX."),
+      row("latex-block-math", "LaTeX block", "\\[x^2 + y^2\\]", "Display block LaTeX math with KaTeX."),
+      row("latex-dollar-block", "LaTeX block", "$$x^2 + y^2$$", "Display block LaTeX math with familiar double-dollar delimiters."),
       row("literal-dollar", "Dollar sign", "\\$100", "Display a literal dollar sign."),
     ],
   },

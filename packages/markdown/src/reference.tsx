@@ -1,10 +1,14 @@
 "use client";
 
 import {
+  KATEX_REFERENCE_VERSION,
+  KATEX_VERSION,
+  katexMathReferenceGroups,
+} from "@babel-apps/katex/reference";
+import { KatexFormula } from "@babel-apps/katex/react";
+import {
   TYPST_LANGUAGE_VERSION,
   TYPST_REFERENCE_VERSION,
-  type TypstMathReferenceGroup,
-  type TypstMathReferenceRow,
   typstMathReferenceGroups,
 } from "@babel-apps/typst/reference";
 import { TypstFormula } from "@babel-apps/typst/react";
@@ -38,6 +42,12 @@ export interface ReferencePanelProps {
   onClose: () => void;
   id?: string;
   className?: string;
+}
+
+export type FormulaReferenceEngine = "typst" | "latex";
+
+export interface FormulaReferencePanelProps extends ReferencePanelProps {
+  initialEngine?: FormulaReferenceEngine;
 }
 
 export interface ReferencePanelTriggersProps {
@@ -87,7 +97,7 @@ export function ReferencePanelTriggers({
         aria-expanded={activePanel === "typst"}
         onClick={onOpenTypst}
       >
-        Typst Reference
+        Formula Reference
       </button>
     </div>
   );
@@ -138,7 +148,7 @@ export function MarkdownWritingGuidePanel({
       <ReferencePanelHeader
         eyebrow="Babel Markdown"
         title="Markdown Writing Guide"
-        description="Supported Markdown, wikilinks, managed images, code blocks, and native Typst math delimiters."
+        description="Supported Markdown, wikilinks, managed images, code blocks, and Typst or LaTeX math."
         headingId={headingId}
         descriptionId={descriptionId}
         closeLabel="Close Markdown Writing Guide"
@@ -194,15 +204,20 @@ export function TypstReferencePanel({
   onClose,
   id = DEFAULT_TYPST_REFERENCE_PANEL_ID,
   className,
-}: ReferencePanelProps) {
+  initialEngine = "typst",
+}: FormulaReferencePanelProps) {
   const headingId = useId();
   const descriptionId = useId();
   const searchRef = useRef<HTMLInputElement>(null);
+  const [engine, setEngine] = useState<FormulaReferenceEngine>(initialEngine);
   const [query, setQuery] = useState("");
   const [groupId, setGroupId] = useState("all");
+  const referenceGroups: readonly FormulaReferenceGroup[] = engine === "typst"
+    ? typstMathReferenceGroups
+    : katexMathReferenceGroups;
   const filteredGroups = useMemo(() => {
     const normalizedQuery = normalizeQuery(query);
-    return typstMathReferenceGroups
+    return referenceGroups
       .filter((group) => groupId === "all" || group.id === groupId)
       .map((group) => ({
         ...group,
@@ -222,8 +237,9 @@ export function TypstReferencePanel({
         }),
       }))
       .filter((group) => group.rows.length > 0);
-  }, [groupId, query]);
+  }, [groupId, query, referenceGroups]);
   const resultCount = countRows(filteredGroups);
+  const isTypst = engine === "typst";
 
   useReferencePanelBehavior(searchRef, onClose);
 
@@ -233,6 +249,7 @@ export function TypstReferencePanel({
       className={classNames(
         "reference-board",
         "reference-board--typst",
+        "reference-board--formula",
         className,
       )}
       role="dialog"
@@ -241,36 +258,69 @@ export function TypstReferencePanel({
       aria-describedby={descriptionId}
     >
       <ReferencePanelHeader
-        eyebrow={`Native Typst Math · Typst ${TYPST_LANGUAGE_VERSION}`}
-        title="Typst Formula Reference"
-        description={`Reference ${TYPST_REFERENCE_VERSION}. Babel uses native Typst math syntax; spaces just inside standalone dollar delimiters select block layout.`}
+        eyebrow={isTypst
+          ? `Native Typst Math · Typst ${TYPST_LANGUAGE_VERSION}`
+          : `LaTeX Math · KaTeX ${KATEX_VERSION}`}
+        title="Formula Reference"
+        description={isTypst
+          ? `Reference ${TYPST_REFERENCE_VERSION}. Single-dollar formulas default to native Typst; recognizable LaTeX commands, braced scripts, and implicit products such as 4ac use KaTeX for compatibility. Spaces just inside a standalone pair select block layout.`
+          : `Reference ${KATEX_REFERENCE_VERSION}. Traditional single-dollar LaTeX commands are supported for compatibility; use \\(...\\) inline or \\[...\\] and $$...$$ for unambiguous new content. KaTeX supports a practical subset of LaTeX math.`}
         headingId={headingId}
         descriptionId={descriptionId}
-        closeLabel="Close Typst Formula Reference"
+        closeLabel="Close Formula Reference"
         onClose={onClose}
       />
 
-      <ReferenceFilters
-        query={query}
-        groupId={groupId}
-        groups={typstMathReferenceGroups}
-        searchRef={searchRef}
-        searchPlaceholder="Search syntax, usage, or symbols"
-        onQueryChange={setQuery}
-        onGroupChange={setGroupId}
-      />
+      <div className="reference-board__formula-controls">
+        <div className="reference-board__engine-tabs" role="tablist" aria-label="Formula engine">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={isTypst}
+            className={isTypst ? "is-active" : undefined}
+            onClick={() => {
+              setEngine("typst");
+              setGroupId("all");
+            }}
+          >
+            Typst
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={!isTypst}
+            className={!isTypst ? "is-active" : undefined}
+            onClick={() => {
+              setEngine("latex");
+              setGroupId("all");
+            }}
+          >
+            LaTeX / KaTeX
+          </button>
+        </div>
+
+        <ReferenceFilters
+          query={query}
+          groupId={groupId}
+          groups={referenceGroups}
+          searchRef={searchRef}
+          searchPlaceholder="Search syntax, usage, or symbols"
+          onQueryChange={setQuery}
+          onGroupChange={setGroupId}
+        />
+      </div>
 
       <ReferenceCount count={resultCount} />
 
       <div
         className="reference-board__table-wrap"
         role="region"
-        aria-label="Typst formula reference table"
+        aria-label={`${isTypst ? "Typst" : "LaTeX"} formula reference table`}
         tabIndex={0}
       >
         <table className="reference-board__table reference-board__table--typst">
           <caption className="reference-board__visually-hidden">
-            Typst formula syntax, examples, previews, and notes
+            {isTypst ? "Typst" : "LaTeX"} formula syntax, examples, previews, and notes
           </caption>
           <thead>
             <tr>
@@ -284,19 +334,22 @@ export function TypstReferencePanel({
           </thead>
           {filteredGroups.map((group) => (
             <tbody key={group.id}>
-              <TypstReferenceRows group={group} />
+              <FormulaReferenceRows group={group} engine={engine} />
             </tbody>
           ))}
         </table>
         {resultCount === 0 ? (
           <p className="reference-board__empty">
-            No matching Typst formula rules.
+            No matching {isTypst ? "Typst" : "LaTeX"} formula rules.
           </p>
         ) : null}
       </div>
     </aside>
   );
 }
+
+/** Preferred name; the legacy export remains for application compatibility. */
+export const FormulaReferencePanel = TypstReferencePanel;
 
 interface ReferencePanelHeaderProps {
   eyebrow: string;
@@ -423,10 +476,29 @@ function MarkdownReferenceRows({
   );
 }
 
-function TypstReferenceRows({
+interface FormulaReferenceRow {
+  id: string;
+  category: string;
+  syntax: string;
+  description: string;
+  example: string;
+  display?: "inline" | "block";
+  notes?: string;
+}
+
+interface FormulaReferenceGroup {
+  id: string;
+  title: string;
+  description: string;
+  rows: readonly FormulaReferenceRow[];
+}
+
+function FormulaReferenceRows({
   group,
+  engine,
 }: {
-  group: TypstMathReferenceGroup;
+  group: FormulaReferenceGroup;
+  engine: FormulaReferenceEngine;
 }) {
   return (
     <>
@@ -445,9 +517,10 @@ function TypstReferenceRows({
           <td>{row.description}</td>
           <td><code>{row.example}</code></td>
           <td>
-            <LazyTypstPreview
+            <LazyFormulaPreview
               source={row.example}
               display={row.display ?? "inline"}
+              engine={engine}
             />
           </td>
           <td>{row.notes || "—"}</td>
@@ -457,12 +530,14 @@ function TypstReferenceRows({
   );
 }
 
-function LazyTypstPreview({
+function LazyFormulaPreview({
   source,
   display,
+  engine,
 }: {
   source: string;
-  display: NonNullable<TypstMathReferenceRow["display"]>;
+  display: NonNullable<FormulaReferenceRow["display"]>;
+  engine: FormulaReferenceEngine;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(false);
@@ -485,11 +560,19 @@ function LazyTypstPreview({
   return (
     <div ref={containerRef} className="reference-board__preview">
       {visible ? (
-        <TypstFormula
-          source={source}
-          display={display}
-          ariaLabel={`Typst preview: ${source}`}
-        />
+        engine === "typst" ? (
+          <TypstFormula
+            source={source}
+            display={display}
+            ariaLabel={`Typst preview: ${source}`}
+          />
+        ) : (
+          <KatexFormula
+            source={source}
+            display={display}
+            ariaLabel={`LaTeX preview: ${source}`}
+          />
+        )
       ) : (
         <span aria-hidden="true">…</span>
       )}

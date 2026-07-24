@@ -14,7 +14,7 @@ export {
   type StagedImage,
 } from "@babel-apps/markdown/react";
 
-const REMARK_FEATURES = ["gfm", "typst-math"] as const;
+const REMARK_FEATURES = ["gfm", "formula-math"] as const;
 
 type MarkdownEditorProps = Omit<
   SharedMarkdownEditorProps,
