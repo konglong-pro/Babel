@@ -231,6 +231,7 @@ export function ExerciseDetail({
     if (!window.confirm(`Create Knowledge note “${title}” and open it?`)) return;
     onCreateKnowledgeWikilink(title);
   }, [onCreateKnowledgeWikilink]);
+  const readerTriggerId = `retex-exercise-${detail?.id ?? draftKey}-reader-trigger`;
 
   if (loading) {
     return <section className="detail-panel panel-status">Loading exercise…</section>;
@@ -272,7 +273,7 @@ export function ExerciseDetail({
             title={`${detail.title} - Reader`}
             windowKey={`retex-exercise-${detail.id}`}
             buttonLabel="Read"
-            buttonPortalTargetId="babel-detached-reader-trigger-target"
+            buttonPortalTargetId={readerTriggerId}
           >
             {({ document: readerDocument }) => (
               <ExerciseReaderDraft
@@ -319,6 +320,7 @@ export function ExerciseDetail({
           >
             Delete
           </ConfirmButton>
+          <div id={readerTriggerId} className="reader-trigger-slot" />
         </div>
       </header>
 
@@ -496,6 +498,7 @@ function ExerciseForm({
   const [relationsLoading, setRelationsLoading] = useState(true);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const readerTriggerId = `retex-exercise-${detail?.id ?? draftKey}-reader-trigger`;
   const imagePreviews = useMemo(
     () => new Map(stagedImages.map((stagedImage) => [stagedImage.token, stagedImage.previewUrl])),
     [stagedImages],
@@ -646,7 +649,7 @@ function ExerciseForm({
               title={`${title.trim() || "Untitled Exercise"} - Reader`}
               windowKey={`retex-exercise-${detail?.id ?? draftKey}`}
               buttonLabel="Read"
-              buttonPortalTargetId="babel-detached-reader-trigger-target"
+              buttonPortalTargetId={readerTriggerId}
               disabled={pending}
             >
               {({ document: readerDocument }) => (
@@ -679,6 +682,7 @@ function ExerciseForm({
             >
               {pending ? "Saving…" : "Save"}
             </button>
+            <div id={readerTriggerId} className="reader-trigger-slot" />
           </div>
         </header>
 

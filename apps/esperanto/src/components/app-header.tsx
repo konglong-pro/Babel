@@ -40,8 +40,24 @@ export function AppHeader() {
   return (
     <header className="app-header">
       <Link className="brand" href="/notes" aria-label="Esperanto notes home" onClick={visitHome}>
-        <span className="brand-rule" aria-hidden="true" />
-        <strong>Esperanto</strong>
+        <svg
+          className="brand-mark"
+          viewBox="0 0 64 64"
+          role="presentation"
+          aria-hidden="true"
+          shapeRendering="crispEdges"
+        >
+          <g transform="rotate(-4 32 32)">
+            <path className="brand-mark-paper" d="M9 7h38v4h4v38h-4v4H9V49H5V11h4z" />
+            <path d="M9 3h34v4H9zM5 7h4v4H5zM43 7h4v4h-4zM1 11h4v38H1zM47 11h4v10h-4zM47 29h4v20h-4zM5 49h4v4H5zM9 53h38v4H9z" />
+            <path d="M15 15h20v4H19v7h13v4H19v8h17v4H15z" />
+            <path d="M13 57h6v4h-6zM35 57h7v4h-7zM53 19h4v4h-4zM57 15h4v4h-4zM57 23h4v4h-4zM51 37h4v4h-4zM55 41h6v4h-6z" />
+          </g>
+        </svg>
+        <span className="brand-copy">
+          <strong>Esperanto</strong>
+          <small>language notebook</small>
+        </span>
       </Link>
 
       <form className="global-search" role="search" onSubmit={submitSearch}>

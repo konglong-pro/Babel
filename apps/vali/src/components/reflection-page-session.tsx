@@ -83,6 +83,7 @@ export function ReflectionPageSession({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [reloadVersion, setReloadVersion] = useState(0);
+  const readerTriggerId = `vali-reflection-${date}-reader-trigger`;
 
   const dirty = content !== (detail?.contentMd ?? "") || stagedImages.length > 0;
   const imagePreviews = useMemo(
@@ -310,7 +311,7 @@ export function ReflectionPageSession({
                   title={`${date} - Reflection reader`}
                   windowKey={`vali-reflection-${date}`}
                   buttonLabel="Read"
-                  buttonPortalTargetId="babel-detached-reader-trigger-target"
+                  buttonPortalTargetId={readerTriggerId}
                   disabled={pending}
                 >
                   {({ document: readerDocument }) =>
@@ -345,6 +346,7 @@ export function ReflectionPageSession({
                 >
                   {pending ? "Saving…" : "Save"}
                 </button>
+                <div id={readerTriggerId} className="reader-trigger-slot" />
               </div>
             </header>
             {detail ? (
@@ -367,7 +369,7 @@ export function ReflectionPageSession({
                   title={`${date} - Reflection reader`}
                   windowKey={`vali-reflection-${date}`}
                   buttonLabel="Read"
-                  buttonPortalTargetId="babel-detached-reader-trigger-target"
+                  buttonPortalTargetId={readerTriggerId}
                 >
                   {({ document: readerDocument }) =>
                     renderReflectionReader(readerDocument, false)}
@@ -391,6 +393,7 @@ export function ReflectionPageSession({
                 >
                   Edit
                 </button>
+                <div id={readerTriggerId} className="reader-trigger-slot" />
               </div>
             </header>
             <div className="document-outline-layout">

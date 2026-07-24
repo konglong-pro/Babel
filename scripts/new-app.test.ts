@@ -279,8 +279,16 @@ test("renders the repository mirror template as an independent app", async (t) =
   assert.match(noteDetail, /OutlinePanel/);
   assert.equal((noteDetail.match(/<DetachedReaderWindow/g) ?? []).length, 2);
   assert.equal(
-    (noteDetail.match(/buttonPortalTargetId="babel-detached-reader-trigger-target"/g) ?? []).length,
+    (noteDetail.match(/buttonPortalTargetId=\{readerTriggerId\}/g) ?? []).length,
     2,
+  );
+  assert.equal(
+    (noteDetail.match(/<div id=\{readerTriggerId\} className="reader-trigger-slot"\s*\/>/g) ?? []).length,
+    2,
+  );
+  assert.match(
+    noteDetail,
+    /<div className="document-actions">[\s\S]*?New subnote[\s\S]*?data-babel-command="edit"[\s\S]*?>\s*Edit\s*<\/button>[\s\S]*?<ConfirmButton[\s\S]*?>\s*Delete\s*<\/ConfirmButton>\s*<div id=\{readerTriggerId\} className="reader-trigger-slot"\s*\/>/,
   );
   assert.match(noteDetail, /liveDraft=\{false\}/);
   assert.match(noteDetail, /liveDraft=\{true\}/);
@@ -341,10 +349,7 @@ test("renders the repository mirror template as an independent app", async (t) =
   );
   assert.match(noteList, /className="note-disclosure"/);
   assert.match(noteList, /New subnote/);
-  assert.match(
-    noteList,
-    /id="babel-detached-reader-trigger-target"[\s\S]*?<span className="eyebrow">Notes<\/span>/,
-  );
+  assert.doesNotMatch(noteList, /reader-trigger-slot|babel-detached-reader-trigger-target/);
   assert.match(noteList, /Edit Templates/);
   await access(
     path.join(generatedRoot, "src", "components", "note-template-manager.tsx"),

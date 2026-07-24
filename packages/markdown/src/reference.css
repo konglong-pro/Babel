@@ -333,6 +333,11 @@ button.babel-detached-reader-fallback {
   justify-content: flex-end;
 }
 
+.document-actions > .reader-trigger-slot,
+.scratch-actions > .reader-trigger-slot {
+  display: contents;
+}
+
 .panel-heading > .content-list-actions button {
   width: fit-content;
   white-space: nowrap;
@@ -361,18 +366,6 @@ button.babel-detached-reader-fallback {
   .babel-detached-editor-launcher {
     align-items: stretch;
     flex-direction: column;
-  }
-}
-
-@media (max-width: 1099px) {
-  .notes-workspace.stage-note
-    .detail-panel
-    .babel-detached-reader-fallback,
-  .entries-workspace.stage-entry
-    .detail-panel
-    .babel-detached-reader-fallback {
-    display: inline-flex !important;
-    margin: 0 0 0.65rem;
   }
 }
 

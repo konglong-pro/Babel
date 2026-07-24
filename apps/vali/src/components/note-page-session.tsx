@@ -39,6 +39,7 @@ interface NotePageSessionProps {
   notes: NoteSummaryDto[];
   templates: NoteTemplateDto[];
   onOpenNote: (id: number, folderId?: number) => void;
+  onOpenDraft: (input: Omit<NoteDraftSession, "title"> & { title?: string }) => void;
   onOpenReflection: (date: string) => void;
   onRefreshIndex: () => Promise<void>;
   onShowList: () => void;
@@ -64,6 +65,7 @@ export function NotePageSession({
   notes,
   templates,
   onOpenNote,
+  onOpenDraft,
   onOpenReflection,
   onRefreshIndex,
   onShowList,
@@ -211,6 +213,15 @@ export function NotePageSession({
         backlinks={backlinks}
         loading={loading}
         onEdit={() => setMode("edit")}
+        onCreateSubnote={() => {
+          if (!detail) return;
+          onOpenDraft({
+            folderId: detail.folderId,
+            parentId: detail.id,
+            importDraft: null,
+            title: "New subnote",
+          });
+        }}
         onCancel={cancelEditing}
         onSaved={handleSaved}
         onDeleted={handleDeleted}

@@ -461,6 +461,7 @@ export function EntriesWorkspace({
                 folders={folders}
                 entries={entries}
                 onOpenEntry={openEntry}
+                onOpenDraft={openDraft}
                 onRefreshIndex={refreshIndex}
                 onShowList={() => showList()}
                 onError={setError}

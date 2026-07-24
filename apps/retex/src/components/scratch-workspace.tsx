@@ -33,6 +33,7 @@ const REMARK_FEATURES = ["gfm", "formula-math"] as const;
 export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
   const router = useRouter();
   const pageKey = `scratch:${exerciseId}`;
+  const readerTriggerId = `retex-scratch-${exerciseId}-reader-trigger`;
   const { openPage, setPageStatus, updatePage } = usePageSessions();
   const formRef = useRef<HTMLFormElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -168,7 +169,7 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
             title={`${exercise.title} - Scratch reader`}
             windowKey={`retex-scratch-${exercise.id}`}
             buttonLabel="Read"
-            buttonPortalTargetId="babel-detached-reader-trigger-target"
+            buttonPortalTargetId={readerTriggerId}
             disabled={saving}
           >
             {({ document: readerDocument }) => {
@@ -249,6 +250,7 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
           >
             {saving ? "Saving…" : "Save Scratch"}
           </button>
+          <div id={readerTriggerId} className="reader-trigger-slot" />
         </div>
       </header>
 
@@ -269,7 +271,6 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
             />
           </section>
           <section className="scratch-editor" aria-label="Temporary work editor">
-            <div id="babel-detached-reader-trigger-target" className="reader-trigger-slot" />
             <div className="editor-outline-layout">
               <MarkdownEditor
                 label="Work It Out Again"

@@ -46,7 +46,7 @@ test("renders an accessible detached reader control without inline content", () 
   assert.doesNotMatch(html, /Detached content/u);
 });
 
-test("renders a responsive inline fallback when a portal target is configured", () => {
+test("renders hidden fallback markup when a portal target is configured", () => {
   const html = renderToStaticMarkup(createElement(
     DetachedReaderWindow,
     {

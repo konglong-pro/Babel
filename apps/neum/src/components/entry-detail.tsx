@@ -197,6 +197,7 @@ interface EntryDetailProps {
   backlinks: EntryBacklinkDto[];
   loading?: boolean;
   onEdit: () => void;
+  onCreateSubnote: () => void;
   onCancel: () => void;
   onSaved: (detail: EntryDetailDto) => Promise<void> | void;
   onDeleted: () => Promise<void> | void;
@@ -225,6 +226,7 @@ export function EntryDetail({
   backlinks,
   loading,
   onEdit,
+  onCreateSubnote,
   onCancel,
   onSaved,
   onDeleted,
@@ -262,6 +264,7 @@ export function EntryDetail({
     if (!window.confirm(`Create entry “${title}”?`)) return;
     void onCreateWikilink(title, targetFolderId);
   }, [detail?.folderId, folderId, onCreateWikilink]);
+  const readerTriggerId = `neum-${kind}-${detail?.id ?? draftKey}-reader-trigger`;
 
   if (loading) {
     return <section className="detail-panel panel-status detail-loading">Loading entry…</section>;
@@ -316,7 +319,7 @@ export function EntryDetail({
             title={`${detail.title} - Reader`}
             windowKey={`neum-${detail.kind}-${detail.id}`}
             buttonLabel="Read"
-            buttonPortalTargetId="babel-detached-reader-trigger-target"
+            buttonPortalTargetId={readerTriggerId}
           >
             {({ document: readerDocument }) => (
               <EntryReaderDraft
@@ -349,6 +352,14 @@ export function EntryDetail({
         </div>
         <div className="document-actions">
           <button
+            data-babel-command="new"
+            data-babel-priority="10"
+            type="button"
+            onClick={onCreateSubnote}
+          >
+            New subnote
+          </button>
+          <button
             data-babel-command="edit"
             type="button"
             onClick={(event) => {
@@ -374,6 +385,7 @@ export function EntryDetail({
           >
             Delete
           </ConfirmButton>
+          <div id={readerTriggerId} className="reader-trigger-slot" />
         </div>
       </header>
 
@@ -499,6 +511,7 @@ function EntryForm({
     () => new Map(folders.map((folder) => [folder.id, folder])),
     [folders],
   );
+  const readerTriggerId = `neum-${kind}-${detail?.id ?? draftKey}-reader-trigger`;
   const folderOptions = useMemo(
     () => folders.map((folder) => ({ id: folder.id, label: folderPathLabel(folder.id, folderMap) })),
     [folderMap, folders],
@@ -714,7 +727,7 @@ function EntryForm({
               title={`${title.trim() || "Untitled entry"} - Reader`}
               windowKey={`neum-${kind}-${detail?.id ?? draftKey}`}
               buttonLabel="Read"
-              buttonPortalTargetId="babel-detached-reader-trigger-target"
+              buttonPortalTargetId={readerTriggerId}
               disabled={pending}
             >
               {({ document: readerDocument }) => (
@@ -753,6 +766,7 @@ function EntryForm({
             >
               {pending ? "Saving…" : "Save"}
             </button>
+            <div id={readerTriggerId} className="reader-trigger-slot" />
           </div>
         </header>
 

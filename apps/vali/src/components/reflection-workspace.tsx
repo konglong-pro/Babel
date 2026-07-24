@@ -157,7 +157,6 @@ export function ReflectionWorkspace({ initialDate }: { initialDate: string | nul
       <aside className="reflection-index workspace-panel" aria-label="Reflection dates">
         <div className="panel-heading">
           <div>
-            <div id="babel-detached-reader-trigger-target" className="reader-trigger-slot" />
             <span className="eyebrow">Daily unit</span>
             <h1>Reflection</h1>
           </div>

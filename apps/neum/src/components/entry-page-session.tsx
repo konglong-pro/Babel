@@ -46,6 +46,7 @@ interface EntryPageSessionProps {
     folderId?: number,
     exactFolder?: boolean,
   ) => void;
+  onOpenDraft: (input: Omit<EntryDraftSession, "title"> & { title?: string }) => void;
   onRefreshIndex: (folderId: number | null) => Promise<void>;
   onShowList: () => void;
   onError: (message: string) => void;
@@ -73,6 +74,7 @@ export function EntryPageSession({
   folders,
   entries,
   onOpenEntry,
+  onOpenDraft,
   onRefreshIndex,
   onShowList,
   onError,
@@ -231,6 +233,16 @@ export function EntryPageSession({
         backlinks={backlinks}
         loading={loading}
         onEdit={() => setMode("edit")}
+        onCreateSubnote={() => {
+          if (!detail) return;
+          onOpenDraft({
+            kind: detail.kind,
+            folderId: detail.folderId,
+            parentId: detail.id,
+            importDraft: null,
+            title: "New subnote",
+          });
+        }}
         onCancel={cancelEditing}
         onSaved={handleSaved}
         onDeleted={handleDeleted}

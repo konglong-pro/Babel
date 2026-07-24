@@ -174,7 +174,11 @@ test("keeps desktop notebook panels pinned while a reference board overlays the 
   );
   assert.match(
     css,
-    /@media\s*\(max-width:\s*1099px\)[\s\S]*?\.notes-workspace\.stage-note[\s\S]*?\.babel-detached-reader-fallback[\s\S]*?display:\s*inline-flex\s*!important;/u,
+    /\.document-actions\s*>\s*\.reader-trigger-slot,[\s\S]*?\.scratch-actions\s*>\s*\.reader-trigger-slot[\s\S]*?display:\s*contents;/u,
+  );
+  assert.doesNotMatch(
+    css,
+    /\.babel-detached-reader-fallback[\s\S]*?display:\s*inline-flex\s*!important;/u,
   );
   assert.match(
     css,

@@ -531,6 +531,7 @@ export function NotesWorkspace({
                   notes={notes}
                   templates={templates}
                   onOpenNote={openNote}
+                  onOpenDraft={openDraft}
                   onOpenReflection={openReflection}
                   onRefreshIndex={refreshIndex}
                   onShowList={() => showList()}

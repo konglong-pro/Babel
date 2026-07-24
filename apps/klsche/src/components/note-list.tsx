@@ -224,7 +224,6 @@ export function NoteList({
           >
             New
           </button>
-          <div id="babel-detached-reader-trigger-target" className="reader-trigger-slot" />
         </div>
       </div>
 

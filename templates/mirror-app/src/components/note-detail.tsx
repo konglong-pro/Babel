@@ -237,6 +237,7 @@ export function NoteDetail({
     if (!window.confirm(`Create note “${title}”?`)) return;
     void onCreateWikilink(title, targetFolderId);
   }, [detail?.folderId, folderId, onCreateWikilink]);
+  const readerTriggerId = `__APP_ID__-note-${detail?.id ?? draftKey}-reader-trigger`;
 
   if (loading) {
     return <section className="detail-panel panel-status detail-loading">Loading note…</section>;
@@ -290,7 +291,7 @@ export function NoteDetail({
             title={`${detail.title} - Reader`}
             windowKey={`__APP_ID__-note-${detail.id}`}
             buttonLabel="Read"
-            buttonPortalTargetId="babel-detached-reader-trigger-target"
+            buttonPortalTargetId={readerTriggerId}
           >
             {({ document: readerDocument }) => (
               <NoteReaderDraft
@@ -340,6 +341,7 @@ export function NoteDetail({
           >
             Delete
           </ConfirmButton>
+          <div id={readerTriggerId} className="reader-trigger-slot" />
         </div>
       </header>
 
@@ -442,6 +444,7 @@ function NoteForm({
   const [error, setError] = useState("");
 
   const folderMap = useMemo(() => new Map(folders.map((folder) => [folder.id, folder])), [folders]);
+  const readerTriggerId = `__APP_ID__-note-${detail?.id ?? draftKey}-reader-trigger`;
   const folderOptions = useMemo(
     () => folders.map((folder) => ({ id: folder.id, label: folderPathLabel(folder.id, folderMap) })),
     [folderMap, folders],
@@ -714,7 +717,7 @@ function NoteForm({
               title={`${title.trim() || "Untitled note"} - Reader`}
               windowKey={`__APP_ID__-note-${detail?.id ?? draftKey}`}
               buttonLabel="Read"
-              buttonPortalTargetId="babel-detached-reader-trigger-target"
+              buttonPortalTargetId={readerTriggerId}
               disabled={pending}
             >
               {({ document: readerDocument }) => (
@@ -749,6 +752,7 @@ function NoteForm({
             >
               {pending ? "Saving…" : "Save"}
             </button>
+            <div id={readerTriggerId} className="reader-trigger-slot" />
           </div>
         </header>
 

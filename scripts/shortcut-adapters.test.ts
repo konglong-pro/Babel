@@ -97,7 +97,7 @@ test("every registered app and the mirror template expose the global shortcut se
   }
 });
 
-test("every reader control is portaled above its content heading", async () => {
+test("every reader control is portaled to the right edge of its action row", async () => {
   const readerTargets = [
     ["ReTex Knowledge", "apps/retex/src/components/knowledge-detail.tsx", 2],
     ["ReTex Exercise", "apps/retex/src/components/exercise-detail.tsx", 2],
@@ -107,45 +107,73 @@ test("every reader control is portaled above its content heading", async () => {
     ["Herodotus", "apps/herodotus/src/components/note-detail.tsx", 2],
     ["Leviathan", "apps/leviathan/src/components/note-detail.tsx", 2],
     ["Esperanto", "apps/esperanto/src/components/note-detail.tsx", 2],
+    ["KLsche", "apps/klsche/src/components/note-detail.tsx", 2],
     ["Neum", "apps/neum/src/components/entry-detail.tsx", 2],
+    ["Ruider", "apps/ruider/src/components/note-detail.tsx", 2],
     ["mirror-app template", "templates/mirror-app/src/components/note-detail.tsx", 2],
   ] as const;
-  const portalReaderPattern =
-    /<DetachedReaderWindow[\s\S]*?buttonPortalTargetId="babel-detached-reader-trigger-target"[\s\S]*?<\/DetachedReaderWindow>/g;
 
   for (const [label, relativePath, expectedCount] of readerTargets) {
     const source = await readFile(path.join(root, relativePath), "utf8");
     assert.equal(
-      (source.match(portalReaderPattern) ?? []).length,
+      (source.match(/buttonPortalTargetId=\{readerTriggerId\}/g) ?? []).length,
       expectedCount,
-      `${label} must portal every Read button to its content heading`,
+      `${label} must portal every Read button to its page-specific action target`,
+    );
+    assert.equal(
+      (source.match(/<div id=\{readerTriggerId\} className="reader-trigger-slot"\s*\/>/g) ?? []).length,
+      expectedCount,
+      `${label} must place every Read target at the end of an action row`,
     );
     assert.doesNotMatch(
       source,
-      /babel-reader-title-button/,
-      `${label} must not retain the old detail-title button placement`,
+      /babel-detached-reader-trigger-target|babel-reader-title-button/,
+      `${label} must not retain a shared or title-level Read target`,
     );
   }
 
-  const contentHeadingTargets = [
+  const hierarchicalDetails = [
+    ["ReTex Knowledge", "apps/retex/src/components/knowledge-detail.tsx"],
+    ["Vali Notes", "apps/vali/src/components/note-detail.tsx"],
+    ["Herodotus", "apps/herodotus/src/components/note-detail.tsx"],
+    ["Leviathan", "apps/leviathan/src/components/note-detail.tsx"],
+    ["Esperanto", "apps/esperanto/src/components/note-detail.tsx"],
+    ["KLsche", "apps/klsche/src/components/note-detail.tsx"],
+    ["Neum", "apps/neum/src/components/entry-detail.tsx"],
+    ["Ruider", "apps/ruider/src/components/note-detail.tsx"],
+    ["mirror-app template", "templates/mirror-app/src/components/note-detail.tsx"],
+  ] as const;
+  const fourActionPattern =
+    /<div className="document-actions">[\s\S]*?New subnote[\s\S]*?data-babel-command="edit"[\s\S]*?>\s*Edit\s*<\/button>[\s\S]*?<ConfirmButton[\s\S]*?>\s*Delete\s*<\/ConfirmButton>\s*<div id=\{readerTriggerId\} className="reader-trigger-slot"\s*\/>/;
+
+  for (const [label, relativePath] of hierarchicalDetails) {
+    const source = await readFile(path.join(root, relativePath), "utf8");
+    assert.match(
+      source,
+      fourActionPattern,
+      `${label} must order its detail actions as New subnote, Edit, Delete, Read`,
+    );
+  }
+
+  const formerHeadingTargets = [
     ["ReTex", "apps/retex/src/components/item-list.tsx"],
     ["Vali Notes", "apps/vali/src/components/note-list.tsx"],
     ["Vali Reflection", "apps/vali/src/components/reflection-workspace.tsx"],
     ["Herodotus", "apps/herodotus/src/components/note-list.tsx"],
     ["Leviathan", "apps/leviathan/src/components/note-list.tsx"],
     ["Esperanto", "apps/esperanto/src/components/note-list.tsx"],
+    ["KLsche", "apps/klsche/src/components/note-list.tsx"],
     ["Neum", "apps/neum/src/components/entry-list.tsx"],
+    ["Ruider", "apps/ruider/src/components/note-list.tsx"],
     ["mirror-app template", "templates/mirror-app/src/components/note-list.tsx"],
   ] as const;
-  const contentHeadingPattern =
-    /<div id="babel-detached-reader-trigger-target" className="reader-trigger-slot"\s*\/>\s*<span className="eyebrow"/;
 
-  for (const [label, relativePath] of contentHeadingTargets) {
+  for (const [label, relativePath] of formerHeadingTargets) {
     const source = await readFile(path.join(root, relativePath), "utf8");
-    assert.match(
+    assert.doesNotMatch(
       source,
-      contentHeadingPattern,
-      `${label} must place the Read target directly above its content eyebrow`,
+      /reader-trigger-slot|babel-detached-reader-trigger-target/,
+      `${label} must not retain a Read target in its list heading`,
     );
   }
 
@@ -155,7 +183,7 @@ test("every reader control is portaled above its content heading", async () => {
   );
   assert.match(
     scratchSource,
-    /<section className="scratch-editor"[\s\S]*?<div id="babel-detached-reader-trigger-target" className="reader-trigger-slot"\s*\/>\s*<div className="editor-outline-layout">/,
-    "ReTex Scratch must place the Read target above its editor content",
+    /<div className="scratch-actions">[\s\S]*?Save Scratch[\s\S]*?<div id=\{readerTriggerId\} className="reader-trigger-slot"\s*\/>/,
+    "ReTex Scratch must place the Read target after Save Scratch",
   );
 });
