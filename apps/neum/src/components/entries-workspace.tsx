@@ -6,63 +6,44 @@ import {
   TypstReferencePanel,
   type ReferencePanelKind,
 } from "@babel-apps/markdown/reference";
+import {
+  usePageSessionHistoryGuard,
+  usePageSessions,
+} from "@babel-apps/platform/pages/react";
 
 import {
   BEFORE_NAVIGATE_EVENT,
   type BeforeNavigateDetail,
 } from "@/components/app-header";
-import { EntryDetail, type EntryViewMode } from "@/components/entry-detail";
+import {
+  EntryPageSession,
+  type EntryDraftSession,
+  savedEntryPage,
+} from "@/components/entry-page-session";
 import { EntryList } from "@/components/entry-list";
 import { FolderPanel } from "@/components/folder-panel";
 import {
-  createEntry,
   createFolder,
   deleteFolder,
-  getEntry,
   getErrorMessage,
-  listEntryBacklinks,
   listEntries,
   listFolders,
   updateFolder,
 } from "@/lib/api-client";
-import { entryUnitPath, entryWorkspaceHref } from "@/lib/entry-routes";
+import { entryUnitLabel, entryUnitPath, entryWorkspaceHref } from "@/lib/entry-routes";
 import { ENTRY_NOTES_MAX_BYTES } from "@/lib/entry-limits";
 import {
   parseMarkdownImport,
   type MarkdownImportDraft,
 } from "@/lib/markdown-import";
 import type {
-  EntryBacklinkDto,
-  EntryDetailDto,
-  EntrySummaryDto,
   EntryKind,
+  EntrySummaryDto,
   FolderDto,
 } from "@/lib/types";
 
 type ResponsiveStage = "library" | "entries" | "entry";
-
-const HISTORY_GUARD_KEY = "__neumDirtyGuard";
 const PAGE_LIMIT = 100;
-
-function currentRelativeUrl(): string {
-  return `${window.location.pathname}${window.location.search}${window.location.hash}`;
-}
-
-function guardedHistoryState(): Record<string, unknown> {
-  const current = window.history.state;
-  const state = current && typeof current === "object"
-    ? (current as Record<string, unknown>)
-    : {};
-  return { ...state, [HISTORY_GUARD_KEY]: true };
-}
-
-function isGuardedHistoryState(value: unknown): boolean {
-  return Boolean(
-    value &&
-    typeof value === "object" &&
-    (value as Record<string, unknown>)[HISTORY_GUARD_KEY],
-  );
-}
 
 interface EntriesWorkspaceProps {
   kind: EntryKind;
@@ -70,82 +51,35 @@ interface EntriesWorkspaceProps {
   initialEntryId?: number | null;
 }
 
+function savedEntryId(pageKey: string | null): number | null {
+  if (pageKey === null || !pageKey.startsWith("entry:")) return null;
+  const id = Number(pageKey.slice("entry:".length));
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
 export function EntriesWorkspace({
   kind,
   initialFolderId = null,
   initialEntryId = null,
 }: EntriesWorkspaceProps) {
+  const { pages, activeKey, activatePage, closePage, openPage } = usePageSessions();
+  const pageKind = entryUnitLabel(kind);
   const [folders, setFolders] = useState<FolderDto[]>([]);
   const [entries, setEntries] = useState<EntrySummaryDto[]>([]);
   const [entryTotal, setEntryTotal] = useState(0);
-  const [selectedFolderId, setSelectedFolderId] = useState<number | null>(
-    initialFolderId,
-  );
-  const [selectedEntryId, setSelectedEntryId] = useState<number | null>(
-    initialEntryId,
-  );
-  const [detail, setDetail] = useState<EntryDetailDto | null>(null);
-  const [backlinks, setBacklinks] = useState<EntryBacklinkDto[]>([]);
-  const [importDraft, setImportDraft] = useState<MarkdownImportDraft | null>(null);
-  const [draftParentId, setDraftParentId] = useState<number | null>(null);
-  const [draftVersion, setDraftVersion] = useState(0);
-  const [mode, setMode] = useState<EntryViewMode>("view");
+  const [selectedFolderId, setSelectedFolderId] = useState<number | null>(initialFolderId);
   const [stage, setStage] = useState<ResponsiveStage>(
     initialEntryId !== null ? "entry" : initialFolderId !== null ? "entries" : "library",
   );
   const [indexLoading, setIndexLoading] = useState(true);
   const [entryPageLoading, setEntryPageLoading] = useState(false);
-  const [detailLoading, setDetailLoading] = useState(initialEntryId !== null);
-  const [detailRequestVersion, setDetailRequestVersion] = useState(0);
   const [error, setError] = useState("");
-  const [detailError, setDetailError] = useState("");
-  const [dirty, setDirty] = useState(false);
-  const dirtyRef = useRef(false);
-  const saveActionRef = useRef<(() => void) | null>(null);
-  const guardedUrlRef = useRef("");
-  const guardEntryPresentRef = useRef(false);
-  const allowNextPopRef = useRef(false);
-  const allowUnloadRef = useRef(false);
-  const popFallbackTimerRef = useRef<number | null>(null);
-  const indexRequestRef = useRef(0);
-  const selectionVersionRef = useRef(0);
-  const wikilinkCreatePendingRef = useRef(false);
-  const exactFolderEntryRef = useRef<number | null>(
-    initialEntryId !== null && initialFolderId === null ? initialEntryId : null,
-  );
-  const mountedRef = useRef(false);
-  const selectedFolderIdRef = useRef(selectedFolderId);
-  const importRequestVersionRef = useRef(0);
-  const referenceTriggerRef = useRef<HTMLElement | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, EntryDraftSession>>({});
   const [activeReferencePanel, setActiveReferencePanel] = useState<ReferencePanelKind | null>(null);
-
-  const openReferencePanel = useCallback((panel: ReferencePanelKind) => {
-    referenceTriggerRef.current = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null;
-    setActiveReferencePanel(panel);
-  }, []);
-
-  const closeReferencePanel = useCallback(() => {
-    setActiveReferencePanel(null);
-    window.requestAnimationFrame(() => referenceTriggerRef.current?.focus());
-  }, []);
-
-  const invalidateImportRequest = useCallback(() => {
-    importRequestVersionRef.current += 1;
-  }, []);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      importRequestVersionRef.current += 1;
-    };
-  }, []);
-
-  useEffect(() => {
-    selectedFolderIdRef.current = selectedFolderId;
-  }, [selectedFolderId]);
+  const referenceTriggerRef = useRef<HTMLElement | null>(null);
+  const initialOpenedRef = useRef(false);
+  const indexRequestRef = useRef(0);
+  const loadedFolderRef = useRef<number | null | undefined>(undefined);
 
   const refreshEntries = useCallback(async (folderId: number | null) => {
     const requestId = ++indexRequestRef.current;
@@ -156,10 +90,10 @@ export function EntriesWorkspace({
       completeTree: true,
       limit: PAGE_LIMIT,
     });
-    if (requestId !== indexRequestRef.current) return page;
+    if (requestId !== indexRequestRef.current) return;
+    loadedFolderRef.current = folderId;
     setEntries(page.items);
     setEntryTotal(page.total);
-    return page;
   }, [kind]);
 
   const refreshIndex = useCallback(async (folderId: number | null) => {
@@ -174,264 +108,117 @@ export function EntriesWorkspace({
         limit: PAGE_LIMIT,
       }),
     ]);
-    if (requestId !== indexRequestRef.current) return { folders: nextFolders, page };
+    if (requestId !== indexRequestRef.current) return;
+    loadedFolderRef.current = folderId;
     setFolders(nextFolders);
     setEntries(page.items);
     setEntryTotal(page.total);
-    return { folders: nextFolders, page };
-  }, [kind]);
-
-  const setActiveEntryId = useCallback((
-    id: number | null,
-    exactFolder = false,
-  ): number => {
-    selectionVersionRef.current += 1;
-    exactFolderEntryRef.current = id !== null && exactFolder ? id : null;
-    setSelectedEntryId(id);
-    return selectionVersionRef.current;
-  }, []);
-
-  const replaceLocation = useCallback((input: {
-    folderId?: number | null;
-    entryId?: number | null;
-  }) => {
-    const nextUrl = entryWorkspaceHref(kind, input);
-    guardedUrlRef.current = nextUrl;
-    window.history.replaceState(window.history.state, "", nextUrl);
-  }, [kind]);
-
-  const loadEntryList = useCallback(async (folderId: number | null) => {
-    const requestId = ++indexRequestRef.current;
-    setIndexLoading(true);
-    try {
-      const page = await listEntries({
-        folderId: folderId ?? undefined,
-        includeDescendants: true,
-        kind,
-        completeTree: true,
-        limit: PAGE_LIMIT,
-      });
-      if (requestId !== indexRequestRef.current) return;
-      setEntries(page.items);
-      setEntryTotal(page.total);
-    } catch (caught) {
-      if (requestId === indexRequestRef.current) setError(getErrorMessage(caught));
-    } finally {
-      if (requestId === indexRequestRef.current) setIndexLoading(false);
-    }
   }, [kind]);
 
   useEffect(() => {
     let active = true;
-    const requestId = ++indexRequestRef.current;
-    async function initialize() {
-      try {
-        const [nextFolders, entryPage] = await Promise.all([
-          listFolders(),
-          listEntries({
-            folderId: initialFolderId ?? undefined,
-            includeDescendants: true,
-            kind,
-            completeTree: true,
-            limit: PAGE_LIMIT,
-          }),
-        ]);
-        if (!active || requestId !== indexRequestRef.current) return;
-        setFolders(nextFolders);
-        setEntries(entryPage.items);
-        setEntryTotal(entryPage.total);
-        if (
-          initialFolderId !== null &&
-          !nextFolders.some((folder) => folder.id === initialFolderId)
-        ) {
-          setSelectedFolderId(null);
-          setStage(initialEntryId !== null ? "entry" : "library");
-        }
-      } catch (caught) {
-        if (active) setError(getErrorMessage(caught));
-      } finally {
-        if (active) setIndexLoading(false);
-      }
-    }
-    void initialize();
-    return () => {
-      active = false;
-    };
-  }, [initialEntryId, initialFolderId, kind]);
-
-  const selectedEntryIsListed = selectedEntryId !== null && entries.some(
-    (entry) => entry.id === selectedEntryId,
-  );
-  useEffect(() => {
-    if (indexLoading || selectedEntryId === null) return;
-    if (detail?.id === selectedEntryId && detailRequestVersion === 0) return;
-
-    let active = true;
-    const selectionVersion = selectionVersionRef.current;
-    Promise.all([getEntry(selectedEntryId), listEntryBacklinks(selectedEntryId)])
-      .then(([nextDetail, nextBacklinks]) => {
-        if (!active || selectionVersionRef.current !== selectionVersion) return;
-        if (nextDetail.kind !== kind) {
-          window.location.replace(entryWorkspaceHref(nextDetail.kind, {
-            folderId: nextDetail.folderId,
-            entryId: nextDetail.id,
-          }));
-          return;
-        }
-        const exactFolder = exactFolderEntryRef.current === selectedEntryId;
-        exactFolderEntryRef.current = null;
-        setDetail(nextDetail);
-        setBacklinks(nextBacklinks);
-        setDetailRequestVersion(0);
-        setDetailLoading(false);
-        if (exactFolder || !selectedEntryIsListed) {
-          setSelectedFolderId(nextDetail.folderId);
-          replaceLocation({ folderId: nextDetail.folderId, entryId: nextDetail.id });
-          void loadEntryList(nextDetail.folderId);
-        }
-      })
+    void Promise.resolve()
+      .then(() => refreshIndex(initialFolderId))
       .catch((caught) => {
-        if (!active || selectionVersionRef.current !== selectionVersion) return;
-        setDetail(null);
-        setBacklinks([]);
-        setDetailError(getErrorMessage(caught));
-        setDetailLoading(false);
+        if (active) setError(getErrorMessage(caught));
+      })
+      .finally(() => {
+        if (active) setIndexLoading(false);
       });
     return () => {
       active = false;
     };
+  }, [initialFolderId, refreshIndex]);
+
+  useEffect(() => {
+    if (indexLoading || initialOpenedRef.current) return;
+    initialOpenedRef.current = true;
+    if (initialEntryId === null) return;
+    const entry = entries.find((candidate) => candidate.id === initialEntryId);
+    openPage(entry
+      ? savedEntryPage(entry)
+      : {
+          key: `entry:${initialEntryId}`,
+          kind: pageKind,
+          title: `${pageKind} ${initialEntryId}`,
+          href: entryWorkspaceHref(kind, {
+            folderId: initialFolderId,
+            entryId: initialEntryId,
+          }),
+        });
   }, [
-    detail?.id,
-    detailRequestVersion,
+    entries,
     indexLoading,
+    initialEntryId,
+    initialFolderId,
     kind,
-    loadEntryList,
-    replaceLocation,
-    selectedEntryId,
-    selectedEntryIsListed,
+    openPage,
+    pageKind,
   ]);
 
-  const setDirtyState = useCallback((nextDirty: boolean) => {
-    dirtyRef.current = nextDirty;
-    setDirty(nextDirty);
-
-    if (nextDirty && !guardEntryPresentRef.current) {
-      guardedUrlRef.current = currentRelativeUrl();
-      window.history.pushState(guardedHistoryState(), "", guardedUrlRef.current);
-      guardEntryPresentRef.current = true;
-    }
-  }, []);
-
-  const registerSave = useCallback((action: (() => void) | null) => {
-    saveActionRef.current = action;
-  }, []);
-
-  const confirmDiscard = useCallback((): boolean => {
-    if (wikilinkCreatePendingRef.current) return false;
-    if (!dirtyRef.current) return true;
-    return window.confirm("Discard your unsaved changes?");
-  }, []);
-
-  const resetToLibraryRoot = useCallback(() => {
-    invalidateImportRequest();
-    setDirtyState(false);
-    setSelectedFolderId(null);
-    setActiveEntryId(null);
-    setDetail(null);
-    setBacklinks([]);
-    setImportDraft(null);
-    setDraftParentId(null);
-    setDetailError("");
-    setDetailLoading(false);
-    setDetailRequestVersion(0);
-    setMode("view");
-    setStage("library");
-  }, [invalidateImportRequest, setActiveEntryId, setDirtyState]);
+  const activePage = pages.find(
+    (page) => page.key === activeKey && page.kind === pageKind,
+  ) ?? null;
+  const activeFolderId = useMemo(() => {
+    if (activePage === null) return null;
+    const candidate = Number(
+      new URL(activePage.href, "http://babel.local").searchParams.get("folder"),
+    );
+    return Number.isInteger(candidate) && candidate > 0 ? candidate : null;
+  }, [activePage]);
+  const visibleFolderId = activeFolderId ?? selectedFolderId;
 
   useEffect(() => {
-    guardedUrlRef.current = currentRelativeUrl();
-    guardEntryPresentRef.current = isGuardedHistoryState(window.history.state);
-
-    function beforeUnload(event: BeforeUnloadEvent) {
-      if (
-        (!dirtyRef.current && !wikilinkCreatePendingRef.current) ||
-        allowUnloadRef.current
-      ) return;
-      event.preventDefault();
-      event.returnValue = true;
+    if (activePage === null) return;
+    const url = new URL(activePage.href, window.location.origin);
+    const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (nextUrl !== currentUrl) {
+      window.history.replaceState(window.history.state, "", nextUrl);
     }
+    if (loadedFolderRef.current !== activeFolderId) {
+      void refreshEntries(activeFolderId).catch((caught) => {
+        setError(getErrorMessage(caught));
+      });
+    }
+  }, [activeFolderId, activePage, refreshEntries]);
 
-    function beforeNavigate(event: Event) {
-      if (!confirmDiscard()) {
+  usePageSessionHistoryGuard();
+
+  useEffect(() => {
+    const beforeNavigate = (event: Event) => {
+      const dirtyPages = pages.filter((page) => page.dirty || page.pending);
+      if (
+        dirtyPages.length > 0 &&
+        !window.confirm("Discard your unsaved changes?")
+      ) {
         event.preventDefault();
         return;
       }
-
+      for (const page of dirtyPages) closePage(page.key);
       const navigationEvent = event as CustomEvent<BeforeNavigateDetail>;
-      if (navigationEvent.detail?.destination === entryUnitPath(kind)) resetToLibraryRoot();
-    }
-
-    function popState(event: PopStateEvent) {
-      if (allowNextPopRef.current) {
-        allowNextPopRef.current = false;
-        allowUnloadRef.current = false;
-        if (popFallbackTimerRef.current !== null) {
-          window.clearTimeout(popFallbackTimerRef.current);
-          popFallbackTimerRef.current = null;
-        }
-        return;
-      }
-
-      if (!guardEntryPresentRef.current) return;
-      event.stopImmediatePropagation();
-
-      if (
-        (dirtyRef.current || wikilinkCreatePendingRef.current) &&
-        !confirmDiscard()
-      ) {
-        window.history.pushState(guardedHistoryState(), "", guardedUrlRef.current);
-        guardEntryPresentRef.current = true;
-        return;
-      }
-
-      guardEntryPresentRef.current = false;
-      allowNextPopRef.current = true;
-      allowUnloadRef.current = dirtyRef.current;
-      window.history.back();
-
-      popFallbackTimerRef.current = window.setTimeout(() => {
-        if (!allowNextPopRef.current) return;
-        allowNextPopRef.current = false;
-        allowUnloadRef.current = false;
-        window.history.pushState(guardedHistoryState(), "", guardedUrlRef.current);
-        guardEntryPresentRef.current = true;
-        popFallbackTimerRef.current = null;
-      }, 500);
-    }
-
-    window.addEventListener("beforeunload", beforeUnload);
-    window.addEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
-    window.addEventListener("popstate", popState, true);
-    return () => {
-      window.removeEventListener("beforeunload", beforeUnload);
-      window.removeEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
-      window.removeEventListener("popstate", popState, true);
-      if (popFallbackTimerRef.current !== null) {
-        window.clearTimeout(popFallbackTimerRef.current);
-        popFallbackTimerRef.current = null;
+      if (navigationEvent.detail?.destination === entryUnitPath(kind)) {
+        activatePage(null);
+        setSelectedFolderId(null);
+        setStage("library");
       }
     };
-  }, [confirmDiscard, kind, resetToLibraryRoot]);
+    window.addEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
+    return () => window.removeEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
+  }, [activatePage, closePage, kind, pages]);
 
   const folderMap = useMemo(
     () => new Map(folders.map((folder) => [folder.id, folder])),
     [folders],
   );
+  const selectedEntryId = savedEntryId(activeKey);
+  const hasUnsavedPages = pages.some((page) => page.dirty || page.pending);
+  const visibleStage: ResponsiveStage = activePage === null ? stage : "entry";
 
   async function loadMoreEntries() {
     if (entryPageLoading || entries.length >= entryTotal) return;
     const requestId = indexRequestRef.current;
-    const folderId = selectedFolderId;
+    const folderId = visibleFolderId;
     setEntryPageLoading(true);
     try {
       const page = await listEntries({
@@ -441,10 +228,7 @@ export function EntriesWorkspace({
         limit: PAGE_LIMIT,
         offset: entries.length,
       });
-      if (
-        requestId !== indexRequestRef.current ||
-        selectedFolderId !== folderId
-      ) return;
+      if (requestId !== indexRequestRef.current) return;
       setEntries((current) => {
         const existing = new Set(current.map(({ id }) => id));
         return [...current, ...page.items.filter(({ id }) => !existing.has(id))];
@@ -457,257 +241,136 @@ export function EntriesWorkspace({
     }
   }
 
-  function selectFolder(id: number | null) {
-    if (!confirmDiscard()) return;
-    invalidateImportRequest();
-    setSelectedFolderId(id);
-    setActiveEntryId(null);
-    setDetail(null);
-    setBacklinks([]);
-    setImportDraft(null);
-    setDraftParentId(null);
-    setDetailError("");
-    setDetailLoading(false);
-    setDetailRequestVersion(0);
-    setMode("view");
+  function showList(folderId = selectedFolderId) {
+    activatePage(null);
+    setSelectedFolderId(folderId);
     setStage("entries");
-    replaceLocation({ folderId: id, entryId: null });
-    void loadEntryList(id);
-  }
-
-  function selectEntry(id: number, folderId?: number, exactFolder = false) {
-    if (!confirmDiscard()) return;
-    invalidateImportRequest();
-    const folderChanged = folderId !== undefined && folderId !== selectedFolderId;
-    if (folderChanged) {
-      setSelectedFolderId(folderId);
-      void loadEntryList(folderId);
+    window.history.replaceState(
+      window.history.state,
+      "",
+      entryWorkspaceHref(kind, { folderId }),
+    );
+    if (loadedFolderRef.current !== folderId) {
+      void refreshEntries(folderId).catch((caught) => setError(getErrorMessage(caught)));
     }
-    setActiveEntryId(id, exactFolder && folderId === undefined);
-    setDetail(null);
-    setBacklinks([]);
-    setImportDraft(null);
-    setDraftParentId(null);
-    setDetailError("");
-    setDetailLoading(true);
-    setDetailRequestVersion(0);
-    setMode("view");
-    setStage("entry");
-    replaceLocation({ folderId: folderId ?? selectedFolderId, entryId: id });
   }
 
-  function navigateEntry(
+  function openEntry(
     id: number,
     targetKind: EntryKind,
     folderId?: number,
     exactFolder = false,
   ) {
-    if (targetKind === kind) {
-      selectEntry(id, folderId, exactFolder);
+    if (targetKind !== kind) {
+      window.location.assign(entryWorkspaceHref(targetKind, {
+        folderId,
+        entryId: id,
+      }));
       return;
     }
-    if (!confirmDiscard()) return;
-    window.location.assign(entryWorkspaceHref(targetKind, {
-      folderId,
-      entryId: id,
-    }));
+    const entry = entries.find((candidate) => candidate.id === id);
+    const targetFolderId = folderId ?? entry?.folderId ?? null;
+    openPage(entry
+      ? savedEntryPage(entry)
+      : {
+          key: `entry:${id}`,
+          kind: pageKind,
+          title: `${pageKind} ${id}`,
+          href: entryWorkspaceHref(kind, {
+            folderId: targetFolderId,
+            entryId: id,
+          }),
+        });
+    if (targetFolderId !== null) setSelectedFolderId(targetFolderId);
+    if (exactFolder && targetFolderId === null) {
+      void refreshEntries(null).catch((caught) => setError(getErrorMessage(caught)));
+    }
+    setStage("entry");
+  }
+
+  function openDraft(input: Omit<EntryDraftSession, "title"> & { title?: string }) {
+    const key = `entry-draft:${crypto.randomUUID()}`;
+    const draft: EntryDraftSession = {
+      ...input,
+      title: input.title?.trim() || `Untitled ${pageKind.toLowerCase()} entry`,
+    };
+    setDrafts((current) => ({ ...current, [key]: draft }));
+    openPage({
+      key,
+      kind: pageKind,
+      title: draft.title,
+      href: entryWorkspaceHref(kind, { folderId: draft.folderId }),
+      restorable: false,
+    });
+    setSelectedFolderId(draft.folderId);
+    setStage("entry");
+  }
+
+  function selectFolder(id: number | null) {
+    setSelectedFolderId(id);
+    showList(id);
   }
 
   async function handleCreateFolder(name: string, parentId: number | null) {
-    if (!confirmDiscard()) return;
-    const created = await createFolder({ name, parentId });
-    await refreshIndex(created.id);
-    setSelectedFolderId(created.id);
-    setActiveEntryId(null);
-    setDetail(null);
-    setBacklinks([]);
-    setImportDraft(null);
-    setDraftParentId(null);
-    setMode("view");
-    setDetailLoading(false);
-    setDetailRequestVersion(0);
-    setStage("entries");
-    replaceLocation({ folderId: created.id, entryId: null });
+    try {
+      const created = await createFolder({ name, parentId });
+      await refreshIndex(created.id);
+      showList(created.id);
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+    }
   }
 
   async function handleRenameFolder(id: number, name: string) {
-    await updateFolder(id, { name });
-    setFolders(await listFolders());
+    try {
+      await updateFolder(id, { name });
+      setFolders(await listFolders());
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+    }
   }
 
   async function handleMoveFolder(id: number, parentId: number | null) {
-    await updateFolder(id, { parentId });
-    setFolders(await listFolders());
+    try {
+      await updateFolder(id, { parentId });
+      setFolders(await listFolders());
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+    }
   }
 
   async function handleDeleteFolder(id: number) {
-    if (!confirmDiscard()) return;
-    await deleteFolder(id);
-    await refreshIndex(null);
-    setSelectedFolderId(null);
-    setActiveEntryId(null);
-    setDetail(null);
-    setBacklinks([]);
-    setImportDraft(null);
-    setMode("view");
-    setDetailLoading(false);
-    setDetailRequestVersion(0);
-    setStage("library");
-    replaceLocation({ folderId: null, entryId: null });
-  }
-
-  async function handleSaved(saved: EntryDetailDto) {
-    setDetail(saved);
-    setBacklinks([]);
-    setImportDraft(null);
-    setDraftParentId(null);
-    const selectionVersion = setActiveEntryId(saved.id);
-    setSelectedFolderId(saved.folderId);
-    setMode("view");
-    setStage("entry");
-    setDetailLoading(false);
-    setDetailRequestVersion(0);
-    setDirtyState(false);
-    replaceLocation({ folderId: saved.folderId, entryId: saved.id });
     try {
-      const [nextBacklinks] = await Promise.all([
-        listEntryBacklinks(saved.id),
-        refreshEntries(saved.folderId),
-      ]);
-      if (selectionVersionRef.current === selectionVersion) {
-        setBacklinks(nextBacklinks);
-      }
-    } catch (caught) {
-      setError(getErrorMessage(caught));
-    }
-  }
-
-  async function handleCreateWikilink(title: string, folderId: number) {
-    if (wikilinkCreatePendingRef.current) return;
-    if (!confirmDiscard()) return;
-
-    wikilinkCreatePendingRef.current = true;
-    saveActionRef.current = null;
-    if (!guardEntryPresentRef.current) {
-      guardedUrlRef.current = currentRelativeUrl();
-      window.history.pushState(guardedHistoryState(), "", guardedUrlRef.current);
-      guardEntryPresentRef.current = true;
-    }
-    setMode("view");
-    setDraftParentId(null);
-    setDirtyState(false);
-    setDetailError("");
-    setDetailLoading(true);
-    setError("");
-    try {
-      const saved = await createEntry({
-        folderId,
-        parentId: null,
-        kind,
-        title,
-        notesMd: "",
-        code: kind === "snippet" ? "" : null,
-        language: kind === "snippet" ? "text" : null,
-        filename: null,
-        tags: [],
-      });
-      await handleSaved(saved);
-    } catch (caught) {
-      setMode("view");
-      setDetailLoading(false);
-      setError(getErrorMessage(caught));
-    } finally {
-      wikilinkCreatePendingRef.current = false;
-    }
-  }
-
-  async function handleDeleted() {
-    setActiveEntryId(null);
-    setDetail(null);
-    setBacklinks([]);
-    setDraftParentId(null);
-    setMode("view");
-    setStage("entries");
-    setDetailLoading(false);
-    setDetailRequestVersion(0);
-    replaceLocation({ folderId: selectedFolderId, entryId: null });
-    try {
-      await refreshEntries(selectedFolderId);
+      await deleteFolder(id);
+      await refreshIndex(null);
+      showList(null);
     } catch (caught) {
       setError(getErrorMessage(caught));
     }
   }
 
   async function handleImportMarkdown(file: File) {
-    if (kind !== "knowledge" || selectedFolderId === null) return;
-    const requestVersion = importRequestVersionRef.current + 1;
-    importRequestVersionRef.current = requestVersion;
+    if (selectedFolderId === null) return;
     if (file.size > ENTRY_NOTES_MAX_BYTES) {
-      setError("Markdown files must not exceed 10 MiB.");
+      setError("Markdown files must not exceed 10 MB.");
       return;
     }
-    if (!confirmDiscard()) return;
-    const targetFolderId = selectedFolderId;
-
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
-      if (
-        !mountedRef.current ||
-        importRequestVersionRef.current !== requestVersion ||
-        selectedFolderIdRef.current !== targetFolderId
-      ) {
-        return;
-      }
-      const draft = parseMarkdownImport(file.name, bytes);
-      if (
-        !mountedRef.current ||
-        importRequestVersionRef.current !== requestVersion ||
-        selectedFolderIdRef.current !== targetFolderId
-      ) {
-        return;
-      }
-      setError("");
-      setSelectedFolderId(targetFolderId);
-      setActiveEntryId(null);
-      setDetail(null);
-      setBacklinks([]);
-      setImportDraft(draft);
-      setDraftParentId(null);
-      setDetailError("");
-      setDetailLoading(false);
-      setDetailRequestVersion(0);
-      setDraftVersion((version) => version + 1);
-      setMode("create");
-      setStage("entry");
-      replaceLocation({ folderId: targetFolderId, entryId: null });
+      const importDraft: MarkdownImportDraft = parseMarkdownImport(file.name, bytes);
+      openDraft({
+        kind,
+        folderId: selectedFolderId,
+        parentId: null,
+        importDraft,
+        title: importDraft.title,
+      });
     } catch (caught) {
-      if (
-        mountedRef.current &&
-        importRequestVersionRef.current === requestVersion &&
-        selectedFolderIdRef.current === targetFolderId
-      ) {
-        setError(getErrorMessage(caught));
-      }
+      setError(getErrorMessage(caught));
     }
-  }
-
-  function cancelEditing() {
-    if (!confirmDiscard()) return;
-    setImportDraft(null);
-    setMode("view");
-    if (!detail) setStage("entries");
-  }
-
-  function backToEntries() {
-    if (!confirmDiscard()) return;
-    setImportDraft(null);
-    setMode("view");
-    setStage("entries");
   }
 
   function beginCreateEntry(parentId: number | null) {
-    if (!confirmDiscard()) return;
-    invalidateImportRequest();
     const parent = parentId === null
       ? undefined
       : entries.find((entry) => entry.id === parentId);
@@ -716,22 +379,29 @@ export function EntriesWorkspace({
       folderId === null ||
       (parentId !== null && (!parent || parent.kind !== kind))
     ) return;
-    setSelectedFolderId(folderId);
-    setActiveEntryId(null);
-    setDraftParentId(parentId);
-    setDetail(null);
-    setBacklinks([]);
-    setImportDraft(null);
-    setDetailError("");
-    setDetailLoading(false);
-    setDetailRequestVersion(0);
-    setMode("create");
-    setStage("entry");
-    replaceLocation({ folderId, entryId: null });
+    openDraft({
+      kind,
+      folderId,
+      parentId,
+      importDraft: null,
+      title: parentId === null ? `New ${pageKind.toLowerCase()} entry` : "New child entry",
+    });
+  }
+
+  function openReferencePanel(panel: ReferencePanelKind) {
+    referenceTriggerRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    setActiveReferencePanel(panel);
+  }
+
+  function closeReferencePanel() {
+    setActiveReferencePanel(null);
+    window.requestAnimationFrame(() => referenceTriggerRef.current?.focus());
   }
 
   return (
-    <div className={`entries-workspace stage-${stage}${dirty ? " has-unsaved" : ""}`}>
+    <div className={`entries-workspace stage-${visibleStage}${hasUnsavedPages ? " has-unsaved" : ""}`}>
       {error ? (
         <div className="workspace-alert" role="alert">
           <span>{error}</span>
@@ -741,7 +411,7 @@ export function EntriesWorkspace({
 
       <FolderPanel
         folders={folders}
-        selectedId={selectedFolderId}
+        selectedId={visibleFolderId}
         busy={indexLoading && folders.length === 0}
         activeReferencePanel={activeReferencePanel}
         onOpenMarkdownReference={() => openReferencePanel("markdown")}
@@ -758,60 +428,57 @@ export function EntriesWorkspace({
         entries={entries}
         total={entryTotal}
         folders={folderMap}
-        selectedFolderId={selectedFolderId}
+        selectedFolderId={visibleFolderId}
         selectedEntryId={selectedEntryId}
         loading={indexLoading}
         loadingMore={entryPageLoading}
         referencePanelOpen={activeReferencePanel !== null}
-        onSelect={selectEntry}
+        onSelect={(id) => openEntry(id, kind)}
         onLoadMore={loadMoreEntries}
         onImport={kind === "knowledge" ? handleImportMarkdown : undefined}
         onCreate={() => beginCreateEntry(null)}
         onCreateChild={beginCreateEntry}
-        onBack={() => setStage("library")}
+        onBack={() => {
+          activatePage(null);
+          setStage("library");
+        }}
       />
 
-      {detailError ? (
-        <section className="detail-panel error-state" role="alert">
-          <button className="content-back" type="button" onClick={backToEntries}>← Entries</button>
-          <span aria-hidden="true">!</span>
-          <h2>Could not load this entry</h2>
-          <p>{detailError}</p>
-          <button
-            type="button"
-            onClick={() => {
-              setDetailError("");
-              setDetailLoading(true);
-              setDetailRequestVersion((version) => version + 1);
-            }}
-          >
-            Retry
-          </button>
-        </section>
-      ) : (
-        <EntryDetail
-          kind={kind}
-          detail={detail}
-          importDraft={importDraft}
-          draftKey={draftVersion}
-          mode={mode}
-          folderId={detail?.folderId ?? selectedFolderId}
-          parentId={mode === "create" ? draftParentId : detail?.parentId ?? null}
-          folders={folders}
-          entries={entries}
-          backlinks={backlinks}
-          loading={detailLoading}
-          onEdit={() => setMode("edit")}
-          onCancel={cancelEditing}
-          onSaved={handleSaved}
-          onDeleted={handleDeleted}
-          onNavigateEntry={navigateEntry}
-          onCreateWikilink={handleCreateWikilink}
-          onDirtyChange={setDirtyState}
-          onRegisterSave={registerSave}
-          onBack={backToEntries}
-        />
-      )}
+      <>
+        {pages
+          .filter((page) => page.kind === pageKind)
+          .map((page) => {
+            const entryId = savedEntryId(page.key);
+            const draft = drafts[page.key] ?? null;
+            if (entryId === null && draft === null) return null;
+            return (
+              <EntryPageSession
+                key={page.key}
+                pageKey={page.key}
+                entryId={entryId}
+                draft={draft}
+                kind={kind}
+                folders={folders}
+                entries={entries}
+                onOpenEntry={openEntry}
+                onRefreshIndex={refreshIndex}
+                onShowList={() => showList()}
+                onError={setError}
+              />
+            );
+          })}
+        {activePage === null ? (
+          <section className="detail-panel empty-state" aria-label="Entry details">
+            <button className="content-back" type="button" onClick={() => showList()}>
+              <span aria-hidden="true">←</span> Entries
+            </button>
+            <span className="empty-monogram" aria-hidden="true">N</span>
+            <h2>Keep several entries open</h2>
+            <p>Select an entry to open it in a persistent page tab.</p>
+          </section>
+        ) : null}
+      </>
+
       {activeReferencePanel === "markdown" ? (
         <MarkdownWritingGuidePanel onClose={closeReferencePanel} />
       ) : null}

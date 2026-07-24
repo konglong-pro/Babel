@@ -10,6 +10,7 @@ import {
   type ClipboardEvent,
   type DragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type InputHTMLAttributes,
   type ReactElement,
   type ReactNode,
@@ -827,9 +828,13 @@ function DetachedReaderWindowInstance({
     peekDetachedReaderHost(windowKey)
   );
   const [buttonPortalTarget, setButtonPortalTarget] = useState<HTMLElement | null>(null);
+  const [sourceCanPortal, setSourceCanPortal] = useState(
+    buttonPortalTargetId === undefined,
+  );
   const [portalKey] = useState(() =>
     `babel-reader-portal-${nextDetachedReaderPortalId++}`
   );
+  const fallbackButtonRef = useRef<HTMLButtonElement>(null);
   const hostRef = useRef<DetachedReaderHost | null>(host);
   const ownerRef = useRef(Symbol(windowKey));
 
@@ -842,6 +847,33 @@ function DetachedReaderWindowInstance({
       );
     });
     return () => window.cancelAnimationFrame(frame);
+  }, [buttonPortalTargetId]);
+
+  useEffect(() => {
+    if (buttonPortalTargetId === undefined) return;
+
+    let observer: MutationObserver | null = null;
+    const frame = window.requestAnimationFrame(() => {
+      const page = fallbackButtonRef.current?.closest<HTMLElement>("[data-page-key]") ?? null;
+      const update = () => {
+        setSourceCanPortal(
+          page === null ||
+            (!page.hidden && page.getAttribute("aria-hidden") !== "true"),
+        );
+      };
+      update();
+      if (page !== null) {
+        observer = new MutationObserver(update);
+        observer.observe(page, {
+          attributes: true,
+          attributeFilter: ["hidden", "aria-hidden"],
+        });
+      }
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer?.disconnect();
+    };
   }, [buttonPortalTargetId]);
 
   useEffect(() => {
@@ -941,9 +973,13 @@ function DetachedReaderWindowInstance({
       ? children({ document: host.root.ownerDocument, window: host.popup })
       : children;
 
-  function readerButton(className = buttonClassName) {
+  function readerButton(
+    className = buttonClassName,
+    ref?: RefObject<HTMLButtonElement | null>,
+  ) {
     return (
       <button
+        ref={ref}
         className={className}
         data-babel-command="read"
         type="button"
@@ -965,14 +1001,14 @@ function DetachedReaderWindowInstance({
     <>
       {buttonPortalTargetId === undefined
         ? readerButton()
-        : buttonPortalTarget === null
-          ? readerButton(fallbackButtonClassName)
-          : (
-              <>
-                {createPortal(readerButton(), buttonPortalTarget)}
-                {readerButton(fallbackButtonClassName)}
-              </>
-            )}
+        : (
+            <>
+              {buttonPortalTarget !== null && sourceCanPortal
+                ? createPortal(readerButton(), buttonPortalTarget)
+                : null}
+              {readerButton(fallbackButtonClassName, fallbackButtonRef)}
+            </>
+          )}
       {host === null ? null : createPortal(readerContent, host.root, portalKey)}
     </>
   );
@@ -1321,7 +1357,7 @@ export function OutlinePanel({
   const slugs = useMemo(() => outlineSlugs(outline), [outline]);
   if (outline.length === 0) return null;
 
-  function navigate(index: number) {
+  function navigate(index: number, event: ReactMouseEvent<HTMLButtonElement>) {
     const item = outline[index];
     if (item === undefined) return;
     if (mode === "edit") {
@@ -1341,8 +1377,13 @@ export function OutlinePanel({
     }
     const targetDocument = ownerDocument ?? textareaRef?.current?.ownerDocument ??
       (typeof document === "undefined" ? null : document);
-    targetDocument
-      ?.getElementById(`${headingIdPrefix}${slugs[index]}`)
+    const targetId = `${headingIdPrefix}${slugs[index]}`;
+    const page = event.currentTarget.closest<HTMLElement>("[data-page-key]");
+    const pageTarget = page === null
+      ? null
+      : Array.from(page.querySelectorAll<HTMLElement>("[id]"))
+          .find((element) => element.id === targetId) ?? null;
+    (pageTarget ?? targetDocument?.getElementById(targetId))
       ?.scrollIntoView({ block: "start" });
   }
 
@@ -1353,7 +1394,7 @@ export function OutlinePanel({
         <ol>
           {outline.map((item, index) => (
             <li key={`${item.offset}:${item.level}`} className={`outline-level-${item.level}`}>
-              <button type="button" onClick={() => navigate(index)}>
+              <button type="button" onClick={(event) => navigate(index, event)}>
                 {item.text || "Untitled heading"}
               </button>
             </li>

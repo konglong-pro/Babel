@@ -6,22 +6,27 @@ import {
   TypstReferencePanel,
   type ReferencePanelKind,
 } from "@babel-apps/markdown/reference";
+import {
+  usePageSessionHistoryGuard,
+  usePageSessions,
+} from "@babel-apps/platform/pages/react";
 
 import {
   BEFORE_NAVIGATE_EVENT,
   type BeforeNavigateDetail,
 } from "@/components/app-header";
 import { FolderPanel } from "@/components/folder-panel";
-import { NoteDetail, type NoteViewMode } from "@/components/note-detail";
+import {
+  NotePageSession,
+  type NoteDraftSession,
+  savedNotePage,
+} from "@/components/note-page-session";
 import { NoteList } from "@/components/note-list";
 import { TemplateEditor, TemplateList } from "@/components/template-manager";
 import {
-  createNote,
   createFolder,
   deleteFolder,
   getErrorMessage,
-  getNote,
-  listBacklinks,
   listFolders,
   listNotes,
   listNoteTemplates,
@@ -33,36 +38,12 @@ import {
 } from "@/lib/markdown-import";
 import { NOTE_CONTENT_MAX_BYTES } from "@/lib/note-limits";
 import type {
-  BacklinkDto,
   FolderDto,
-  NoteDetailDto,
   NoteSummaryDto,
   NoteTemplateDto,
 } from "@/lib/types";
 
 type ResponsiveStage = "library" | "notes" | "note";
-
-const HISTORY_GUARD_KEY = "__esperantoDirtyGuard";
-
-function currentRelativeUrl(): string {
-  return `${window.location.pathname}${window.location.search}${window.location.hash}`;
-}
-
-function guardedHistoryState(): Record<string, unknown> {
-  const current = window.history.state;
-  const state = current && typeof current === "object"
-    ? (current as Record<string, unknown>)
-    : {};
-  return { ...state, [HISTORY_GUARD_KEY]: true };
-}
-
-function isGuardedHistoryState(value: unknown): boolean {
-  return Boolean(
-    value &&
-    typeof value === "object" &&
-    (value as Record<string, unknown>)[HISTORY_GUARD_KEY],
-  );
-}
 
 interface NotesWorkspaceProps {
   initialFolderId?: number | null;
@@ -76,10 +57,9 @@ function subtreeIds(rootId: number, folders: readonly FolderDto[]): Set<number> 
     children.push(folder.id);
     grouped.set(folder.parentId, children);
   }
-
   const ids = new Set([rootId]);
   const stack = [rootId];
-  while (stack.length) {
+  while (stack.length > 0) {
     const current = stack.pop();
     if (current === undefined) continue;
     for (const childId of grouped.get(current) ?? []) {
@@ -100,131 +80,58 @@ function templateNameOrder(a: NoteTemplateDto, b: NoteTemplateDto): number {
   return a.name.localeCompare(b.name, "en-US", { sensitivity: "base" }) || a.id - b.id;
 }
 
+function savedNoteId(pageKey: string | null): number | null {
+  if (pageKey === null || !pageKey.startsWith("note:")) return null;
+  const id = Number(pageKey.slice("note:".length));
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
 export function NotesWorkspace({
   initialFolderId = null,
   initialNoteId = null,
 }: NotesWorkspaceProps) {
+  const {
+    pages,
+    activeKey,
+    activatePage,
+    closePage,
+    openPage,
+  } = usePageSessions();
   const [folders, setFolders] = useState<FolderDto[]>([]);
   const [notes, setNotes] = useState<NoteSummaryDto[]>([]);
   const [templates, setTemplates] = useState<NoteTemplateDto[]>([]);
-  const [managingTemplates, setManagingTemplates] = useState(false);
-  const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
-  const [creatingTemplate, setCreatingTemplate] = useState(false);
-  const [templateDraftVersion, setTemplateDraftVersion] = useState(0);
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(initialFolderId);
-  const [selectedNoteId, setSelectedNoteId] = useState<number | null>(initialNoteId);
-  const [detail, setDetail] = useState<NoteDetailDto | null>(null);
-  const [backlinks, setBacklinks] = useState<BacklinkDto[]>([]);
-  const [importDraft, setImportDraft] = useState<MarkdownImportDraft | null>(null);
-  const [draftParentId, setDraftParentId] = useState<number | null>(null);
-  const [draftVersion, setDraftVersion] = useState(0);
-  const [mode, setMode] = useState<NoteViewMode>("view");
   const [stage, setStage] = useState<ResponsiveStage>(
     initialNoteId !== null ? "note" : initialFolderId !== null ? "notes" : "library",
   );
   const [indexLoading, setIndexLoading] = useState(true);
-  const [detailLoading, setDetailLoading] = useState(initialNoteId !== null);
-  const [detailRequestVersion, setDetailRequestVersion] = useState(0);
   const [error, setError] = useState("");
-  const [detailError, setDetailError] = useState("");
-  const [dirty, setDirty] = useState(false);
-  const selectionVersionRef = useRef(0);
-  const dirtyRef = useRef(false);
-  const savingRef = useRef(false);
-  const mountedRef = useRef(false);
-  const selectedFolderIdRef = useRef(selectedFolderId);
-  const importRequestVersionRef = useRef(0);
-  const wikilinkCreateGenerationRef = useRef(0);
-  const wikilinkCreatePendingRef = useRef(false);
-  const saveActionRef = useRef<(() => void) | null>(null);
-  const guardedUrlRef = useRef("");
-  const guardEntryPresentRef = useRef(false);
-  const allowNextPopRef = useRef(false);
-  const allowUnloadRef = useRef(false);
-  const popFallbackTimerRef = useRef<number | null>(null);
-  const referenceTriggerRef = useRef<HTMLElement | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, NoteDraftSession>>({});
+  const [managingTemplates, setManagingTemplates] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
+  const [creatingTemplate, setCreatingTemplate] = useState(false);
+  const [templateDraftVersion, setTemplateDraftVersion] = useState(0);
+  const [templateDirty, setTemplateDirty] = useState(false);
+  const [templatePending, setTemplatePending] = useState(false);
   const [activeReferencePanel, setActiveReferencePanel] = useState<ReferencePanelKind | null>(null);
-
-  const openReferencePanel = useCallback((panel: ReferencePanelKind) => {
-    referenceTriggerRef.current = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null;
-    setActiveReferencePanel(panel);
-  }, []);
-
-  const closeReferencePanel = useCallback(() => {
-    setActiveReferencePanel(null);
-    window.requestAnimationFrame(() => referenceTriggerRef.current?.focus());
-  }, []);
-
-  const invalidateImportRequest = useCallback(() => {
-    importRequestVersionRef.current += 1;
-  }, []);
-
-  const invalidateWikilinkCreate = useCallback(() => {
-    wikilinkCreateGenerationRef.current += 1;
-  }, []);
-
-  const setSavingState = useCallback((saving: boolean) => {
-    savingRef.current = saving;
-    if (saving && !guardEntryPresentRef.current) {
-      guardedUrlRef.current = currentRelativeUrl();
-      window.history.pushState(
-        guardedHistoryState(),
-        "",
-        guardedUrlRef.current,
-      );
-      guardEntryPresentRef.current = true;
-    }
-  }, []);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      importRequestVersionRef.current += 1;
-      invalidateWikilinkCreate();
-      selectionVersionRef.current += 1;
-    };
-  }, [invalidateWikilinkCreate]);
-
-  useEffect(() => {
-    selectedFolderIdRef.current = selectedFolderId;
-  }, [selectedFolderId]);
+  const referenceTriggerRef = useRef<HTMLElement | null>(null);
+  const initialOpenedRef = useRef(false);
 
   const refreshIndex = useCallback(async () => {
-    const [nextFolders, nextNotes] = await Promise.all([listFolders(), listNotes()]);
+    const [nextFolders, nextNotes, nextTemplates] = await Promise.all([
+      listFolders(),
+      listNotes(),
+      listNoteTemplates(),
+    ]);
     setFolders(nextFolders);
     setNotes(nextNotes);
-    return { folders: nextFolders, notes: nextNotes };
+    setTemplates(nextTemplates.sort(templateNameOrder));
   }, []);
-
-  const setActiveNoteId = useCallback((id: number | null): number => {
-    invalidateWikilinkCreate();
-    selectionVersionRef.current += 1;
-    setSelectedNoteId(id);
-    return selectionVersionRef.current;
-  }, [invalidateWikilinkCreate]);
 
   useEffect(() => {
     let active = true;
-    Promise.all([listFolders(), listNotes(), listNoteTemplates()])
-      .then(([nextFolders, nextNotes, nextTemplates]) => {
-        if (!active) return;
-        setFolders(nextFolders);
-        setNotes(nextNotes);
-        setTemplates(nextTemplates);
-        if (
-          initialFolderId !== null &&
-          !nextFolders.some((folder) => folder.id === initialFolderId)
-        ) {
-          invalidateImportRequest();
-          invalidateWikilinkCreate();
-          selectedFolderIdRef.current = null;
-          setSelectedFolderId(null);
-          setStage(initialNoteId !== null ? "note" : "library");
-        }
-      })
+    void Promise.resolve()
+      .then(refreshIndex)
       .catch((caught) => {
         if (active) setError(getErrorMessage(caught));
       })
@@ -234,546 +141,295 @@ export function NotesWorkspace({
     return () => {
       active = false;
     };
-  }, [
-    initialFolderId,
-    initialNoteId,
-    invalidateImportRequest,
-    invalidateWikilinkCreate,
-  ]);
+  }, [refreshIndex]);
 
   useEffect(() => {
-    if (selectedNoteId === null) return;
-    if (detail?.id === selectedNoteId && detailRequestVersion === 0) return;
+    if (indexLoading || initialOpenedRef.current) return;
+    initialOpenedRef.current = true;
+    if (initialNoteId === null) return;
+    const note = notes.find((candidate) => candidate.id === initialNoteId);
+    openPage(note
+      ? savedNotePage(note)
+      : {
+          key: `note:${initialNoteId}`,
+          kind: "Note",
+          title: `Note ${initialNoteId}`,
+          href: `/notes${initialFolderId === null
+            ? `?note=${initialNoteId}`
+            : `?folder=${initialFolderId}&note=${initialNoteId}`}`,
+        });
+  }, [indexLoading, initialFolderId, initialNoteId, notes, openPage]);
 
-    let active = true;
-    Promise.all([getNote(selectedNoteId), listBacklinks(selectedNoteId)])
-      .then(([nextDetail, nextBacklinks]) => {
-        if (!active) return;
-        setDetail(nextDetail);
-        setBacklinks(nextBacklinks);
-        setDetailRequestVersion(0);
-      })
-      .catch((caught) => {
-        if (!active) return;
-        setDetail(null);
-        setBacklinks([]);
-        setDetailError(getErrorMessage(caught));
-      })
-      .finally(() => {
-        if (active) setDetailLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [detail?.id, detailRequestVersion, selectedNoteId]);
-
-  const setDirtyState = useCallback((nextDirty: boolean) => {
-    dirtyRef.current = nextDirty;
-    setDirty(nextDirty);
-
-    if (nextDirty && !guardEntryPresentRef.current) {
-      guardedUrlRef.current = currentRelativeUrl();
-      window.history.pushState(
-        guardedHistoryState(),
-        "",
-        guardedUrlRef.current,
-      );
-      guardEntryPresentRef.current = true;
+  const activePage = pages.find((page) => page.key === activeKey && page.kind === "Note") ?? null;
+  useEffect(() => {
+    if (activePage === null) return;
+    const url = new URL(activePage.href, window.location.origin);
+    const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (nextUrl !== currentUrl) {
+      window.history.replaceState(window.history.state, "", nextUrl);
     }
-  }, []);
+  }, [activePage]);
 
-  const registerSave = useCallback((action: (() => void) | null) => {
-    saveActionRef.current = action;
-  }, []);
-
-  const confirmDiscard = useCallback((): boolean => {
-    if (savingRef.current || wikilinkCreatePendingRef.current) {
-      window.alert("Please wait for the current save to finish.");
-      return false;
-    }
-    if (!dirtyRef.current) return true;
-    return window.confirm("Discard your unsaved changes?");
-  }, []);
-
-  const resetToLibraryRoot = useCallback(() => {
-    invalidateImportRequest();
-    selectedFolderIdRef.current = null;
-    setDirtyState(false);
-    setManagingTemplates(false);
-    setSelectedTemplateId(null);
-    setCreatingTemplate(false);
-    setSelectedFolderId(null);
-    setActiveNoteId(null);
-    setDetail(null);
-    setBacklinks([]);
-    setImportDraft(null);
-    setDraftParentId(null);
-    setDetailError("");
-    setDetailLoading(false);
-    setDetailRequestVersion(0);
-    setMode("view");
-    setStage("library");
-  }, [invalidateImportRequest, setActiveNoteId, setDirtyState]);
+  usePageSessionHistoryGuard({
+    dirty: templateDirty,
+    pending: templatePending,
+    onDiscard: () => {
+      setTemplateDirty(false);
+      setTemplatePending(false);
+    },
+  });
 
   useEffect(() => {
-    guardedUrlRef.current = currentRelativeUrl();
-    guardEntryPresentRef.current = isGuardedHistoryState(window.history.state);
-
-    function beforeUnload(event: BeforeUnloadEvent) {
-      if (
-        (!dirtyRef.current &&
-          !savingRef.current &&
-          !wikilinkCreatePendingRef.current) ||
-        allowUnloadRef.current
-      ) return;
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (!templateDirty && !templatePending) return;
       event.preventDefault();
       event.returnValue = true;
-    }
-
-    function beforeNavigate(event: Event) {
-      if (!confirmDiscard()) {
+    };
+    const beforeNavigate = (event: Event) => {
+      const dirtyPages = pages.filter((page) => page.dirty || page.pending);
+      if (
+        (templateDirty || templatePending || dirtyPages.length > 0) &&
+        !window.confirm("Discard your unsaved changes?")
+      ) {
         event.preventDefault();
         return;
       }
-
-      invalidateImportRequest();
-      invalidateWikilinkCreate();
+      for (const page of dirtyPages) closePage(page.key);
+      setTemplateDirty(false);
+      setTemplatePending(false);
       const navigationEvent = event as CustomEvent<BeforeNavigateDetail>;
-      if (navigationEvent.detail?.destination === "/notes") resetToLibraryRoot();
-    }
-
-    function popState(event: PopStateEvent) {
-      invalidateImportRequest();
-      if (allowNextPopRef.current) {
-        allowNextPopRef.current = false;
-        allowUnloadRef.current = false;
-        if (popFallbackTimerRef.current !== null) {
-          window.clearTimeout(popFallbackTimerRef.current);
-          popFallbackTimerRef.current = null;
-        }
-        return;
+      if (navigationEvent.detail?.destination === "/notes") {
+        activatePage(null);
+        setSelectedFolderId(null);
+        setStage("library");
       }
-
-      if (!guardEntryPresentRef.current) return;
-
-      // The first Back only leaves our same-URL sentinel. Keep Next from
-      // observing that intermediate entry while we decide whether to leave.
-      event.stopImmediatePropagation();
-
-      if (
-        (dirtyRef.current ||
-          savingRef.current ||
-          wikilinkCreatePendingRef.current) &&
-        !confirmDiscard()
-      ) {
-        window.history.pushState(
-          guardedHistoryState(),
-          "",
-          guardedUrlRef.current,
-        );
-        guardEntryPresentRef.current = true;
-        return;
-      }
-
-      guardEntryPresentRef.current = false;
-      allowNextPopRef.current = true;
-      allowUnloadRef.current = dirtyRef.current;
-      window.history.back();
-
-      // A sentinel can be the first usable entry in a fresh tab. If there is
-      // nowhere else to go, re-arm it so a later edit is still protected.
-      popFallbackTimerRef.current = window.setTimeout(() => {
-        if (!allowNextPopRef.current) return;
-        allowNextPopRef.current = false;
-        allowUnloadRef.current = false;
-        window.history.pushState(
-          guardedHistoryState(),
-          "",
-          guardedUrlRef.current,
-        );
-        guardEntryPresentRef.current = true;
-        popFallbackTimerRef.current = null;
-      }, 500);
-    }
-
+    };
     window.addEventListener("beforeunload", beforeUnload);
     window.addEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
-    window.addEventListener("popstate", popState, true);
     return () => {
       window.removeEventListener("beforeunload", beforeUnload);
       window.removeEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
-      window.removeEventListener("popstate", popState, true);
-      if (popFallbackTimerRef.current !== null) {
-        window.clearTimeout(popFallbackTimerRef.current);
-        popFallbackTimerRef.current = null;
-      }
     };
   }, [
-    confirmDiscard,
-    invalidateImportRequest,
-    invalidateWikilinkCreate,
-    resetToLibraryRoot,
+    activatePage,
+    closePage,
+    pages,
+    templateDirty,
+    templatePending,
   ]);
 
-  const folderMap = useMemo(() => new Map(folders.map((folder) => [folder.id, folder])), [folders]);
-  const selectedTemplate = useMemo(
-    () => templates.find((template) => template.id === selectedTemplateId) ?? null,
-    [selectedTemplateId, templates],
+  const folderMap = useMemo(
+    () => new Map(folders.map((folder) => [folder.id, folder])),
+    [folders],
   );
+  const activeFolderId = useMemo(() => {
+    if (activePage === null) return null;
+    const candidate = Number(
+      new URL(activePage.href, "http://babel.local").searchParams.get("folder"),
+    );
+    return Number.isInteger(candidate) && candidate > 0 ? candidate : null;
+  }, [activePage]);
+  const visibleFolderId = activeFolderId ?? selectedFolderId;
   const visibleNotes = useMemo(() => {
-    const scopedFolderIds = selectedFolderId === null ? null : subtreeIds(selectedFolderId, folders);
+    const scopedFolderIds = visibleFolderId === null
+      ? null
+      : subtreeIds(visibleFolderId, folders);
     const filtered = scopedFolderIds === null
       ? notes
       : notes.filter((note) => scopedFolderIds.has(note.folderId));
     return [...filtered].sort(newestFirst);
-  }, [folders, notes, selectedFolderId]);
+  }, [folders, notes, visibleFolderId]);
+  const selectedTemplate = useMemo(
+    () => templates.find((template) => template.id === selectedTemplateId) ?? null,
+    [selectedTemplateId, templates],
+  );
+  const selectedNoteId = savedNoteId(activeKey);
+  const hasUnsavedPages = pages.some((page) => page.dirty || page.pending);
+  const showingTemplates = managingTemplates && activePage === null;
+  const visibleStage: ResponsiveStage = activePage === null ? stage : "note";
 
-  function replaceLocation(folderId: number | null, noteId: number | null) {
-    const params = new URLSearchParams();
-    if (folderId !== null) params.set("folder", String(folderId));
-    if (noteId !== null) params.set("note", String(noteId));
-    const query = params.toString();
-    const nextUrl = query ? `/notes?${query}` : "/notes";
-    guardedUrlRef.current = nextUrl;
+  function showList(folderId = selectedFolderId) {
+    activatePage(null);
+    setSelectedFolderId(folderId);
+    setStage("notes");
+    const nextUrl = folderId === null ? "/notes" : `/notes?folder=${folderId}`;
     window.history.replaceState(window.history.state, "", nextUrl);
   }
 
-  function selectFolder(id: number | null) {
-    if (!confirmDiscard()) return;
-    setDirtyState(false);
-    setManagingTemplates(false);
-    setSelectedTemplateId(null);
-    setCreatingTemplate(false);
-    invalidateImportRequest();
-    selectedFolderIdRef.current = id;
-    setSelectedFolderId(id);
-    setActiveNoteId(null);
-    setDetail(null);
-    setBacklinks([]);
-    setImportDraft(null);
-    setDraftParentId(null);
-    setDetailError("");
-    setDetailLoading(false);
-    setDetailRequestVersion(0);
-    setMode("view");
-    setStage("notes");
-    replaceLocation(id, null);
+  function openNote(id: number, folderId?: number) {
+    const note = notes.find((candidate) => candidate.id === id);
+    const targetFolderId = folderId ?? note?.folderId ?? null;
+    openPage(note
+      ? savedNotePage(note)
+      : {
+          key: `note:${id}`,
+          kind: "Note",
+          title: `Note ${id}`,
+          href: `/notes${targetFolderId === null ? `?note=${id}` : `?folder=${targetFolderId}&note=${id}`}`,
+        });
+    if (targetFolderId !== null) setSelectedFolderId(targetFolderId);
+    setStage("note");
   }
 
-  function openNote(id: number, folderId?: number) {
-    if (!confirmDiscard()) return;
-    invalidateImportRequest();
-    const targetFolderId = folderId ?? notes.find((note) => note.id === id)?.folderId ?? null;
-    selectedFolderIdRef.current = targetFolderId;
-    setSelectedFolderId(targetFolderId);
-    setActiveNoteId(id);
-    setDetail(null);
-    setBacklinks([]);
-    setImportDraft(null);
-    setDraftParentId(null);
-    setDetailError("");
-    setDetailLoading(true);
-    setDetailRequestVersion(0);
-    setMode("view");
+  function openDraft(
+    input: Omit<NoteDraftSession, "title"> & { title?: string },
+  ) {
+    const key = `note-draft:${crypto.randomUUID()}`;
+    const draft: NoteDraftSession = {
+      ...input,
+      title: input.title?.trim() || "Untitled note",
+    };
+    setDrafts((current) => ({ ...current, [key]: draft }));
+    openPage({
+      key,
+      kind: "Note",
+      title: draft.title,
+      href: `/notes?folder=${draft.folderId}`,
+      restorable: false,
+    });
+    setSelectedFolderId(draft.folderId);
     setStage("note");
-    replaceLocation(targetFolderId, id);
+  }
+
+  function selectFolder(id: number | null) {
+    setManagingTemplates(false);
+    showList(id);
   }
 
   async function handleCreateFolder(name: string, parentId: number | null) {
-    if (!confirmDiscard()) return;
-    invalidateImportRequest();
-    invalidateWikilinkCreate();
-    const created = await createFolder({ name, parentId });
-    await refreshIndex();
-    selectedFolderIdRef.current = created.id;
-    setSelectedFolderId(created.id);
-    setActiveNoteId(null);
-    setDetail(null);
-    setBacklinks([]);
-    setImportDraft(null);
-    setDraftParentId(null);
-    setMode("view");
-    setDetailLoading(false);
-    setDetailRequestVersion(0);
-    setStage("notes");
-    replaceLocation(created.id, null);
-  }
-
-  async function handleRenameFolder(id: number, name: string) {
-    await updateFolder(id, { name });
-    await refreshIndex();
-  }
-
-  async function handleMoveFolder(id: number, parentId: number | null) {
-    await updateFolder(id, { parentId });
-    await refreshIndex();
-  }
-
-  async function handleDeleteFolder(id: number) {
-    if (!confirmDiscard()) return;
-    invalidateImportRequest();
-    invalidateWikilinkCreate();
-    await deleteFolder(id);
-    await refreshIndex();
-    selectedFolderIdRef.current = null;
-    setSelectedFolderId(null);
-    setActiveNoteId(null);
-    setDetail(null);
-    setBacklinks([]);
-    setImportDraft(null);
-    setDraftParentId(null);
-    setMode("view");
-    setDetailLoading(false);
-    setDetailRequestVersion(0);
-    setStage("library");
-    replaceLocation(null, null);
-  }
-
-  async function handleSaved(saved: NoteDetailDto) {
-    invalidateImportRequest();
-    const folderChanged = detail !== null && saved.folderId !== detail.folderId;
-    const nextFolderId = detail === null || folderChanged ? saved.folderId : selectedFolderId;
-    selectedFolderIdRef.current = nextFolderId;
-    setDetail(saved);
-    setBacklinks([]);
-    setImportDraft(null);
-    setDraftParentId(null);
-    const selectionVersion = setActiveNoteId(saved.id);
-    setSelectedFolderId(nextFolderId);
-    setMode("view");
-    setStage("note");
-    setDetailLoading(false);
-    setDetailRequestVersion(0);
-    setDirtyState(false);
-    replaceLocation(nextFolderId, saved.id);
     try {
-      const [nextBacklinks] = await Promise.all([
-        listBacklinks(saved.id),
-        refreshIndex(),
-      ]);
-      if (selectionVersionRef.current === selectionVersion) {
-        setBacklinks(nextBacklinks);
-      }
+      const created = await createFolder({ name, parentId });
+      await refreshIndex();
+      showList(created.id);
     } catch (caught) {
       setError(getErrorMessage(caught));
     }
   }
 
-  async function handleCreateWikilink(title: string, folderId: number) {
-    if (wikilinkCreatePendingRef.current || !confirmDiscard()) return;
-    wikilinkCreatePendingRef.current = true;
-    invalidateImportRequest();
-    const requestGeneration = wikilinkCreateGenerationRef.current + 1;
-    wikilinkCreateGenerationRef.current = requestGeneration;
-    const startingSelectionVersion = selectionVersionRef.current;
-    setSavingState(true);
-    setError("");
+  async function handleRenameFolder(id: number, name: string) {
     try {
-      const saved = await createNote({
-        folderId,
-        parentId: null,
-        title,
-        contentMd: "",
-        tags: [],
-      });
-      if (
-        !mountedRef.current ||
-        requestGeneration !== wikilinkCreateGenerationRef.current ||
-        startingSelectionVersion !== selectionVersionRef.current
-      ) {
-        return;
-      }
-      await handleSaved(saved);
-    } catch (caught) {
-      if (
-        mountedRef.current &&
-        requestGeneration === wikilinkCreateGenerationRef.current &&
-        startingSelectionVersion === selectionVersionRef.current
-      ) {
-        setError(getErrorMessage(caught));
-      }
-    } finally {
-      wikilinkCreatePendingRef.current = false;
-      setSavingState(false);
-    }
-  }
-
-  async function handleDeleted() {
-    invalidateImportRequest();
-    setActiveNoteId(null);
-    setDetail(null);
-    setBacklinks([]);
-    setImportDraft(null);
-    setMode("view");
-    setStage("notes");
-    setDetailLoading(false);
-    setDetailRequestVersion(0);
-    replaceLocation(selectedFolderId, null);
-    try {
+      await updateFolder(id, { name });
       await refreshIndex();
     } catch (caught) {
       setError(getErrorMessage(caught));
     }
   }
 
-  function cancelEditing() {
-    if (!confirmDiscard()) return;
-    invalidateImportRequest();
-    invalidateWikilinkCreate();
-    setImportDraft(null);
-    setMode("view");
-    if (!detail) setStage("notes");
+  async function handleMoveFolder(id: number, parentId: number | null) {
+    try {
+      await updateFolder(id, { parentId });
+      await refreshIndex();
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+    }
   }
 
-  function backToNotes() {
-    if (!confirmDiscard()) return;
-    invalidateImportRequest();
-    invalidateWikilinkCreate();
-    setImportDraft(null);
-    setMode("view");
-    setStage("notes");
+  async function handleDeleteFolder(id: number) {
+    try {
+      await deleteFolder(id);
+      await refreshIndex();
+      showList(null);
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+    }
   }
 
   async function handleImportMarkdown(file: File) {
     if (selectedFolderId === null) return;
-    const requestVersion = importRequestVersionRef.current + 1;
-    importRequestVersionRef.current = requestVersion;
-    if (savingRef.current || wikilinkCreatePendingRef.current) {
-      confirmDiscard();
-      return;
-    }
     if (file.size > NOTE_CONTENT_MAX_BYTES) {
       setError("Markdown files must not exceed 10 MB.");
       return;
     }
-    if (!confirmDiscard()) return;
-    const targetFolderId = selectedFolderId;
-
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
-      if (
-        !mountedRef.current ||
-        importRequestVersionRef.current !== requestVersion ||
-        selectedFolderIdRef.current !== targetFolderId
-      ) {
-        return;
-      }
-      const draft = parseMarkdownImport(file.name, bytes);
-      if (
-        !mountedRef.current ||
-        importRequestVersionRef.current !== requestVersion ||
-        selectedFolderIdRef.current !== targetFolderId
-      ) {
-        return;
-      }
-      setError("");
-      setSelectedFolderId(targetFolderId);
-      setActiveNoteId(null);
-      setDetail(null);
-      setBacklinks([]);
-      setImportDraft(draft);
-      setDraftParentId(null);
-      setDetailError("");
-      setDetailLoading(false);
-      setDetailRequestVersion(0);
-      setDraftVersion((version) => version + 1);
-      setMode("create");
-      setStage("note");
-      replaceLocation(targetFolderId, null);
+      const importDraft: MarkdownImportDraft = parseMarkdownImport(file.name, bytes);
+      openDraft({
+        folderId: selectedFolderId,
+        parentId: null,
+        importDraft,
+        title: importDraft.title,
+      });
     } catch (caught) {
-      if (
-        mountedRef.current &&
-        importRequestVersionRef.current === requestVersion &&
-        selectedFolderIdRef.current === targetFolderId
-      ) {
-        setError(getErrorMessage(caught));
-      }
+      setError(getErrorMessage(caught));
     }
   }
 
-  function backToLibrary() {
-    if (!confirmDiscard()) return;
-    invalidateImportRequest();
-    invalidateWikilinkCreate();
-    setStage("library");
+  function confirmTemplateDiscard(): boolean {
+    return !templateDirty && !templatePending
+      ? true
+      : window.confirm("Discard your unsaved template changes?");
   }
 
   function beginManagingTemplates() {
-    if (!confirmDiscard()) return;
-    invalidateImportRequest();
-    invalidateWikilinkCreate();
-    setDirtyState(false);
     setActiveReferencePanel(null);
-    setImportDraft(null);
-    setDraftParentId(null);
-    setMode("view");
+    activatePage(null);
     setManagingTemplates(true);
     setSelectedTemplateId(null);
     setCreatingTemplate(false);
+    setTemplateDirty(false);
+    setTemplatePending(false);
     setTemplateDraftVersion((version) => version + 1);
     setStage("notes");
   }
 
   function closeTemplateManager(nextStage: ResponsiveStage = "notes") {
-    if (!confirmDiscard()) return;
-    setDirtyState(false);
+    if (!confirmTemplateDiscard()) return;
     setManagingTemplates(false);
     setSelectedTemplateId(null);
     setCreatingTemplate(false);
+    setTemplateDirty(false);
+    setTemplatePending(false);
     setTemplateDraftVersion((version) => version + 1);
     setStage(nextStage);
   }
 
   function selectManagedTemplate(id: number) {
-    if (!confirmDiscard()) return;
-    setDirtyState(false);
+    if (!confirmTemplateDiscard()) return;
     setSelectedTemplateId(id);
     setCreatingTemplate(false);
+    setTemplateDirty(false);
+    setTemplatePending(false);
     setTemplateDraftVersion((version) => version + 1);
     setStage("note");
   }
 
   function beginTemplateCreation() {
-    if (!confirmDiscard()) return;
-    setDirtyState(false);
+    if (!confirmTemplateDiscard()) return;
     setSelectedTemplateId(null);
     setCreatingTemplate(true);
+    setTemplateDirty(false);
+    setTemplatePending(false);
     setTemplateDraftVersion((version) => version + 1);
     setStage("note");
   }
 
   function cancelTemplateEditing() {
-    if (!confirmDiscard()) return;
-    setDirtyState(false);
+    if (!confirmTemplateDiscard()) return;
     setSelectedTemplateId(null);
     setCreatingTemplate(false);
+    setTemplateDirty(false);
+    setTemplatePending(false);
     setTemplateDraftVersion((version) => version + 1);
     setStage("notes");
   }
 
-  function handleTemplateSaved(saved: NoteTemplateDto) {
-    setDirtyState(false);
-    setTemplates((current) => [
-      ...current.filter((template) => template.id !== saved.id),
-      saved,
-    ].sort(templateNameOrder));
-    setSelectedTemplateId(saved.id);
-    setCreatingTemplate(false);
-    setTemplateDraftVersion((version) => version + 1);
-    setStage("note");
+  function openReferencePanel(panel: ReferencePanelKind) {
+    referenceTriggerRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    setActiveReferencePanel(panel);
   }
 
-  function handleTemplateDeleted(id: number) {
-    setDirtyState(false);
-    setTemplates((current) => current.filter((template) => template.id !== id));
-    setSelectedTemplateId(null);
-    setCreatingTemplate(false);
-    setTemplateDraftVersion((version) => version + 1);
-    setStage("notes");
+  function closeReferencePanel() {
+    setActiveReferencePanel(null);
+    window.requestAnimationFrame(() => referenceTriggerRef.current?.focus());
   }
 
   return (
-    <div className={`notes-workspace stage-${stage}${dirty ? " has-unsaved" : ""}${managingTemplates ? " managing-templates" : ""}`}>
+    <div
+      className={`notes-workspace stage-${visibleStage}${hasUnsavedPages || templateDirty ? " has-unsaved" : ""}${showingTemplates ? " managing-templates" : ""}`}
+    >
       {error ? (
         <div className="workspace-alert" role="alert">
           <span>{error}</span>
@@ -783,7 +439,7 @@ export function NotesWorkspace({
 
       <FolderPanel
         folders={folders}
-        selectedId={selectedFolderId}
+        selectedId={visibleFolderId}
         busy={indexLoading}
         activeReferencePanel={activeReferencePanel}
         onOpenMarkdownReference={() => openReferencePanel("markdown")}
@@ -794,7 +450,8 @@ export function NotesWorkspace({
         onMove={handleMoveFolder}
         onDelete={handleDeleteFolder}
       />
-      {managingTemplates ? (
+
+      {showingTemplates ? (
         <TemplateList
           templates={templates}
           selectedId={selectedTemplateId}
@@ -807,121 +464,105 @@ export function NotesWorkspace({
           onBack={() => closeTemplateManager("library")}
         />
       ) : (
-      <NoteList
-        notes={visibleNotes}
-        folders={folderMap}
-        selectedFolderId={selectedFolderId}
-        selectedNoteId={selectedNoteId}
-        loading={indexLoading}
-        referencePanelOpen={activeReferencePanel !== null}
-        onSelect={openNote}
-        onImport={handleImportMarkdown}
-        onManageTemplates={beginManagingTemplates}
-        onCreate={(parentId) => {
-          if ((selectedFolderId === null && parentId === null) || !confirmDiscard()) return;
-          const targetFolderId = parentId === null
-            ? selectedFolderId!
-            : notes.find((note) => note.id === parentId)?.folderId;
-          if (targetFolderId === undefined) return;
-          invalidateImportRequest();
-          selectedFolderIdRef.current = targetFolderId;
-          setSelectedFolderId(targetFolderId);
-          setActiveNoteId(null);
-          setDetail(null);
-          setBacklinks([]);
-          setImportDraft(null);
-          setDraftParentId(parentId);
-          setDetailError("");
-          setDetailLoading(false);
-          setDetailRequestVersion(0);
-          setDraftVersion((version) => version + 1);
-          setMode("create");
-          setStage("note");
-          replaceLocation(targetFolderId, null);
-        }}
-        onBack={backToLibrary}
-      />
+        <NoteList
+          notes={visibleNotes}
+          folders={folderMap}
+          selectedFolderId={visibleFolderId}
+          selectedNoteId={selectedNoteId}
+          loading={indexLoading}
+          referencePanelOpen={activeReferencePanel !== null}
+          onSelect={openNote}
+          onImport={handleImportMarkdown}
+          onManageTemplates={beginManagingTemplates}
+          onCreate={(parentId) => {
+            const targetFolderId = parentId === null
+              ? selectedFolderId
+              : notes.find((note) => note.id === parentId)?.folderId ?? null;
+            if (targetFolderId === null) return;
+            openDraft({
+              folderId: targetFolderId,
+              parentId,
+              importDraft: null,
+              title: parentId === null ? "New note" : "New subnote",
+            });
+          }}
+          onBack={() => {
+            activatePage(null);
+            setStage("library");
+          }}
+        />
       )}
 
-      {managingTemplates ? (
+      {showingTemplates ? (
         <TemplateEditor
           key={`template-${templateDraftVersion}-${selectedTemplateId ?? "new"}-${creatingTemplate}`}
           template={selectedTemplate}
           creating={creatingTemplate}
-          onSaved={handleTemplateSaved}
-          onDeleted={handleTemplateDeleted}
+          onSaved={(saved) => {
+            setTemplateDirty(false);
+            setTemplatePending(false);
+            setTemplates((current) => [
+              ...current.filter((template) => template.id !== saved.id),
+              saved,
+            ].sort(templateNameOrder));
+            setSelectedTemplateId(saved.id);
+            setCreatingTemplate(false);
+            setTemplateDraftVersion((version) => version + 1);
+            setStage("note");
+          }}
+          onDeleted={(id) => {
+            setTemplateDirty(false);
+            setTemplatePending(false);
+            setTemplates((current) => current.filter((template) => template.id !== id));
+            setSelectedTemplateId(null);
+            setCreatingTemplate(false);
+            setTemplateDraftVersion((version) => version + 1);
+            setStage("notes");
+          }}
           onCancel={cancelTemplateEditing}
-          onDirtyChange={setDirtyState}
-          onPendingChange={setSavingState}
-          onRegisterSave={registerSave}
+          onDirtyChange={setTemplateDirty}
+          onPendingChange={setTemplatePending}
+          onRegisterSave={() => undefined}
           onBack={cancelTemplateEditing}
         />
-      ) : detailError ? (
-        <section className="detail-panel error-state" role="alert">
-          <button className="content-back" type="button" onClick={backToNotes}>← Notes</button>
-          <span aria-hidden="true">!</span>
-          <h2>Could not load this note</h2>
-          <p>{detailError}</p>
-          <button
-            type="button"
-            onClick={() => {
-              setDetailError("");
-              setDetailLoading(true);
-              setDetailRequestVersion((version) => version + 1);
-            }}
-          >
-            Retry
-          </button>
-        </section>
       ) : (
-        <NoteDetail
-          detail={detail}
-          importDraft={importDraft}
-          draftKey={draftVersion}
-          mode={mode}
-          folderId={detail?.folderId ?? selectedFolderId}
-          parentId={mode === "create" ? draftParentId : detail?.parentId ?? null}
-          folders={folders}
-          notes={notes}
-          templates={templates}
-          backlinks={backlinks}
-          loading={detailLoading}
-          onEdit={() => {
-            if (!confirmDiscard()) return;
-            invalidateImportRequest();
-            invalidateWikilinkCreate();
-            setImportDraft(null);
-            setMode("edit");
-          }}
-          onCreateSubnote={() => {
-            if (!detail || !confirmDiscard()) return;
-            invalidateImportRequest();
-            setSelectedFolderId(detail.folderId);
-            selectedFolderIdRef.current = detail.folderId;
-            setActiveNoteId(null);
-            setDetail(null);
-            setBacklinks([]);
-            setImportDraft(null);
-            setDraftParentId(detail.id);
-            setDetailError("");
-            setDetailLoading(false);
-            setDetailRequestVersion(0);
-            setDraftVersion((version) => version + 1);
-            setMode("create");
-            setStage("note");
-            replaceLocation(detail.folderId, null);
-          }}
-          onCancel={cancelEditing}
-          onSaved={handleSaved}
-          onDeleted={handleDeleted}
-          onNavigateNote={openNote}
-          onCreateWikilink={handleCreateWikilink}
-          onDirtyChange={setDirtyState}
-          onPendingChange={setSavingState}
-          onRegisterSave={registerSave}
-          onBack={backToNotes}
-        />
+        <>
+          {pages
+            .filter((page) => page.kind === "Note")
+            .map((page) => {
+              const noteId = savedNoteId(page.key);
+              const draft = drafts[page.key] ?? null;
+              if (noteId === null && draft === null) return null;
+              return (
+                <NotePageSession
+                  key={page.key}
+                  pageKey={page.key}
+                  noteId={noteId}
+                  draft={draft}
+                  folders={folders}
+                  notes={notes}
+                  templates={templates}
+                  onOpenNote={openNote}
+                  onOpenDraft={openDraft}
+                  onRefreshIndex={refreshIndex}
+                  onShowList={() => showList()}
+                  onError={setError}
+                />
+              );
+            })}
+          {activePage === null ? (
+            <section className="detail-panel empty-state" aria-label="Note details">
+              <button className="content-back" type="button" onClick={() => showList()}>
+                <span aria-hidden="true">←</span> Notes
+              </button>
+              <span className="empty-monogram" aria-hidden="true">E</span>
+              <h2>Open more than one thought</h2>
+              <p>Select a note to open it in a persistent page tab.</p>
+            </section>
+          ) : null}
+        </>
       )}
+
       {activeReferencePanel === "markdown" ? (
         <MarkdownWritingGuidePanel onClose={closeReferencePanel} />
       ) : null}

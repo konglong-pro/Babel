@@ -10,7 +10,7 @@ is never tracked by the public repository.
 ```text
 apps/             registered application workspaces
 packages/config/  shared TypeScript and ESLint baselines
-packages/platform/ shared HTTP and SQLite infrastructure for mirror apps
+packages/platform/ shared page-session, shortcut, HTTP, and SQLite infrastructure
 templates/        source templates for new application workspaces
 launcher/         registry-driven Windows launcher
 scripts/          scaffolding, registry validation, and private-data backup
@@ -42,6 +42,19 @@ npm.cmd run dev -w @babel-apps/<id>
 
 Existing applications also expose root shortcuts such as
 `npm.cmd run dev:retex`.
+
+## Open pages
+
+Each notebook keeps document pages in an app-level tab strip. Opening another
+note, entry, exercise, reflection, or canvas preserves the mounted read/edit
+state of the pages already open in that workspace. Selecting the same saved
+document focuses its existing tab; new unsaved drafts receive temporary,
+non-restorable identities until their first save.
+
+Tabs can be reordered by dragging. Closing a dirty or saving page offers Save,
+Discard, and Cancel, and clean saved tabs are restored for the browser session.
+The page-session substrate lives in `packages/platform/`; each application owns
+its document loading, editor state, save behavior, routes, and conflict rules.
 
 ## Add a mirror application
 

@@ -9,7 +9,7 @@ const editorTargets = [
   ["ReTex Knowledge", "apps/retex/src/components/knowledge-detail.tsx"],
   ["ReTex Exercise", "apps/retex/src/components/exercise-detail.tsx"],
   ["Vali Notes", "apps/vali/src/components/note-detail.tsx"],
-  ["Vali Reflection", "apps/vali/src/components/reflection-workspace.tsx"],
+  ["Vali Reflection", "apps/vali/src/components/reflection-page-session.tsx"],
   ["Neum", "apps/neum/src/components/entry-detail.tsx"],
   ["Esperanto", "apps/esperanto/src/components/note-detail.tsx"],
   ["Herodotus", "apps/herodotus/src/components/note-detail.tsx"],

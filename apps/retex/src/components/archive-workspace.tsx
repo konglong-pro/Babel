@@ -1,33 +1,33 @@
 "use client";
 
-import {
-  type FormEvent,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   MarkdownWritingGuidePanel,
   TypstReferencePanel,
   type ReferencePanelKind,
 } from "@babel-apps/markdown/reference";
+import {
+  usePageSessionHistoryGuard,
+  usePageSessions,
+} from "@babel-apps/platform/pages/react";
 
-import { ExerciseDetail } from "@/components/exercise-detail";
+import {
+  ArchivePageSession,
+  type ArchiveDraftSession,
+  archivePageKind,
+  savedArchivePage,
+} from "@/components/archive-page-session";
+import {
+  BEFORE_NAVIGATE_EVENT,
+  type BeforeNavigateDetail,
+} from "@/components/app-header";
 import { FolderPanel } from "@/components/folder-panel";
 import { ItemList } from "@/components/item-list";
-import { KnowledgeDetail } from "@/components/knowledge-detail";
-import { useDirtyNavigationGuard } from "@/components/use-dirty-navigation-guard";
 import {
   createFolder,
   createKnowledge,
   deleteFolder,
   getErrorMessage,
-  getExercise,
-  getExerciseBacklinks,
-  getKnowledge,
-  getKnowledgeBacklinks,
   listExercises,
   listFolders,
   listKnowledge,
@@ -39,19 +39,14 @@ import {
 } from "@/lib/markdown-import";
 import { NOTE_CONTENT_MAX_BYTES } from "@/lib/note-limits";
 import type {
-  BacklinksDto,
-  ExerciseDetailDto,
   ExerciseSummaryDto,
   FolderDto,
   FolderType,
-  KnowledgeDetailDto,
   KnowledgeSummaryDto,
   LinkEntityKind,
 } from "@/lib/types";
 
 type ArchiveSummary = KnowledgeSummaryDto | ExerciseSummaryDto;
-type ArchiveDetail = KnowledgeDetailDto | ExerciseDetailDto;
-type ViewMode = "view" | "edit" | "create";
 
 interface ArchiveWorkspaceProps {
   type: FolderType;
@@ -63,8 +58,22 @@ interface WikilinkCreationRequest {
   title: string;
 }
 
-function emptyBacklinks(): BacklinksDto {
-  return { knowledge: [], exercises: [] };
+function savedItemId(pageKey: string | null, type: FolderType): number | null {
+  if (pageKey === null || !pageKey.startsWith(`${type}:`)) return null;
+  const id = Number(pageKey.slice(type.length + 1));
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
+function entityLocation(
+  kind: LinkEntityKind,
+  id?: number | null,
+  folderId?: number | null,
+): string {
+  const params = new URLSearchParams();
+  if (folderId !== null && folderId !== undefined) params.set("folder", String(folderId));
+  if (id !== null && id !== undefined) params.set("item", String(id));
+  const query = params.toString();
+  return `/${kind}${query ? `?${query}` : ""}`;
 }
 
 export function ArchiveWorkspace({
@@ -72,70 +81,22 @@ export function ArchiveWorkspace({
   initialFolderId = null,
   initialItemId = null,
 }: ArchiveWorkspaceProps) {
+  const { pages, activeKey, activatePage, closePage, openPage } = usePageSessions();
+  const pageKind = archivePageKind(type);
   const [folders, setFolders] = useState<FolderDto[]>([]);
   const [items, setItems] = useState<ArchiveSummary[]>([]);
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(initialFolderId);
-  const [selectedItemId, setSelectedItemId] = useState<number | null>(initialItemId);
-  const [detail, setDetail] = useState<ArchiveDetail | null>(null);
-  const [backlinks, setBacklinks] = useState<BacklinksDto>(emptyBacklinks);
-  const [importDraft, setImportDraft] = useState<MarkdownImportDraft | null>(null);
-  const [draftVersion, setDraftVersion] = useState(0);
-  const [mode, setMode] = useState<ViewMode>("view");
-  const [createParentId, setCreateParentId] = useState<number | null>(null);
   const [indexLoading, setIndexLoading] = useState(true);
-  const [detailRequestVersion, setDetailRequestVersion] = useState(0);
   const [error, setError] = useState("");
   const [navigationError, setNavigationError] = useState("");
+  const [drafts, setDrafts] = useState<Record<string, ArchiveDraftSession>>({});
   const [wikilinkCreation, setWikilinkCreation] = useState<WikilinkCreationRequest | null>(null);
   const [knowledgeFolders, setKnowledgeFolders] = useState<FolderDto[]>([]);
   const [knowledgeFoldersLoading, setKnowledgeFoldersLoading] = useState(false);
   const [knowledgeFoldersError, setKnowledgeFoldersError] = useState("");
   const [activeReferencePanel, setActiveReferencePanel] = useState<ReferencePanelKind | null>(null);
-  const selectionGenerationRef = useRef(0);
-  const navigationGenerationRef = useRef(0);
-  const folderRequestGenerationRef = useRef(0);
-  const wikilinkCreateGenerationRef = useRef(0);
-  const wikilinkCreatePendingRef = useRef(false);
-  const importRequestGenerationRef = useRef(0);
   const referenceTriggerRef = useRef<HTMLElement | null>(null);
-  const {
-    dirty,
-    setDirty,
-    registerSave,
-    confirmDiscard,
-    discardAndRun,
-    replaceLocation: replaceGuardedLocation,
-  } = useDirtyNavigationGuard();
-
-  const basePath = type === "knowledge" ? "/knowledge" : "/exercise";
-  const openReferencePanel = useCallback((panel: ReferencePanelKind) => {
-    referenceTriggerRef.current = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null;
-    setActiveReferencePanel(panel);
-  }, []);
-  const closeReferencePanel = useCallback(() => {
-    setActiveReferencePanel(null);
-    window.requestAnimationFrame(() => referenceTriggerRef.current?.focus());
-  }, []);
-  const beginNavigation = useCallback(() => {
-    setNavigationError("");
-    setImportDraft(null);
-    navigationGenerationRef.current += 1;
-    wikilinkCreateGenerationRef.current += 1;
-    importRequestGenerationRef.current += 1;
-    return navigationGenerationRef.current;
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      navigationGenerationRef.current += 1;
-      selectionGenerationRef.current += 1;
-      folderRequestGenerationRef.current += 1;
-      wikilinkCreateGenerationRef.current += 1;
-      importRequestGenerationRef.current += 1;
-    };
-  }, []);
+  const initialOpenedRef = useRef(false);
 
   const loadIndex = useCallback(async () => {
     const [nextFolders, nextItems] = await Promise.all([
@@ -148,15 +109,8 @@ export function ArchiveWorkspace({
 
   useEffect(() => {
     let active = true;
-    Promise.all([
-      listFolders(type),
-      type === "knowledge" ? listKnowledge() : listExercises(),
-    ])
-      .then(([nextFolders, nextItems]) => {
-        if (!active) return;
-        setFolders(nextFolders);
-        setItems(nextItems);
-      })
+    void Promise.resolve()
+      .then(loadIndex)
       .catch((caught) => {
         if (active) setError(getErrorMessage(caught));
       })
@@ -166,325 +120,199 @@ export function ArchiveWorkspace({
     return () => {
       active = false;
     };
-  }, [type]);
+  }, [loadIndex]);
 
   useEffect(() => {
-    if (selectedItemId === null) return;
+    if (indexLoading || initialOpenedRef.current) return;
+    initialOpenedRef.current = true;
+    if (initialItemId === null) return;
+    const item = items.find((candidate) => candidate.id === initialItemId);
+    openPage(item
+      ? savedArchivePage(type, item)
+      : {
+          key: `${type}:${initialItemId}`,
+          kind: pageKind,
+          title: `${pageKind} ${initialItemId}`,
+          href: entityLocation(type, initialItemId, initialFolderId),
+        });
+  }, [
+    indexLoading,
+    initialFolderId,
+    initialItemId,
+    items,
+    openPage,
+    pageKind,
+    type,
+  ]);
 
-    let active = true;
-    const selectionGeneration = selectionGenerationRef.current;
-    const detailRequest = type === "knowledge"
-      ? getKnowledge(selectedItemId)
-      : getExercise(selectedItemId);
-    const backlinksRequest = type === "knowledge"
-      ? getKnowledgeBacklinks(selectedItemId)
-      : getExerciseBacklinks(selectedItemId);
+  const activePage = pages.find(
+    (page) => page.key === activeKey && page.kind === pageKind,
+  ) ?? null;
+  const activeFolderId = useMemo(() => {
+    if (activePage === null) return null;
+    const candidate = Number(
+      new URL(activePage.href, "http://babel.local").searchParams.get("folder"),
+    );
+    return Number.isInteger(candidate) && candidate > 0 ? candidate : null;
+  }, [activePage]);
+  const visibleFolderId = activeFolderId ?? selectedFolderId;
 
-    Promise.all([detailRequest, backlinksRequest])
-      .then(([nextDetail, nextBacklinks]) => {
-        if (!active || selectionGeneration !== selectionGenerationRef.current) return;
-        setDetail(nextDetail);
-        setBacklinks(nextBacklinks);
-      })
-      .catch((caught) => {
-        if (!active || selectionGeneration !== selectionGenerationRef.current) return;
-        setDetail(null);
-        setBacklinks(emptyBacklinks());
-        setError(getErrorMessage(caught));
-      });
-    return () => {
-      active = false;
+  useEffect(() => {
+    if (activePage === null) return;
+    const url = new URL(activePage.href, window.location.origin);
+    const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (nextUrl !== currentUrl) {
+      window.history.replaceState(window.history.state, "", nextUrl);
+    }
+  }, [activePage]);
+
+  usePageSessionHistoryGuard();
+
+  useEffect(() => {
+    const beforeNavigate = (event: Event) => {
+      const dirtyPages = pages.filter((page) => page.dirty || page.pending);
+      if (
+        dirtyPages.length > 0 &&
+        !window.confirm("Discard your unsaved changes?")
+      ) {
+        event.preventDefault();
+        return;
+      }
+      for (const page of dirtyPages) closePage(page.key);
+      const navigationEvent = event as CustomEvent<BeforeNavigateDetail>;
+      if (navigationEvent.detail?.destination === `/${type}`) {
+        activatePage(null);
+        setSelectedFolderId(null);
+      }
     };
-  }, [detailRequestVersion, selectedItemId, type]);
+    window.addEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
+    return () => window.removeEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
+  }, [activatePage, closePage, pages, type]);
 
   const visibleItems = useMemo(() => {
-    const filtered =
-      selectedFolderId === null
-        ? items
-        : items.filter((item) => item.folderId === selectedFolderId);
+    const filtered = visibleFolderId === null
+      ? items
+      : items.filter((item) => item.folderId === visibleFolderId);
     return [...filtered].sort(
       (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
     );
-  }, [items, selectedFolderId]);
+  }, [items, visibleFolderId]);
+  const selectedItemId = savedItemId(activeKey, type);
+  const hasUnsavedPages = pages.some((page) => page.dirty || page.pending);
 
-  const replaceLocation = useCallback((folderId: number | null, itemId: number | null) => {
-    const params = new URLSearchParams();
-    if (folderId !== null) params.set("folder", String(folderId));
-    if (itemId !== null) params.set("item", String(itemId));
-    const query = params.toString();
-    replaceGuardedLocation(query ? `${basePath}?${query}` : basePath);
-  }, [basePath, replaceGuardedLocation]);
-
-  const selectFolder = useCallback((id: number | null) => {
-    if (!confirmDiscard()) return;
-    setDirty(false);
-    beginNavigation();
-    selectionGenerationRef.current += 1;
-    setSelectedFolderId(id);
-    setSelectedItemId(null);
-    setDetail(null);
-    setBacklinks(emptyBacklinks());
-    setMode("view");
-    setCreateParentId(null);
-    setError("");
-    replaceLocation(id, null);
-  }, [beginNavigation, confirmDiscard, replaceLocation, setDirty]);
-
-  const selectItem = useCallback((
-    id: number,
-    exactFolderId?: number,
-    discardConfirmed = false,
-  ) => {
-    if (!discardConfirmed && !confirmDiscard()) return;
-    setDirty(false);
-    beginNavigation();
-    selectionGenerationRef.current += 1;
-    const targetFolderId = exactFolderId
-      ?? items.find((item) => item.id === id)?.folderId
-      ?? selectedFolderId;
-    setSelectedFolderId(targetFolderId);
-    setSelectedItemId(id);
-    setDetail(null);
-    setBacklinks(emptyBacklinks());
-    setError("");
-    setMode("view");
-    setCreateParentId(null);
-    setDetailRequestVersion((version) => version + 1);
-    replaceLocation(targetFolderId, id);
-  }, [beginNavigation, confirmDiscard, items, replaceLocation, selectedFolderId, setDirty]);
-
-  const navigateEntity = useCallback((
-    kind: LinkEntityKind,
-    id: number,
-    exactFolderId?: number,
-  ) => {
-    if (!confirmDiscard()) return;
-
-    const indexedFolderId = kind === type
-      ? items.find((item) => item.id === id)?.folderId
-      : undefined;
-    const knownFolderId = exactFolderId ?? indexedFolderId;
-
-    if (kind === type && knownFolderId !== undefined) {
-      selectItem(id, knownFolderId, true);
-      return;
-    }
-
-    if (kind !== type && knownFolderId !== undefined) {
-      beginNavigation();
-      discardAndRun(() => {
-        window.location.assign(entityLocation(kind, id, knownFolderId));
-      });
-      return;
-    }
-
-    const generation = beginNavigation();
-    const targetRequest = kind === "knowledge" ? getKnowledge(id) : getExercise(id);
-    void targetRequest.then(
-      (target) => {
-        if (generation !== navigationGenerationRef.current) return;
-        if (kind === type) {
-          selectItem(id, target.folderId, true);
-        } else {
-          beginNavigation();
-          discardAndRun(() => {
-            window.location.assign(entityLocation(kind, id, target.folderId));
-          });
-        }
-      },
-      (caught) => {
-        if (generation === navigationGenerationRef.current) {
-          setNavigationError(getErrorMessage(caught));
-        }
-      },
+  function showList(folderId = selectedFolderId) {
+    activatePage(null);
+    setSelectedFolderId(folderId);
+    window.history.replaceState(
+      window.history.state,
+      "",
+      entityLocation(type, null, folderId),
     );
-  }, [beginNavigation, confirmDiscard, discardAndRun, items, selectItem, type]);
+  }
+
+  function openItem(id: number, exactFolderId?: number) {
+    const item = items.find((candidate) => candidate.id === id);
+    const folderId = exactFolderId ?? item?.folderId ?? selectedFolderId;
+    openPage(item
+      ? savedArchivePage(type, item)
+      : {
+          key: `${type}:${id}`,
+          kind: pageKind,
+          title: `${pageKind} ${id}`,
+          href: entityLocation(type, id, folderId),
+        });
+    if (folderId !== null) setSelectedFolderId(folderId);
+  }
+
+  function openEntity(kind: LinkEntityKind, id: number, folderId?: number) {
+    if (kind === type) {
+      openItem(id, folderId);
+      return;
+    }
+    window.location.assign(entityLocation(kind, id, folderId));
+  }
+
+  function openDraft(
+    input: Omit<ArchiveDraftSession, "title"> & { title?: string },
+  ) {
+    const key = `${type}-draft:${crypto.randomUUID()}`;
+    const draft: ArchiveDraftSession = {
+      ...input,
+      title: input.title?.trim() || (
+        type === "knowledge" ? "Untitled knowledge note" : "Untitled exercise"
+      ),
+    };
+    setDrafts((current) => ({ ...current, [key]: draft }));
+    openPage({
+      key,
+      kind: pageKind,
+      title: draft.title,
+      href: entityLocation(type, null, draft.folderId),
+      restorable: false,
+    });
+    setSelectedFolderId(draft.folderId);
+  }
+
+  function selectFolder(id: number | null) {
+    showList(id);
+  }
 
   async function handleCreateFolder(name: string, parentId: number | null) {
-    if (!confirmDiscard()) return;
-    beginNavigation();
-    const created = await createFolder({ type, parentId, name });
-    setDirty(false);
-    await loadIndex();
-    selectionGenerationRef.current += 1;
-    setSelectedFolderId(created.id);
-    setSelectedItemId(null);
-    setDetail(null);
-    setBacklinks(emptyBacklinks());
-    replaceLocation(created.id, null);
+    try {
+      const created = await createFolder({ type, parentId, name });
+      await loadIndex();
+      showList(created.id);
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+    }
   }
 
   async function handleRenameFolder(id: number, name: string) {
-    await updateFolder(id, { name });
-    await loadIndex();
-  }
-
-  async function handleMoveFolder(id: number, parentId: number | null) {
-    await updateFolder(id, { parentId });
-    await loadIndex();
-  }
-
-  async function handleDeleteFolder(id: number) {
-    if (!confirmDiscard()) return;
-    beginNavigation();
-    await deleteFolder(id);
-    setDirty(false);
-    selectionGenerationRef.current += 1;
-    setSelectedFolderId(null);
-    setSelectedItemId(null);
-    setDetail(null);
-    setBacklinks(emptyBacklinks());
-    await loadIndex();
-    replaceLocation(null, null);
-  }
-
-  async function handleSaved(saved: ArchiveDetail) {
-    setDirty(false);
-    beginNavigation();
-    selectionGenerationRef.current += 1;
-    setDetail(saved);
-    setBacklinks(emptyBacklinks());
-    setSelectedItemId(saved.id);
-    setSelectedFolderId(saved.folderId);
-    setMode("view");
-    setCreateParentId(null);
-    setDetailRequestVersion((version) => version + 1);
-    replaceLocation(saved.folderId, saved.id);
     try {
+      await updateFolder(id, { name });
       await loadIndex();
     } catch (caught) {
       setError(getErrorMessage(caught));
     }
   }
 
-  async function handleDeleted() {
-    setDirty(false);
-    beginNavigation();
-    selectionGenerationRef.current += 1;
-    setSelectedItemId(null);
-    setDetail(null);
-    setBacklinks(emptyBacklinks());
-    setMode("view");
-    setCreateParentId(null);
-    await loadIndex();
-    replaceLocation(selectedFolderId, null);
-  }
-
-  async function createKnowledgeNote(title: string, folderId: number) {
-    if (wikilinkCreatePendingRef.current) return;
-    const requestGeneration = wikilinkCreateGenerationRef.current + 1;
-    wikilinkCreateGenerationRef.current = requestGeneration;
-    const startingNavigationGeneration = navigationGenerationRef.current;
-    wikilinkCreatePendingRef.current = true;
+  async function handleMoveFolder(id: number, parentId: number | null) {
     try {
-      const saved = await createKnowledge({
-        folderId,
-        parentId: null,
-        title,
-        contentMd: "",
-        tags: [],
-        exerciseIds: [],
-      });
-      if (
-        requestGeneration !== wikilinkCreateGenerationRef.current ||
-        startingNavigationGeneration !== navigationGenerationRef.current
-      ) {
-        return;
-      }
-      if (type === "knowledge") {
-        await handleSaved(saved);
-      } else {
-        beginNavigation();
-        discardAndRun(() => {
-          window.location.assign(entityLocation("knowledge", saved.id, saved.folderId));
-        });
-      }
-    } catch (caught) {
-      if (
-        requestGeneration !== wikilinkCreateGenerationRef.current ||
-        startingNavigationGeneration !== navigationGenerationRef.current
-      ) {
-        return;
-      }
-      throw caught;
-    } finally {
-      wikilinkCreatePendingRef.current = false;
-    }
-  }
-
-  async function createKnowledgeFromKnowledgeWikilink(title: string, folderId: number) {
-    setError("");
-    try {
-      await createKnowledgeNote(title, folderId);
+      await updateFolder(id, { parentId });
+      await loadIndex();
     } catch (caught) {
       setError(getErrorMessage(caught));
     }
   }
 
-  function requestKnowledgeCreation(title: string) {
-    if (wikilinkCreatePendingRef.current) return;
-    const requestGeneration = folderRequestGenerationRef.current + 1;
-    folderRequestGenerationRef.current = requestGeneration;
-    setWikilinkCreation({ title });
-    setKnowledgeFolders([]);
-    setKnowledgeFoldersError("");
-    setKnowledgeFoldersLoading(true);
-    void listFolders("knowledge").then(
-      (nextFolders) => {
-        if (requestGeneration !== folderRequestGenerationRef.current) return;
-        setKnowledgeFolders(nextFolders);
-        setKnowledgeFoldersLoading(false);
-      },
-      (caught) => {
-        if (requestGeneration !== folderRequestGenerationRef.current) return;
-        setKnowledgeFoldersError(getErrorMessage(caught));
-        setKnowledgeFoldersLoading(false);
-      },
-    );
+  async function handleDeleteFolder(id: number) {
+    try {
+      await deleteFolder(id);
+      await loadIndex();
+      showList(null);
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+    }
   }
-
-  function cancelKnowledgeCreation() {
-    beginNavigation();
-    folderRequestGenerationRef.current += 1;
-    setWikilinkCreation(null);
-    setKnowledgeFolders([]);
-    setKnowledgeFoldersError("");
-    setKnowledgeFoldersLoading(false);
-  }
-
-  const effectiveFolderId = detail?.folderId ?? selectedFolderId;
-  const detailLoading = selectedItemId !== null && detail?.id !== selectedItemId && !error;
 
   function beginCreate(parentId: number | null) {
-    if (!confirmDiscard()) return;
-    setDirty(false);
-    beginNavigation();
-    selectionGenerationRef.current += 1;
-    if (type === "knowledge" && parentId !== null) {
-      const parent = (items as KnowledgeSummaryDto[]).find((item) => item.id === parentId);
-      if (parent) {
-        setSelectedFolderId(parent.folderId);
-        replaceLocation(parent.folderId, null);
-      }
-    }
-    setCreateParentId(type === "knowledge" ? parentId : null);
-    setSelectedItemId(null);
-    setDetail(null);
-    setBacklinks(emptyBacklinks());
-    setDraftVersion((version) => version + 1);
-    setMode("create");
-  }
-
-  function beginEdit() {
-    beginNavigation();
-    setMode("edit");
-  }
-
-  function cancelEditing() {
-    if (!confirmDiscard()) return;
-    setDirty(false);
-    beginNavigation();
-    setMode("view");
+    const parent = type === "knowledge" && parentId !== null
+      ? (items as KnowledgeSummaryDto[]).find((item) => item.id === parentId)
+      : undefined;
+    const folderId = parent?.folderId ?? selectedFolderId;
+    if (folderId === null) return;
+    openDraft({
+      type,
+      folderId,
+      parentId: type === "knowledge" ? parentId : null,
+      importDraft: null,
+      title: type === "knowledge" && parentId !== null
+        ? "New child note"
+        : type === "knowledge"
+          ? "New knowledge note"
+          : "New exercise",
+    });
   }
 
   async function handleImportMarkdown(file: File) {
@@ -493,47 +321,79 @@ export function ArchiveWorkspace({
       setNavigationError("Markdown files must not exceed 10 MB.");
       return;
     }
-
-    const requestGeneration = importRequestGenerationRef.current + 1;
-    importRequestGenerationRef.current = requestGeneration;
-    const targetFolderId = selectedFolderId;
     try {
-      const draft = parseMarkdownImport(
+      const draft: MarkdownImportDraft = parseMarkdownImport(
         file.name,
         new Uint8Array(await file.arrayBuffer()),
       );
-      if (importRequestGenerationRef.current !== requestGeneration) return;
-      if (!confirmDiscard()) return;
-
-      setDirty(false);
-      beginNavigation();
-      selectionGenerationRef.current += 1;
-      setSelectedFolderId(targetFolderId);
-      setSelectedItemId(null);
-      setDetail(null);
-      setBacklinks(emptyBacklinks());
-      setCreateParentId(null);
-      setImportDraft(draft);
-      setDraftVersion((version) => version + 1);
-      setMode("create");
-      replaceLocation(targetFolderId, null);
+      openDraft({
+        type,
+        folderId: selectedFolderId,
+        parentId: null,
+        importDraft: draft,
+        title: draft.title,
+      });
     } catch (caught) {
-      if (importRequestGenerationRef.current === requestGeneration) {
-        setNavigationError(getErrorMessage(caught));
-      }
+      setNavigationError(getErrorMessage(caught));
     }
+  }
+
+  function requestKnowledgeCreation(title: string) {
+    setWikilinkCreation({ title });
+    setKnowledgeFolders([]);
+    setKnowledgeFoldersError("");
+    setKnowledgeFoldersLoading(true);
+    void listFolders("knowledge").then(
+      (nextFolders) => {
+        setKnowledgeFolders(nextFolders);
+        setKnowledgeFoldersLoading(false);
+      },
+      (caught) => {
+        setKnowledgeFoldersError(getErrorMessage(caught));
+        setKnowledgeFoldersLoading(false);
+      },
+    );
+  }
+
+  function cancelKnowledgeCreation() {
+    setWikilinkCreation(null);
+    setKnowledgeFolders([]);
+    setKnowledgeFoldersError("");
+    setKnowledgeFoldersLoading(false);
+  }
+
+  async function createKnowledgeNote(title: string, folderId: number) {
+    const saved = await createKnowledge({
+      folderId,
+      parentId: null,
+      title,
+      contentMd: "",
+      tags: [],
+      exerciseIds: [],
+    });
+    window.location.assign(entityLocation("knowledge", saved.id, saved.folderId));
+  }
+
+  function openReferencePanel(panel: ReferencePanelKind) {
+    referenceTriggerRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    setActiveReferencePanel(panel);
+  }
+
+  function closeReferencePanel() {
+    setActiveReferencePanel(null);
+    window.requestAnimationFrame(() => referenceTriggerRef.current?.focus());
   }
 
   return (
     <>
-      {navigationError ? (
-        <p className="form-error" role="alert">{navigationError}</p>
-      ) : null}
-      <div className={`archive-workspace${dirty ? " has-unsaved" : ""}`}>
+      {navigationError ? <p className="form-error" role="alert">{navigationError}</p> : null}
+      <div className={`archive-workspace${hasUnsavedPages ? " has-unsaved" : ""}`}>
         <FolderPanel
           type={type}
           folders={folders}
-          selectedId={selectedFolderId}
+          selectedId={visibleFolderId}
           busy={indexLoading}
           activeReferencePanel={activeReferencePanel}
           onOpenMarkdownReference={() => openReferencePanel("markdown")}
@@ -548,10 +408,10 @@ export function ArchiveWorkspace({
           type={type}
           items={visibleItems}
           selectedId={selectedItemId}
-          selectedFolderId={selectedFolderId}
+          selectedFolderId={visibleFolderId}
           loading={indexLoading}
           referencePanelOpen={activeReferencePanel !== null}
-          onSelect={selectItem}
+          onSelect={openItem}
           onCreate={beginCreate}
           onImport={type === "knowledge" ? handleImportMarkdown : undefined}
         />
@@ -559,14 +419,14 @@ export function ArchiveWorkspace({
         {error ? (
           <section className="detail-panel error-state" role="alert">
             <span aria-hidden="true">!</span>
-            <h2>Couldn’t Load the Archive</h2>
+            <h2>Couldn’t load the archive</h2>
             <p>{error}</p>
             <button
               type="button"
               onClick={() => {
                 setError("");
                 setIndexLoading(true);
-                loadIndex()
+                void loadIndex()
                   .catch((caught) => setError(getErrorMessage(caught)))
                   .finally(() => setIndexLoading(false));
               }}
@@ -574,43 +434,39 @@ export function ArchiveWorkspace({
               Retry
             </button>
           </section>
-        ) : type === "knowledge" ? (
-          <KnowledgeDetail
-            detail={detail as KnowledgeDetailDto | null}
-            importDraft={importDraft}
-            draftKey={draftVersion}
-            mode={mode}
-            folderId={effectiveFolderId}
-            pages={items as KnowledgeSummaryDto[]}
-            createParentId={createParentId}
-            backlinks={backlinks}
-            loading={detailLoading}
-            onEdit={beginEdit}
-            onCreateChild={() => beginCreate(detail?.id ?? null)}
-            onCancel={cancelEditing}
-            onSaved={handleSaved}
-            onDeleted={handleDeleted}
-            onNavigateEntity={navigateEntity}
-            onCreateWikilink={createKnowledgeFromKnowledgeWikilink}
-            onDirtyChange={setDirty}
-            onRegisterSave={registerSave}
-          />
         ) : (
-          <ExerciseDetail
-            detail={detail as ExerciseDetailDto | null}
-            mode={mode}
-            folderId={effectiveFolderId}
-            backlinks={backlinks}
-            loading={detailLoading}
-            onEdit={beginEdit}
-            onCancel={cancelEditing}
-            onSaved={handleSaved}
-            onDeleted={handleDeleted}
-            onNavigateEntity={navigateEntity}
-            onCreateKnowledgeWikilink={requestKnowledgeCreation}
-            onDirtyChange={setDirty}
-            onRegisterSave={registerSave}
-          />
+          <>
+            {pages
+              .filter((page) => page.kind === pageKind)
+              .map((page) => {
+                const itemId = savedItemId(page.key, type);
+                const draft = drafts[page.key] ?? null;
+                if (itemId === null && draft === null) return null;
+                return (
+                  <ArchivePageSession
+                    key={page.key}
+                    pageKey={page.key}
+                    itemId={itemId}
+                    draft={draft}
+                    type={type}
+                    items={items}
+                    onOpenEntity={openEntity}
+                    onOpenDraft={openDraft}
+                    onRequestKnowledgeCreation={requestKnowledgeCreation}
+                    onRefreshIndex={loadIndex}
+                    onShowList={() => showList()}
+                    onError={setError}
+                  />
+                );
+              })}
+            {activePage === null ? (
+              <section className="detail-panel empty-state" aria-label={`${pageKind} details`}>
+                <span aria-hidden="true">{type === "knowledge" ? "R" : "∫"}</span>
+                <h2>Keep several {pageKind.toLowerCase()} pages open</h2>
+                <p>Select an item to open it in a persistent page tab.</p>
+              </section>
+            ) : null}
+          </>
         )}
 
         {activeReferencePanel === "markdown" ? (
@@ -707,9 +563,7 @@ function KnowledgeFolderDialog({
             No Knowledge folder exists. Cancel and create a Knowledge folder first.
           </p>
         ) : null}
-        {loadError ? (
-          <p className="form-error" role="alert">{loadError}</p>
-        ) : null}
+        {loadError ? <p className="form-error" role="alert">{loadError}</p> : null}
         {folderOptions.length > 0 ? (
           <label className="field">
             <span>Knowledge folder</span>
@@ -728,7 +582,12 @@ function KnowledgeFolderDialog({
         ) : null}
         {error ? <p className="form-error" role="alert">{error}</p> : null}
         <div className="dialog-actions">
-          <button data-babel-command="cancel" type="button" disabled={pending} onClick={() => dialogRef.current?.close()}>
+          <button
+            data-babel-command="cancel"
+            type="button"
+            disabled={pending}
+            onClick={() => dialogRef.current?.close()}
+          >
             Cancel
           </button>
           <button
@@ -743,11 +602,6 @@ function KnowledgeFolderDialog({
       </form>
     </dialog>
   );
-}
-
-function entityLocation(kind: LinkEntityKind, id: number, folderId: number): string {
-  const path = kind === "knowledge" ? "/knowledge" : "/exercise";
-  return `${path}?folder=${folderId}&item=${id}`;
 }
 
 function folderPath(folder: FolderDto, folders: ReadonlyMap<number, FolderDto>): string {

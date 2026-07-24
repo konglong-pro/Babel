@@ -170,6 +170,7 @@ function ExerciseReaderDraft({
 }
 
 interface ExerciseDetailProps {
+  draftKey: string | number;
   detail: ExerciseDetailDto | null;
   mode: "view" | "edit" | "create";
   folderId: number | null;
@@ -190,6 +191,7 @@ interface ExerciseDetailProps {
 }
 
 export function ExerciseDetail({
+  draftKey,
   detail,
   mode,
   folderId,
@@ -237,7 +239,8 @@ export function ExerciseDetail({
   if (mode === "create" || mode === "edit") {
     return (
       <ExerciseForm
-        key={mode === "edit" ? `edit:${detail?.id ?? "none"}` : `new:${folderId ?? "none"}`}
+        key={mode === "edit" ? `edit:${detail?.id ?? "none"}` : `new:${draftKey}`}
+        draftKey={draftKey}
         detail={mode === "edit" ? detail : null}
         folderId={folderId}
         onCancel={onCancel}
@@ -425,6 +428,7 @@ export function ExerciseDetail({
 }
 
 interface ExerciseFormProps {
+  draftKey: string | number;
   detail: ExerciseDetailDto | null;
   folderId: number | null;
   onCancel: () => void;
@@ -459,6 +463,7 @@ function ExerciseEditorHost({ children, detail, disabled, onSave }: ExerciseEdit
 }
 
 function ExerciseForm({
+  draftKey,
   detail,
   folderId,
   onCancel,
@@ -639,7 +644,7 @@ function ExerciseForm({
           <div>
             <DetachedReaderWindow
               title={`${title.trim() || "Untitled Exercise"} - Reader`}
-              windowKey={`retex-exercise-${detail?.id ?? "draft"}`}
+              windowKey={`retex-exercise-${detail?.id ?? draftKey}`}
               buttonLabel="Read"
               buttonPortalTargetId="babel-detached-reader-trigger-target"
               disabled={pending}

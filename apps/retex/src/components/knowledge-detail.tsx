@@ -119,7 +119,7 @@ function KnowledgeReaderDraft({
 interface KnowledgeDetailProps {
   detail: KnowledgeDetailDto | null;
   importDraft: MarkdownImportDraft | null;
-  draftKey: number;
+  draftKey: string | number;
   mode: "view" | "edit" | "create";
   folderId: number | null;
   pages: KnowledgeSummaryDto[];
@@ -211,6 +211,7 @@ export function KnowledgeDetail({
     return (
       <KnowledgeForm
         key={mode === "edit" ? `edit:${detail?.id ?? "none"}` : `new:${draftKey}`}
+        draftKey={draftKey}
         detail={mode === "edit" ? detail : null}
         importDraft={mode === "create" ? importDraft : null}
         folderId={folderId}
@@ -338,6 +339,7 @@ export function KnowledgeDetail({
 }
 
 interface KnowledgeFormProps {
+  draftKey: string | number;
   detail: KnowledgeDetailDto | null;
   importDraft: MarkdownImportDraft | null;
   folderId: number | null;
@@ -353,6 +355,7 @@ interface KnowledgeFormProps {
 }
 
 function KnowledgeForm({
+  draftKey,
   detail,
   importDraft,
   folderId,
@@ -608,7 +611,7 @@ function KnowledgeForm({
           <div>
             <DetachedReaderWindow
               title={`${title.trim() || "Untitled Knowledge note"} - Reader`}
-              windowKey={`retex-knowledge-${detail?.id ?? "draft"}`}
+              windowKey={`retex-knowledge-${detail?.id ?? draftKey}`}
               buttonLabel="Read"
               buttonPortalTargetId="babel-detached-reader-trigger-target"
               disabled={pending}

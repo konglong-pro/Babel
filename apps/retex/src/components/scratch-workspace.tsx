@@ -8,6 +8,12 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useRef, useState } from "react";
+import {
+  PageDeckPage,
+  usePageSessionHistoryGuard,
+  usePageSessionLifecycle,
+  usePageSessions,
+} from "@babel-apps/platform/pages/react";
 
 import {
   deleteScratch,
@@ -20,13 +26,14 @@ import { navigationAllowed } from "@/components/app-header";
 import type { ExerciseDetailDto } from "@/lib/types";
 import { MarkdownEditor } from "@/components/markdown-editor";
 import { ConfirmButton, formatDate, Tags } from "@/components/shared";
-import { useDirtyNavigationGuard } from "@/components/use-dirty-navigation-guard";
 
 const SCRATCH_HEADING_ID_PREFIX = "retex-scratch-heading-";
 const REMARK_FEATURES = ["gfm", "formula-math"] as const;
 
 export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
   const router = useRouter();
+  const pageKey = `scratch:${exerciseId}`;
+  const { openPage, setPageStatus, updatePage } = usePageSessions();
   const formRef = useRef<HTMLFormElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const savingRef = useRef(false);
@@ -39,16 +46,29 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const dirty = content !== savedContent;
-  const { setDirty, registerSave } = useDirtyNavigationGuard();
 
   useEffect(() => {
-    setDirty(dirty);
-  }, [dirty, setDirty]);
+    openPage({
+      key: pageKey,
+      kind: "Scratch",
+      title: `Scratch ${exerciseId}`,
+      href: `/exercise/${exerciseId}/scratch`,
+    });
+  }, [exerciseId, openPage, pageKey]);
 
   useEffect(() => {
-    registerSave(() => formRef.current?.requestSubmit());
-    return () => registerSave(null);
-  }, [registerSave]);
+    setPageStatus(pageKey, { dirty, pending: saving });
+  }, [dirty, pageKey, saving, setPageStatus]);
+
+  usePageSessionLifecycle(pageKey, {
+    save: () => {
+      if (!dirty && !saving) return true;
+      formRef.current?.requestSubmit();
+      return false;
+    },
+    discard: () => setSavedContent(content),
+  });
+  usePageSessionHistoryGuard();
 
   useEffect(() => {
     let active = true;
@@ -56,6 +76,10 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
       .then(([nextExercise, scratch]) => {
         if (!active) return;
         setExercise(nextExercise);
+        updatePage(pageKey, {
+          title: `${nextExercise.title} — Scratch`,
+          href: `/exercise/${exerciseId}/scratch`,
+        });
         const nextContent = scratch?.contentMd ?? "";
         setContent(nextContent);
         setSavedContent(nextContent);
@@ -70,7 +94,7 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
     return () => {
       active = false;
     };
-  }, [exerciseId]);
+  }, [exerciseId, pageKey, updatePage]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -93,23 +117,30 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
   }
 
   if (loading) {
-    return <div className="standalone-status">Opening Scratch…</div>;
+    return (
+      <PageDeckPage pageKey={pageKey}>
+        <div className="standalone-status">Opening Scratch…</div>
+      </PageDeckPage>
+    );
   }
 
   if (error && !exercise) {
     return (
-      <div className="standalone-status error-state" role="alert">
-        <h1>Couldn’t Open Scratch</h1>
-        <p>{error}</p>
-        <Link href="/exercise">Back to Exercise</Link>
-      </div>
+      <PageDeckPage pageKey={pageKey}>
+        <div className="standalone-status error-state" role="alert">
+          <h1>Couldn’t Open Scratch</h1>
+          <p>{error}</p>
+          <Link href="/exercise">Back to Exercise</Link>
+        </div>
+      </PageDeckPage>
     );
   }
 
   if (!exercise) return null;
 
   return (
-    <div className="scratch-page">
+    <PageDeckPage pageKey={pageKey}>
+      <div className="scratch-page">
       <header className="scratch-header">
         <div>
           <Link
@@ -263,6 +294,7 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
           </section>
         </div>
       </form>
-    </div>
+      </div>
+    </PageDeckPage>
   );
 }

@@ -1,77 +1,116 @@
 "use client";
 
 import Image from "next/image";
-import { useRouter } from "next/navigation";
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import {
+  usePageSessionHistoryGuard,
+  usePageSessions,
+} from "@babel-apps/platform/pages/react";
 
 import {
+  CanvasPageSession,
+  savedCanvasPage,
+} from "@/components/canvas-page-session";
+import {
   createCanvas,
-  deleteCanvas,
-  getCanvas,
   getErrorMessage,
   listCanvases,
-  updateCanvas,
 } from "@/lib/api-client";
 import type { CanvasDetailDto, CanvasSummaryDto } from "@/lib/types";
-
-import { CanvasEditor } from "./canvas-editor";
 
 interface CanvasWorkspaceProps {
   initialCanvasId: number | null;
 }
 
+function canvasIdFromKey(pageKey: string | null): number | null {
+  if (pageKey === null || !pageKey.startsWith("canvas:")) return null;
+  const id = Number(pageKey.slice("canvas:".length));
+  return Number.isInteger(id) && id > 0 ? id : null;
+}
+
 export function CanvasWorkspace({ initialCanvasId }: CanvasWorkspaceProps) {
-  const router = useRouter();
-  const [requestedInitialCanvasId] = useState(initialCanvasId);
+  const { pages, activeKey, activatePage, openPage } = usePageSessions();
   const [canvases, setCanvases] = useState<CanvasSummaryDto[]>([]);
-  const [selectedId, setSelectedId] = useState<number | null>(initialCanvasId);
-  const [selectedCanvas, setSelectedCanvas] = useState<CanvasDetailDto | null>(null);
   const [newTitle, setNewTitle] = useState("");
   const [loading, setLoading] = useState(true);
-  const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const initialOpenedRef = useRef(false);
 
   useEffect(() => {
     let active = true;
-    void listCanvases()
+    listCanvases()
       .then((items) => {
-        if (!active) return;
-        setCanvases(items);
-        const initialExists = requestedInitialCanvasId !== null && items.some(({ id }) => id === requestedInitialCanvasId);
-        const nextId = initialExists ? requestedInitialCanvasId : (items[0]?.id ?? null);
-        setDetailLoading(nextId !== null);
-        if (nextId === null) setSelectedCanvas(null);
-        setSelectedId(nextId);
-        if (nextId !== null && nextId !== requestedInitialCanvasId) {
-          router.replace(`/canvases?canvas=${nextId}`);
-        }
+        if (active) setCanvases(items);
       })
-      .catch((cause: unknown) => active && setError(getErrorMessage(cause)))
-      .finally(() => active && setLoading(false));
+      .catch((cause: unknown) => {
+        if (active) setError(getErrorMessage(cause));
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
     return () => {
       active = false;
     };
-  }, [requestedInitialCanvasId, router]);
+  }, []);
 
   useEffect(() => {
-    if (selectedId === null) return;
-    const controller = new AbortController();
-    void getCanvas(selectedId, controller.signal)
-      .then((canvas) => setSelectedCanvas(canvas))
-      .catch((cause: unknown) => {
-        if (!controller.signal.aborted) setError(getErrorMessage(cause));
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setDetailLoading(false);
-      });
-    return () => controller.abort();
-  }, [selectedId]);
+    if (loading || initialOpenedRef.current) return;
+    initialOpenedRef.current = true;
+    const requested = initialCanvasId === null
+      ? null
+      : canvases.find(({ id }) => id === initialCanvasId) ?? null;
+    if (requested !== null) {
+      openPage(savedCanvasPage(requested));
+      return;
+    }
+    const activeCanvas = pages.find(
+      (page) => page.key === activeKey && page.kind === "Canvas",
+    );
+    if (activeCanvas !== undefined) return;
+    const existingCanvas = pages.findLast((page) => page.kind === "Canvas");
+    if (existingCanvas !== undefined) {
+      activatePage(existingCanvas.key);
+      return;
+    }
+    const first = canvases[0];
+    if (first !== undefined) openPage(savedCanvasPage(first));
+  }, [
+    activatePage,
+    activeKey,
+    canvases,
+    initialCanvasId,
+    loading,
+    openPage,
+    pages,
+  ]);
+
+  const activePage = pages.find(
+    (page) => page.key === activeKey && page.kind === "Canvas",
+  ) ?? null;
+  const selectedId = canvasIdFromKey(activeKey);
+
+  useEffect(() => {
+    if (activePage === null) return;
+    const url = new URL(activePage.href, window.location.origin);
+    const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (nextUrl !== currentUrl) {
+      window.history.replaceState(window.history.state, "", nextUrl);
+    }
+  }, [activePage]);
+
+  usePageSessionHistoryGuard();
 
   function openCanvas(id: number) {
-    setDetailLoading(true);
-    setError(null);
-    setSelectedId(id);
-    router.push(`/canvases?canvas=${id}`);
+    const canvas = canvases.find((candidate) => candidate.id === id);
+    openPage(canvas
+      ? savedCanvasPage(canvas)
+      : {
+          key: `canvas:${id}`,
+          kind: "Canvas",
+          title: `Canvas ${id}`,
+          href: `/canvases?canvas=${id}`,
+        });
   }
 
   async function submitCreate(event: FormEvent<HTMLFormElement>) {
@@ -82,38 +121,7 @@ export function CanvasWorkspace({ initialCanvasId }: CanvasWorkspaceProps) {
       const created = await createCanvas(title);
       setCanvases((items) => [created, ...items]);
       setNewTitle("");
-      setSelectedCanvas(created);
-      openCanvas(created.id);
-    } catch (cause) {
-      setError(getErrorMessage(cause));
-    }
-  }
-
-  async function renameSelected() {
-    if (!selectedCanvas) return;
-    const title = window.prompt("Canvas name", selectedCanvas.title)?.trim();
-    if (!title || title === selectedCanvas.title) return;
-    try {
-      const updated = await updateCanvas(selectedCanvas.id, { title });
-      setSelectedCanvas(updated);
-      reflectSummary(updated);
-    } catch (cause) {
-      setError(getErrorMessage(cause));
-    }
-  }
-
-  async function removeSelected() {
-    if (!selectedCanvas) return;
-    if (!window.confirm(`Delete “${selectedCanvas.title}”? This cannot be undone.`)) return;
-    try {
-      await deleteCanvas(selectedCanvas.id);
-      const remaining = canvases.filter(({ id }) => id !== selectedCanvas.id);
-      setCanvases(remaining);
-      setSelectedCanvas(null);
-      const nextId = remaining[0]?.id ?? null;
-      setDetailLoading(nextId !== null);
-      setSelectedId(nextId);
-      router.replace(nextId === null ? "/canvases" : `/canvases?canvas=${nextId}`);
+      openPage(savedCanvasPage(created));
     } catch (cause) {
       setError(getErrorMessage(cause));
     }
@@ -121,10 +129,20 @@ export function CanvasWorkspace({ initialCanvasId }: CanvasWorkspaceProps) {
 
   const reflectSummary = useCallback((canvas: CanvasDetailDto) => {
     setCanvases((items) => {
-      const next = items.map((item) => (item.id === canvas.id ? canvas : item));
+      const existing = items.some((item) => item.id === canvas.id);
+      const next = existing
+        ? items.map((item) => (item.id === canvas.id ? canvas : item))
+        : [canvas, ...items];
       return next.toSorted((left, right) => right.updatedAt.localeCompare(left.updatedAt));
     });
   }, []);
+
+  function removeSummary(id: number) {
+    const remaining = canvases.filter((canvas) => canvas.id !== id);
+    setCanvases(remaining);
+    const nextCanvas = remaining[0];
+    if (nextCanvas !== undefined) openPage(savedCanvasPage(nextCanvas));
+  }
 
   return (
     <section className="canvas-workspace" aria-label="Ruider canvases">
@@ -170,44 +188,52 @@ export function CanvasWorkspace({ initialCanvasId }: CanvasWorkspaceProps) {
             </li>
           ))}
         </ul>
-      </aside>
-
-      <div className="canvas-main">
         {error ? (
           <div className="canvas-alert" role="alert">
             <span>{error}</span>
             <button type="button" onClick={() => setError(null)}>Dismiss</button>
           </div>
         ) : null}
-        {detailLoading ? <div className="standalone-status">Opening canvas…</div> : null}
-        {!detailLoading && selectedCanvas ? (
-          <>
-            <div className="canvas-document-bar">
-              <div>
-                <span className="eyebrow">Open canvas</span>
-                <h2>{selectedCanvas.title}</h2>
-              </div>
-              <div className="canvas-document-actions">
-                <button type="button" onClick={renameSelected}>Rename</button>
-                <button className="danger-ghost" type="button" onClick={removeSelected}>Delete</button>
-              </div>
+      </aside>
+
+      <>
+        {pages
+          .filter((page) => page.kind === "Canvas")
+          .map((page) => {
+            const canvasId = canvasIdFromKey(page.key);
+            if (canvasId === null) return null;
+            return (
+              <CanvasPageSession
+                key={page.key}
+                pageKey={page.key}
+                canvasId={canvasId}
+                onSaved={reflectSummary}
+                onDeleted={removeSummary}
+                onError={setError}
+              />
+            );
+          })}
+        {activePage === null && !loading ? (
+          <div className="canvas-main">
+            <div className="canvas-welcome">
+              <Image
+                className="canvas-welcome__mark"
+                src="/icon.svg"
+                alt=""
+                width={156}
+                height={156}
+              />
+              <span aria-hidden="true">✦</span>
+              <span className="canvas-welcome__kicker">No polished thoughts required</span>
+              <h2>Set your ideas loose.</h2>
+              <p>Create a named canvas, then throw in cards, marks, shapes, and connections.</p>
+              <svg className="canvas-welcome__scribble" viewBox="0 0 180 34" aria-hidden="true">
+                <path d="M3 22c21-25 32 16 52-5s37 17 58-5 33 17 63-7" />
+              </svg>
             </div>
-            <CanvasEditor key={selectedCanvas.id} canvas={selectedCanvas} onSaved={reflectSummary} />
-          </>
-        ) : null}
-        {!detailLoading && !selectedCanvas && !loading ? (
-          <div className="canvas-welcome">
-            <Image className="canvas-welcome__mark" src="/icon.svg" alt="" width={156} height={156} />
-            <span aria-hidden="true">✦</span>
-            <span className="canvas-welcome__kicker">No polished thoughts required</span>
-            <h2>Set your ideas loose.</h2>
-            <p>Create a named canvas, then throw in cards, marks, shapes, and connections.</p>
-            <svg className="canvas-welcome__scribble" viewBox="0 0 180 34" aria-hidden="true">
-              <path d="M3 22c21-25 32 16 52-5s37 17 58-5 33 17 63-7" />
-            </svg>
           </div>
         ) : null}
-      </div>
+      </>
     </section>
   );
 }

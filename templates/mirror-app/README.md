@@ -16,6 +16,11 @@ Open `http://127.0.0.1:__APP_PORT__`. Private data lives in
 private `data/` repository. The launcher supplies absolute
 `__APP_ENV_PREFIX___DATABASE_PATH` and `__APP_ENV_PREFIX___UPLOAD_DIRECTORY` values.
 
+Saved notes open in app-level page tabs. Multiple notes can remain mounted in
+read or edit mode at once; selecting an already open note focuses its tab.
+Unsaved drafts use temporary tabs until first save, and dirty tabs require an
+explicit Save, Discard, or Cancel choice before closing.
+
 Editing an existing note opens a focused **Content + Outline** window aligned
 to the note-detail column. The main edit page continues to manage the title,
 folder, parent page, tags, Save, and Cancel; new-note drafts remain inline.

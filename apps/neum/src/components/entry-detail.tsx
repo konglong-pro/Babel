@@ -188,7 +188,7 @@ interface EntryDetailProps {
   kind: EntryKind;
   detail: EntryDetailDto | null;
   importDraft: MarkdownImportDraft | null;
-  draftKey: number;
+  draftKey: string | number;
   mode: EntryViewMode;
   folderId: number | null;
   parentId: number | null;
@@ -273,6 +273,7 @@ export function EntryDetail({
         key={mode === "edit"
           ? `edit-${detail?.id ?? "missing"}-${detail?.version ?? 0}`
           : `new-${folderId}-${parentId ?? "root"}-${draftKey}`}
+        draftKey={draftKey}
         detail={mode === "edit" ? detail : null}
         importDraft={mode === "create" ? importDraft : null}
         kind={kind}
@@ -437,6 +438,7 @@ export function EntryDetail({
 }
 
 interface EntryFormProps {
+  draftKey: string | number;
   kind: EntryKind;
   detail: EntryDetailDto | null;
   importDraft: MarkdownImportDraft | null;
@@ -454,6 +456,7 @@ interface EntryFormProps {
 }
 
 function EntryForm({
+  draftKey,
   kind,
   detail,
   importDraft,
@@ -709,7 +712,7 @@ function EntryForm({
           <div>
             <DetachedReaderWindow
               title={`${title.trim() || "Untitled entry"} - Reader`}
-              windowKey={`neum-${kind}-${detail?.id ?? "draft"}`}
+              windowKey={`neum-${kind}-${detail?.id ?? draftKey}`}
               buttonLabel="Read"
               buttonPortalTargetId="babel-detached-reader-trigger-target"
               disabled={pending}

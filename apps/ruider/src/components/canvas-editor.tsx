@@ -4,6 +4,7 @@ import {
   type KeyboardEvent,
   type PointerEvent,
   type WheelEvent,
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -26,6 +27,10 @@ type CanvasTool = "select" | "hand" | "card" | "pen" | "rectangle" | "ellipse" |
 interface CanvasEditorProps {
   canvas: CanvasDetailDto;
   onSaved: (canvas: CanvasDetailDto) => void;
+  onSaveStateChange?: (
+    state: "saved" | "pending" | "saving" | "error",
+  ) => void;
+  onRegisterSave?: (action: (() => void) | null) => void;
 }
 
 type Interaction =
@@ -50,7 +55,12 @@ const tools: ReadonlyArray<{ id: CanvasTool; label: string; shortcut: string }> 
   { id: "arrow", label: "Arrow", shortcut: "A" },
 ];
 
-export function CanvasEditor({ canvas, onSaved }: CanvasEditorProps) {
+export function CanvasEditor({
+  canvas,
+  onSaved,
+  onSaveStateChange,
+  onRegisterSave,
+}: CanvasEditorProps) {
   const [scene, setScene] = useState<CanvasScene>(canvas.scene);
   const [tool, setTool] = useState<CanvasTool>("select");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -64,43 +74,68 @@ export function CanvasEditor({ canvas, onSaved }: CanvasEditorProps) {
   const lastSavedRef = useRef(JSON.stringify(canvas.scene));
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
 
+  const queueSave = useCallback((
+    nextScene: CanvasScene,
+    reportState = true,
+  ): Promise<void> => {
+    const snapshot = JSON.stringify(nextScene);
+    if (snapshot === lastSavedRef.current) return saveChainRef.current;
+    if (reportState) {
+      setSaveState("saving");
+      setSaveError(null);
+    }
+    saveChainRef.current = saveChainRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        const updated = await updateCanvas(canvas.id, { scene: nextScene });
+        lastSavedRef.current = snapshot;
+        onSaved(updated);
+      })
+      .then(
+        () => {
+          if (reportState) {
+            setSaveState(JSON.stringify(sceneRef.current) === snapshot ? "saved" : "pending");
+          }
+        },
+        (cause: unknown) => {
+          if (reportState) {
+            setSaveState("error");
+            setSaveError(getErrorMessage(cause));
+          }
+        },
+      );
+    return saveChainRef.current;
+  }, [canvas.id, onSaved]);
+
   useEffect(() => {
     sceneRef.current = scene;
     const snapshot = JSON.stringify(scene);
     if (snapshot === lastSavedRef.current) return;
     setSaveState("pending");
     const timer = window.setTimeout(() => {
-      setSaveState("saving");
-      setSaveError(null);
-      saveChainRef.current = saveChainRef.current
-        .catch(() => undefined)
-        .then(async () => {
-          const updated = await updateCanvas(canvas.id, { scene });
-          lastSavedRef.current = snapshot;
-          onSaved(updated);
-        })
-        .then(
-          () => setSaveState(JSON.stringify(sceneRef.current) === snapshot ? "saved" : "pending"),
-          (cause: unknown) => {
-            setSaveState("error");
-            setSaveError(getErrorMessage(cause));
-          },
-        );
+      void queueSave(scene);
     }, 500);
     return () => window.clearTimeout(timer);
-  }, [canvas.id, onSaved, scene]);
+  }, [queueSave, scene]);
 
   useEffect(() => {
     return () => {
       const latestScene = sceneRef.current;
       if (JSON.stringify(latestScene) === lastSavedRef.current) return;
-      saveChainRef.current = saveChainRef.current
-        .catch(() => undefined)
-        .then(async () => {
-          await updateCanvas(canvas.id, { scene: latestScene });
-        });
+      void queueSave(latestScene, false);
     };
-  }, [canvas.id]);
+  }, [queueSave]);
+
+  useEffect(() => {
+    onSaveStateChange?.(saveState);
+  }, [onSaveStateChange, saveState]);
+
+  useEffect(() => {
+    onRegisterSave?.(() => {
+      void queueSave(sceneRef.current);
+    });
+    return () => onRegisterSave?.(null);
+  }, [onRegisterSave, queueSave]);
 
   function commit(next: CanvasScene) {
     setHistory((items) => [...items.slice(-49), scene]);

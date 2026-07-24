@@ -169,7 +169,7 @@ function notePathLabel(
 interface NoteDetailProps {
   detail: NoteDetailDto | null;
   importDraft: MarkdownImportDraft | null;
-  draftKey: number;
+  draftKey: string | number;
   mode: NoteViewMode;
   folderId: number | null;
   parentId: number | null;
@@ -245,6 +245,7 @@ export function NoteDetail({
     return (
       <NoteForm
         key={detail ? `edit-${detail.id}` : `create-${draftKey}`}
+        draftKey={draftKey}
         detail={mode === "edit" ? detail : null}
         importDraft={mode === "create" ? importDraft : null}
         initialFolderId={folderId}
@@ -383,6 +384,7 @@ export function NoteDetail({
 }
 
 interface NoteFormProps {
+  draftKey: string | number;
   detail: NoteDetailDto | null;
   importDraft: MarkdownImportDraft | null;
   initialFolderId: number | null;
@@ -401,6 +403,7 @@ interface NoteFormProps {
 }
 
 function NoteForm({
+  draftKey,
   detail,
   importDraft,
   initialFolderId,
@@ -705,7 +708,7 @@ function NoteForm({
           <div>
             <DetachedReaderWindow
               title={`${title.trim() || "Untitled note"} - Reader`}
-              windowKey={`ruider-note-${detail?.id ?? "draft"}`}
+              windowKey={`ruider-note-${detail?.id ?? draftKey}`}
               buttonLabel="Read"
               buttonPortalTargetId="babel-detached-reader-trigger-target"
               disabled={pending}

@@ -103,7 +103,7 @@ test("every reader control is portaled above its content heading", async () => {
     ["ReTex Exercise", "apps/retex/src/components/exercise-detail.tsx", 2],
     ["ReTex Scratch", "apps/retex/src/components/scratch-workspace.tsx", 1],
     ["Vali Notes", "apps/vali/src/components/note-detail.tsx", 2],
-    ["Vali Reflection", "apps/vali/src/components/reflection-workspace.tsx", 2],
+    ["Vali Reflection", "apps/vali/src/components/reflection-page-session.tsx", 2],
     ["Herodotus", "apps/herodotus/src/components/note-detail.tsx", 2],
     ["Leviathan", "apps/leviathan/src/components/note-detail.tsx", 2],
     ["Esperanto", "apps/esperanto/src/components/note-detail.tsx", 2],
