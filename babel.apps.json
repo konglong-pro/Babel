@@ -144,6 +144,42 @@
         "data/ruider/sqlite.db",
         "data/ruider/uploads/notes"
       ]
+    },
+    {
+      "name": "Matter",
+      "id": "matter",
+      "workspace": "apps/matter",
+      "port": 3008,
+      "healthPath": "/api/health",
+      "identityPath": "/knowledge",
+      "identityText": "Matter",
+      "readyTimeoutSeconds": 60,
+      "env": {
+        "MATTER_DATABASE_PATH": "data/matter/sqlite.db",
+        "MATTER_NOTE_UPLOAD_DIRECTORY": "data/matter/uploads/notes"
+      },
+      "requiredDataPaths": [
+        "data/matter/sqlite.db",
+        "data/matter/uploads/notes"
+      ]
+    },
+    {
+      "name": "Bio",
+      "id": "bio",
+      "workspace": "apps/bio",
+      "port": 3009,
+      "healthPath": "/api/health",
+      "identityPath": "/notes",
+      "identityText": "Bio",
+      "readyTimeoutSeconds": 60,
+      "env": {
+        "BIO_DATABASE_PATH": "data/bio/sqlite.db",
+        "BIO_UPLOAD_DIRECTORY": "data/bio/uploads/notes"
+      },
+      "requiredDataPaths": [
+        "data/bio/sqlite.db",
+        "data/bio/uploads/notes"
+      ]
     }
   ]
 }

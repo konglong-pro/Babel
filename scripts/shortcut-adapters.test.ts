@@ -102,6 +102,10 @@ test("every reader control is portaled to the right edge of its action row", asy
     ["ReTex Knowledge", "apps/retex/src/components/knowledge-detail.tsx", 2],
     ["ReTex Exercise", "apps/retex/src/components/exercise-detail.tsx", 2],
     ["ReTex Scratch", "apps/retex/src/components/scratch-workspace.tsx", 1],
+    ["Matter Knowledge", "apps/matter/src/components/knowledge-detail.tsx", 2],
+    ["Matter Exercise", "apps/matter/src/components/exercise-detail.tsx", 2],
+    ["Matter Scratch", "apps/matter/src/components/scratch-workspace.tsx", 1],
+    ["Bio", "apps/bio/src/components/note-detail.tsx", 2],
     ["Vali Notes", "apps/vali/src/components/note-detail.tsx", 2],
     ["Vali Reflection", "apps/vali/src/components/reflection-page-session.tsx", 2],
     ["Herodotus", "apps/herodotus/src/components/note-detail.tsx", 2],
@@ -134,6 +138,8 @@ test("every reader control is portaled to the right edge of its action row", asy
 
   const hierarchicalDetails = [
     ["ReTex Knowledge", "apps/retex/src/components/knowledge-detail.tsx"],
+    ["Matter Knowledge", "apps/matter/src/components/knowledge-detail.tsx"],
+    ["Bio", "apps/bio/src/components/note-detail.tsx"],
     ["Vali Notes", "apps/vali/src/components/note-detail.tsx"],
     ["Herodotus", "apps/herodotus/src/components/note-detail.tsx"],
     ["Leviathan", "apps/leviathan/src/components/note-detail.tsx"],
@@ -157,6 +163,8 @@ test("every reader control is portaled to the right edge of its action row", asy
 
   const formerHeadingTargets = [
     ["ReTex", "apps/retex/src/components/item-list.tsx"],
+    ["Matter", "apps/matter/src/components/item-list.tsx"],
+    ["Bio", "apps/bio/src/components/note-list.tsx"],
     ["Vali Notes", "apps/vali/src/components/note-list.tsx"],
     ["Vali Reflection", "apps/vali/src/components/reflection-workspace.tsx"],
     ["Herodotus", "apps/herodotus/src/components/note-list.tsx"],
@@ -177,13 +185,15 @@ test("every reader control is portaled to the right edge of its action row", asy
     );
   }
 
-  const scratchSource = await readFile(
-    path.join(root, "apps/retex/src/components/scratch-workspace.tsx"),
-    "utf8",
-  );
-  assert.match(
-    scratchSource,
-    /<div className="scratch-actions">[\s\S]*?Save Scratch[\s\S]*?<div id=\{readerTriggerId\} className="reader-trigger-slot"\s*\/>/,
-    "ReTex Scratch must place the Read target after Save Scratch",
-  );
+  for (const [label, relativePath] of [
+    ["ReTex", "apps/retex/src/components/scratch-workspace.tsx"],
+    ["Matter", "apps/matter/src/components/scratch-workspace.tsx"],
+  ] as const) {
+    const scratchSource = await readFile(path.join(root, relativePath), "utf8");
+    assert.match(
+      scratchSource,
+      /<div className="scratch-actions">[\s\S]*?Save Scratch[\s\S]*?<div id=\{readerTriggerId\} className="reader-trigger-slot"\s*\/>/,
+      `${label} Scratch must place the Read target after Save Scratch`,
+    );
+  }
 });

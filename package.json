@@ -28,7 +28,9 @@
     "dev:herodotus": "npm run dev -w @babel-apps/herodotus",
     "dev:leviathan": "npm run dev -w @babel-apps/leviathan",
     "dev:klsche": "npm run dev -w @babel-apps/klsche",
-    "dev:ruider": "npm run dev -w @babel-apps/ruider"
+    "dev:ruider": "npm run dev -w @babel-apps/ruider",
+    "dev:matter": "npm run dev -w @babel-apps/matter",
+    "dev:bio": "npm run dev -w @babel-apps/bio"
   },
   "dependencies": {
     "better-sqlite3": "12.11.1"

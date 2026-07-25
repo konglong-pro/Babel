@@ -37,6 +37,16 @@ const specializedAdapters: Readonly<
       "src/components/scratch-workspace.tsx",
     ],
   },
+  matter: {
+    adapters: [
+      "src/components/archive-page-session.tsx",
+      "src/components/scratch-workspace.tsx",
+    ],
+    workspaces: [
+      "src/components/archive-workspace.tsx",
+      "src/components/scratch-workspace.tsx",
+    ],
+  },
   ruider: {
     adapters: [
       "src/components/note-page-session.tsx",

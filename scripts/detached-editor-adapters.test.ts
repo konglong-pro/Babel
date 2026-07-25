@@ -8,6 +8,9 @@ const root = path.resolve(import.meta.dirname, "..");
 const editorTargets = [
   ["ReTex Knowledge", "apps/retex/src/components/knowledge-detail.tsx"],
   ["ReTex Exercise", "apps/retex/src/components/exercise-detail.tsx"],
+  ["Matter Knowledge", "apps/matter/src/components/knowledge-detail.tsx"],
+  ["Matter Exercise", "apps/matter/src/components/exercise-detail.tsx"],
+  ["Bio", "apps/bio/src/components/note-detail.tsx"],
   ["Vali Notes", "apps/vali/src/components/note-detail.tsx"],
   ["Vali Reflection", "apps/vali/src/components/reflection-page-session.tsx"],
   ["Neum", "apps/neum/src/components/entry-detail.tsx"],
@@ -49,20 +52,35 @@ test("every edit-mode Markdown surface uses the focused editor window", async ()
 });
 
 test("specialized editors keep relationship and code metadata in the main form", async () => {
-  const [knowledge, exercise, neum] = await Promise.all([
+  const [retexKnowledge, retexExercise, matterKnowledge, matterExercise, neum] = await Promise.all([
     readFile(path.join(root, "apps/retex/src/components/knowledge-detail.tsx"), "utf8"),
     readFile(path.join(root, "apps/retex/src/components/exercise-detail.tsx"), "utf8"),
+    readFile(path.join(root, "apps/matter/src/components/knowledge-detail.tsx"), "utf8"),
+    readFile(path.join(root, "apps/matter/src/components/exercise-detail.tsx"), "utf8"),
     readFile(path.join(root, "apps/neum/src/components/entry-detail.tsx"), "utf8"),
   ]);
 
   assert.ok(
-    knowledge.indexOf("</DetachedEditorWindow>") < knowledge.indexOf('legend="Link Exercises"'),
+    retexKnowledge.indexOf("</DetachedEditorWindow>") <
+      retexKnowledge.indexOf('legend="Link Exercises"'),
     "ReTex Knowledge relationships must remain after the focused editor host",
   );
-  assert.match(exercise, /className="babel-detached-editor-sections"/);
+  assert.match(retexExercise, /className="babel-detached-editor-sections"/);
   assert.ok(
-    exercise.indexOf("</ExerciseEditorHost>") < exercise.indexOf('legend="Link Knowledge"'),
+    retexExercise.indexOf("</ExerciseEditorHost>") <
+      retexExercise.indexOf('legend="Link Knowledge"'),
     "ReTex Exercise relationships must remain after the focused editor host",
+  );
+  assert.ok(
+    matterKnowledge.indexOf("</DetachedEditorWindow>") <
+      matterKnowledge.indexOf('legend="Link Exercises"'),
+    "Matter Knowledge relationships must remain after the focused editor host",
+  );
+  assert.match(matterExercise, /className="babel-detached-editor-sections"/);
+  assert.ok(
+    matterExercise.indexOf("</ExerciseEditorHost>") <
+      matterExercise.indexOf('legend="Link Knowledge"'),
+    "Matter Exercise relationships must remain after the focused editor host",
   );
   assert.ok(
     neum.indexOf("</DetachedEditorWindow>") < neum.indexOf('aria-label="Code snippet fields"'),
