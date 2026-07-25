@@ -224,6 +224,29 @@ test("keeps multiline and container heading ids aligned with the outline", () =>
   assert.match(html, /<h2 id="nested-heading">Nested heading<\/h2>/u);
 });
 
+test("keeps heading ids aligned after multiline formulas", () => {
+  const html = renderToStaticMarkup(createElement(MarkdownRenderer, {
+    content: [
+      "# Before",
+      "",
+      "$$",
+      String.raw`\begin{aligned}`,
+      "a &= b + c",
+      String.raw`\end{aligned}`,
+      "$$",
+      "",
+      "## After",
+      "## After",
+    ].join("\n"),
+    headingIdPrefix: "note-",
+    remarkFeatures: ["gfm", "formula-math"],
+  }));
+
+  assert.match(html, /<h2 id="note-before">Before<\/h2>/u);
+  assert.match(html, /<h3 id="note-after">After<\/h3>/u);
+  assert.match(html, /<h3 id="note-after-1">After<\/h3>/u);
+});
+
 test("keeps autolink and literal-delimiter heading ids aligned with the outline", () => {
   const html = renderToStaticMarkup(createElement(MarkdownRenderer, {
     content: [

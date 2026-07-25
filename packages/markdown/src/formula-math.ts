@@ -16,6 +16,13 @@ export interface PreparedFormulaMath {
   content: string;
   occurrences: readonly FormulaOccurrence[];
   markerPattern: RegExp;
+  /** Delimiter-inclusive source ranges for formulas that may span lines. */
+  blockRanges: readonly FormulaSourceRange[];
+}
+
+export interface FormulaSourceRange {
+  start: number;
+  end: number;
 }
 
 export interface FormulaEngineOptions {
@@ -98,6 +105,7 @@ export function prepareFormulaMath(
   const markerPrefix = unusedMarkerPrefix(markdown);
   const markerSuffix = "\uE001";
   const occurrences: FormulaOccurrence[] = [];
+  const blockRanges: FormulaSourceRange[] = [];
   let output = "";
   let cursor = 0;
   let searchFrom = 0;
@@ -145,8 +153,14 @@ export function prepareFormulaMath(
       ...lineAndColumn(markdown, sourceOffset),
       marker,
     });
-    output += markdown.slice(cursor, opening.index) + marker;
-    cursor = closing + delimiter.closing.length;
+    const formulaEnd = closing + delimiter.closing.length;
+    if (delimiter.multiline) {
+      blockRanges.push({ start: opening.index, end: formulaEnd });
+    }
+    output += markdown.slice(cursor, opening.index) +
+      marker +
+      sourceLineBreaks(markdown.slice(opening.index, formulaEnd));
+    cursor = formulaEnd;
     searchFrom = cursor;
     opening = nextOpening(markdown, codeMask, searchFrom, engines);
   }
@@ -159,7 +173,12 @@ export function prepareFormulaMath(
       `${escapeRegExp(markerPrefix)}(\\d+)${escapeRegExp(markerSuffix)}`,
       "gu",
     ),
+    blockRanges,
   };
+}
+
+function sourceLineBreaks(value: string): string {
+  return (value.match(/\r\n|\r|\n/gu) ?? []).join("");
 }
 
 /** Creates a remark transformer for one prepared Markdown document. */

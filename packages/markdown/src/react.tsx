@@ -49,7 +49,11 @@ import {
   type InlineMarker,
   type TextEditResult,
 } from "./editing";
-import { extractOutline, outlineSlugs } from "./outline";
+import {
+  extractOutline,
+  outlineSlugs,
+  sourceOffsetToTextareaOffset,
+} from "./outline";
 import { createRemarkFormulaMath, prepareFormulaMath } from "./formula-math";
 
 export type RemarkFeature = "gfm" | "typst-math" | "formula-math";
@@ -1364,15 +1368,9 @@ export function OutlinePanel({
       const textarea = textareaRef?.current;
       if (textarea === undefined || textarea === null) return;
       textarea.focus();
-      textarea.setSelectionRange(item.offset, item.offset);
-      const view = textarea.ownerDocument.defaultView;
-      const computedLineHeight = view === null
-        ? Number.NaN
-        : Number.parseFloat(view.getComputedStyle(textarea).lineHeight);
-      const lineHeight = Number.isFinite(computedLineHeight) ? computedLineHeight : 24;
-      textarea.scrollTo({
-        top: Math.max(0, (item.line - 1) * lineHeight - textarea.clientHeight / 3),
-      });
+      const textareaOffset = sourceOffsetToTextareaOffset(content, item.offset);
+      textarea.setSelectionRange(textareaOffset, textareaOffset);
+      scrollTextareaSelectionIntoView(textarea, textareaOffset);
       return;
     }
     const targetDocument = ownerDocument ?? textareaRef?.current?.ownerDocument ??
@@ -1383,8 +1381,10 @@ export function OutlinePanel({
       ? null
       : Array.from(page.querySelectorAll<HTMLElement>("[id]"))
           .find((element) => element.id === targetId) ?? null;
-    (pageTarget ?? targetDocument?.getElementById(targetId))
-      ?.scrollIntoView({ block: "start" });
+    const target = page === null
+      ? targetDocument?.getElementById(targetId) ?? null
+      : pageTarget;
+    target?.scrollIntoView({ block: "start", inline: "nearest" });
   }
 
   return (
@@ -1403,6 +1403,63 @@ export function OutlinePanel({
       </details>
     </nav>
   );
+}
+
+function scrollTextareaSelectionIntoView(
+  textarea: HTMLTextAreaElement,
+  selectionOffset: number,
+): void {
+  const view = textarea.ownerDocument.defaultView;
+  const parent = textarea.parentElement;
+  if (view === null || parent === null) return;
+
+  const computed = view.getComputedStyle(textarea);
+  const borderWidth =
+    finiteCssPixels(computed.borderLeftWidth) +
+    finiteCssPixels(computed.borderRightWidth);
+  const lineHeight = finiteCssPixels(computed.lineHeight) ||
+    finiteCssPixels(computed.fontSize) * 1.2 ||
+    24;
+  const mirror = textarea.cloneNode(false) as HTMLTextAreaElement;
+  mirror.removeAttribute("id");
+  mirror.removeAttribute("name");
+  mirror.removeAttribute("disabled");
+  mirror.removeAttribute("placeholder");
+  mirror.setAttribute("aria-hidden", "true");
+  mirror.tabIndex = -1;
+  mirror.value = textarea.value.slice(0, selectionOffset);
+  // A same-style textarea lets the browser measure its own soft wrapping.
+  Object.assign(mirror.style, {
+    position: "fixed",
+    inset: "0 auto auto -100000px",
+    visibility: "hidden",
+    pointerEvents: "none",
+    boxSizing: "border-box",
+    width: `${textarea.clientWidth + borderWidth}px`,
+    height: "0",
+    minHeight: "0",
+    maxHeight: "none",
+    overflow: "hidden",
+    resize: "none",
+  });
+
+  parent.append(mirror);
+  const caretTop = Math.max(
+    0,
+    mirror.scrollHeight - finiteCssPixels(computed.paddingBottom) - lineHeight,
+  );
+  mirror.remove();
+
+  const maxScrollTop = Math.max(0, textarea.scrollHeight - textarea.clientHeight);
+  textarea.scrollTop = Math.min(
+    maxScrollTop,
+    Math.max(0, caretTop - textarea.clientHeight / 3),
+  );
+}
+
+function finiteCssPixels(value: string): number {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function withImagePreviews(

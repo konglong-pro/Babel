@@ -122,6 +122,32 @@ test("supports multiline LaTeX display formulas", () => {
   assert.match(prepared.occurrences[0]?.source ?? "", /begin\{aligned\}/u);
 });
 
+test("preserves source line positions when replacing multiline formulas", () => {
+  for (const newline of ["\n", "\r\n"]) {
+    const markdown = [
+      "# Before",
+      "",
+      "$$",
+      String.raw`\begin{aligned}`,
+      "a &= b + c",
+      String.raw`\end{aligned}`,
+      "$$",
+      "",
+      "## After",
+    ].join(newline);
+    const prepared = prepareFormulaMath(markdown);
+    const lineOfAfter = (value: string) => {
+      return value.slice(0, value.indexOf("## After")).split(/\r\n|\r|\n/u).length;
+    };
+
+    assert.equal(lineOfAfter(prepared.content), lineOfAfter(markdown));
+    assert.equal(
+      (prepared.content.match(/\r\n|\r|\n/gu) ?? []).join(""),
+      (markdown.match(/\r\n|\r|\n/gu) ?? []).join(""),
+    );
+  }
+});
+
 test("keeps escaped delimiters and code regions literal", () => {
   const markdown = [
     String.raw`\\(not math\\) and \$not-typst$`,

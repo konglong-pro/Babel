@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { extractOutline, outlineSlugs } from "@babel-apps/markdown/outline";
+import {
+  extractOutline,
+  outlineSlugs,
+  sourceOffsetToTextareaOffset,
+} from "@babel-apps/markdown/outline";
 
 test("extracts ATX and Setext headings with source positions", () => {
   const markdown = [
@@ -205,6 +209,28 @@ test("ignores pseudo-headings in tilde fences", () => {
   ]);
 });
 
+test("ignores pseudo-headings inside multiline formulas", () => {
+  const markdown = [
+    "# First",
+    String.raw`\[`,
+    "# Formula ATX",
+    "Formula setext",
+    "---",
+    String.raw`\]`,
+    "# Real",
+  ].join("\n");
+
+  assert.deepEqual(extractOutline(markdown), [
+    { level: 1, text: "First", line: 1, offset: 0 },
+    {
+      level: 1,
+      text: "Real",
+      line: 7,
+      offset: markdown.indexOf("# Real"),
+    },
+  ]);
+});
+
 test("generates stable Unicode slugs with duplicate suffixes", () => {
   const outline = extractOutline("# Hello, 世界!\n## Hello 世界\n### !!!\n#### !!!");
   assert.deepEqual(outlineSlugs(outline), [
@@ -213,4 +239,19 @@ test("generates stable Unicode slugs with duplicate suffixes", () => {
     "section",
     "section-1",
   ]);
+});
+
+test("maps source offsets to the textarea's normalized line endings", () => {
+  const markdown = "# First\r\nbody\r\n## Target";
+  const sourceOffset = markdown.indexOf("## Target");
+
+  assert.equal(
+    sourceOffsetToTextareaOffset(markdown, sourceOffset),
+    "# First\nbody\n".length,
+  );
+  assert.equal(sourceOffsetToTextareaOffset(markdown, -1), 0);
+  assert.equal(
+    sourceOffsetToTextareaOffset(markdown, markdown.length + 10),
+    markdown.replace(/\r\n/gu, "\n").length,
+  );
 });

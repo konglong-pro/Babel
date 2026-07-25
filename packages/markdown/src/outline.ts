@@ -1,4 +1,8 @@
 import { maskFencedCodeRegions, preprocessWikilinks } from "./core";
+import {
+  prepareFormulaMath,
+  type FormulaSourceRange,
+} from "./formula-math";
 
 export interface OutlineItem {
   level: number;
@@ -30,17 +34,19 @@ interface ParsedOutlineLine extends SourceLine {
   content: string;
   containerKey: string;
   fenced: boolean;
+  formula: boolean;
   referenceDefinition: boolean;
 }
 
 export function extractOutline(markdown: string): OutlineItem[] {
   const codeMask = maskFencedCodeRegions(markdown);
-  const lines = parseOutlineLines(markdown, codeMask);
+  const formulaRanges = prepareFormulaMath(markdown).blockRanges;
+  const lines = parseOutlineLines(markdown, codeMask, formulaRanges);
   const outline: OutlineItem[] = [];
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
-    if (line.fenced) continue;
+    if (line.fenced || line.formula) continue;
 
     const atx = atxHeading(line.content);
     if (atx !== null) {
@@ -82,6 +88,15 @@ export function outlineSlugs(outline: readonly OutlineItem[]): string[] {
   });
 }
 
+export function sourceOffsetToTextareaOffset(
+  markdown: string,
+  sourceOffset: number,
+): number {
+  // HTML textareas normalize CRLF to LF even when application state does not.
+  const boundedOffset = Math.min(markdown.length, Math.max(0, sourceOffset));
+  return markdown.slice(0, boundedOffset).replace(/\r\n/gu, "\n").length;
+}
+
 function sourceLines(markdown: string): SourceLine[] {
   const lines: SourceLine[] = [];
   let start = 0;
@@ -109,15 +124,27 @@ function sourceLines(markdown: string): SourceLine[] {
 function parseOutlineLines(
   markdown: string,
   codeMask: Uint8Array,
+  formulaRanges: readonly FormulaSourceRange[],
 ): ParsedOutlineLine[] {
   const source = sourceLines(markdown);
   const state: OutlineContainerState = { containers: [], nextListId: 1 };
   const parsed: ParsedOutlineLine[] = [];
   let paragraphOpen = false;
   let referenceDefinitionEnd = -1;
+  let formulaRangeIndex = 0;
 
   for (let index = 0; index < source.length; index += 1) {
     const line = source[index];
+    while (
+      formulaRanges[formulaRangeIndex] !== undefined &&
+      formulaRanges[formulaRangeIndex].end <= line.start
+    ) {
+      formulaRangeIndex += 1;
+    }
+    const formulaRange = formulaRanges[formulaRangeIndex];
+    const formula = formulaRange !== undefined &&
+      formulaRange.start <= line.start &&
+      line.start < formulaRange.end;
     const contentOffset = containerContentOffset(line.text, state, {
       allowLazyContinuation: paragraphOpen,
       paragraphOpen,
@@ -127,9 +154,9 @@ function parseOutlineLines(
     const containerKey = state.containers.map((container) => (
       container.kind === "blockquote" ? "q" : `l${container.id}`
     )).join("/");
-    let referenceDefinition = !fenced && index <= referenceDefinitionEnd;
+    let referenceDefinition = !fenced && !formula && index <= referenceDefinitionEnd;
 
-    if (!fenced && !paragraphOpen && !referenceDefinition) {
+    if (!fenced && !formula && !paragraphOpen && !referenceDefinition) {
       const candidates = referenceDefinitionCandidates(
         source,
         index,
@@ -145,7 +172,7 @@ function parseOutlineLines(
       }
     }
 
-    if (fenced) {
+    if (fenced || formula) {
       paragraphOpen = false;
       state.containers = [];
     } else if (referenceDefinition) {
@@ -158,6 +185,7 @@ function parseOutlineLines(
       content,
       containerKey,
       fenced,
+      formula,
       referenceDefinition,
     });
   }
@@ -181,6 +209,7 @@ function setextParagraph(
     const line = lines[index];
     if (
       line.fenced ||
+      line.formula ||
       line.referenceDefinition ||
       line.containerKey !== underline.containerKey ||
       !isSetextParagraphLine(line.content)
