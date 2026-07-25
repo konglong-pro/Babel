@@ -1,8 +1,16 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { resolveIsolatedEnvironmentPaths } from "../src/build/next";
+import BetterSqlite3 from "better-sqlite3";
+
+import {
+  initializeIsolatedBuildDatabases,
+  resolveIsolatedEnvironmentPaths,
+} from "../src/build/next";
 
 test("isolated Next build paths share one temporary root", () => {
   const root = path.resolve("temporary-build-root");
@@ -31,4 +39,31 @@ test("isolated Next build paths reject empty and escaping paths", () => {
     }),
     /escapes its temporary root/i,
   );
+});
+
+test("isolated Next builds initialize disposable databases in WAL mode", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "babel-platform-build-"));
+  const databasePath = path.join(root, "nested", "sqlite.db");
+  const uploadPath = path.join(root, "uploads");
+
+  try {
+    initializeIsolatedBuildDatabases({
+      APP_DATABASE_PATH: databasePath,
+      APP_UPLOAD_DIRECTORY: uploadPath,
+    });
+
+    const first = new BetterSqlite3(databasePath);
+    const second = new BetterSqlite3(databasePath);
+    try {
+      assert.equal(first.pragma("journal_mode", { simple: true }), "wal");
+      assert.equal(second.pragma("journal_mode = WAL", { simple: true }), "wal");
+    } finally {
+      second.close();
+      first.close();
+    }
+
+    assert.equal(existsSync(uploadPath), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
