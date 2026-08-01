@@ -1,4 +1,5 @@
 import { EntriesWorkspace } from "@/components/entries-workspace";
+import { entrySearchFocusFromParams } from "@/lib/search-focus";
 import type { EntryKind } from "@/lib/types";
 
 interface EntryWorkspacePageProps {
@@ -20,13 +21,15 @@ export async function EntryWorkspacePage({
   const params = await searchParams;
   const folderId = numberParam(params.folder);
   const entryId = numberParam(params.entry);
+  const searchFocus = entryId === null ? null : entrySearchFocusFromParams(params);
 
   return (
     <EntriesWorkspace
-      key={`${kind}:folder:${folderId ?? "all"}:entry:${entryId ?? "none"}`}
+      key={`${kind}:folder:${folderId ?? "all"}:entry:${entryId ?? "none"}:search:${searchFocus?.field ?? "none"}:${searchFocus?.query ?? ""}`}
       kind={kind}
       initialFolderId={folderId}
       initialEntryId={entryId}
+      initialSearchFocus={searchFocus}
     />
   );
 }

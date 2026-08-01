@@ -16,6 +16,7 @@ import {
   listBacklinks,
 } from "@/lib/api-client";
 import type { MarkdownImportDraft } from "@/lib/markdown-import";
+import type { ValiSearchFocus } from "@/lib/search-focus";
 import type {
   DocumentBacklinkDto,
   FolderDto,
@@ -38,6 +39,7 @@ interface NotePageSessionProps {
   folders: FolderDto[];
   notes: NoteSummaryDto[];
   templates: NoteTemplateDto[];
+  searchFocus: ValiSearchFocus | null;
   onOpenNote: (id: number, folderId?: number) => void;
   onOpenDraft: (input: Omit<NoteDraftSession, "title"> & { title?: string }) => void;
   onOpenReflection: (date: string) => void;
@@ -64,6 +66,7 @@ export function NotePageSession({
   folders,
   notes,
   templates,
+  searchFocus,
   onOpenNote,
   onOpenDraft,
   onOpenReflection,
@@ -210,6 +213,7 @@ export function NotePageSession({
         folders={folders}
         notes={notes}
         templates={templates}
+        searchFocus={searchFocus}
         backlinks={backlinks}
         loading={loading}
         onEdit={() => setMode("edit")}

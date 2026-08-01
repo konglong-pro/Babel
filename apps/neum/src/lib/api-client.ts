@@ -18,6 +18,9 @@ interface ApiErrorBody {
   };
 }
 
+const RETRYABLE_READ_STATUSES = new Set([500, 502, 503, 504]);
+const READ_RETRY_DELAY_MS = 120;
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -30,9 +33,18 @@ export class ApiError extends Error {
   }
 }
 
+function waitForRetry(): Promise<void> {
+  return new Promise((resolve) => {
+    globalThis.setTimeout(resolve, READ_RETRY_DELAY_MS);
+  });
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
+  const method = (init?.method ?? "GET").toUpperCase();
+  const isRead = method === "GET";
+  const requestInit: RequestInit = {
     ...init,
+    ...(isRead ? { cache: init?.cache ?? "no-store" } : {}),
     headers: {
       ...(init?.body instanceof FormData
         ? {}
@@ -41,7 +53,33 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
           : {}),
       ...init?.headers,
     },
-  });
+  };
+
+  let response: Response | undefined;
+  const attempts = isRead ? 2 : 1;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      response = await fetch(path, requestInit);
+    } catch (error) {
+      if (attempt === attempts - 1 || init?.signal?.aborted) throw error;
+      await waitForRetry();
+      continue;
+    }
+
+    if (
+      attempt < attempts - 1 &&
+      RETRYABLE_READ_STATUSES.has(response.status)
+    ) {
+      await response.body?.cancel();
+      await waitForRetry();
+      continue;
+    }
+    break;
+  }
+
+  if (response === undefined) {
+    throw new Error("The request could not be completed.");
+  }
 
   if (response.status === 204) return undefined as T;
 

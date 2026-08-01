@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,6 +9,7 @@ import BetterSqlite3 from "better-sqlite3";
 
 import {
   initializeIsolatedBuildDatabases,
+  removeNextTypeScriptBuildCache,
   resolveIsolatedEnvironmentPaths,
 } from "../src/build/next";
 
@@ -63,6 +64,24 @@ test("isolated Next builds initialize disposable databases in WAL mode", async (
     }
 
     assert.equal(existsSync(uploadPath), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("isolated Next builds discard a stale TypeScript build cache", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "babel-platform-build-"));
+  const cacheDirectory = path.join(root, ".next", "cache");
+  const cachePath = path.join(cacheDirectory, ".tsbuildinfo");
+
+  try {
+    await mkdir(cacheDirectory, { recursive: true });
+    await writeFile(cachePath, "stale cache", "utf8");
+
+    removeNextTypeScriptBuildCache(root);
+
+    assert.equal(existsSync(cachePath), false);
+    assert.equal(existsSync(cacheDirectory), true);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

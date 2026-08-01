@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 
 import { formatDate } from "@/components/shared";
 import { getErrorMessage, searchNotes } from "@/lib/api-client";
+import { documentSearchResultHref } from "@/lib/search-focus";
 import type {
   DocumentKind,
   DocumentSearchField,
@@ -110,10 +111,7 @@ export function SearchResults({ query }: { query: string }) {
         <ul className="search-result-list" aria-label="Search results">
           {results.results.map((result) => (
             <li key={result.kind === "note" ? `note:${result.id}` : `reflection:${result.date}`}>
-              <Link href={result.kind === "note"
-                ? `/notes?folder=${result.folderId}&note=${result.id}`
-                : `/reflection?date=${encodeURIComponent(result.date)}`}
-              >
+              <Link href={documentSearchResultHref(result, query)}>
                 <span className="eyebrow">{DOCUMENT_KIND_LABELS[result.kind]}</span>
                 <strong><HighlightedText parts={result.match.title} /></strong>
                 <span className="search-match-fields">

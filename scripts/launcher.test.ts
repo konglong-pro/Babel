@@ -178,6 +178,42 @@ test("the GUI retains the complete health and identity contract", () => {
   assert.match(startAllSource, /Start-AppHealthProbe\s+-App\s+\$app/i);
 });
 
+test("managed workers survive transient listener probe failures", () => {
+  const waitForStopSource =
+    workerSource.match(
+      /function\s+Wait-ForStopRequest\b([\s\S]*?)\$babelRoot\s*=/i,
+    )?.[1] ?? "";
+
+  assert.match(
+    waitForStopSource,
+    /\$entry\.RootProcess\.Refresh\(\)[\s\S]*?\$entry\.RootProcess\.HasExited/i,
+    "the worker must still detect an exited managed process",
+  );
+  assert.doesNotMatch(
+    waitForStopSource,
+    /Test-TcpPort|Test-AppHealth|stopped listening unexpectedly/i,
+    "a transient probe miss must not trigger destructive worker cleanup",
+  );
+});
+
+test("the GUI bounds background status probe frequency", () => {
+  const statusRefreshSource =
+    guiSource.match(
+      /function\s+Refresh-AppStatuses\b([\s\S]*?)function\s+Update-LogView/i,
+    )?.[1] ?? "";
+
+  assert.match(
+    statusRefreshSource,
+    /\.TotalSeconds\s+-ge\s+10\b/i,
+    "background HTTP health probes must be spaced out",
+  );
+  assert.match(
+    guiSource,
+    /\$timer\.Interval\s*=\s*\[TimeSpan\]::FromSeconds\(2\)/i,
+    "GUI status polling must leave breathing room for notebook processes",
+  );
+});
+
 test("notebooks have independent workers and the five product states", () => {
   assert.match(guiSource, /\$script:WorkersById\s*=\s*@\{\}/i);
   assert.doesNotMatch(guiSource, /\$script:Worker\s*=\s*\$null/i);

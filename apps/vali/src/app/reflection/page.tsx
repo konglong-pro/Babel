@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { ReflectionWorkspace } from "@/components/reflection-workspace";
+import { valiSearchFocusFromParams } from "@/lib/search-focus";
 
 export const metadata: Metadata = {
   title: "Reflection",
@@ -16,5 +17,12 @@ export default async function ReflectionPage({ searchParams }: ReflectionPagePro
   const initialDate = rawDate && /^\d{4}-\d{2}-\d{2}$/.test(rawDate)
     ? rawDate
     : null;
-  return <ReflectionWorkspace initialDate={initialDate} />;
+  const searchFocus = initialDate === null ? null : valiSearchFocusFromParams(params);
+  return (
+    <ReflectionWorkspace
+      key={`date:${initialDate ?? "none"}:search:${searchFocus?.field ?? "none"}:${searchFocus?.query ?? ""}`}
+      initialDate={initialDate}
+      initialSearchFocus={searchFocus}
+    />
+  );
 }

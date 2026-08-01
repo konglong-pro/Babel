@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { getErrorMessage, searchArchive } from "@/lib/api-client";
+import { archiveSearchResultHref } from "@/lib/search-focus";
 import type {
   ExerciseSearchResultDto,
   KnowledgeSearchResultDto,
@@ -129,7 +130,11 @@ export function SearchResults({ query }: { query: string }) {
           <ul className="search-result-list">
             {results.knowledge.map((item) => (
               <li key={item.id}>
-                <Link href={`/knowledge?folder=${item.folderId}&item=${item.id}`}>
+                <Link href={archiveSearchResultHref("knowledge", {
+                  folderId: item.folderId,
+                  itemId: item.id,
+                  searchFocus: { query, field: item.match.snippet.field },
+                })}>
                   <SearchResultContent item={item} typeLabel="Knowledge" />
                 </Link>
               </li>
@@ -155,7 +160,11 @@ export function SearchResults({ query }: { query: string }) {
           <ul className="search-result-list">
             {results.exercises.map((item) => (
               <li key={item.id}>
-                <Link href={`/exercise?folder=${item.folderId}&item=${item.id}`}>
+                <Link href={archiveSearchResultHref("exercise", {
+                  folderId: item.folderId,
+                  itemId: item.id,
+                  searchFocus: { query, field: item.match.snippet.field },
+                })}>
                   <SearchResultContent item={item} typeLabel="Exercise" />
                 </Link>
               </li>

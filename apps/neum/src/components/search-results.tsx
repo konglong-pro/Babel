@@ -103,6 +103,10 @@ export function SearchResults({ query }: { query: string }) {
               <Link href={entryWorkspaceHref(entry.kind, {
                 folderId: entry.folderId,
                 entryId: entry.id,
+                searchFocus: {
+                  query,
+                  field: entry.match.snippet.field,
+                },
               })}>
                 <span className="eyebrow">{entryKindLabel(entry.kind)}</span>
                 <strong><HighlightedText parts={entry.match.title} /></strong>

@@ -1128,10 +1128,6 @@ function Wait-ForStopRequest {
                 if ($entry.RootProcess.HasExited) {
                     throw "$($entry.App.Name) stopped unexpectedly (exit code $($entry.RootProcess.ExitCode))."
                 }
-
-                if (-not (Test-TcpPort -ComputerName "127.0.0.1" -Port $entry.App.Port)) {
-                    throw "$($entry.App.Name) stopped listening unexpectedly."
-                }
             }
             $nextProcessCheck = [DateTime]::UtcNow.AddSeconds(1)
         }

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { appendSearchFocus } from "@babel-apps/platform/search/focus";
 
 import { formatDate } from "@/components/shared";
 import { getErrorMessage, searchNotes } from "@/lib/api-client";
@@ -24,6 +25,20 @@ const SEARCH_FIELD_LABELS: Record<NoteSearchField, string> = {
   content: "Body",
   tags: "Tags",
 };
+
+function noteSearchHref(
+  folderId: number,
+  noteId: number,
+  query: string,
+  field: NoteSearchField,
+): string {
+  const params = new URLSearchParams({
+    folder: String(folderId),
+    note: String(noteId),
+  });
+  appendSearchFocus(params, { query, field });
+  return `/notes?${params.toString()}`;
+}
 
 export function SearchResults({ query }: { query: string }) {
   const [results, setResults] = useState<SearchResultsDto>(EMPTY_RESULTS);
@@ -105,7 +120,12 @@ export function SearchResults({ query }: { query: string }) {
         <ul className="search-result-list" aria-label="Search results">
           {results.notes.map((note) => (
             <li key={note.id}>
-              <Link href={`/notes?folder=${note.folderId}&note=${note.id}`}>
+              <Link href={noteSearchHref(
+                note.folderId,
+                note.id,
+                query,
+                note.match.snippet.field,
+              )}>
                 <span className="eyebrow">Note</span>
                 <strong><HighlightedText parts={note.match.title} /></strong>
                 <span className="search-match-fields">

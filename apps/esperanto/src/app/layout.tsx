@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 import "@babel-apps/markdown/reference.css";
 import "@babel-apps/platform/pages.css";
+import "@babel-apps/platform/search.css";
 import "@babel-apps/platform/shortcuts.css";
 import "./globals.css";
 

@@ -48,6 +48,7 @@ test("folder leaves retain disclosure controls and selected ancestors reveal", (
       activeReferencePanel: null,
       onOpenMarkdownReference() {},
       onOpenTypstReference() {},
+      onRetry() {},
       onSelect() {},
       async onCreate() {},
       async onRename() {},
@@ -59,6 +60,30 @@ test("folder leaves retain disclosure controls and selected ancestors reveal", (
   assert.match(markup, /aria-label="Collapse Root"/);
   assert.match(markup, /aria-label="Expand Leaf"/);
   assert.match(markup, /\+ New subfolder/);
+});
+
+test("folder load failures are recoverable and never look like an empty library", () => {
+  const markup = renderToStaticMarkup(
+    createElement(FolderPanel, {
+      folders: [],
+      selectedId: 2,
+      loadError: "The server failed to process the request.",
+      activeReferencePanel: null,
+      onOpenMarkdownReference() {},
+      onOpenTypstReference() {},
+      onRetry() {},
+      onSelect() {},
+      async onCreate() {},
+      async onRename() {},
+      async onMove() {},
+      async onDelete() {},
+    }),
+  );
+
+  assert.match(markup, /Folders could not be loaded/);
+  assert.match(markup, />Retry</);
+  assert.doesNotMatch(markup, /No folders yet/);
+  assert.match(markup, /aria-label="Create folder"[^>]*disabled/);
 });
 
 test("entry leaves retain disclosure controls and selected ancestors reveal", () => {

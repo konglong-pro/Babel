@@ -41,6 +41,7 @@ import type {
   EntrySummaryDto,
   FolderDto,
 } from "@/lib/types";
+import type { EntrySearchFocus } from "@/lib/search-focus";
 
 type ResponsiveStage = "library" | "entries" | "entry";
 const PAGE_LIMIT = 100;
@@ -49,6 +50,7 @@ interface EntriesWorkspaceProps {
   kind: EntryKind;
   initialFolderId?: number | null;
   initialEntryId?: number | null;
+  initialSearchFocus?: EntrySearchFocus | null;
 }
 
 function savedEntryId(pageKey: string | null): number | null {
@@ -61,6 +63,7 @@ export function EntriesWorkspace({
   kind,
   initialFolderId = null,
   initialEntryId = null,
+  initialSearchFocus = null,
 }: EntriesWorkspaceProps) {
   const { pages, activeKey, activatePage, closePage, openPage } = usePageSessions();
   const pageKind = entryUnitLabel(kind);
@@ -72,6 +75,8 @@ export function EntriesWorkspace({
     initialEntryId !== null ? "entry" : initialFolderId !== null ? "entries" : "library",
   );
   const [indexLoading, setIndexLoading] = useState(true);
+  const [folderLoading, setFolderLoading] = useState(true);
+  const [folderLoadError, setFolderLoadError] = useState("");
   const [entryPageLoading, setEntryPageLoading] = useState(false);
   const [error, setError] = useState("");
   const [drafts, setDrafts] = useState<Record<string, EntryDraftSession>>({});
@@ -96,10 +101,25 @@ export function EntriesWorkspace({
     setEntryTotal(page.total);
   }, [kind]);
 
+  const refreshFolders = useCallback(async () => {
+    setFolderLoading(true);
+    setFolderLoadError("");
+    try {
+      setFolders(await listFolders());
+    } catch (caught) {
+      setFolderLoadError(getErrorMessage(caught));
+      throw caught;
+    } finally {
+      setFolderLoading(false);
+    }
+  }, []);
+
   const refreshIndex = useCallback(async (folderId: number | null) => {
     const requestId = ++indexRequestRef.current;
-    const [nextFolders, page] = await Promise.all([
-      listFolders(),
+    // Restoring an open page can supersede the entry request below. Commit
+    // folders independently so that race never discards a successful folder load.
+    const [, pageResult] = await Promise.allSettled([
+      refreshFolders(),
       listEntries({
         folderId: folderId ?? undefined,
         includeDescendants: true,
@@ -109,11 +129,11 @@ export function EntriesWorkspace({
       }),
     ]);
     if (requestId !== indexRequestRef.current) return;
+    if (pageResult.status === "rejected") throw pageResult.reason;
     loadedFolderRef.current = folderId;
-    setFolders(nextFolders);
-    setEntries(page.items);
-    setEntryTotal(page.total);
-  }, [kind]);
+    setEntries(pageResult.value.items);
+    setEntryTotal(pageResult.value.total);
+  }, [kind, refreshFolders]);
 
   useEffect(() => {
     let active = true;
@@ -324,7 +344,7 @@ export function EntriesWorkspace({
   async function handleRenameFolder(id: number, name: string) {
     try {
       await updateFolder(id, { name });
-      setFolders(await listFolders());
+      await refreshFolders();
     } catch (caught) {
       setError(getErrorMessage(caught));
     }
@@ -333,7 +353,7 @@ export function EntriesWorkspace({
   async function handleMoveFolder(id: number, parentId: number | null) {
     try {
       await updateFolder(id, { parentId });
-      setFolders(await listFolders());
+      await refreshFolders();
     } catch (caught) {
       setError(getErrorMessage(caught));
     }
@@ -412,10 +432,14 @@ export function EntriesWorkspace({
       <FolderPanel
         folders={folders}
         selectedId={visibleFolderId}
-        busy={indexLoading && folders.length === 0}
+        busy={folderLoading && folders.length === 0}
+        loadError={folderLoadError}
         activeReferencePanel={activeReferencePanel}
         onOpenMarkdownReference={() => openReferencePanel("markdown")}
         onOpenTypstReference={() => openReferencePanel("typst")}
+        onRetry={() => {
+          void refreshFolders().catch(() => undefined);
+        }}
         onSelect={selectFolder}
         onCreate={handleCreateFolder}
         onRename={handleRenameFolder}
@@ -460,6 +484,7 @@ export function EntriesWorkspace({
                 kind={kind}
                 folders={folders}
                 entries={entries}
+                searchFocus={entryId === initialEntryId ? initialSearchFocus : null}
                 onOpenEntry={openEntry}
                 onOpenDraft={openDraft}
                 onRefreshIndex={refreshIndex}

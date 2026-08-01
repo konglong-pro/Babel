@@ -6,6 +6,7 @@ import {
   usePageSessionLifecycle,
   usePageSessions,
 } from "@babel-apps/platform/pages/react";
+import type { SearchFocus } from "@babel-apps/platform/search/focus";
 import type { PageSessionDescriptor } from "@babel-apps/platform/pages/core";
 
 import { NoteDetail, type NoteViewMode } from "@/components/note-detail";
@@ -20,6 +21,7 @@ import type {
   BacklinkDto,
   FolderDto,
   NoteDetailDto,
+  NoteSearchField,
   NoteSummaryDto,
   NoteTemplateDto,
 } from "@/lib/types";
@@ -38,6 +40,7 @@ interface NotePageSessionProps {
   folders: FolderDto[];
   notes: NoteSummaryDto[];
   templates: NoteTemplateDto[];
+  searchFocus: SearchFocus<NoteSearchField> | null;
   onOpenNote: (id: number, folderId?: number) => void;
   onOpenDraft: (input: Omit<NoteDraftSession, "title"> & { title?: string }) => void;
   onRefreshIndex: () => Promise<void>;
@@ -63,6 +66,7 @@ export function NotePageSession({
   folders,
   notes,
   templates,
+  searchFocus,
   onOpenNote,
   onOpenDraft,
   onRefreshIndex,
@@ -221,6 +225,7 @@ export function NotePageSession({
         folders={folders}
         notes={notes}
         templates={templates}
+        searchFocus={searchFocus}
         backlinks={backlinks}
         loading={loading}
         onEdit={() => setMode("edit")}

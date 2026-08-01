@@ -17,6 +17,7 @@ import {
 } from "@/lib/api-client";
 import { entryUnitLabel, entryWorkspaceHref } from "@/lib/entry-routes";
 import type { MarkdownImportDraft } from "@/lib/markdown-import";
+import type { EntrySearchFocus } from "@/lib/search-focus";
 import type {
   EntryBacklinkDto,
   EntryDetailDto,
@@ -40,6 +41,7 @@ interface EntryPageSessionProps {
   kind: EntryKind;
   folders: FolderDto[];
   entries: EntrySummaryDto[];
+  searchFocus: EntrySearchFocus | null;
   onOpenEntry: (
     id: number,
     kind: EntryKind,
@@ -73,6 +75,7 @@ export function EntryPageSession({
   kind,
   folders,
   entries,
+  searchFocus,
   onOpenEntry,
   onOpenDraft,
   onRefreshIndex,
@@ -230,6 +233,7 @@ export function EntryPageSession({
         parentId={mode === "create" ? draft?.parentId ?? null : detail?.parentId ?? null}
         folders={folders}
         entries={entries}
+        searchFocus={searchFocus}
         backlinks={backlinks}
         loading={loading}
         onEdit={() => setMode("edit")}

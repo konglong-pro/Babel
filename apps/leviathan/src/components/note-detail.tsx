@@ -12,6 +12,11 @@ import {
   type ResolvedWikilink,
 } from "@babel-apps/markdown/react";
 import {
+  literalSourceLine,
+  type SearchFocus,
+} from "@babel-apps/platform/search/focus";
+import { focusSearchMatch } from "@babel-apps/platform/search/focus-client";
+import {
   type FormEvent,
   useCallback,
   useEffect,
@@ -47,6 +52,7 @@ import type {
   BacklinkDto,
   FolderDto,
   NoteDetailDto,
+  NoteSearchField,
   NoteSummaryDto,
   NoteTemplateDto,
 } from "@/lib/types";
@@ -177,6 +183,7 @@ interface NoteDetailProps {
   folders: FolderDto[];
   notes: NoteSummaryDto[];
   templates: NoteTemplateDto[];
+  searchFocus: SearchFocus<NoteSearchField> | null;
   backlinks: BacklinkDto[];
   loading?: boolean;
   onEdit: () => void;
@@ -202,6 +209,7 @@ export function NoteDetail({
   folders,
   notes,
   templates,
+  searchFocus,
   backlinks,
   loading,
   onEdit,
@@ -238,6 +246,48 @@ export function NoteDetail({
     void onCreateWikilink(title, targetFolderId);
   }, [detail?.folderId, folderId, onCreateWikilink]);
   const readerTriggerId = `leviathan-note-${detail?.id ?? draftKey}-reader-trigger`;
+
+  const detailId = detail?.id;
+  const detailRootRef = useRef<HTMLElement>(null);
+  const searchFocusField = searchFocus?.field;
+  const searchFocusQuery = searchFocus?.query;
+  const focusSourceLine = useMemo(
+    () => searchFocusField === "content" && searchFocusQuery !== undefined
+      ? literalSourceLine(detail?.contentMd ?? "", searchFocusQuery)
+      : undefined,
+    [detail?.contentMd, searchFocusField, searchFocusQuery],
+  );
+
+  useEffect(() => {
+    const root = detailRootRef.current;
+    if (
+      root === null ||
+      detailId === undefined ||
+      mode !== "view" ||
+      searchFocusField === undefined ||
+      searchFocusQuery === undefined
+    ) {
+      return;
+    }
+    const view = root.ownerDocument.defaultView;
+    if (view === null) return;
+    let stopFocus: (() => void) | undefined;
+    const frame = view.requestAnimationFrame(() => {
+      stopFocus = focusSearchMatch(
+        root,
+        { field: searchFocusField, query: searchFocusQuery },
+        {
+          title: ".document-header h1",
+          tags: '.document-header [data-search-field="tags"]',
+          content: ".document-content .markdown-body",
+        },
+      );
+    });
+    return () => {
+      view.cancelAnimationFrame(frame);
+      stopFocus?.();
+    };
+  }, [detailId, mode, searchFocusField, searchFocusQuery]);
 
   if (loading) {
     return <section className="detail-panel panel-status detail-loading">Loading note…</section>;
@@ -281,7 +331,7 @@ export function NoteDetail({
   }
 
   return (
-    <article className="detail-panel document-view">
+    <article ref={detailRootRef} className="detail-panel document-view">
       <button className="content-back" type="button" onClick={onBack}>
         <span aria-hidden="true">←</span> Notes
       </button>
@@ -349,6 +399,7 @@ export function NoteDetail({
         <section className="document-content" aria-label="Note content">
           <MarkdownRenderer
             content={detail.contentMd}
+            focusSourceLine={focusSourceLine}
             remarkFeatures={REMARK_FEATURES}
             uploadScheme="leviathan-upload"
             resolveWikilink={resolveWikilink}

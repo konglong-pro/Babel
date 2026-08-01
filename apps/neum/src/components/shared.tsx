@@ -5,10 +5,12 @@ import { type ReactNode, useRef, useState } from "react";
 import type { EntryKind, FolderDto } from "@/lib/types";
 
 export function Tags({ tags }: { tags: readonly string[] }) {
-  if (tags.length === 0) return <span className="muted no-tags">No tags</span>;
+  if (tags.length === 0) {
+    return <span className="muted no-tags" data-search-field="tags">No tags</span>;
+  }
 
   return (
-    <ul className="tag-list" aria-label="Tags">
+    <ul className="tag-list" aria-label="Tags" data-search-field="tags">
       {tags.map((tag) => (
         <li key={tag.toLocaleLowerCase("en-US")}>{tag}</li>
       ))}

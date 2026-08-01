@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { type FormEvent, type MouseEvent, useState } from "react";
+import { openSearchWindow } from "@babel-apps/platform/search/window";
 
 import { RomanTempleLogo } from "@/components/roman-temple-logo";
 
@@ -22,8 +22,8 @@ function navigationAllowed(destination: string): boolean {
 }
 
 export function AppHeader() {
-  const router = useRouter();
   const [query, setQuery] = useState("");
+  const [searchWindowError, setSearchWindowError] = useState("");
 
   function visitHome(event: MouseEvent<HTMLAnchorElement>) {
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -35,8 +35,15 @@ export function AppHeader() {
     const value = query.trim();
     if (!value) return;
     const destination = `/search?q=${encodeURIComponent(value)}`;
-    if (!navigationAllowed(destination)) return;
-    router.push(destination);
+    setSearchWindowError("");
+    if (!openSearchWindow(
+      window,
+      destination,
+      "babel-leviathan-search",
+      { sessionStorageKeys: ["babel:leviathan:pages"] },
+    )) {
+      setSearchWindowError("Allow pop-ups to search without leaving this workspace.");
+    }
   }
 
   return (
@@ -64,6 +71,9 @@ export function AppHeader() {
           onChange={(event) => setQuery(event.target.value)}
         />
         <button type="submit">Search</button>
+        {searchWindowError ? (
+          <span className="babel-search-window-error" role="alert">{searchWindowError}</span>
+        ) : null}
       </form>
     </header>
   );

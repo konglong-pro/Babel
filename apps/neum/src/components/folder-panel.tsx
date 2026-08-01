@@ -19,9 +19,11 @@ interface FolderPanelProps {
   folders: FolderDto[];
   selectedId: number | null;
   busy?: boolean;
+  loadError?: string;
   activeReferencePanel: ReferencePanelKind | null;
   onOpenMarkdownReference: () => void;
   onOpenTypstReference: () => void;
+  onRetry: () => void;
   onSelect: (id: number | null) => void;
   onCreate: (name: string, parentId: number | null) => Promise<void>;
   onRename: (id: number, name: string) => Promise<void>;
@@ -124,9 +126,11 @@ export function FolderPanel({
   folders,
   selectedId,
   busy,
+  loadError,
   activeReferencePanel,
   onOpenMarkdownReference,
   onOpenTypstReference,
+  onRetry,
   onSelect,
   onCreate,
   onRename,
@@ -178,6 +182,7 @@ export function FolderPanel({
         .map((folder) => ({ id: folder.id, path: folderPathLabel(folder.id, folderMap) })),
     [folderMap, folders, selectedId, unavailableTargets],
   );
+  const unavailable = busy || Boolean(loadError);
 
   function handleToggle(folderId: number) {
     setExpansionState((current) => {
@@ -232,22 +237,40 @@ export function FolderPanel({
           <span className="eyebrow">Knowledge base</span>
           <h1>Folders</h1>
         </div>
-        <button className="icon-button" type="button" aria-label="Create folder" onClick={() => openDialog("create")}>
+        <button
+          className="icon-button"
+          type="button"
+          aria-label="Create folder"
+          disabled={unavailable}
+          onClick={() => openDialog("create")}
+        >
           +
         </button>
       </div>
 
       <div className="folder-toolbar" aria-label="Folder actions">
-        <button type="button" onClick={() => openDialog("create")}>
+        <button type="button" disabled={unavailable} onClick={() => openDialog("create")}>
           {selectedId === null ? "New folder" : "New subfolder"}
         </button>
-        <button type="button" disabled={selectedId === null} onClick={() => openDialog("rename")}>
+        <button
+          type="button"
+          disabled={unavailable || selectedId === null}
+          onClick={() => openDialog("rename")}
+        >
           Rename
         </button>
-        <button type="button" disabled={selectedId === null} onClick={() => openDialog("move")}>
+        <button
+          type="button"
+          disabled={unavailable || selectedId === null}
+          onClick={() => openDialog("move")}
+        >
           Move
         </button>
-        <button type="button" disabled={selectedId === null} onClick={() => openDialog("delete")}>
+        <button
+          type="button"
+          disabled={unavailable || selectedId === null}
+          onClick={() => openDialog("delete")}
+        >
           Delete
         </button>
       </div>
@@ -263,9 +286,16 @@ export function FolderPanel({
           <span>All entries</span>
         </button>
         {busy ? <p className="panel-status">Loading folders…</p> : null}
-        {!busy && folders.length === 0 ? (
+        {!busy && loadError ? (
+          <div className="panel-status folder-load-error" role="alert">
+            <p>Folders could not be loaded. {loadError}</p>
+            <button type="button" onClick={onRetry}>Retry</button>
+          </div>
+        ) : null}
+        {!busy && !loadError && folders.length === 0 ? (
           <p className="panel-status">No folders yet. Create one to begin.</p>
-        ) : (
+        ) : null}
+        {folders.length > 0 ? (
           <FolderBranch
             parentId={null}
             grouped={grouped}
@@ -275,7 +305,7 @@ export function FolderPanel({
             onToggle={handleToggle}
             onCreateChild={(parentId) => openDialog("create", parentId)}
           />
-        )}
+        ) : null}
       </nav>
 
       <ReferencePanelTriggers

@@ -38,6 +38,7 @@ import {
   type MarkdownImportDraft,
 } from "@/lib/markdown-import";
 import { NOTE_CONTENT_MAX_BYTES } from "@/lib/note-limits";
+import type { ArchiveSearchFocus } from "@/lib/search-focus";
 import type {
   ExerciseSummaryDto,
   FolderDto,
@@ -52,6 +53,7 @@ interface ArchiveWorkspaceProps {
   type: FolderType;
   initialFolderId?: number | null;
   initialItemId?: number | null;
+  initialSearchFocus?: ArchiveSearchFocus | null;
 }
 
 interface WikilinkCreationRequest {
@@ -80,6 +82,7 @@ export function ArchiveWorkspace({
   type,
   initialFolderId = null,
   initialItemId = null,
+  initialSearchFocus = null,
 }: ArchiveWorkspaceProps) {
   const { pages, activeKey, activatePage, closePage, openPage } = usePageSessions();
   const pageKind = archivePageKind(type);
@@ -450,6 +453,7 @@ export function ArchiveWorkspace({
                     draft={draft}
                     type={type}
                     items={items}
+                    searchFocus={itemId === initialItemId ? initialSearchFocus : null}
                     onOpenEntity={openEntity}
                     onOpenDraft={openDraft}
                     onRequestKnowledgeCreation={requestKnowledgeCreation}

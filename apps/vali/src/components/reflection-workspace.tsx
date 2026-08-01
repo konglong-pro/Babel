@@ -22,6 +22,7 @@ import type {
   ReflectionDetailDto,
   ReflectionSummaryDto,
 } from "@/lib/types";
+import type { ValiSearchFocus } from "@/lib/search-focus";
 
 function localToday(): string {
   const now = new Date();
@@ -44,7 +45,15 @@ function dateFromPageKey(pageKey: string | null): string | null {
   return validReflectionDate(date) ? date : null;
 }
 
-export function ReflectionWorkspace({ initialDate }: { initialDate: string | null }) {
+interface ReflectionWorkspaceProps {
+  initialDate: string | null;
+  initialSearchFocus?: ValiSearchFocus | null;
+}
+
+export function ReflectionWorkspace({
+  initialDate,
+  initialSearchFocus = null,
+}: ReflectionWorkspaceProps) {
   const { pages, activeKey, activatePage, closePage, openPage } = usePageSessions();
   const [today, setToday] = useState(initialDate ?? "");
   const [dateDraft, setDateDraft] = useState(initialDate ?? "");
@@ -218,6 +227,7 @@ export function ReflectionWorkspace({ initialDate }: { initialDate: string | nul
                   pageKey={page.key}
                   date={date}
                   exists={savedDates.has(date)}
+                  searchFocus={date === initialDate ? initialSearchFocus : null}
                   onOpenDate={openDate}
                   onOpenNote={openNote}
                   onSaved={handleSaved}

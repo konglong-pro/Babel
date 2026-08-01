@@ -1147,7 +1147,7 @@ function Refresh-AppStatuses {
         if ($portOpen) {
             $probeDue = $ForceProbe -or -not $script:LastProbeAtById.ContainsKey($app.Id)
             if (-not $probeDue) {
-                $probeDue = ($now - [DateTime]$script:LastProbeAtById[$app.Id]).TotalSeconds -ge 2
+                $probeDue = ($now - [DateTime]$script:LastProbeAtById[$app.Id]).TotalSeconds -ge 10
             }
             if ($workerActive -and $workerState.OpenPending) {
                 $probeDue = $true
@@ -1974,7 +1974,7 @@ $script:AppsGrid.Add_SelectionChanged({
 })
 
 $timer = New-Object Windows.Threading.DispatcherTimer
-$timer.Interval = [TimeSpan]::FromMilliseconds(900)
+$timer.Interval = [TimeSpan]::FromSeconds(2)
 $timer.Add_Tick({
     try {
         Complete-AppHealthProbes

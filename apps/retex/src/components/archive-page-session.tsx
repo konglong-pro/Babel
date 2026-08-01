@@ -19,6 +19,7 @@ import {
   getKnowledgeBacklinks,
 } from "@/lib/api-client";
 import type { MarkdownImportDraft } from "@/lib/markdown-import";
+import type { ArchiveSearchFocus } from "@/lib/search-focus";
 import type {
   BacklinksDto,
   ExerciseDetailDto,
@@ -47,6 +48,7 @@ interface ArchivePageSessionProps {
   draft: ArchiveDraftSession | null;
   type: FolderType;
   items: ArchiveSummary[];
+  searchFocus: ArchiveSearchFocus | null;
   onOpenEntity: (kind: LinkEntityKind, id: number, folderId?: number) => void;
   onOpenDraft: (
     input: Omit<ArchiveDraftSession, "title"> & { title?: string },
@@ -83,6 +85,7 @@ export function ArchivePageSession({
   draft,
   type,
   items,
+  searchFocus,
   onOpenEntity,
   onOpenDraft,
   onRequestKnowledgeCreation,
@@ -230,6 +233,7 @@ export function ArchivePageSession({
           mode={mode}
           folderId={detail?.folderId ?? draft?.folderId ?? null}
           pages={items as KnowledgeSummaryDto[]}
+          searchFocus={searchFocus}
           createParentId={mode === "create" ? draft?.parentId ?? null : null}
           backlinks={backlinks}
           loading={loading}
@@ -261,6 +265,7 @@ export function ArchivePageSession({
           mode={mode}
           folderId={detail?.folderId ?? draft?.folderId ?? null}
           backlinks={backlinks}
+          searchFocus={searchFocus}
           loading={loading}
           onEdit={() => setMode("edit")}
           onCancel={cancelEditing}

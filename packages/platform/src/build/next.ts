@@ -21,6 +21,7 @@ export function runIsolatedNextBuild(
   );
 
   try {
+    removeNextTypeScriptBuildCache(appDirectory);
     const isolatedEnvironment = resolveIsolatedEnvironmentPaths(
       temporaryDirectory,
       options.environmentPaths,
@@ -47,6 +48,13 @@ export function runIsolatedNextBuild(
   } finally {
     rmSync(temporaryDirectory, { recursive: true, force: true });
   }
+}
+
+export function removeNextTypeScriptBuildCache(appDirectory: string): void {
+  rmSync(
+    path.join(path.resolve(appDirectory), ".next", "cache", ".tsbuildinfo"),
+    { force: true },
+  );
 }
 
 export function initializeIsolatedBuildDatabases(

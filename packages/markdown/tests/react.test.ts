@@ -224,6 +224,31 @@ test("keeps multiline and container heading ids aligned with the outline", () =>
   assert.match(html, /<h2 id="nested-heading">Nested heading<\/h2>/u);
 });
 
+test("marks rendered blocks containing a requested Markdown source line", () => {
+  const paragraphHtml = renderToStaticMarkup(createElement(MarkdownRenderer, {
+    content: [
+      "# Heading",
+      "",
+      "Paragraph with **formatted needle** text.",
+      "",
+      "- Other item",
+    ].join("\n"),
+    focusSourceLine: 3,
+  }));
+  const listHtml = renderToStaticMarkup(createElement(MarkdownRenderer, {
+    content: "- First item\n\n  Nested paragraph needle.",
+    focusSourceLine: 3,
+  }));
+
+  assert.match(
+    paragraphHtml,
+    /<p data-search-source-focus="true">Paragraph with <strong>formatted needle<\/strong> text\.<\/p>/u,
+  );
+  assert.doesNotMatch(paragraphHtml, /<h2[^>]*data-search-source-focus/u);
+  assert.match(listHtml, /<li[^>]*data-search-source-focus="true"/u);
+  assert.match(listHtml, /<p data-search-source-focus="true">Nested paragraph needle\.<\/p>/u);
+});
+
 test("keeps heading ids aligned after multiline formulas", () => {
   const html = renderToStaticMarkup(createElement(MarkdownRenderer, {
     content: [

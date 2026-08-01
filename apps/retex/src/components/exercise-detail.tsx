@@ -38,6 +38,11 @@ import {
   listKnowledge,
   updateExercise,
 } from "@/lib/api-client";
+import { focusArchiveSearchMatch } from "@/lib/search-focus.client";
+import {
+  archiveSearchFocusSourceLine,
+  type ArchiveSearchFocus,
+} from "@/lib/search-focus";
 import type {
   BacklinksDto,
   ExerciseDetailDto,
@@ -175,6 +180,7 @@ interface ExerciseDetailProps {
   mode: "view" | "edit" | "create";
   folderId: number | null;
   backlinks: BacklinksDto;
+  searchFocus: ArchiveSearchFocus | null;
   loading?: boolean;
   onEdit: () => void;
   onCancel: () => void;
@@ -196,6 +202,7 @@ export function ExerciseDetail({
   mode,
   folderId,
   backlinks,
+  searchFocus,
   loading,
   onEdit,
   onCancel,
@@ -232,6 +239,51 @@ export function ExerciseDetail({
     onCreateKnowledgeWikilink(title);
   }, [onCreateKnowledgeWikilink]);
   const readerTriggerId = `retex-exercise-${detail?.id ?? draftKey}-reader-trigger`;
+  const detailId = detail?.id;
+  const detailRootRef = useRef<HTMLElement>(null);
+  const searchFocusField = searchFocus?.field;
+  const searchFocusQuery = searchFocus?.query;
+  const problemSearchFocusSourceLine = archiveSearchFocusSourceLine(
+    detail?.problemMd ?? "",
+    searchFocus,
+    "problem",
+  );
+  const answerSearchFocusSourceLine = archiveSearchFocusSourceLine(
+    detail?.answerMd ?? "",
+    searchFocus,
+    "answer",
+  );
+  const solutionSearchFocusSourceLine = archiveSearchFocusSourceLine(
+    detail?.solutionMd ?? "",
+    searchFocus,
+    "solution",
+  );
+
+  useEffect(() => {
+    const root = detailRootRef.current;
+    if (
+      root === null ||
+      detailId === undefined ||
+      mode !== "view" ||
+      searchFocusField === undefined ||
+      searchFocusQuery === undefined
+    ) {
+      return;
+    }
+    const view = root.ownerDocument.defaultView;
+    if (view === null) return;
+    let stopFocus: (() => void) | undefined;
+    const frame = view.requestAnimationFrame(() => {
+      stopFocus = focusArchiveSearchMatch(root, {
+        field: searchFocusField,
+        query: searchFocusQuery,
+      });
+    });
+    return () => {
+      view.cancelAnimationFrame(frame);
+      stopFocus?.();
+    };
+  }, [detailId, mode, searchFocusField, searchFocusQuery]);
 
   if (loading) {
     return <section className="detail-panel panel-status">Loading exercise…</section>;
@@ -266,7 +318,7 @@ export function ExerciseDetail({
   }
 
   return (
-    <article className="detail-panel document-view">
+    <article ref={detailRootRef} className="detail-panel document-view">
       <header className="document-header">
         <div>
           <DetachedReaderWindow
@@ -324,7 +376,11 @@ export function ExerciseDetail({
         </div>
       </header>
 
-      <section className="exercise-problem" aria-labelledby="exercise-problem-heading">
+      <section
+        className="exercise-problem"
+        aria-labelledby="exercise-problem-heading"
+        data-search-field="problem"
+      >
         <h2 id="exercise-problem-heading">Problem</h2>
         <div className="document-outline-layout">
           <div className="document-content">
@@ -338,6 +394,7 @@ export function ExerciseDetail({
               onNavigateWikilink={navigateWikilink}
               onCreateFromWikilink={createFromWikilink}
               headingIdPrefix={EXERCISE_PROBLEM_HEADING_ID_PREFIX}
+              focusSourceLine={problemSearchFocusSourceLine}
             />
           </div>
           <OutlinePanel
@@ -353,7 +410,7 @@ export function ExerciseDetail({
       </div>
 
       <div className="exercise-sections">
-        <details>
+        <details data-search-field="answer">
           <summary>Archived Answer</summary>
           <div className="document-outline-layout">
             <section className="document-content" aria-label="Archived answer">
@@ -367,6 +424,7 @@ export function ExerciseDetail({
                 onNavigateWikilink={navigateWikilink}
                 onCreateFromWikilink={createFromWikilink}
                 headingIdPrefix={EXERCISE_ANSWER_HEADING_ID_PREFIX}
+                focusSourceLine={answerSearchFocusSourceLine}
               />
             </section>
             <OutlinePanel
@@ -376,7 +434,7 @@ export function ExerciseDetail({
             />
           </div>
         </details>
-        <details>
+        <details data-search-field="solution">
           <summary>Archived Solution</summary>
           <div className="document-outline-layout">
             <section className="document-content" aria-label="Archived solution">
@@ -390,6 +448,7 @@ export function ExerciseDetail({
                 onNavigateWikilink={navigateWikilink}
                 onCreateFromWikilink={createFromWikilink}
                 headingIdPrefix={EXERCISE_SOLUTION_HEADING_ID_PREFIX}
+                focusSourceLine={solutionSearchFocusSourceLine}
               />
             </section>
             <OutlinePanel

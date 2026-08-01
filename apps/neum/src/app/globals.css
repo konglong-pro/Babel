@@ -539,6 +539,22 @@ a {
   font-size: 0.79rem;
 }
 
+.folder-load-error {
+  display: grid;
+  gap: 0.55rem;
+  color: #733526;
+}
+
+.folder-load-error p {
+  margin: 0;
+}
+
+.folder-load-error button {
+  min-height: 30px;
+  justify-self: start;
+  padding-inline: 0.65rem;
+}
+
 .panel-hint {
   margin: 0 0 0.8rem;
   border-left: 2px solid var(--rust);

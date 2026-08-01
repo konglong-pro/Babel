@@ -1,3 +1,6 @@
+import { appendSearchFocus } from "@babel-apps/platform/search/focus";
+
+import type { EntrySearchFocus } from "@/lib/search-focus";
 import type { EntryKind } from "@/lib/types";
 
 export type EntryUnitPath = "/knowledge" | "/code";
@@ -15,6 +18,7 @@ export function entryWorkspaceHref(
   input: {
     folderId?: number | null;
     entryId?: number | null;
+    searchFocus?: EntrySearchFocus | null;
   } = {},
 ): string {
   const params = new URLSearchParams();
@@ -24,6 +28,7 @@ export function entryWorkspaceHref(
   if (input.entryId !== null && input.entryId !== undefined) {
     params.set("entry", String(input.entryId));
   }
+  appendSearchFocus(params, input.searchFocus);
   const query = params.toString();
   const path = entryUnitPath(kind);
   return query ? `${path}?${query}` : path;

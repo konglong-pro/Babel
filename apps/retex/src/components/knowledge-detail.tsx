@@ -39,6 +39,11 @@ import {
   NOTE_SAVE_MAX_BYTES,
   utf8ByteLength,
 } from "@/lib/note-limits";
+import { focusArchiveSearchMatch } from "@/lib/search-focus.client";
+import {
+  archiveSearchFocusSourceLine,
+  type ArchiveSearchFocus,
+} from "@/lib/search-focus";
 import type {
   BacklinksDto,
   ExerciseSummaryDto,
@@ -123,6 +128,7 @@ interface KnowledgeDetailProps {
   mode: "view" | "edit" | "create";
   folderId: number | null;
   pages: KnowledgeSummaryDto[];
+  searchFocus: ArchiveSearchFocus | null;
   createParentId: number | null;
   backlinks: BacklinksDto;
   loading?: boolean;
@@ -163,6 +169,7 @@ export function KnowledgeDetail({
   mode,
   folderId,
   pages,
+  searchFocus,
   createParentId,
   backlinks,
   loading,
@@ -203,6 +210,41 @@ export function KnowledgeDetail({
     void Promise.resolve(onCreateWikilink(title, targetFolderId)).catch(() => undefined);
   }, [detail?.folderId, folderId, onCreateWikilink]);
   const readerTriggerId = `retex-knowledge-${detail?.id ?? draftKey}-reader-trigger`;
+  const detailId = detail?.id;
+  const detailRootRef = useRef<HTMLElement>(null);
+  const searchFocusField = searchFocus?.field;
+  const searchFocusQuery = searchFocus?.query;
+  const searchFocusSourceLine = archiveSearchFocusSourceLine(
+    detail?.contentMd ?? "",
+    searchFocus,
+    "content",
+  );
+
+  useEffect(() => {
+    const root = detailRootRef.current;
+    if (
+      root === null ||
+      detailId === undefined ||
+      mode !== "view" ||
+      searchFocusField === undefined ||
+      searchFocusQuery === undefined
+    ) {
+      return;
+    }
+    const view = root.ownerDocument.defaultView;
+    if (view === null) return;
+    let stopFocus: (() => void) | undefined;
+    const frame = view.requestAnimationFrame(() => {
+      stopFocus = focusArchiveSearchMatch(root, {
+        field: searchFocusField,
+        query: searchFocusQuery,
+      });
+    });
+    return () => {
+      view.cancelAnimationFrame(frame);
+      stopFocus?.();
+    };
+  }, [detailId, mode, searchFocusField, searchFocusQuery]);
 
   if (loading) {
     return <section className="detail-panel panel-status">Loading note…</section>;
@@ -240,7 +282,7 @@ export function KnowledgeDetail({
   }
 
   return (
-    <article className="detail-panel document-view">
+    <article ref={detailRootRef} className="detail-panel document-view">
       <header className="document-header">
         <div>
           <DetachedReaderWindow
@@ -301,7 +343,11 @@ export function KnowledgeDetail({
       </header>
 
       <div className="document-outline-layout">
-        <section className="document-content" aria-label="Note content">
+        <section
+          className="document-content"
+          aria-label="Note content"
+          data-search-field="content"
+        >
           <MarkdownRenderer
             content={detail.contentMd}
             uploadScheme="retex-upload"
@@ -311,6 +357,7 @@ export function KnowledgeDetail({
             onNavigateWikilink={navigateWikilink}
             onCreateFromWikilink={createFromWikilink}
             headingIdPrefix={KNOWLEDGE_HEADING_ID_PREFIX}
+            focusSourceLine={searchFocusSourceLine}
           />
         </section>
         <OutlinePanel

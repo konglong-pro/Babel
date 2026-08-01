@@ -45,6 +45,11 @@ import {
   utf8ByteLength,
 } from "@/lib/entry-limits";
 import type { MarkdownImportDraft } from "@/lib/markdown-import";
+import { focusEntrySearchMatch } from "@/lib/search-focus.client";
+import {
+  entrySearchFocusSourceLine,
+  type EntrySearchFocus,
+} from "@/lib/search-focus";
 import type {
   EntryBacklinkDto,
   EntryDetailDto,
@@ -194,6 +199,7 @@ interface EntryDetailProps {
   parentId: number | null;
   folders: FolderDto[];
   entries: readonly EntrySummaryDto[];
+  searchFocus: EntrySearchFocus | null;
   backlinks: EntryBacklinkDto[];
   loading?: boolean;
   onEdit: () => void;
@@ -223,6 +229,7 @@ export function EntryDetail({
   parentId,
   folders,
   entries,
+  searchFocus,
   backlinks,
   loading,
   onEdit,
@@ -265,6 +272,45 @@ export function EntryDetail({
     void onCreateWikilink(title, targetFolderId);
   }, [detail?.folderId, folderId, onCreateWikilink]);
   const readerTriggerId = `neum-${kind}-${detail?.id ?? draftKey}-reader-trigger`;
+  const detailId = detail?.id;
+  const detailRootRef = useRef<HTMLElement>(null);
+  const searchFocusField = searchFocus?.field;
+  const searchFocusQuery = searchFocus?.query;
+  const searchFocusSourceLine = useMemo(
+    () => entrySearchFocusSourceLine(
+      detail?.notesMd ?? "",
+      searchFocusField === undefined || searchFocusQuery === undefined
+        ? null
+        : { field: searchFocusField, query: searchFocusQuery },
+    ),
+    [detail?.notesMd, searchFocusField, searchFocusQuery],
+  );
+
+  useEffect(() => {
+    const root = detailRootRef.current;
+    if (
+      root === null ||
+      detailId === undefined ||
+      mode !== "view" ||
+      searchFocusField === undefined ||
+      searchFocusQuery === undefined
+    ) {
+      return;
+    }
+    const view = root.ownerDocument.defaultView;
+    if (view === null) return;
+    let stopFocus: (() => void) | undefined;
+    const frame = view.requestAnimationFrame(() => {
+      stopFocus = focusEntrySearchMatch(root, {
+        field: searchFocusField,
+        query: searchFocusQuery,
+      });
+    });
+    return () => {
+      view.cancelAnimationFrame(frame);
+      stopFocus?.();
+    };
+  }, [detailId, mode, searchFocusField, searchFocusQuery]);
 
   if (loading) {
     return <section className="detail-panel panel-status detail-loading">Loading entry…</section>;
@@ -309,7 +355,7 @@ export function EntryDetail({
   }
 
   return (
-    <article className="detail-panel document-view">
+    <article ref={detailRootRef} className="detail-panel document-view">
       <button className="content-back" type="button" onClick={onBack}>
         <span aria-hidden="true">←</span> {entryUnitLabel(kind)}
       </button>
@@ -400,6 +446,7 @@ export function EntryDetail({
               onNavigateWikilink={navigateWikilink}
               onCreateFromWikilink={onCreateWikilink === undefined ? undefined : createFromWikilink}
               headingIdPrefix={ENTRY_HEADING_ID_PREFIX}
+              focusSourceLine={searchFocusSourceLine}
             />
           ) : (
             <p className="empty-copy">No explanatory notes yet.</p>

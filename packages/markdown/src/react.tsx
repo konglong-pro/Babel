@@ -68,6 +68,7 @@ type TaskInputProps = InputHTMLAttributes<HTMLInputElement> & {
 };
 
 const TaskToggleContext = createContext<((line: number) => void) | undefined>(undefined);
+const SearchFocusLineContext = createContext<number | undefined>(undefined);
 
 export interface MarkdownRendererProps {
   content: string;
@@ -85,6 +86,8 @@ export interface MarkdownRendererProps {
   onToggleTask?: (line: number) => void;
   /** Optional namespace when a page renders more than one Markdown document. */
   headingIdPrefix?: string;
+  /** Marks rendered blocks whose Markdown source range contains this one-based line. */
+  focusSourceLine?: number;
 }
 
 export function MarkdownRenderer({
@@ -99,6 +102,7 @@ export function MarkdownRenderer({
   onCreateFromWikilink,
   onToggleTask,
   headingIdPrefix = "",
+  focusSourceLine,
 }: MarkdownRendererProps) {
   const renderedContent = useMemo(() => {
     return withImagePreviews(content, uploadScheme, imagePreviews);
@@ -148,12 +152,27 @@ export function MarkdownRenderer({
 
   const components = useMemo<Components>(() => {
     const nextComponents: Components = {
-      h1: createHeadingComponent("h2", 1, headingIds),
-      h2: createHeadingComponent("h3", 2, headingIds),
-      h3: createHeadingComponent("h4", 3, headingIds),
-      h4: createHeadingComponent("h5", 4, headingIds),
-      h5: createHeadingComponent("h6", 5, headingIds),
-      h6: createHeadingComponent("h6", 6, headingIds),
+      h1: createHeadingComponent("h2", 1, headingIds, focusSourceLine),
+      h2: createHeadingComponent("h3", 2, headingIds, focusSourceLine),
+      h3: createHeadingComponent("h4", 3, headingIds, focusSourceLine),
+      h4: createHeadingComponent("h5", 4, headingIds, focusSourceLine),
+      h5: createHeadingComponent("h6", 5, headingIds, focusSourceLine),
+      h6: createHeadingComponent("h6", 6, headingIds, focusSourceLine),
+      p: ({ node, ...props }) => (
+        <p {...props} {...searchFocusAttributes(node, focusSourceLine)} />
+      ),
+      pre: ({ node, ...props }) => (
+        <pre {...props} {...searchFocusAttributes(node, focusSourceLine)} />
+      ),
+      blockquote: ({ node, ...props }) => (
+        <blockquote {...props} {...searchFocusAttributes(node, focusSourceLine)} />
+      ),
+      td: ({ node, ...props }) => (
+        <td {...props} {...searchFocusAttributes(node, focusSourceLine)} />
+      ),
+      th: ({ node, ...props }) => (
+        <th {...props} {...searchFocusAttributes(node, focusSourceLine)} />
+      ),
       // A module-level component must survive preview focus changes during a pointer click.
       li: MarkdownListItem,
       a: ({ href, children, className, node, ...props }) => {
@@ -242,6 +261,7 @@ export function MarkdownRenderer({
   }, [
     onCreateFromWikilink,
     onNavigateWikilink,
+    focusSourceLine,
     headingIds,
     preparedFormulaMath,
     targetsByKey,
@@ -263,18 +283,20 @@ export function MarkdownRenderer({
 
   return (
     <div className="markdown-body">
-      <TaskToggleContext.Provider value={onToggleTask}>
-        <ReactMarkdown
-          components={components}
-          remarkPlugins={[
-            ...(useGfm ? [remarkGfm] : []),
-            ...(preparedFormulaMath === null ? [] : [createRemarkFormulaMath(preparedFormulaMath)]),
-          ]}
-          urlTransform={urlTransform}
-        >
-          {preprocessedContent}
-        </ReactMarkdown>
-      </TaskToggleContext.Provider>
+      <SearchFocusLineContext.Provider value={focusSourceLine}>
+        <TaskToggleContext.Provider value={onToggleTask}>
+          <ReactMarkdown
+            components={components}
+            remarkPlugins={[
+              ...(useGfm ? [remarkGfm] : []),
+              ...(preparedFormulaMath === null ? [] : [createRemarkFormulaMath(preparedFormulaMath)]),
+            ]}
+            urlTransform={urlTransform}
+          >
+            {preprocessedContent}
+          </ReactMarkdown>
+        </TaskToggleContext.Provider>
+      </SearchFocusLineContext.Provider>
     </div>
   );
 }
@@ -1481,11 +1503,16 @@ function createHeadingComponent(
   tag: "h2" | "h3" | "h4" | "h5" | "h6",
   sourceLevel: number,
   headingIds: ReadonlyMap<string, string>,
+  focusSourceLine?: number,
 ): NonNullable<Components["h1"]> {
   return function MarkdownHeading({ node, ...props }) {
     const line = node?.position?.start.line;
     const id = line === undefined ? undefined : headingIds.get(`${line}:${sourceLevel}`);
-    return createElement(tag, { ...props, id });
+    return createElement(tag, {
+      ...props,
+      ...searchFocusAttributes(node, focusSourceLine),
+      id,
+    });
   };
 }
 
@@ -1495,13 +1522,33 @@ const MarkdownListItem: NonNullable<Components["li"]> = function MarkdownListIte
   ...props
 }) {
   const onToggleTask = useContext(TaskToggleContext);
+  const focusSourceLine = useContext(SearchFocusLineContext);
   const sourceLine = node?.position?.start.line;
   const editable = sourceLine !== undefined && onToggleTask !== undefined;
   const nextChildren = editable
     ? enableTaskCheckboxes(children, sourceLine, onToggleTask)
     : children;
-  return <li {...props}>{nextChildren}</li>;
+  return (
+    <li {...props} {...searchFocusAttributes(node, focusSourceLine)}>
+      {nextChildren}
+    </li>
+  );
 };
+
+function searchFocusAttributes(
+  node: { position?: { start: { line: number }; end: { line: number } } } | undefined,
+  focusSourceLine: number | undefined,
+): { "data-search-source-focus"?: "true" } {
+  if (
+    focusSourceLine === undefined ||
+    node?.position === undefined ||
+    focusSourceLine < node.position.start.line ||
+    focusSourceLine > node.position.end.line
+  ) {
+    return {};
+  }
+  return { "data-search-source-focus": "true" };
+}
 
 function enableTaskCheckboxes(
   children: ReactNode,

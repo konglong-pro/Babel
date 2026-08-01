@@ -22,7 +22,11 @@
     "./pages/react": "./src/pages/react.tsx",
     "./pages.css": "./src/pages/pages.css",
     "./search/page": "./src/search/page.ts",
-    "./search/text": "./src/search/text.ts"
+    "./search/text": "./src/search/text.ts",
+    "./search/focus": "./src/search/focus.ts",
+    "./search/focus-client": "./src/search/focus.client.ts",
+    "./search/window": "./src/search/window.ts",
+    "./search.css": "./src/search/search.css"
   },
   "scripts": {
     "lint": "eslint .",

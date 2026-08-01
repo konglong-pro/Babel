@@ -35,6 +35,11 @@ import {
   saveReflection,
 } from "@/lib/api-client";
 import { documentSaveLimitError } from "@/lib/note-limits";
+import { focusValiSearchMatch } from "@/lib/search-focus.client";
+import {
+  valiSearchFocusSourceLine,
+  type ValiSearchFocus,
+} from "@/lib/search-focus";
 import type {
   DocumentBacklinkDto,
   ReflectionDetailDto,
@@ -48,6 +53,7 @@ interface ReflectionPageSessionProps {
   pageKey: string;
   date: string;
   exists: boolean;
+  searchFocus: ValiSearchFocus | null;
   onOpenDate: (date: string) => void;
   onOpenNote: (id: number, folderId?: number) => void;
   onSaved: (detail: ReflectionDetailDto) => void;
@@ -66,6 +72,7 @@ export function ReflectionPageSession({
   pageKey,
   date,
   exists,
+  searchFocus,
   onOpenDate,
   onOpenNote,
   onSaved,
@@ -84,6 +91,19 @@ export function ReflectionPageSession({
   const [error, setError] = useState("");
   const [reloadVersion, setReloadVersion] = useState(0);
   const readerTriggerId = `vali-reflection-${date}-reader-trigger`;
+  const detailRootRef = useRef<HTMLElement>(null);
+  const detailDate = detail?.date;
+  const searchFocusField = searchFocus?.field;
+  const searchFocusQuery = searchFocus?.query;
+  const searchFocusSourceLine = useMemo(
+    () => valiSearchFocusSourceLine(
+      detail?.contentMd ?? "",
+      searchFocusField === undefined || searchFocusQuery === undefined
+        ? null
+        : { field: searchFocusField, query: searchFocusQuery },
+    ),
+    [detail?.contentMd, searchFocusField, searchFocusQuery],
+  );
 
   const dirty = content !== (detail?.contentMd ?? "") || stagedImages.length > 0;
   const imagePreviews = useMemo(
@@ -149,6 +169,32 @@ export function ReflectionPageSession({
   useEffect(() => {
     stagedRef.current = stagedImages;
   }, [stagedImages]);
+
+  useEffect(() => {
+    const root = detailRootRef.current;
+    if (
+      root === null ||
+      detailDate === undefined ||
+      mode !== "view" ||
+      searchFocusField === undefined ||
+      searchFocusQuery === undefined
+    ) {
+      return;
+    }
+    const view = root.ownerDocument.defaultView;
+    if (view === null) return;
+    let stopFocus: (() => void) | undefined;
+    const frame = view.requestAnimationFrame(() => {
+      stopFocus = focusValiSearchMatch(root, {
+        field: searchFocusField,
+        query: searchFocusQuery,
+      });
+    });
+    return () => {
+      view.cancelAnimationFrame(frame);
+      stopFocus?.();
+    };
+  }, [detailDate, mode, searchFocusField, searchFocusQuery]);
 
   useEffect(() => {
     return () => {
@@ -298,7 +344,7 @@ export function ReflectionPageSession({
 
   return (
     <PageDeckPage pageKey={pageKey}>
-      <main className="reflection-detail detail-panel">
+      <main ref={detailRootRef} className="reflection-detail detail-panel">
         {error ? <p className="form-error" role="alert">{error}</p> : null}
         {!error && limitError ? <p className="form-error" role="alert">{limitError}</p> : null}
         {loading ? (
@@ -407,6 +453,7 @@ export function ReflectionPageSession({
                   onNavigateWikilink={navigateWikilink}
                   onCreateFromWikilink={createFromWikilink}
                   headingIdPrefix={`${REFLECTION_HEADING_ID_PREFIX}${date}-`}
+                  focusSourceLine={searchFocusSourceLine}
                 />
               </section>
               <OutlinePanel

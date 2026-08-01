@@ -37,6 +37,11 @@ import {
 } from "@/lib/api-client";
 import type { MarkdownImportDraft } from "@/lib/markdown-import";
 import { documentSaveLimitError } from "@/lib/note-limits";
+import { focusValiSearchMatch } from "@/lib/search-focus.client";
+import {
+  valiSearchFocusSourceLine,
+  type ValiSearchFocus,
+} from "@/lib/search-focus";
 import type {
   DocumentBacklinkDto,
   FolderDto,
@@ -119,6 +124,7 @@ interface NoteDetailProps {
   folders: FolderDto[];
   notes: NoteSummaryDto[];
   templates: NoteTemplateDto[];
+  searchFocus: ValiSearchFocus | null;
   backlinks: DocumentBacklinkDto[];
   loading?: boolean;
   onEdit: () => void;
@@ -144,6 +150,7 @@ export function NoteDetail({
   folders,
   notes,
   templates,
+  searchFocus,
   backlinks,
   loading,
   onEdit,
@@ -199,6 +206,45 @@ export function NoteDetail({
     void onCreateWikilink(title, targetFolderId);
   }, [detail?.folderId, folderId, onCreateWikilink]);
   const readerTriggerId = `vali-note-${detail?.id ?? draftKey}-reader-trigger`;
+  const detailId = detail?.id;
+  const detailRootRef = useRef<HTMLElement>(null);
+  const searchFocusField = searchFocus?.field;
+  const searchFocusQuery = searchFocus?.query;
+  const searchFocusSourceLine = useMemo(
+    () => valiSearchFocusSourceLine(
+      detail?.contentMd ?? "",
+      searchFocusField === undefined || searchFocusQuery === undefined
+        ? null
+        : { field: searchFocusField, query: searchFocusQuery },
+    ),
+    [detail?.contentMd, searchFocusField, searchFocusQuery],
+  );
+
+  useEffect(() => {
+    const root = detailRootRef.current;
+    if (
+      root === null ||
+      detailId === undefined ||
+      mode !== "view" ||
+      searchFocusField === undefined ||
+      searchFocusQuery === undefined
+    ) {
+      return;
+    }
+    const view = root.ownerDocument.defaultView;
+    if (view === null) return;
+    let stopFocus: (() => void) | undefined;
+    const frame = view.requestAnimationFrame(() => {
+      stopFocus = focusValiSearchMatch(root, {
+        field: searchFocusField,
+        query: searchFocusQuery,
+      });
+    });
+    return () => {
+      view.cancelAnimationFrame(frame);
+      stopFocus?.();
+    };
+  }, [detailId, mode, searchFocusField, searchFocusQuery]);
 
   if (loading) {
     return <section className="detail-panel panel-status detail-loading">Loading note…</section>;
@@ -241,7 +287,7 @@ export function NoteDetail({
   }
 
   return (
-    <article className="detail-panel document-view">
+    <article ref={detailRootRef} className="detail-panel document-view">
       <button className="content-back" type="button" onClick={onBack}>
         <span aria-hidden="true">←</span> Notes
       </button>
@@ -322,6 +368,7 @@ export function NoteDetail({
             onNavigateWikilink={navigateWikilink}
             onCreateFromWikilink={createFromWikilink}
             headingIdPrefix={NOTE_HEADING_ID_PREFIX}
+            focusSourceLine={searchFocusSourceLine}
           />
         </section>
         <OutlinePanel

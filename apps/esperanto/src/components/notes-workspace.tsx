@@ -10,6 +10,7 @@ import {
   usePageSessionHistoryGuard,
   usePageSessions,
 } from "@babel-apps/platform/pages/react";
+import type { SearchFocus } from "@babel-apps/platform/search/focus";
 
 import {
   BEFORE_NAVIGATE_EVENT,
@@ -39,6 +40,7 @@ import {
 import { NOTE_CONTENT_MAX_BYTES } from "@/lib/note-limits";
 import type {
   FolderDto,
+  NoteSearchField,
   NoteSummaryDto,
   NoteTemplateDto,
 } from "@/lib/types";
@@ -48,6 +50,7 @@ type ResponsiveStage = "library" | "notes" | "note";
 interface NotesWorkspaceProps {
   initialFolderId?: number | null;
   initialNoteId?: number | null;
+  initialSearchFocus?: SearchFocus<NoteSearchField> | null;
 }
 
 function subtreeIds(rootId: number, folders: readonly FolderDto[]): Set<number> {
@@ -89,6 +92,7 @@ function savedNoteId(pageKey: string | null): number | null {
 export function NotesWorkspace({
   initialFolderId = null,
   initialNoteId = null,
+  initialSearchFocus = null,
 }: NotesWorkspaceProps) {
   const {
     pages,
@@ -542,6 +546,7 @@ export function NotesWorkspace({
                   folders={folders}
                   notes={notes}
                   templates={templates}
+                  searchFocus={noteId === initialNoteId ? initialSearchFocus : null}
                   onOpenNote={openNote}
                   onOpenDraft={openDraft}
                   onRefreshIndex={refreshIndex}
