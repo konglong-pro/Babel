@@ -34,6 +34,7 @@ import {
   listReflectionBacklinks,
   saveReflection,
 } from "@/lib/api-client";
+import { persistedEditorModeAfterSave } from "@/lib/editor-save-mode";
 import { documentSaveLimitError } from "@/lib/note-limits";
 import { focusValiSearchMatch } from "@/lib/search-focus.client";
 import {
@@ -139,6 +140,7 @@ export function ReflectionPageSession({
     },
     discard: () => {
       for (const image of stagedRef.current) URL.revokeObjectURL(image.previewUrl);
+      stagedRef.current = [];
       setStagedImages([]);
     },
   });
@@ -238,13 +240,15 @@ export function ReflectionPageSession({
     }
     setPending(true);
     setError("");
+    const persistedBeforeSave = detail !== null;
     try {
       const saved = await saveReflection(date, content, stagedImages);
-      for (const image of stagedImages) URL.revokeObjectURL(image.previewUrl);
+      for (const image of stagedRef.current) URL.revokeObjectURL(image.previewUrl);
+      stagedRef.current = [];
       setStagedImages([]);
       setDetail(saved);
       setContent(saved.contentMd);
-      setMode("view");
+      setMode(persistedEditorModeAfterSave(persistedBeforeSave));
       setBacklinks(await listReflectionBacklinks(saved.date));
       onSaved(saved);
     } catch (caught) {
@@ -376,6 +380,10 @@ export function ReflectionPageSession({
                         return;
                       }
                       setContent(detail.contentMd);
+                      for (const image of stagedRef.current) {
+                        URL.revokeObjectURL(image.previewUrl);
+                      }
+                      stagedRef.current = [];
                       setStagedImages([]);
                       setMode("view");
                     }}

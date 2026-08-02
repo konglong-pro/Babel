@@ -61,10 +61,28 @@ body.babel-detached-editor-window {
 }
 
 .babel-detached-editor-root {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 1rem;
   width: 100%;
   height: 100vh;
   min-height: 0;
   padding: clamp(1.5rem, 4vw, 4rem);
+}
+
+.babel-detached-editor-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 0.75rem;
+}
+
+.babel-detached-editor-toolbar strong {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .babel-detached-editor-root > .editor-outline-layout {
@@ -355,7 +373,26 @@ function DetachedEditorWindowInstance({
           {isOpen ? `Focus ${label}` : `Open ${label}`}
         </button>
       </section>
-      {isOpen ? createPortal(children, host.root) : null}
+      {isOpen ? createPortal(
+        <>
+          <div className="babel-detached-editor-toolbar" role="toolbar" aria-label="Editor actions">
+            <strong>{label}</strong>
+            {onSave === undefined ? null : (
+              <button
+                data-babel-command="save"
+                className="primary-button"
+                type="button"
+                disabled={disabled}
+                onClick={onSave}
+              >
+                Save
+              </button>
+            )}
+          </div>
+          {children}
+        </>,
+        host.root,
+      ) : null}
     </>
   );
 }

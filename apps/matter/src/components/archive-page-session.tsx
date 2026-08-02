@@ -18,6 +18,7 @@ import {
   getKnowledge,
   getKnowledgeBacklinks,
 } from "@/lib/api-client";
+import { archiveModeAfterSave } from "@/lib/editor-save-mode";
 import type { MarkdownImportDraft } from "@/lib/markdown-import";
 import type { ArchiveSearchFocus } from "@/lib/search-focus";
 import type {
@@ -150,7 +151,7 @@ export function ArchivePageSession({
   async function handleSaved(saved: ArchiveDetail) {
     setDetail(saved);
     setBacklinks(emptyBacklinks());
-    setMode("view");
+    setMode(archiveModeAfterSave(itemId));
     setDirty(false);
     setLoadError("");
     const nextPage = savedArchivePage(type, saved);

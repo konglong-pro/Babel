@@ -16,9 +16,25 @@ const editorTargets = [
   ["Neum", "apps/neum/src/components/entry-detail.tsx"],
   ["Esperanto", "apps/esperanto/src/components/note-detail.tsx"],
   ["Herodotus", "apps/herodotus/src/components/note-detail.tsx"],
+  ["KLsche", "apps/klsche/src/components/note-detail.tsx"],
   ["Leviathan", "apps/leviathan/src/components/note-detail.tsx"],
+  ["Ruider Notes", "apps/ruider/src/components/note-detail.tsx"],
   ["mirror-app template", "templates/mirror-app/src/components/note-detail.tsx"],
 ] as const;
+
+test("the focused editor exposes a visible save action", async () => {
+  const source = await readFile(
+    path.join(root, "packages/markdown/src/detached-editor.tsx"),
+    "utf8",
+  );
+
+  assert.match(source, /className="babel-detached-editor-toolbar"/);
+  assert.match(source, /role="toolbar" aria-label="Editor actions"/);
+  assert.match(
+    source,
+    /data-babel-command="save"[\s\S]*?disabled=\{disabled\}[\s\S]*?onClick=\{onSave\}[\s\S]*?>\s*Save\s*<\/button>/,
+  );
+});
 
 test("every edit-mode Markdown surface uses the focused editor window", async () => {
   for (const [label, relativePath] of editorTargets) {

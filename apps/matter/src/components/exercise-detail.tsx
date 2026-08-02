@@ -641,6 +641,15 @@ function ExerciseForm({
       const saved = detail
         ? await updateExercise(detail.id, input, stagedImages)
         : await createExercise(input, stagedImages);
+      for (const image of stagedRef.current) URL.revokeObjectURL(image.previewUrl);
+      stagedRef.current = [];
+      setStagedImages([]);
+      setTitle(saved.title);
+      setTags(saved.tags.join(", "));
+      setProblem(saved.problemMd);
+      setAnswer(saved.answerMd);
+      setSolution(saved.solutionMd);
+      setKnowledgeIds(saved.relatedKnowledge.map((item) => item.id));
       onDirtyChange?.(false);
       onSaved(saved);
     } catch (caught) {

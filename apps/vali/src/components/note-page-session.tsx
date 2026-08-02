@@ -15,6 +15,7 @@ import {
   getNote,
   listBacklinks,
 } from "@/lib/api-client";
+import { persistedEditorModeAfterSave } from "@/lib/editor-save-mode";
 import type { MarkdownImportDraft } from "@/lib/markdown-import";
 import type { ValiSearchFocus } from "@/lib/search-focus";
 import type {
@@ -132,7 +133,7 @@ export function NotePageSession({
 
   async function handleSaved(saved: NoteDetailDto) {
     setDetail(saved);
-    setMode("view");
+    setMode(persistedEditorModeAfterSave(noteId !== null));
     setDirty(false);
     setLoadError("");
     const nextPage = savedNotePage(saved);

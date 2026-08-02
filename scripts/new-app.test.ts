@@ -199,6 +199,8 @@ test("renders the repository mirror template as an independent app", async (t) =
   await access(path.join(generatedRoot, "scripts", "benchmark-search.ts"));
   await access(path.join(generatedRoot, "src", "lib", "markdown-import.ts"));
   await access(path.join(generatedRoot, "src", "lib", "note-limits.ts"));
+  await access(path.join(generatedRoot, "src", "lib", "editor-save-mode.ts"));
+  await access(path.join(generatedRoot, "tests", "editor-save-mode.test.ts"));
   await access(path.join(generatedRoot, "src", "lib", "storage", "recovery.ts"));
   const generatedBackfill = await readFile(
     path.join(generatedRoot, "scripts", "backfill-links.ts"),

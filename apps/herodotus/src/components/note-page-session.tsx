@@ -17,6 +17,7 @@ import {
   listBacklinks,
 } from "@/lib/api-client";
 import type { MarkdownImportDraft } from "@/lib/markdown-import";
+import { noteModeAfterSave } from "@/lib/editor-save-mode";
 import type {
   BacklinkDto,
   FolderDto,
@@ -135,7 +136,7 @@ export function NotePageSession({
 
   async function handleSaved(saved: NoteDetailDto) {
     setDetail(saved);
-    setMode("view");
+    setMode(noteModeAfterSave(noteId));
     setDirty(false);
     setPending(false);
     setLoadError("");

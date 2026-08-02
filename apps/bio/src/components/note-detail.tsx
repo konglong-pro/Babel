@@ -630,6 +630,14 @@ function NoteForm({
       ) {
         return;
       }
+      for (const image of stagedRef.current) URL.revokeObjectURL(image.previewUrl);
+      stagedRef.current = [];
+      setStagedImages([]);
+      setTitle(saved.title);
+      setTags(saved.tags.join(", "));
+      setContent(saved.contentMd);
+      setFolderId(saved.folderId);
+      setParentId(saved.parentId);
       onDirtyChange(false);
       await onSaved(saved);
     } catch (caught) {

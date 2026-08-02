@@ -320,7 +320,7 @@ export function EntryDetail({
     return (
       <EntryForm
         key={mode === "edit"
-          ? `edit-${detail?.id ?? "missing"}-${detail?.version ?? 0}`
+          ? `edit-${detail?.id ?? "missing"}`
           : `new-${folderId}-${parentId ?? "root"}-${draftKey}`}
         draftKey={draftKey}
         detail={mode === "edit" ? detail : null}
@@ -690,6 +690,17 @@ function EntryForm({
       const saved = detail
         ? await updateEntry(detail.id, detail.version, input, stagedImages)
         : await createEntry(input, stagedImages);
+      for (const image of stagedRef.current) URL.revokeObjectURL(image.previewUrl);
+      stagedRef.current = [];
+      setStagedImages([]);
+      setTitle(saved.title);
+      setTags(saved.tags.join(", "));
+      setNotesMd(saved.notesMd);
+      setCode(saved.code ?? "");
+      setLanguage(saved.language ?? "");
+      setFilename(saved.filename ?? "");
+      setFolderId(saved.folderId);
+      setParentId(saved.parentId);
       onDirtyChange(false);
       await onSaved(saved);
     } catch (caught) {

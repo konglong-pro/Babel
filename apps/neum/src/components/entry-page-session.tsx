@@ -16,6 +16,7 @@ import {
   listEntryBacklinks,
 } from "@/lib/api-client";
 import { entryUnitLabel, entryWorkspaceHref } from "@/lib/entry-routes";
+import { entryModeAfterSave } from "@/lib/editor-save-mode";
 import type { MarkdownImportDraft } from "@/lib/markdown-import";
 import type { EntrySearchFocus } from "@/lib/search-focus";
 import type {
@@ -145,7 +146,7 @@ export function EntryPageSession({
 
   async function handleSaved(saved: EntryDetailDto) {
     setDetail(saved);
-    setMode("view");
+    setMode(entryModeAfterSave(entryId));
     setDirty(false);
     setLoadError("");
     const nextPage = savedEntryPage(saved);

@@ -569,6 +569,14 @@ function KnowledgeForm({
       const saved = detail
         ? await updateKnowledge(detail.id, input, stagedImages)
         : await createKnowledge(input, stagedImages);
+      for (const image of stagedRef.current) URL.revokeObjectURL(image.previewUrl);
+      stagedRef.current = [];
+      setStagedImages([]);
+      setTitle(saved.title);
+      setTags(saved.tags.join(", "));
+      setContent(saved.contentMd);
+      setParentId(saved.parentId);
+      setExerciseIds(saved.relatedExercises.map((item) => item.id));
       onDirtyChange?.(false);
       onSaved(saved);
     } catch (caught) {
