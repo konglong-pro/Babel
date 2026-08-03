@@ -13,6 +13,7 @@ import {
   usePageSessionHistoryGuard,
   usePageSessionLifecycle,
   usePageSessions,
+  useWorkspaceProcessActive,
 } from "@babel-apps/platform/pages/react";
 
 import {
@@ -22,8 +23,13 @@ import {
   getScratch,
   saveScratch,
 } from "@/lib/api-client";
-import { navigationAllowed } from "@/components/app-header";
+import {
+  BEFORE_NAVIGATE_EVENT,
+  type BeforeNavigateDetail,
+  navigationAllowed,
+} from "@/components/app-header";
 import type { ExerciseDetailDto } from "@/lib/types";
+import { isRetexWorkspaceDestination } from "@/lib/workspace-process";
 import { MarkdownEditor } from "@/components/markdown-editor";
 import { ConfirmButton, formatDate, Tags } from "@/components/shared";
 
@@ -32,12 +38,14 @@ const REMARK_FEATURES = ["gfm", "formula-math"] as const;
 
 export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
   const router = useRouter();
+  const processActive = useWorkspaceProcessActive();
   const pageKey = `scratch:${exerciseId}`;
   const readerTriggerId = `retex-scratch-${exerciseId}-reader-trigger`;
   const { openPage, setPageStatus, updatePage } = usePageSessions();
   const formRef = useRef<HTMLFormElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const savingRef = useRef(false);
+  const openedPageRef = useRef(false);
   const [exercise, setExercise] = useState<ExerciseDetailDto | null>(null);
   const [content, setContent] = useState("");
   const [savedContent, setSavedContent] = useState("");
@@ -49,13 +57,16 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
   const dirty = content !== savedContent;
 
   useEffect(() => {
+    if (!processActive || openedPageRef.current) return;
+    openedPageRef.current = true;
     openPage({
       key: pageKey,
       kind: "Scratch",
       title: `Scratch ${exerciseId}`,
       href: `/exercise/${exerciseId}/scratch`,
+      scope: pageKey,
     });
-  }, [exerciseId, openPage, pageKey]);
+  }, [exerciseId, openPage, pageKey, processActive]);
 
   useEffect(() => {
     setPageStatus(pageKey, { dirty, pending: saving });
@@ -69,7 +80,20 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
     },
     discard: () => setSavedContent(content),
   });
-  usePageSessionHistoryGuard();
+  useEffect(() => {
+    if (!processActive) return;
+    const beforeNavigate = (event: Event) => {
+      const navigationEvent = event as CustomEvent<BeforeNavigateDetail>;
+      if (isRetexWorkspaceDestination(navigationEvent.detail?.destination ?? "")) {
+        return;
+      }
+      if ((dirty || saving) && !window.confirm("Discard your unsaved changes?")) {
+        event.preventDefault();
+      }
+    };
+    window.addEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
+    return () => window.removeEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
+  }, [dirty, processActive, saving]);
 
   useEffect(() => {
     let active = true;
@@ -80,6 +104,7 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
         updatePage(pageKey, {
           title: `${nextExercise.title} — Scratch`,
           href: `/exercise/${exerciseId}/scratch`,
+          scope: pageKey,
         });
         const nextContent = scratch?.contentMd ?? "";
         setContent(nextContent);
@@ -141,6 +166,7 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
 
   return (
     <PageDeckPage pageKey={pageKey}>
+      {processActive ? <ActiveScratchHistoryGuard /> : null}
       <div className="scratch-page">
       <header className="scratch-header">
         <div>
@@ -298,4 +324,9 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
       </div>
     </PageDeckPage>
   );
+}
+
+function ActiveScratchHistoryGuard() {
+  usePageSessionHistoryGuard({ preserveOnHistoryNavigation: true });
+  return null;
 }

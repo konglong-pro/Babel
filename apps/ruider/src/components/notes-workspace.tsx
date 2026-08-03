@@ -7,8 +7,12 @@ import {
   type ReferencePanelKind,
 } from "@babel-apps/markdown/reference";
 import {
+  createWorkspaceProcessRouteTargetTracker,
+  pageBelongsToWorkspaceProcess,
   usePageSessionHistoryGuard,
   usePageSessions,
+  useWorkspaceProcessActive,
+  workspaceProcessRouteTargetShouldApply,
 } from "@babel-apps/platform/pages/react";
 import type { SearchFocus } from "@babel-apps/platform/search/focus";
 
@@ -44,6 +48,10 @@ import type {
   NoteSummaryDto,
   NoteTemplateDto,
 } from "@/lib/types";
+import {
+  isRuiderWorkspaceDestination,
+  ruiderWorkspaceRegistration,
+} from "@/lib/workspace-process";
 
 type ResponsiveStage = "library" | "notes" | "note";
 
@@ -51,7 +59,10 @@ interface NotesWorkspaceProps {
   initialFolderId?: number | null;
   initialNoteId?: number | null;
   initialSearchFocus?: SearchFocus<NoteSearchField> | null;
+  routeTargetKey?: string;
 }
+
+const NOTES_PROCESS = ruiderWorkspaceRegistration("notes");
 
 function subtreeIds(rootId: number, folders: readonly FolderDto[]): Set<number> {
   const grouped = new Map<number | null, number[]>();
@@ -93,7 +104,9 @@ export function NotesWorkspace({
   initialFolderId = null,
   initialNoteId = null,
   initialSearchFocus = null,
+  routeTargetKey = "initial",
 }: NotesWorkspaceProps) {
+  const processActive = useWorkspaceProcessActive();
   const { pages, activeKey, activatePage, closePage, openPage } = usePageSessions();
   const [folders, setFolders] = useState<FolderDto[]>([]);
   const [notes, setNotes] = useState<NoteSummaryDto[]>([]);
@@ -113,7 +126,8 @@ export function NotesWorkspace({
   const [templatePending, setTemplatePending] = useState(false);
   const [activeReferencePanel, setActiveReferencePanel] = useState<ReferencePanelKind | null>(null);
   const referenceTriggerRef = useRef<HTMLElement | null>(null);
-  const initialOpenedRef = useRef(false);
+  const routeTargetTrackerRef = useRef(createWorkspaceProcessRouteTargetTracker());
+  const openedRouteTargetRef = useRef<string | null>(null);
 
   const refreshIndex = useCallback(async () => {
     const [nextFolders, nextNotes, nextTemplates] = await Promise.all([
@@ -142,41 +156,63 @@ export function NotesWorkspace({
   }, [refreshIndex]);
 
   useEffect(() => {
-    if (indexLoading || initialOpenedRef.current) return;
-    initialOpenedRef.current = true;
-    if (initialNoteId === null) return;
-    const note = notes.find((candidate) => candidate.id === initialNoteId);
-    openPage(note
-      ? savedNotePage(note)
-      : {
-          key: `note:${initialNoteId}`,
-          kind: "Note",
-          title: `Note ${initialNoteId}`,
-          href: `/notes${initialFolderId === null
-            ? `?note=${initialNoteId}`
-            : `?folder=${initialFolderId}&note=${initialNoteId}`}`,
-        });
-  }, [indexLoading, initialFolderId, initialNoteId, notes, openPage]);
+    const shouldApplyRouteTarget = workspaceProcessRouteTargetShouldApply(
+      routeTargetTrackerRef.current,
+      processActive,
+      routeTargetKey,
+    );
+    if (
+      !shouldApplyRouteTarget ||
+      indexLoading ||
+      openedRouteTargetRef.current === routeTargetKey
+    ) return;
+    let active = true;
+    void Promise.resolve().then(() => {
+      if (!active) return;
+      openedRouteTargetRef.current = routeTargetKey;
+      setSelectedFolderId(initialFolderId);
+      if (initialNoteId === null) {
+        setStage(initialFolderId === null ? "library" : "notes");
+        return;
+      }
+      const note = notes.find((candidate) => candidate.id === initialNoteId);
+      openPage(note
+        ? savedNotePage(note)
+        : {
+            key: `note:${initialNoteId}`,
+            kind: "Note",
+            scope: "notes",
+            title: `Note ${initialNoteId}`,
+            href: `/notes${initialFolderId === null
+              ? `?note=${initialNoteId}`
+              : `?folder=${initialFolderId}&note=${initialNoteId}`}`,
+          });
+    });
+    return () => {
+      active = false;
+    };
+  }, [
+    indexLoading,
+    initialFolderId,
+    initialNoteId,
+    notes,
+    openPage,
+    processActive,
+    routeTargetKey,
+  ]);
 
-  const activePage = pages.find((page) => page.key === activeKey && page.kind === "Note") ?? null;
+  const activePage = pages.find((page) =>
+    page.key === activeKey && pageBelongsToWorkspaceProcess(page, NOTES_PROCESS)
+  ) ?? null;
   useEffect(() => {
-    if (activePage === null) return;
+    if (!processActive || activePage === null) return;
     const url = new URL(activePage.href, window.location.origin);
     const nextUrl = `${url.pathname}${url.search}${url.hash}`;
     const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
     if (nextUrl !== currentUrl) {
       window.history.replaceState(window.history.state, "", nextUrl);
     }
-  }, [activePage]);
-
-  usePageSessionHistoryGuard({
-    dirty: templateDirty,
-    pending: templatePending,
-    onDiscard: () => {
-      setTemplateDirty(false);
-      setTemplatePending(false);
-    },
-  });
+  }, [activePage, processActive]);
 
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
@@ -184,7 +220,17 @@ export function NotesWorkspace({
       event.preventDefault();
       event.returnValue = true;
     };
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => window.removeEventListener("beforeunload", beforeUnload);
+  }, [templateDirty, templatePending]);
+
+  useEffect(() => {
+    if (!processActive) return;
     const beforeNavigate = (event: Event) => {
+      const navigationEvent = event as CustomEvent<BeforeNavigateDetail>;
+      if (isRuiderWorkspaceDestination(navigationEvent.detail?.destination ?? "")) {
+        return;
+      }
       const dirtyPages = pages.filter((page) => page.dirty || page.pending);
       if (
         (templateDirty || templatePending || dirtyPages.length > 0) &&
@@ -196,20 +242,24 @@ export function NotesWorkspace({
       for (const page of dirtyPages) closePage(page.key);
       setTemplateDirty(false);
       setTemplatePending(false);
-      const navigationEvent = event as CustomEvent<BeforeNavigateDetail>;
       if (navigationEvent.detail?.destination === "/notes") {
         activatePage(null);
         setSelectedFolderId(null);
         setStage("library");
       }
     };
-    window.addEventListener("beforeunload", beforeUnload);
     window.addEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
     return () => {
-      window.removeEventListener("beforeunload", beforeUnload);
       window.removeEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
     };
-  }, [activatePage, closePage, pages, templateDirty, templatePending]);
+  }, [
+    activatePage,
+    closePage,
+    pages,
+    processActive,
+    templateDirty,
+    templatePending,
+  ]);
 
   const folderMap = useMemo(
     () => new Map(folders.map((folder) => [folder.id, folder])),
@@ -237,7 +287,9 @@ export function NotesWorkspace({
     [selectedTemplateId, templates],
   );
   const selectedNoteId = savedNoteId(activeKey);
-  const hasUnsavedPages = pages.some((page) => page.dirty || page.pending);
+  const hasUnsavedPages = pages.some((page) =>
+    pageBelongsToWorkspaceProcess(page, NOTES_PROCESS) && (page.dirty || page.pending)
+  );
   const showingTemplates = managingTemplates && activePage === null;
   const visibleStage: ResponsiveStage = activePage === null ? stage : "note";
 
@@ -257,6 +309,7 @@ export function NotesWorkspace({
       : {
           key: `note:${id}`,
           kind: "Note",
+          scope: "notes",
           title: `Note ${id}`,
           href: `/notes${targetFolderId === null
             ? `?note=${id}`
@@ -276,6 +329,7 @@ export function NotesWorkspace({
     openPage({
       key,
       kind: "Note",
+      scope: "notes",
       title: draft.title,
       href: `/notes?folder=${draft.folderId}`,
       restorable: false,
@@ -422,6 +476,16 @@ export function NotesWorkspace({
     <div
       className={`notes-workspace stage-${visibleStage}${hasUnsavedPages || templateDirty ? " has-unsaved" : ""}${showingTemplates ? " managing-templates" : ""}`}
     >
+      {processActive ? (
+        <ActiveNotesHistoryGuard
+          dirty={templateDirty}
+          pending={templatePending}
+          onDiscard={() => {
+            setTemplateDirty(false);
+            setTemplatePending(false);
+          }}
+        />
+      ) : null}
       {error ? (
         <div className="workspace-alert" role="alert">
           <span>{error}</span>
@@ -520,7 +584,7 @@ export function NotesWorkspace({
       ) : (
         <>
           {pages
-            .filter((page) => page.kind === "Note")
+            .filter((page) => pageBelongsToWorkspaceProcess(page, NOTES_PROCESS))
             .map((page) => {
               const noteId = savedNoteId(page.key);
               const draft = drafts[page.key] ?? null;
@@ -564,4 +628,24 @@ export function NotesWorkspace({
       ) : null}
     </div>
   );
+}
+
+interface ActiveNotesHistoryGuardProps {
+  readonly dirty: boolean;
+  readonly pending: boolean;
+  readonly onDiscard: () => void;
+}
+
+function ActiveNotesHistoryGuard({
+  dirty,
+  pending,
+  onDiscard,
+}: ActiveNotesHistoryGuardProps) {
+  usePageSessionHistoryGuard({
+    dirty,
+    pending,
+    onDiscard,
+    preserveOnHistoryNavigation: true,
+  });
+  return null;
 }

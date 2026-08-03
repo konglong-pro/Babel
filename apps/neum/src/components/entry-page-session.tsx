@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PageSessionDescriptor } from "@babel-apps/platform/pages/core";
 import {
@@ -61,6 +62,7 @@ export function savedEntryPage(
   return {
     key: `entry:${entry.id}`,
     kind: entryUnitLabel(entry.kind),
+    scope: entry.kind,
     title: entry.title,
     href: entryWorkspaceHref(entry.kind, {
       folderId: entry.folderId,
@@ -83,6 +85,7 @@ export function EntryPageSession({
   onShowList,
   onError,
 }: EntryPageSessionProps) {
+  const router = useRouter();
   const { closePage, rekeyPage, setPageStatus, updatePage } = usePageSessions();
   const [detail, setDetail] = useState<EntryDetailDto | null>(null);
   const [backlinks, setBacklinks] = useState<EntryBacklinkDto[]>([]);
@@ -113,7 +116,9 @@ export function EntryPageSession({
       .then(([nextDetail, nextBacklinks]) => {
         if (!active) return;
         if (nextDetail.kind !== kind) {
-          window.location.replace(savedEntryPage(nextDetail).href);
+          const nextPage = savedEntryPage(nextDetail);
+          updatePage(pageKey, nextPage);
+          router.replace(nextPage.href);
           return;
         }
         setDetail(nextDetail);
@@ -121,6 +126,7 @@ export function EntryPageSession({
         setMode("view");
         updatePage(pageKey, {
           kind: entryUnitLabel(nextDetail.kind),
+          scope: nextDetail.kind,
           title: nextDetail.title,
           href: savedEntryPage(nextDetail).href,
         });
@@ -134,7 +140,7 @@ export function EntryPageSession({
     return () => {
       active = false;
     };
-  }, [entryId, kind, pageKey, reloadVersion, updatePage]);
+  }, [entryId, kind, pageKey, reloadVersion, router, updatePage]);
 
   const refreshBacklinks = useCallback(async (id: number) => {
     try {

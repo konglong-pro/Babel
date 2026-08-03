@@ -16,6 +16,7 @@ import {
 
 import {
   createPageSessionsState,
+  pagesShareScope,
   pageSessionsReducer,
   parsePageSessions,
   serializePageSessions,
@@ -33,8 +34,11 @@ export interface OpenPageOptions {
 }
 
 export interface PageSessionsContextValue extends PageSessionsState {
+  readonly pendingNavigationKey: string | null;
   openPage(page: PageSessionDescriptor, options?: OpenPageOptions): void;
   activatePage(key: string | null): void;
+  beginPageNavigation(key: string): void;
+  completePageNavigation(key?: string): void;
   updatePage(
     key: string,
     patch: Partial<Omit<PageSessionDescriptor, "key">>,
@@ -90,6 +94,17 @@ function isGuardedHistoryState(value: unknown): boolean {
   );
 }
 
+function otherPagesInScope(
+  pages: readonly PageSessionDescriptor[],
+  key: string,
+): readonly PageSessionDescriptor[] {
+  const target = pages.find((page) => page.key === key);
+  if (target === undefined) return [];
+  return pages.filter((page) =>
+    page.key !== key && pagesShareScope(page, target)
+  );
+}
+
 export function PageSessionProvider({
   children,
   initialPages = [],
@@ -102,12 +117,43 @@ export function PageSessionProvider({
     createPageSessionsState(initialPages, initialActiveKey),
   );
   const [pendingClose, setPendingClose] = useState<PendingClose | null>(null);
+  const [pendingNavigationKey, setPendingNavigationKey] = useState<string | null>(null);
   const [closePending, setClosePending] = useState(false);
   const [closeError, setCloseError] = useState("");
   const lifecycleRef = useRef(new Map<string, PageSessionLifecycle>());
   const restoredRef = useRef(false);
   const skipInitialPersistenceRef = useRef(storageKey !== undefined);
   const previousActivePageRef = useRef<PageSessionDescriptor | null>(null);
+  const pendingNavigationKeyRef = useRef<string | null>(null);
+  const pendingNavigationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const completePageNavigation = useCallback((key?: string) => {
+    if (key !== undefined && pendingNavigationKeyRef.current !== key) return;
+    pendingNavigationKeyRef.current = null;
+    if (pendingNavigationTimerRef.current !== null) {
+      clearTimeout(pendingNavigationTimerRef.current);
+      pendingNavigationTimerRef.current = null;
+    }
+    setPendingNavigationKey(null);
+  }, []);
+  const beginPageNavigation = useCallback((key: string) => {
+    if (pendingNavigationTimerRef.current !== null) {
+      clearTimeout(pendingNavigationTimerRef.current);
+    }
+    pendingNavigationKeyRef.current = key;
+    setPendingNavigationKey(key);
+    pendingNavigationTimerRef.current = setTimeout(() => {
+      pendingNavigationKeyRef.current = null;
+      pendingNavigationTimerRef.current = null;
+      setPendingNavigationKey(null);
+    }, 10_000);
+  }, []);
+
+  useEffect(() => () => {
+    if (pendingNavigationTimerRef.current !== null) {
+      clearTimeout(pendingNavigationTimerRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     if (restoredRef.current) return;
@@ -194,12 +240,11 @@ export function PageSessionProvider({
     setPendingClose({ key, others: false });
   }, [closePage, state.pages]);
   const requestCloseOtherPages = useCallback((key: string) => {
-    const protectedPages = state.pages.filter(
-      (page) => page.key !== key && (page.dirty || page.pending),
-    );
+    const otherPages = otherPagesInScope(state.pages, key);
+    const protectedPages = otherPages.filter((page) => page.dirty || page.pending);
     if (protectedPages.length === 0) {
-      for (const page of state.pages) {
-        if (page.key !== key) lifecycleRef.current.delete(page.key);
+      for (const page of otherPages) {
+        lifecycleRef.current.delete(page.key);
       }
       dispatch({ type: "close-others", key });
       return;
@@ -222,8 +267,8 @@ export function PageSessionProvider({
     const pending = pendingClose;
     if (pending === null) return;
     if (pending.others) {
-      for (const page of state.pages) {
-        if (page.key !== pending.key) lifecycleRef.current.delete(page.key);
+      for (const page of otherPagesInScope(state.pages, pending.key)) {
+        lifecycleRef.current.delete(page.key);
       }
       dispatch({ type: "close-others", key: pending.key });
     } else {
@@ -236,9 +281,8 @@ export function PageSessionProvider({
   const saveAndClose = useCallback(async () => {
     if (pendingClose === null || closePending) return;
     const targets = pendingClose.others
-      ? state.pages.filter(
-          (page) => page.key !== pendingClose.key && (page.dirty || page.pending),
-        )
+      ? otherPagesInScope(state.pages, pendingClose.key)
+          .filter((page) => page.dirty || page.pending)
       : state.pages.filter((page) => page.key === pendingClose.key);
     setClosePending(true);
     setCloseError("");
@@ -262,7 +306,7 @@ export function PageSessionProvider({
   const discardAndClose = useCallback(async () => {
     if (pendingClose === null || closePending) return;
     const targets = pendingClose.others
-      ? state.pages.filter((page) => page.key !== pendingClose.key)
+      ? otherPagesInScope(state.pages, pendingClose.key)
       : state.pages.filter((page) => page.key === pendingClose.key);
     setClosePending(true);
     setCloseError("");
@@ -281,7 +325,7 @@ export function PageSessionProvider({
   useEffect(() => {
     if (pendingClose === null || closePending) return;
     const protectedPages = pendingClose.others
-      ? state.pages.filter((page) => page.key !== pendingClose.key)
+      ? otherPagesInScope(state.pages, pendingClose.key)
       : state.pages.filter((page) => page.key === pendingClose.key);
     if (
       protectedPages.length > 0 &&
@@ -293,8 +337,11 @@ export function PageSessionProvider({
 
   const context = useMemo<PageSessionsContextValue>(() => ({
     ...state,
+    pendingNavigationKey,
     openPage,
     activatePage,
+    beginPageNavigation,
+    completePageNavigation,
     updatePage,
     setPageStatus,
     rekeyPage,
@@ -305,9 +352,12 @@ export function PageSessionProvider({
     registerLifecycle,
   }), [
     activatePage,
+    beginPageNavigation,
     closePage,
+    completePageNavigation,
     movePage,
     openPage,
+    pendingNavigationKey,
     registerLifecycle,
     rekeyPage,
     requestCloseOtherPages,
@@ -383,11 +433,312 @@ export function usePageSessions(): PageSessionsContextValue {
   return context;
 }
 
+export interface WorkspaceProcessPageMatcher {
+  readonly scope: string;
+  readonly legacyPageKinds?: readonly string[];
+  readonly legacyPageKeys?: readonly string[];
+}
+
+export interface WorkspaceProcessDefinition extends WorkspaceProcessPageMatcher {
+  readonly key: string;
+  readonly content: ReactNode;
+}
+
+export interface WorkspaceProcessHostProps {
+  readonly activeProcess: string | null;
+  readonly children?: ReactNode;
+  readonly processes: readonly WorkspaceProcessDefinition[];
+}
+
+interface WorkspaceProcessContextValue {
+  readonly active: boolean;
+  readonly key: string | null;
+}
+
+const WorkspaceProcessContext = createContext<WorkspaceProcessContextValue>({
+  active: true,
+  key: null,
+});
+
+export function useWorkspaceProcessActive(): boolean {
+  return useContext(WorkspaceProcessContext).active;
+}
+
+export function useWorkspaceProcessKey(): string | null {
+  return useContext(WorkspaceProcessContext).key;
+}
+
+export function pageBelongsToWorkspaceProcess(
+  page: Pick<PageSessionDescriptor, "key" | "kind" | "scope">,
+  process: WorkspaceProcessPageMatcher,
+): boolean {
+  return page.scope === process.scope || (
+    page.scope === undefined &&
+    process.legacyPageKinds?.includes(page.kind) === true &&
+    (
+      process.legacyPageKeys === undefined ||
+      process.legacyPageKeys.includes(page.key)
+    )
+  );
+}
+
+export function workspaceProcessPageKey(
+  pages: readonly PageSessionDescriptor[],
+  process: WorkspaceProcessPageMatcher,
+  rememberedKey: string | null,
+): string | null {
+  const processPages = pages.filter((page) =>
+    pageBelongsToWorkspaceProcess(page, process)
+  );
+  return processPages.some((page) => page.key === rememberedKey)
+    ? rememberedKey
+    : processPages.at(-1)?.key ?? null;
+}
+
+export function workspaceProcessActivationKey(
+  pages: readonly PageSessionDescriptor[],
+  process: WorkspaceProcessPageMatcher,
+  activeKey: string | null,
+  rememberedKey: string | null | undefined,
+  processChanged: boolean,
+): string | null {
+  const activePage = pages.find((page) => page.key === activeKey);
+  if (activePage && pageBelongsToWorkspaceProcess(activePage, process)) {
+    return activeKey;
+  }
+  if (activeKey === null && !processChanged) return null;
+  if (rememberedKey === null) return null;
+  return workspaceProcessPageKey(pages, process, rememberedKey ?? null);
+}
+
+export function workspaceProcessShouldRemainCached(
+  process: WorkspaceProcessPageMatcher & { readonly key: string },
+  availableProcessKeys: ReadonlySet<string>,
+  pages: readonly PageSessionDescriptor[],
+): boolean {
+  return availableProcessKeys.has(process.key) || pages.some((page) =>
+    pageBelongsToWorkspaceProcess(page, process)
+  );
+}
+
+export interface WorkspaceProcessRouteTargetTracker {
+  active: boolean;
+  activated: boolean;
+  preservingBareTarget: boolean;
+}
+
+export function createWorkspaceProcessRouteTargetTracker(): WorkspaceProcessRouteTargetTracker {
+  return {
+    active: false,
+    activated: false,
+    preservingBareTarget: false,
+  };
+}
+
+export function workspaceProcessRouteTargetShouldApply(
+  tracker: WorkspaceProcessRouteTargetTracker,
+  active: boolean,
+  routeTargetKey: string,
+): boolean {
+  const reactivated = active && tracker.activated && !tracker.active;
+  tracker.active = active;
+  if (!active) return false;
+  if (!tracker.activated) {
+    tracker.activated = true;
+    tracker.preservingBareTarget = false;
+    return true;
+  }
+  if (reactivated && routeTargetKey === "") {
+    tracker.preservingBareTarget = true;
+  } else if (routeTargetKey !== "") {
+    tracker.preservingBareTarget = false;
+  }
+  return !tracker.preservingBareTarget;
+}
+
+export function WorkspaceProcessHost({
+  activeProcess,
+  children,
+  processes,
+}: WorkspaceProcessHostProps) {
+  const {
+    pages,
+    activeKey,
+    activatePage,
+    pendingNavigationKey,
+    completePageNavigation,
+  } = usePageSessions();
+  const lastActiveKeyRef = useRef(new Map<string, string | null>());
+  const previousProcessKeyRef = useRef<string | null>(null);
+  const currentProcess = processes.find((process) => process.key === activeProcess) ?? null;
+
+  useEffect(() => {
+    const availableProcessKeys = new Set(processes.map(({ key }) => key));
+    for (const [processKey, rememberedKey] of lastActiveKeyRef.current) {
+      if (
+        !availableProcessKeys.has(processKey) &&
+        (
+          rememberedKey === null ||
+          !pages.some((page) => page.key === rememberedKey)
+        )
+      ) {
+        lastActiveKeyRef.current.delete(processKey);
+      }
+    }
+    const activePage = pages.find((page) => page.key === activeKey);
+    if (activeKey !== null && activePage !== undefined) {
+      const activePageProcess = processes.find((process) =>
+        pageBelongsToWorkspaceProcess(activePage, process)
+      );
+      if (activePageProcess !== undefined) {
+        lastActiveKeyRef.current.set(activePageProcess.key, activeKey);
+      }
+    }
+    if (pendingNavigationKey !== null) {
+      const pendingPage = pages.find((page) => page.key === pendingNavigationKey);
+      if (pendingPage === undefined) {
+        completePageNavigation(pendingNavigationKey);
+        return;
+      }
+      if (
+        currentProcess !== null &&
+        pageBelongsToWorkspaceProcess(pendingPage, currentProcess)
+      ) {
+        lastActiveKeyRef.current.set(currentProcess.key, pendingNavigationKey);
+        if (activeKey !== pendingNavigationKey) activatePage(pendingNavigationKey);
+        completePageNavigation(pendingNavigationKey);
+      }
+      return;
+    }
+    const processChanged = previousProcessKeyRef.current !== currentProcess?.key;
+    previousProcessKeyRef.current = currentProcess?.key ?? null;
+    if (currentProcess === null) return;
+    if (!processChanged) {
+      if (activeKey === null) {
+        lastActiveKeyRef.current.set(currentProcess.key, null);
+        return;
+      }
+      if (activePage && pageBelongsToWorkspaceProcess(activePage, currentProcess)) {
+        return;
+      }
+    } else if (
+      activePage && pageBelongsToWorkspaceProcess(activePage, currentProcess)
+    ) {
+      return;
+    }
+    const nextKey = workspaceProcessActivationKey(
+      pages,
+      currentProcess,
+      activeKey,
+      lastActiveKeyRef.current.get(currentProcess.key),
+      processChanged,
+    );
+    if (activeKey !== nextKey) activatePage(nextKey);
+  }, [
+    activatePage,
+    activeKey,
+    completePageNavigation,
+    currentProcess,
+    pages,
+    pendingNavigationKey,
+    processes,
+  ]);
+
+  return (
+    <WorkspaceProcessCache
+      activeProcess={activeProcess}
+      pages={pages}
+      processes={processes}
+    >
+      {children}
+    </WorkspaceProcessCache>
+  );
+}
+
+interface WorkspaceProcessCacheProps {
+  readonly activeProcess: string | null;
+  readonly children?: ReactNode;
+  readonly pages: readonly PageSessionDescriptor[];
+  readonly processes: readonly WorkspaceProcessDefinition[];
+}
+
+interface WorkspaceProcessCacheState {
+  readonly processes: ReadonlyMap<string, WorkspaceProcessDefinition>;
+}
+
+class WorkspaceProcessCache extends React.Component<
+  WorkspaceProcessCacheProps,
+  WorkspaceProcessCacheState
+> {
+  state: WorkspaceProcessCacheState = { processes: new Map() };
+
+  static getDerivedStateFromProps(
+    props: WorkspaceProcessCacheProps,
+    state: WorkspaceProcessCacheState,
+  ): WorkspaceProcessCacheState | null {
+    const availableProcessKeys = new Set(
+      props.processes.map((process) => process.key),
+    );
+    const processes = new Map(state.processes);
+    let changed = false;
+    for (const [key, process] of processes) {
+      if (!workspaceProcessShouldRemainCached(
+        process,
+        availableProcessKeys,
+        props.pages,
+      )) {
+        processes.delete(key);
+        changed = true;
+      }
+    }
+    if (props.activeProcess === null) {
+      return changed ? { processes } : null;
+    }
+    const process = props.processes.find(({ key }) => key === props.activeProcess);
+    if (process !== undefined && processes.get(process.key) !== process) {
+      processes.set(process.key, process);
+      changed = true;
+    }
+    return changed ? { processes } : null;
+  }
+
+  render() {
+    const { activeProcess, children } = this.props;
+    const activeProcessAvailable = activeProcess === null ||
+      this.state.processes.has(activeProcess);
+    return (
+      <>
+        {[...this.state.processes.values()].map((process) => {
+          const active = process.key === activeProcess;
+          return (
+            <WorkspaceProcessContext.Provider
+              key={process.key}
+              value={{ active, key: process.key }}
+            >
+              <div
+                className="babel-workspace-process"
+                data-process={process.key}
+                data-active={active ? "" : undefined}
+                hidden={!active}
+                inert={!active}
+              >
+                {process.content}
+              </div>
+            </WorkspaceProcessContext.Provider>
+          );
+        })}
+        {activeProcess === null || !activeProcessAvailable ? children : null}
+      </>
+    );
+  }
+}
+
 export interface PageSessionHistoryGuardOptions {
   readonly dirty?: boolean;
   readonly pending?: boolean;
   readonly onDiscard?: () => void;
   readonly message?: string;
+  readonly preserveOnHistoryNavigation?: boolean;
 }
 
 export function usePageSessionHistoryGuard({
@@ -395,6 +746,7 @@ export function usePageSessionHistoryGuard({
   pending = false,
   onDiscard,
   message = "Discard your unsaved changes?",
+  preserveOnHistoryNavigation = false,
 }: PageSessionHistoryGuardOptions = {}): void {
   const { pages, activeKey, closePage } = usePageSessions();
   const protectedKeys = pages
@@ -427,6 +779,7 @@ export function usePageSessionHistoryGuard({
   }, [message]);
 
   useEffect(() => {
+    if (preserveOnHistoryNavigation) return;
     guardedUrlRef.current = currentRelativeUrl();
     guardEntryPresentRef.current = isGuardedHistoryState(window.history.state);
 
@@ -476,9 +829,10 @@ export function usePageSessionHistoryGuard({
         popFallbackTimerRef.current = null;
       }
     };
-  }, [closePage]);
+  }, [closePage, preserveOnHistoryNavigation]);
 
   useEffect(() => {
+    if (preserveOnHistoryNavigation) return;
     guardedUrlRef.current = currentRelativeUrl();
     if (
       (protectedKeys.length === 0 && !dirty && !pending) ||
@@ -490,22 +844,32 @@ export function usePageSessionHistoryGuard({
       guardedUrlRef.current,
     );
     guardEntryPresentRef.current = true;
-  }, [activeKey, dirty, pending, protectedKeys.length]);
+  }, [
+    activeKey,
+    dirty,
+    pending,
+    preserveOnHistoryNavigation,
+    protectedKeys.length,
+  ]);
 }
 
 export interface PageTabsProps {
   readonly className?: string;
   readonly label?: string;
+  readonly onNavigate?: (href: string) => void;
 }
 
 export function PageTabs({
   className = "",
   label = "Open pages",
+  onNavigate,
 }: PageTabsProps) {
   const {
     pages,
     activeKey,
     activatePage,
+    beginPageNavigation,
+    completePageNavigation,
     requestClosePage,
     requestCloseOtherPages,
     movePage,
@@ -523,7 +887,19 @@ export function PageTabs({
   const activate = (page: PageSessionDescriptor) => {
     const target = new URL(page.href, window.location.origin);
     if (target.pathname !== window.location.pathname) {
-      window.location.assign(`${target.pathname}${target.search}${target.hash}`);
+      if (onNavigate !== undefined) beginPageNavigation(page.key);
+      activatePage(page.key);
+      const href = `${target.pathname}${target.search}${target.hash}`;
+      if (onNavigate === undefined) {
+        window.location.assign(href);
+      } else {
+        try {
+          onNavigate(href);
+        } catch (error) {
+          completePageNavigation(page.key);
+          throw error;
+        }
+      }
       return;
     }
     activatePage(page.key);

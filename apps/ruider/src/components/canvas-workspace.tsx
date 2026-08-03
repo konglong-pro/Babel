@@ -3,8 +3,12 @@
 import Image from "next/image";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import {
+  createWorkspaceProcessRouteTargetTracker,
+  pageBelongsToWorkspaceProcess,
   usePageSessionHistoryGuard,
   usePageSessions,
+  useWorkspaceProcessActive,
+  workspaceProcessRouteTargetShouldApply,
 } from "@babel-apps/platform/pages/react";
 
 import {
@@ -12,15 +16,26 @@ import {
   savedCanvasPage,
 } from "@/components/canvas-page-session";
 import {
+  BEFORE_NAVIGATE_EVENT,
+  type BeforeNavigateDetail,
+} from "@/components/app-header";
+import {
   createCanvas,
   getErrorMessage,
   listCanvases,
 } from "@/lib/api-client";
 import type { CanvasDetailDto, CanvasSummaryDto } from "@/lib/types";
+import {
+  isRuiderWorkspaceDestination,
+  ruiderWorkspaceRegistration,
+} from "@/lib/workspace-process";
 
 interface CanvasWorkspaceProps {
   initialCanvasId: number | null;
+  routeTargetKey?: string;
 }
+
+const CANVASES_PROCESS = ruiderWorkspaceRegistration("canvases");
 
 function canvasIdFromKey(pageKey: string | null): number | null {
   if (pageKey === null || !pageKey.startsWith("canvas:")) return null;
@@ -28,13 +43,18 @@ function canvasIdFromKey(pageKey: string | null): number | null {
   return Number.isInteger(id) && id > 0 ? id : null;
 }
 
-export function CanvasWorkspace({ initialCanvasId }: CanvasWorkspaceProps) {
-  const { pages, activeKey, activatePage, openPage } = usePageSessions();
+export function CanvasWorkspace({
+  initialCanvasId,
+  routeTargetKey = "initial",
+}: CanvasWorkspaceProps) {
+  const processActive = useWorkspaceProcessActive();
+  const { pages, activeKey, activatePage, closePage, openPage } = usePageSessions();
   const [canvases, setCanvases] = useState<CanvasSummaryDto[]>([]);
   const [newTitle, setNewTitle] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const initialOpenedRef = useRef(false);
+  const routeTargetTrackerRef = useRef(createWorkspaceProcessRouteTargetTracker());
+  const openedRouteTargetRef = useRef<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -54,8 +74,17 @@ export function CanvasWorkspace({ initialCanvasId }: CanvasWorkspaceProps) {
   }, []);
 
   useEffect(() => {
-    if (loading || initialOpenedRef.current) return;
-    initialOpenedRef.current = true;
+    const shouldApplyRouteTarget = workspaceProcessRouteTargetShouldApply(
+      routeTargetTrackerRef.current,
+      processActive,
+      routeTargetKey,
+    );
+    if (
+      !shouldApplyRouteTarget ||
+      loading ||
+      openedRouteTargetRef.current === routeTargetKey
+    ) return;
+    openedRouteTargetRef.current = routeTargetKey;
     const requested = initialCanvasId === null
       ? null
       : canvases.find(({ id }) => id === initialCanvasId) ?? null;
@@ -64,10 +93,13 @@ export function CanvasWorkspace({ initialCanvasId }: CanvasWorkspaceProps) {
       return;
     }
     const activeCanvas = pages.find(
-      (page) => page.key === activeKey && page.kind === "Canvas",
+      (page) => page.key === activeKey &&
+        pageBelongsToWorkspaceProcess(page, CANVASES_PROCESS),
     );
     if (activeCanvas !== undefined) return;
-    const existingCanvas = pages.findLast((page) => page.kind === "Canvas");
+    const existingCanvas = pages.findLast((page) =>
+      pageBelongsToWorkspaceProcess(page, CANVASES_PROCESS)
+    );
     if (existingCanvas !== undefined) {
       activatePage(existingCanvas.key);
       return;
@@ -82,24 +114,46 @@ export function CanvasWorkspace({ initialCanvasId }: CanvasWorkspaceProps) {
     loading,
     openPage,
     pages,
+    processActive,
+    routeTargetKey,
   ]);
 
   const activePage = pages.find(
-    (page) => page.key === activeKey && page.kind === "Canvas",
+    (page) => page.key === activeKey &&
+      pageBelongsToWorkspaceProcess(page, CANVASES_PROCESS),
   ) ?? null;
   const selectedId = canvasIdFromKey(activeKey);
 
   useEffect(() => {
-    if (activePage === null) return;
+    if (!processActive || activePage === null) return;
     const url = new URL(activePage.href, window.location.origin);
     const nextUrl = `${url.pathname}${url.search}${url.hash}`;
     const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
     if (nextUrl !== currentUrl) {
       window.history.replaceState(window.history.state, "", nextUrl);
     }
-  }, [activePage]);
+  }, [activePage, processActive]);
 
-  usePageSessionHistoryGuard();
+  useEffect(() => {
+    if (!processActive) return;
+    const beforeNavigate = (event: Event) => {
+      const navigationEvent = event as CustomEvent<BeforeNavigateDetail>;
+      if (isRuiderWorkspaceDestination(navigationEvent.detail?.destination ?? "")) {
+        return;
+      }
+      const dirtyPages = pages.filter((page) => page.dirty || page.pending);
+      if (
+        dirtyPages.length > 0 &&
+        !window.confirm("Discard your unsaved changes?")
+      ) {
+        event.preventDefault();
+        return;
+      }
+      for (const page of dirtyPages) closePage(page.key);
+    };
+    window.addEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
+    return () => window.removeEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
+  }, [closePage, pages, processActive]);
 
   function openCanvas(id: number) {
     const canvas = canvases.find((candidate) => candidate.id === id);
@@ -108,6 +162,7 @@ export function CanvasWorkspace({ initialCanvasId }: CanvasWorkspaceProps) {
       : {
           key: `canvas:${id}`,
           kind: "Canvas",
+          scope: "canvases",
           title: `Canvas ${id}`,
           href: `/canvases?canvas=${id}`,
         });
@@ -146,6 +201,7 @@ export function CanvasWorkspace({ initialCanvasId }: CanvasWorkspaceProps) {
 
   return (
     <section className="canvas-workspace" aria-label="Ruider canvases">
+      {processActive ? <ActiveCanvasHistoryGuard /> : null}
       <aside className="canvas-library">
         <div className="canvas-library__heading">
           <div>
@@ -198,7 +254,7 @@ export function CanvasWorkspace({ initialCanvasId }: CanvasWorkspaceProps) {
 
       <>
         {pages
-          .filter((page) => page.kind === "Canvas")
+          .filter((page) => pageBelongsToWorkspaceProcess(page, CANVASES_PROCESS))
           .map((page) => {
             const canvasId = canvasIdFromKey(page.key);
             if (canvasId === null) return null;
@@ -236,6 +292,11 @@ export function CanvasWorkspace({ initialCanvasId }: CanvasWorkspaceProps) {
       </>
     </section>
   );
+}
+
+function ActiveCanvasHistoryGuard() {
+  usePageSessionHistoryGuard({ preserveOnHistoryNavigation: true });
+  return null;
 }
 
 function formatUpdatedAt(value: string): string {

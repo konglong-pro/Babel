@@ -3,6 +3,7 @@ export interface PageSessionDescriptor {
   readonly kind: string;
   readonly title: string;
   readonly href: string;
+  readonly scope?: string;
   readonly restorable?: boolean;
   readonly dirty?: boolean;
   readonly pending?: boolean;
@@ -86,17 +87,22 @@ export function pageSessionsReducer(
 ): PageSessionsState {
   switch (action.type) {
     case "open": {
-      const index = state.pages.findIndex((page) => page.key === action.page.key);
+      const nextPage = normalizePage(action.page);
+      const index = state.pages.findIndex((page) => page.key === nextPage.key);
+      const existingPage = index < 0 ? undefined : state.pages[index];
+      if (existingPage !== undefined) {
+        assertCompatiblePageIdentity(existingPage, nextPage);
+      }
       const pages = index < 0
-        ? [...state.pages, normalizePage(action.page)]
+        ? [...state.pages, nextPage]
         : state.pages.map((page, pageIndex) =>
             pageIndex === index
-              ? normalizePage({ ...page, ...action.page })
+              ? normalizePage({ ...page, ...nextPage })
               : page
           );
       return {
         pages,
-        activeKey: action.activate === false ? state.activeKey : action.page.key,
+        activeKey: action.activate === false ? state.activeKey : nextPage.key,
       };
     }
     case "activate":
@@ -119,7 +125,12 @@ export function pageSessionsReducer(
       const page = state.pages.find((candidate) => candidate.key === action.key);
       return page === undefined
         ? state
-        : { pages: [page], activeKey: page.key };
+        : {
+            pages: state.pages.filter((candidate) =>
+              candidate.key === page.key || !pagesShareScope(candidate, page)
+            ),
+            activeKey: page.key,
+          };
     }
     case "move":
       return movePage(state, action.key, action.toIndex);
@@ -180,43 +191,80 @@ function rekeyPage(
 ): PageSessionsState {
   const sourceIndex = state.pages.findIndex((page) => page.key === key);
   if (sourceIndex < 0) return state;
+  const normalizedNextPage = normalizePage(nextPage);
 
   const existingIndex = state.pages.findIndex(
-    (page, index) => index !== sourceIndex && page.key === nextPage.key,
+    (page, index) => index !== sourceIndex && page.key === normalizedNextPage.key,
   );
   if (existingIndex >= 0) {
+    const existingPage = state.pages[existingIndex];
+    if (existingPage !== undefined) {
+      assertCompatiblePageIdentity(existingPage, normalizedNextPage);
+    }
     const pages = state.pages
       .filter((_, index) => index !== sourceIndex)
-      .map((page) => page.key === nextPage.key
-        ? normalizePage({ ...page, ...nextPage })
+      .map((page) => page.key === normalizedNextPage.key
+        ? normalizePage({ ...page, ...normalizedNextPage })
         : page);
     return {
       pages,
       activeKey:
-        state.activeKey === key || state.activeKey === nextPage.key
-          ? nextPage.key
+        state.activeKey === key || state.activeKey === normalizedNextPage.key
+          ? normalizedNextPage.key
           : state.activeKey,
     };
   }
 
   const pages = state.pages.map((page, index) =>
-    index === sourceIndex ? normalizePage(nextPage) : page
+    index === sourceIndex ? normalizedNextPage : page
   );
   return {
     pages,
-    activeKey: state.activeKey === key ? nextPage.key : state.activeKey,
+    activeKey: state.activeKey === key ? normalizedNextPage.key : state.activeKey,
   };
 }
 
 function closePage(state: PageSessionsState, key: string): PageSessionsState {
   const index = state.pages.findIndex((page) => page.key === key);
   if (index < 0) return state;
+  const closedPage = state.pages[index];
+  if (closedPage === undefined) return state;
   const pages = state.pages.filter((page) => page.key !== key);
   if (state.activeKey !== key) return { ...state, pages };
+
+  const sameScopeRight = pages
+    .slice(index)
+    .find((page) => pagesShareScope(page, closedPage));
+  const sameScopeLeft = pages
+    .slice(0, index)
+    .findLast((page) => pagesShareScope(page, closedPage));
   return {
     pages,
-    activeKey: pages[index]?.key ?? pages[index - 1]?.key ?? null,
+    activeKey:
+      sameScopeRight?.key ??
+      sameScopeLeft?.key ??
+      pages[index]?.key ??
+      pages[index - 1]?.key ??
+      null,
   };
+}
+
+export function pagesShareScope(
+  left: PageSessionDescriptor,
+  right: PageSessionDescriptor,
+): boolean {
+  if (left.scope !== undefined || right.scope !== undefined) {
+    return left.scope !== undefined && left.scope === right.scope;
+  }
+  return legacyPagePath(left) === legacyPagePath(right);
+}
+
+function legacyPagePath(page: PageSessionDescriptor): string {
+  try {
+    return new URL(page.href, "http://babel.invalid").pathname;
+  } catch {
+    return page.kind;
+  }
 }
 
 function movePage(
@@ -241,10 +289,39 @@ function deduplicatePages(
   const unique = new Map<string, PageSessionDescriptor>();
   for (const page of pages) {
     const normalized = normalizePage(page);
+    const existing = unique.get(normalized.key);
+    if (existing !== undefined) {
+      assertCompatiblePageIdentity(existing, normalized);
+    }
     unique.delete(normalized.key);
     unique.set(normalized.key, normalized);
   }
   return [...unique.values()];
+}
+
+export function scopedPageKey(scope: string, localKey: string): string {
+  const normalizedScope = scope.trim();
+  const normalizedLocalKey = localKey.trim();
+  if (!normalizedScope || !normalizedLocalKey) {
+    throw new TypeError("Scoped page keys require a non-empty scope and local key.");
+  }
+  return `${normalizedScope}:${normalizedLocalKey}`;
+}
+
+function assertCompatiblePageIdentity(
+  existing: PageSessionDescriptor,
+  incoming: PageSessionDescriptor,
+): void {
+  if (
+    existing.scope !== undefined &&
+    incoming.scope !== undefined &&
+    existing.scope !== incoming.scope
+  ) {
+    throw new TypeError(
+      `Page session key "${incoming.key}" is already owned by scope "${existing.scope}"; ` +
+        `scope "${incoming.scope}" must use a globally unique key.`,
+    );
+  }
 }
 
 function normalizePage(page: PageSessionDescriptor): PageSessionDescriptor {
@@ -252,8 +329,11 @@ function normalizePage(page: PageSessionDescriptor): PageSessionDescriptor {
   const kind = page.kind.trim();
   const title = page.title.trim();
   const href = page.href.trim();
-  if (!key || !kind || !title || !href) {
-    throw new TypeError("Page sessions require non-empty key, kind, title, and href.");
+  const scope = page.scope?.trim();
+  if (!key || !kind || !title || !href || (page.scope !== undefined && !scope)) {
+    throw new TypeError(
+      "Page sessions require non-empty key, kind, title, href, and optional scope.",
+    );
   }
   return {
     ...page,
@@ -261,6 +341,7 @@ function normalizePage(page: PageSessionDescriptor): PageSessionDescriptor {
     kind,
     title,
     href,
+    ...(scope === undefined ? {} : { scope }),
     dirty: page.dirty === true,
     pending: page.pending === true,
   };
@@ -268,15 +349,29 @@ function normalizePage(page: PageSessionDescriptor): PageSessionDescriptor {
 
 function parsePage(value: unknown): PageSessionDescriptor {
   if (!isRecord(value)) throw new TypeError("Page session data is invalid.");
+  const scope = optionalString(value, "scope");
   return normalizePage({
     key: requiredString(value, "key"),
     kind: requiredString(value, "kind"),
     title: requiredString(value, "title"),
     href: requiredString(value, "href"),
+    ...(scope === undefined ? {} : { scope }),
     restorable: value.restorable !== false,
     dirty: false,
     pending: false,
   });
+}
+
+function optionalString(
+  value: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  const candidate = value[key];
+  if (candidate === undefined) return undefined;
+  if (typeof candidate !== "string") {
+    throw new TypeError(`Page session ${key} must be a string.`);
+  }
+  return candidate;
 }
 
 function requiredString(value: Record<string, unknown>, key: string): string {

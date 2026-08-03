@@ -7,10 +7,14 @@ import "@babel-apps/platform/search.css";
 import "@babel-apps/platform/shortcuts.css";
 import "./globals.css";
 
-import { PageSessionProvider, PageTabs } from "@babel-apps/platform/pages/react";
+import { PageSessionProvider } from "@babel-apps/platform/pages/react";
 import { ShortcutProvider } from "@babel-apps/platform/shortcuts/react";
 
 import { AppHeader } from "@/components/app-header";
+import {
+  AppPageTabs,
+  AppWorkspaceProcessHost,
+} from "@/components/workspace-process-host";
 
 export const metadata: Metadata = {
   title: {
@@ -28,8 +32,10 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
           <PageSessionProvider storageKey="babel:__APP_ID__:pages">
             <a className="skip-link" href="#main-content">Skip to main content</a>
             <AppHeader />
-            <PageTabs />
-            <main id="main-content">{children}</main>
+            <AppPageTabs />
+            <main id="main-content">
+              <AppWorkspaceProcessHost>{children}</AppWorkspaceProcessHost>
+            </main>
           </PageSessionProvider>
         </ShortcutProvider>
       </body>

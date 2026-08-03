@@ -19,6 +19,7 @@
     "./http/folder-routes": "./src/http/folder-routes.ts",
     "./http/request": "./src/http/request.ts",
     "./pages/core": "./src/pages/core.ts",
+    "./pages/next": "./src/pages/next.tsx",
     "./pages/react": "./src/pages/react.tsx",
     "./pages.css": "./src/pages/pages.css",
     "./search/page": "./src/search/page.ts",

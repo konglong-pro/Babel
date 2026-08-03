@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   MarkdownWritingGuidePanel,
@@ -7,8 +8,11 @@ import {
   type ReferencePanelKind,
 } from "@babel-apps/markdown/reference";
 import {
+  createWorkspaceProcessRouteTargetTracker,
   usePageSessionHistoryGuard,
   usePageSessions,
+  useWorkspaceProcessActive,
+  workspaceProcessRouteTargetShouldApply,
 } from "@babel-apps/platform/pages/react";
 
 import {
@@ -46,6 +50,7 @@ import type {
   KnowledgeSummaryDto,
   LinkEntityKind,
 } from "@/lib/types";
+import { isMatterWorkspaceDestination } from "@/lib/workspace-process";
 
 type ArchiveSummary = KnowledgeSummaryDto | ExerciseSummaryDto;
 
@@ -54,6 +59,7 @@ interface ArchiveWorkspaceProps {
   initialFolderId?: number | null;
   initialItemId?: number | null;
   initialSearchFocus?: ArchiveSearchFocus | null;
+  routeTargetKey?: string;
 }
 
 interface WikilinkCreationRequest {
@@ -83,7 +89,10 @@ export function ArchiveWorkspace({
   initialFolderId = null,
   initialItemId = null,
   initialSearchFocus = null,
+  routeTargetKey = "initial",
 }: ArchiveWorkspaceProps) {
+  const router = useRouter();
+  const processActive = useWorkspaceProcessActive();
   const { pages, activeKey, activatePage, closePage, openPage } = usePageSessions();
   const pageKind = archivePageKind(type);
   const [folders, setFolders] = useState<FolderDto[]>([]);
@@ -99,7 +108,8 @@ export function ArchiveWorkspace({
   const [knowledgeFoldersError, setKnowledgeFoldersError] = useState("");
   const [activeReferencePanel, setActiveReferencePanel] = useState<ReferencePanelKind | null>(null);
   const referenceTriggerRef = useRef<HTMLElement | null>(null);
-  const initialOpenedRef = useRef(false);
+  const openedRouteTargetRef = useRef<string | null>(null);
+  const routeTargetTrackerRef = useRef(createWorkspaceProcessRouteTargetTracker());
 
   const loadIndex = useCallback(async () => {
     const [nextFolders, nextItems] = await Promise.all([
@@ -126,8 +136,17 @@ export function ArchiveWorkspace({
   }, [loadIndex]);
 
   useEffect(() => {
-    if (indexLoading || initialOpenedRef.current) return;
-    initialOpenedRef.current = true;
+    if (!workspaceProcessRouteTargetShouldApply(
+      routeTargetTrackerRef.current,
+      processActive,
+      routeTargetKey,
+    )) return;
+    if (
+      indexLoading ||
+      openedRouteTargetRef.current === routeTargetKey
+    ) return;
+    openedRouteTargetRef.current = routeTargetKey;
+    setSelectedFolderId(initialFolderId);
     if (initialItemId === null) return;
     const item = items.find((candidate) => candidate.id === initialItemId);
     openPage(item
@@ -137,6 +156,7 @@ export function ArchiveWorkspace({
           kind: pageKind,
           title: `${pageKind} ${initialItemId}`,
           href: entityLocation(type, initialItemId, initialFolderId),
+          scope: type,
         });
   }, [
     indexLoading,
@@ -145,6 +165,8 @@ export function ArchiveWorkspace({
     items,
     openPage,
     pageKind,
+    processActive,
+    routeTargetKey,
     type,
   ]);
 
@@ -161,19 +183,22 @@ export function ArchiveWorkspace({
   const visibleFolderId = activeFolderId ?? selectedFolderId;
 
   useEffect(() => {
-    if (activePage === null) return;
+    if (!processActive || activePage === null) return;
     const url = new URL(activePage.href, window.location.origin);
     const nextUrl = `${url.pathname}${url.search}${url.hash}`;
     const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
     if (nextUrl !== currentUrl) {
       window.history.replaceState(window.history.state, "", nextUrl);
     }
-  }, [activePage]);
-
-  usePageSessionHistoryGuard();
+  }, [activePage, processActive]);
 
   useEffect(() => {
+    if (!processActive) return;
     const beforeNavigate = (event: Event) => {
+      const navigationEvent = event as CustomEvent<BeforeNavigateDetail>;
+      if (isMatterWorkspaceDestination(navigationEvent.detail?.destination ?? "")) {
+        return;
+      }
       const dirtyPages = pages.filter((page) => page.dirty || page.pending);
       if (
         dirtyPages.length > 0 &&
@@ -183,15 +208,10 @@ export function ArchiveWorkspace({
         return;
       }
       for (const page of dirtyPages) closePage(page.key);
-      const navigationEvent = event as CustomEvent<BeforeNavigateDetail>;
-      if (navigationEvent.detail?.destination === `/${type}`) {
-        activatePage(null);
-        setSelectedFolderId(null);
-      }
     };
     window.addEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
     return () => window.removeEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
-  }, [activatePage, closePage, pages, type]);
+  }, [closePage, pages, processActive]);
 
   const visibleItems = useMemo(() => {
     const filtered = visibleFolderId === null
@@ -224,6 +244,7 @@ export function ArchiveWorkspace({
           kind: pageKind,
           title: `${pageKind} ${id}`,
           href: entityLocation(type, id, folderId),
+          scope: type,
         });
     if (folderId !== null) setSelectedFolderId(folderId);
   }
@@ -233,7 +254,15 @@ export function ArchiveWorkspace({
       openItem(id, folderId);
       return;
     }
-    window.location.assign(entityLocation(kind, id, folderId));
+    const href = entityLocation(kind, id, folderId);
+    openPage({
+      key: `${kind}:${id}`,
+      kind: archivePageKind(kind),
+      title: `${archivePageKind(kind)} ${id}`,
+      href,
+      scope: kind,
+    });
+    router.push(href);
   }
 
   function openDraft(
@@ -252,6 +281,7 @@ export function ArchiveWorkspace({
       kind: pageKind,
       title: draft.title,
       href: entityLocation(type, null, draft.folderId),
+      scope: type,
       restorable: false,
     });
     setSelectedFolderId(draft.folderId);
@@ -374,7 +404,9 @@ export function ArchiveWorkspace({
       tags: [],
       exerciseIds: [],
     });
-    window.location.assign(entityLocation("knowledge", saved.id, saved.folderId));
+    const page = savedArchivePage("knowledge", saved);
+    openPage(page);
+    router.push(page.href);
   }
 
   function openReferencePanel(panel: ReferencePanelKind) {
@@ -391,6 +423,7 @@ export function ArchiveWorkspace({
 
   return (
     <>
+      {processActive ? <ActiveArchiveHistoryGuard /> : null}
       {navigationError ? <p className="form-error" role="alert">{navigationError}</p> : null}
       <div className={`archive-workspace${hasUnsavedPages ? " has-unsaved" : ""}`}>
         <FolderPanel
@@ -493,6 +526,11 @@ export function ArchiveWorkspace({
       )}
     </>
   );
+}
+
+function ActiveArchiveHistoryGuard() {
+  usePageSessionHistoryGuard({ preserveOnHistoryNavigation: true });
+  return null;
 }
 
 interface KnowledgeFolderDialogProps {

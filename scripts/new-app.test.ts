@@ -182,6 +182,62 @@ test("renders the repository mirror template as an independent app", async (t) =
   assert.equal(manifest.scripts["db:check"], "tsx scripts/check-database.ts");
   assert.equal(manifest.scripts["benchmark:search"], "tsx scripts/benchmark-search.ts");
   assert.equal(manifest.scripts.build, "tsx scripts/build.ts");
+  const generatedLayout = await readFile(
+    path.join(generatedRoot, "src", "app", "layout.tsx"),
+    "utf8",
+  );
+  const generatedProcessHost = await readFile(
+    path.join(generatedRoot, "src", "components", "workspace-process-host.tsx"),
+    "utf8",
+  );
+  const generatedProcessRegistry = await readFile(
+    path.join(generatedRoot, "src", "lib", "workspace-process.ts"),
+    "utf8",
+  );
+  const generatedNotesWorkspace = await readFile(
+    path.join(generatedRoot, "src", "components", "notes-workspace.tsx"),
+    "utf8",
+  );
+  const generatedNoteSession = await readFile(
+    path.join(generatedRoot, "src", "components", "note-page-session.tsx"),
+    "utf8",
+  );
+  assert.match(generatedLayout, /<AppPageTabs\s*\/>/);
+  assert.match(
+    generatedLayout,
+    /<AppWorkspaceProcessHost>\{children\}<\/AppWorkspaceProcessHost>/,
+  );
+  assert.match(generatedProcessHost, /@babel-apps\/platform\/pages\/next/);
+  assert.match(generatedProcessHost, /WorkspaceProcessHost/);
+  assert.match(generatedProcessHost, /<NotesWorkspace/);
+  assert.match(generatedProcessRegistry, /key:\s*"notes"/);
+  assert.match(generatedProcessRegistry, /pathname:\s*"\/notes"/);
+  assert.match(generatedProcessRegistry, /scope:\s*"notes"/);
+  assert.match(generatedNotesWorkspace, /useWorkspaceProcessActive/);
+  assert.match(generatedNotesWorkspace, /isAppWorkspaceDestination/);
+  assert.match(
+    generatedNotesWorkspace,
+    /createWorkspaceProcessRouteTargetTracker\s*\(/,
+  );
+  assert.match(
+    generatedNotesWorkspace,
+    /workspaceProcessRouteTargetShouldApply\s*\(/,
+  );
+  assert.match(generatedNotesWorkspace, /scopedPageKey\s*\(/);
+  assert.match(
+    generatedNotesWorkspace,
+    /preserveOnHistoryNavigation:\s*true/,
+  );
+  assert.match(generatedNoteSession, /scope:\s*"notes"/);
+  assert.match(generatedNoteSession, /scopedPageKey\s*\(/);
+  for (const source of [
+    generatedLayout,
+    generatedProcessHost,
+    generatedProcessRegistry,
+  ]) {
+    assert.doesNotMatch(source, /__APP_/);
+  }
+  await access(path.join(generatedRoot, "tests", "workspace-process.test.ts"));
   assert.match(
     await readFile(path.join(generatedRoot, "next.config.ts"), "utf8"),
     /transpilePackages:\s*\[[^\]]*["']@babel-apps\/markdown["']/,

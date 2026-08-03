@@ -7,10 +7,14 @@ import "@babel-apps/platform/search.css";
 import "@babel-apps/platform/shortcuts.css";
 import "./globals.css";
 
-import { PageSessionProvider, PageTabs } from "@babel-apps/platform/pages/react";
+import { PageSessionProvider } from "@babel-apps/platform/pages/react";
 import { ShortcutProvider } from "@babel-apps/platform/shortcuts/react";
 
 import { AppHeader } from "@/components/app-header";
+import {
+  MatterPageTabs,
+  MatterWorkspaceProcessHost,
+} from "@/components/workspace-process-host";
 
 export const metadata: Metadata = {
   title: "Matter · Physics Notebook",
@@ -28,8 +32,10 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
               Skip to main content
             </a>
             <AppHeader />
-            <PageTabs />
-            <main id="main-content">{children}</main>
+            <MatterPageTabs />
+            <main id="main-content">
+              <MatterWorkspaceProcessHost>{children}</MatterWorkspaceProcessHost>
+            </main>
           </PageSessionProvider>
         </ShortcutProvider>
       </body>

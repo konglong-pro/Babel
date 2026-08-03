@@ -8,10 +8,14 @@ import "@babel-apps/platform/shortcuts.css";
 import "./globals.css";
 import "./ruider-theme.css";
 
-import { PageSessionProvider, PageTabs } from "@babel-apps/platform/pages/react";
+import { PageSessionProvider } from "@babel-apps/platform/pages/react";
 import { ShortcutProvider } from "@babel-apps/platform/shortcuts/react";
 
 import { AppHeader } from "@/components/app-header";
+import {
+  RuiderPageTabs,
+  RuiderWorkspaceProcessHost,
+} from "@/components/workspace-process-host";
 
 export const metadata: Metadata = {
   title: {
@@ -29,8 +33,10 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
           <PageSessionProvider storageKey="babel:ruider:pages">
             <a className="skip-link" href="#main-content">Skip to main content</a>
             <AppHeader />
-            <PageTabs />
-            <main id="main-content">{children}</main>
+            <RuiderPageTabs />
+            <main id="main-content">
+              <RuiderWorkspaceProcessHost>{children}</RuiderWorkspaceProcessHost>
+            </main>
           </PageSessionProvider>
         </ShortcutProvider>
       </body>

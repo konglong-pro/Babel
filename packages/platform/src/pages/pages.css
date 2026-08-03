@@ -199,3 +199,6 @@
     transform: rotate(360deg);
   }
 }
+.babel-workspace-process[data-active] {
+  display: contents;
+}

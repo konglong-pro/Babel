@@ -1,7 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { PageSessionDescriptor } from "@babel-apps/platform/pages/core";
+import {
+  scopedPageKey,
+  type PageSessionDescriptor,
+} from "@babel-apps/platform/pages/core";
 import {
   PageDeckPage,
   usePageSessionLifecycle,
@@ -53,8 +56,9 @@ export function savedNotePage(
   note: Pick<NoteSummaryDto, "id" | "folderId" | "title">,
 ): PageSessionDescriptor {
   return {
-    key: `note:${note.id}`,
+    key: scopedPageKey("notes", `note:${note.id}`),
     kind: "Note",
+    scope: "notes",
     title: note.title,
     href: `/notes?folder=${note.folderId}&note=${note.id}`,
   };
@@ -113,6 +117,7 @@ export function NotePageSession({
         updatePage(pageKey, {
           title: nextDetail.title,
           href: savedNotePage(nextDetail).href,
+          scope: "notes",
         });
       })
       .catch((error) => {

@@ -55,6 +55,7 @@ export function savedNotePage(
   return {
     key: `note:${note.id}`,
     kind: "Note",
+    scope: "notes",
     title: note.title,
     href: `/notes?folder=${note.folderId}&note=${note.id}`,
   };
@@ -111,6 +112,7 @@ export function NotePageSession({
         setBacklinks(nextBacklinks);
         setMode("view");
         updatePage(pageKey, {
+          scope: "notes",
           title: nextDetail.title,
           href: savedNotePage(nextDetail).href,
         });

@@ -1,14 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   MarkdownWritingGuidePanel,
   TypstReferencePanel,
   type ReferencePanelKind,
 } from "@babel-apps/markdown/reference";
 import {
+  createWorkspaceProcessRouteTargetTracker,
   usePageSessionHistoryGuard,
   usePageSessions,
+  useWorkspaceProcessActive,
+  workspaceProcessRouteTargetShouldApply,
 } from "@babel-apps/platform/pages/react";
 
 import {
@@ -42,6 +46,7 @@ import type {
   FolderDto,
 } from "@/lib/types";
 import type { EntrySearchFocus } from "@/lib/search-focus";
+import { isNeumWorkspaceDestination } from "@/lib/workspace-process";
 
 type ResponsiveStage = "library" | "entries" | "entry";
 const PAGE_LIMIT = 100;
@@ -51,6 +56,7 @@ interface EntriesWorkspaceProps {
   initialFolderId?: number | null;
   initialEntryId?: number | null;
   initialSearchFocus?: EntrySearchFocus | null;
+  routeTargetKey?: string;
 }
 
 function savedEntryId(pageKey: string | null): number | null {
@@ -64,7 +70,10 @@ export function EntriesWorkspace({
   initialFolderId = null,
   initialEntryId = null,
   initialSearchFocus = null,
+  routeTargetKey = "initial",
 }: EntriesWorkspaceProps) {
+  const router = useRouter();
+  const processActive = useWorkspaceProcessActive();
   const { pages, activeKey, activatePage, closePage, openPage } = usePageSessions();
   const pageKind = entryUnitLabel(kind);
   const [folders, setFolders] = useState<FolderDto[]>([]);
@@ -82,7 +91,8 @@ export function EntriesWorkspace({
   const [drafts, setDrafts] = useState<Record<string, EntryDraftSession>>({});
   const [activeReferencePanel, setActiveReferencePanel] = useState<ReferencePanelKind | null>(null);
   const referenceTriggerRef = useRef<HTMLElement | null>(null);
-  const initialOpenedRef = useRef(false);
+  const openedRouteTargetRef = useRef<string | null>(null);
+  const routeTargetTrackerRef = useRef(createWorkspaceProcessRouteTargetTracker());
   const indexRequestRef = useRef(0);
   const loadedFolderRef = useRef<number | null | undefined>(undefined);
 
@@ -136,9 +146,22 @@ export function EntriesWorkspace({
   }, [kind, refreshFolders]);
 
   useEffect(() => {
+    if (!workspaceProcessRouteTargetShouldApply(
+      routeTargetTrackerRef.current,
+      processActive,
+      routeTargetKey,
+    )) return;
     let active = true;
     void Promise.resolve()
-      .then(() => refreshIndex(initialFolderId))
+      .then(() => {
+        if (!active) return;
+        setSelectedFolderId(initialFolderId);
+        if (initialEntryId === null) {
+          setStage(initialFolderId === null ? "library" : "entries");
+        }
+        setIndexLoading(true);
+        return refreshIndex(initialFolderId);
+      })
       .catch((caught) => {
         if (active) setError(getErrorMessage(caught));
       })
@@ -148,11 +171,13 @@ export function EntriesWorkspace({
     return () => {
       active = false;
     };
-  }, [initialFolderId, refreshIndex]);
+  }, [initialEntryId, initialFolderId, processActive, refreshIndex, routeTargetKey]);
 
   useEffect(() => {
-    if (indexLoading || initialOpenedRef.current) return;
-    initialOpenedRef.current = true;
+    if (!processActive || indexLoading || openedRouteTargetRef.current === routeTargetKey) {
+      return;
+    }
+    openedRouteTargetRef.current = routeTargetKey;
     if (initialEntryId === null) return;
     const entry = entries.find((candidate) => candidate.id === initialEntryId);
     openPage(entry
@@ -160,6 +185,7 @@ export function EntriesWorkspace({
       : {
           key: `entry:${initialEntryId}`,
           kind: pageKind,
+          scope: kind,
           title: `${pageKind} ${initialEntryId}`,
           href: entryWorkspaceHref(kind, {
             folderId: initialFolderId,
@@ -171,9 +197,11 @@ export function EntriesWorkspace({
     indexLoading,
     initialEntryId,
     initialFolderId,
+    processActive,
     kind,
     openPage,
     pageKind,
+    routeTargetKey,
   ]);
 
   const activePage = pages.find(
@@ -189,7 +217,7 @@ export function EntriesWorkspace({
   const visibleFolderId = activeFolderId ?? selectedFolderId;
 
   useEffect(() => {
-    if (activePage === null) return;
+    if (!processActive || activePage === null) return;
     const url = new URL(activePage.href, window.location.origin);
     const nextUrl = `${url.pathname}${url.search}${url.hash}`;
     const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
@@ -201,12 +229,26 @@ export function EntriesWorkspace({
         setError(getErrorMessage(caught));
       });
     }
-  }, [activeFolderId, activePage, refreshEntries]);
-
-  usePageSessionHistoryGuard();
+  }, [activeFolderId, activePage, processActive, refreshEntries]);
 
   useEffect(() => {
+    if (!processActive) return;
     const beforeNavigate = (event: Event) => {
+      const navigationEvent = event as CustomEvent<BeforeNavigateDetail>;
+      const destination = navigationEvent.detail?.destination ?? "";
+      if (isNeumWorkspaceDestination(destination)) {
+        if (new URL(destination, "http://babel.local").pathname === entryUnitPath(kind)) {
+          activatePage(null);
+          openedRouteTargetRef.current = "";
+          setSelectedFolderId(null);
+          setStage("library");
+          setIndexLoading(true);
+          void refreshIndex(null)
+            .catch((caught) => setError(getErrorMessage(caught)))
+            .finally(() => setIndexLoading(false));
+        }
+        return;
+      }
       const dirtyPages = pages.filter((page) => page.dirty || page.pending);
       if (
         dirtyPages.length > 0 &&
@@ -216,16 +258,10 @@ export function EntriesWorkspace({
         return;
       }
       for (const page of dirtyPages) closePage(page.key);
-      const navigationEvent = event as CustomEvent<BeforeNavigateDetail>;
-      if (navigationEvent.detail?.destination === entryUnitPath(kind)) {
-        activatePage(null);
-        setSelectedFolderId(null);
-        setStage("library");
-      }
     };
     window.addEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
     return () => window.removeEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
-  }, [activatePage, closePage, kind, pages]);
+  }, [activatePage, closePage, kind, pages, processActive, refreshIndex]);
 
   const folderMap = useMemo(
     () => new Map(folders.map((folder) => [folder.id, folder])),
@@ -282,10 +318,18 @@ export function EntriesWorkspace({
     exactFolder = false,
   ) {
     if (targetKind !== kind) {
-      window.location.assign(entryWorkspaceHref(targetKind, {
+      const href = entryWorkspaceHref(targetKind, {
         folderId,
         entryId: id,
-      }));
+      });
+      openPage({
+        key: `entry:${id}`,
+        kind: entryUnitLabel(targetKind),
+        scope: targetKind,
+        title: `${entryUnitLabel(targetKind)} ${id}`,
+        href,
+      });
+      router.push(href);
       return;
     }
     const entry = entries.find((candidate) => candidate.id === id);
@@ -295,6 +339,7 @@ export function EntriesWorkspace({
       : {
           key: `entry:${id}`,
           kind: pageKind,
+          scope: kind,
           title: `${pageKind} ${id}`,
           href: entryWorkspaceHref(kind, {
             folderId: targetFolderId,
@@ -318,6 +363,7 @@ export function EntriesWorkspace({
     openPage({
       key,
       kind: pageKind,
+      scope: kind,
       title: draft.title,
       href: entryWorkspaceHref(kind, { folderId: draft.folderId }),
       restorable: false,
@@ -422,6 +468,7 @@ export function EntriesWorkspace({
 
   return (
     <div className={`entries-workspace stage-${visibleStage}${hasUnsavedPages ? " has-unsaved" : ""}`}>
+      {processActive ? <ActiveWorkspaceHistoryGuard /> : null}
       {error ? (
         <div className="workspace-alert" role="alert">
           <span>{error}</span>
@@ -513,4 +560,9 @@ export function EntriesWorkspace({
       ) : null}
     </div>
   );
+}
+
+function ActiveWorkspaceHistoryGuard() {
+  usePageSessionHistoryGuard({ preserveOnHistoryNavigation: true });
+  return null;
 }

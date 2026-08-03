@@ -77,6 +77,7 @@ export function savedArchivePage(
     kind: archivePageKind(type),
     title: item.title,
     href: `/${type}?folder=${item.folderId}&item=${item.id}`,
+    scope: type,
   };
 }
 
@@ -135,6 +136,7 @@ export function ArchivePageSession({
         updatePage(pageKey, {
           title: nextDetail.title,
           href: savedArchivePage(type, nextDetail).href,
+          scope: type,
         });
       })
       .catch((error) => {

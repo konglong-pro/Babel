@@ -31,6 +31,7 @@ export function savedCanvasPage(
   return {
     key: `canvas:${canvas.id}`,
     kind: "Canvas",
+    scope: "canvases",
     title: canvas.title,
     href: `/canvases?canvas=${canvas.id}`,
   };
@@ -76,6 +77,7 @@ export function CanvasPageSession({
         setCanvas(nextCanvas);
         setLoadError("");
         updatePage(pageKey, {
+          scope: "canvases",
           title: nextCanvas.title,
           href: savedCanvasPage(nextCanvas).href,
         });
@@ -101,7 +103,7 @@ export function CanvasPageSession({
     try {
       const updated = await updateCanvas(canvas.id, { title });
       reflectSaved(updated);
-      updatePage(pageKey, { title: updated.title });
+      updatePage(pageKey, { scope: "canvases", title: updated.title });
     } catch (cause) {
       onError(getErrorMessage(cause));
     }

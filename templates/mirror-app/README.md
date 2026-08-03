@@ -21,6 +21,19 @@ read or edit mode at once; selecting an already open note focuses its tab.
 Unsaved drafts use temporary tabs until first save, and dirty tabs require an
 explicit Save, Discard, or Cancel choice before closing.
 
+The root layout owns a persistent workspace-process host. Notes remains mounted
+while another registered library is active, and page tabs use soft Next routing.
+When adding a future library, register its pathname, scope, and legacy page kind
+in `src/lib/workspace-process.ts`, render its concrete workspace from
+`src/components/workspace-process-host.tsx`, and give every page descriptor the
+same scope. Page keys are application-global identities, so every library must
+use distinct keys; prefer `scopedPageKey(scope, localKey)` from
+`@babel-apps/platform/pages/core`. Internal library switches must never close
+dirty pages; only explicit page close or leaving the application may ask to save
+or discard. The active workspace history guard uses
+`preserveOnHistoryNavigation: true`, so browser
+Back/Forward also hides and restores processes without closing them.
+
 Editing an existing note opens a focused **Content + Outline** window aligned
 to the note-detail column. The main edit page continues to manage the title,
 folder, parent page, tags, Save, and Cancel; new-note drafts remain inline.

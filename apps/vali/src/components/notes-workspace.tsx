@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   MarkdownWritingGuidePanel,
@@ -7,8 +8,11 @@ import {
   type ReferencePanelKind,
 } from "@babel-apps/markdown/reference";
 import {
+  createWorkspaceProcessRouteTargetTracker,
   usePageSessionHistoryGuard,
   usePageSessions,
+  useWorkspaceProcessActive,
+  workspaceProcessRouteTargetShouldApply,
 } from "@babel-apps/platform/pages/react";
 
 import {
@@ -22,6 +26,7 @@ import {
   savedNotePage,
 } from "@/components/note-page-session";
 import { NoteList } from "@/components/note-list";
+import { reflectionPage } from "@/components/reflection-page-session";
 import { TemplateEditor, TemplateList } from "@/components/template-manager";
 import {
   createFolder,
@@ -39,6 +44,7 @@ import {
 import { NOTE_CONTENT_MAX_BYTES } from "@/lib/note-limits";
 import type { FolderDto, NoteSummaryDto, NoteTemplateDto } from "@/lib/types";
 import type { ValiSearchFocus } from "@/lib/search-focus";
+import { isValiWorkspaceDestination } from "@/lib/workspace-process";
 
 type ResponsiveStage = "library" | "notes" | "note";
 
@@ -46,6 +52,7 @@ interface NotesWorkspaceProps {
   initialFolderId?: number | null;
   initialNoteId?: number | null;
   initialSearchFocus?: ValiSearchFocus | null;
+  routeTargetKey?: string;
 }
 
 function subtreeIds(rootId: number, folders: readonly FolderDto[]): Set<number> {
@@ -88,7 +95,10 @@ export function NotesWorkspace({
   initialFolderId = null,
   initialNoteId = null,
   initialSearchFocus = null,
+  routeTargetKey = "initial",
 }: NotesWorkspaceProps) {
+  const router = useRouter();
+  const processActive = useWorkspaceProcessActive();
   const { pages, activeKey, activatePage, closePage, openPage } = usePageSessions();
   const [folders, setFolders] = useState<FolderDto[]>([]);
   const [notes, setNotes] = useState<NoteSummaryDto[]>([]);
@@ -108,7 +118,8 @@ export function NotesWorkspace({
   const [templatePending, setTemplatePending] = useState(false);
   const [activeReferencePanel, setActiveReferencePanel] = useState<ReferencePanelKind | null>(null);
   const referenceTriggerRef = useRef<HTMLElement | null>(null);
-  const initialOpenedRef = useRef(false);
+  const openedRouteTargetRef = useRef<string | null>(null);
+  const routeTargetTrackerRef = useRef(createWorkspaceProcessRouteTargetTracker());
 
   const refreshIndex = useCallback(async () => {
     const [nextFolders, nextNotes, nextTemplates] = await Promise.all([
@@ -137,8 +148,18 @@ export function NotesWorkspace({
   }, [refreshIndex]);
 
   useEffect(() => {
-    if (indexLoading || initialOpenedRef.current) return;
-    initialOpenedRef.current = true;
+    const shouldApplyRouteTarget = workspaceProcessRouteTargetShouldApply(
+      routeTargetTrackerRef.current,
+      processActive,
+      routeTargetKey,
+    );
+    if (
+      indexLoading ||
+      !shouldApplyRouteTarget ||
+      openedRouteTargetRef.current === routeTargetKey
+    ) return;
+    openedRouteTargetRef.current = routeTargetKey;
+    setSelectedFolderId(initialFolderId);
     if (initialNoteId === null) return;
     const note = notes.find((candidate) => candidate.id === initialNoteId);
     openPage(note
@@ -150,28 +171,28 @@ export function NotesWorkspace({
           href: `/notes${initialFolderId === null
             ? `?note=${initialNoteId}`
             : `?folder=${initialFolderId}&note=${initialNoteId}`}`,
+          scope: "notes",
         });
-  }, [indexLoading, initialFolderId, initialNoteId, notes, openPage]);
+  }, [
+    indexLoading,
+    initialFolderId,
+    initialNoteId,
+    notes,
+    openPage,
+    processActive,
+    routeTargetKey,
+  ]);
 
   const activePage = pages.find((page) => page.key === activeKey && page.kind === "Note") ?? null;
   useEffect(() => {
-    if (activePage === null) return;
+    if (!processActive || activePage === null) return;
     const url = new URL(activePage.href, window.location.origin);
     const nextUrl = `${url.pathname}${url.search}${url.hash}`;
     const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
     if (nextUrl !== currentUrl) {
       window.history.replaceState(window.history.state, "", nextUrl);
     }
-  }, [activePage]);
-
-  usePageSessionHistoryGuard({
-    dirty: templateDirty,
-    pending: templatePending,
-    onDiscard: () => {
-      setTemplateDirty(false);
-      setTemplatePending(false);
-    },
-  });
+  }, [activePage, processActive]);
 
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
@@ -179,7 +200,17 @@ export function NotesWorkspace({
       event.preventDefault();
       event.returnValue = true;
     };
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => window.removeEventListener("beforeunload", beforeUnload);
+  }, [templateDirty, templatePending]);
+
+  useEffect(() => {
+    if (!processActive) return;
     const beforeNavigate = (event: Event) => {
+      const navigationEvent = event as CustomEvent<BeforeNavigateDetail>;
+      if (isValiWorkspaceDestination(navigationEvent.detail?.destination ?? "")) {
+        return;
+      }
       const dirtyPages = pages.filter((page) => page.dirty || page.pending);
       if (
         (templateDirty || templatePending || dirtyPages.length > 0) &&
@@ -191,20 +222,10 @@ export function NotesWorkspace({
       for (const page of dirtyPages) closePage(page.key);
       setTemplateDirty(false);
       setTemplatePending(false);
-      const navigationEvent = event as CustomEvent<BeforeNavigateDetail>;
-      if (navigationEvent.detail?.destination === "/notes") {
-        activatePage(null);
-        setSelectedFolderId(null);
-        setStage("library");
-      }
     };
-    window.addEventListener("beforeunload", beforeUnload);
     window.addEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
-    return () => {
-      window.removeEventListener("beforeunload", beforeUnload);
-      window.removeEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
-    };
-  }, [activatePage, closePage, pages, templateDirty, templatePending]);
+    return () => window.removeEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
+  }, [closePage, pages, processActive, templateDirty, templatePending]);
 
   const folderMap = useMemo(
     () => new Map(folders.map((folder) => [folder.id, folder])),
@@ -256,13 +277,16 @@ export function NotesWorkspace({
           href: `/notes${targetFolderId === null
             ? `?note=${id}`
             : `?folder=${targetFolderId}&note=${id}`}`,
+          scope: "notes",
         });
     if (targetFolderId !== null) setSelectedFolderId(targetFolderId);
     setStage("note");
   }
 
   function openReflection(date: string) {
-    window.location.assign(`/reflection?date=${encodeURIComponent(date)}`);
+    const page = reflectionPage(date);
+    openPage(page);
+    router.push(page.href);
   }
 
   function openDraft(input: Omit<NoteDraftSession, "title"> & { title?: string }) {
@@ -277,6 +301,7 @@ export function NotesWorkspace({
       kind: "Note",
       title: draft.title,
       href: `/notes?folder=${draft.folderId}`,
+      scope: "notes",
       restorable: false,
     });
     setSelectedFolderId(draft.folderId);
@@ -421,6 +446,16 @@ export function NotesWorkspace({
     <div
       className={`notes-workspace stage-${visibleStage}${hasUnsavedPages || templateDirty ? " has-unsaved" : ""}${showingTemplates ? " managing-templates" : ""}`}
     >
+      {processActive ? (
+        <ActiveNotesHistoryGuard
+          templateDirty={templateDirty}
+          templatePending={templatePending}
+          onDiscard={() => {
+            setTemplateDirty(false);
+            setTemplatePending(false);
+          }}
+        />
+      ) : null}
       {error ? (
         <div className="workspace-alert" role="alert">
           <span>{error}</span>
@@ -564,4 +599,24 @@ export function NotesWorkspace({
       ) : null}
     </div>
   );
+}
+
+interface ActiveNotesHistoryGuardProps {
+  readonly templateDirty: boolean;
+  readonly templatePending: boolean;
+  readonly onDiscard: () => void;
+}
+
+function ActiveNotesHistoryGuard({
+  templateDirty,
+  templatePending,
+  onDiscard,
+}: ActiveNotesHistoryGuardProps) {
+  usePageSessionHistoryGuard({
+    dirty: templateDirty,
+    pending: templatePending,
+    onDiscard,
+    preserveOnHistoryNavigation: true,
+  });
+  return null;
 }

@@ -57,6 +57,7 @@ export function savedNotePage(
     kind: "Note",
     title: note.title,
     href: `/notes?folder=${note.folderId}&note=${note.id}`,
+    scope: "notes",
   };
 }
 
@@ -110,6 +111,7 @@ export function NotePageSession({
         updatePage(pageKey, {
           title: nextDetail.title,
           href: savedNotePage(nextDetail).href,
+          scope: "notes",
         });
       })
       .catch((error) => {

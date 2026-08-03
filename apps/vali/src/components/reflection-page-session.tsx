@@ -66,6 +66,7 @@ export function reflectionPage(date: string): PageSessionDescriptor {
     kind: "Reflection",
     title: date,
     href: `/reflection?date=${encodeURIComponent(date)}`,
+    scope: "reflection",
   };
 }
 
@@ -78,7 +79,7 @@ export function ReflectionPageSession({
   onOpenNote,
   onSaved,
 }: ReflectionPageSessionProps) {
-  const { setPageStatus } = usePageSessions();
+  const { setPageStatus, updatePage } = usePageSessions();
   const formRef = useRef<HTMLFormElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const stagedRef = useRef<StagedImage[]>([]);
@@ -131,6 +132,13 @@ export function ReflectionPageSession({
   useEffect(() => {
     setPageStatus(pageKey, { dirty, pending });
   }, [dirty, pageKey, pending, setPageStatus]);
+
+  useEffect(() => {
+    updatePage(pageKey, {
+      scope: "reflection",
+      href: reflectionPage(date).href,
+    });
+  }, [date, pageKey, updatePage]);
 
   usePageSessionLifecycle(pageKey, {
     save: () => {

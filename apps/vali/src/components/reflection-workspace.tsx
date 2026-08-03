@@ -1,9 +1,13 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  createWorkspaceProcessRouteTargetTracker,
   usePageSessionHistoryGuard,
   usePageSessions,
+  useWorkspaceProcessActive,
+  workspaceProcessRouteTargetShouldApply,
 } from "@babel-apps/platform/pages/react";
 
 import {
@@ -23,6 +27,7 @@ import type {
   ReflectionSummaryDto,
 } from "@/lib/types";
 import type { ValiSearchFocus } from "@/lib/search-focus";
+import { isValiWorkspaceDestination } from "@/lib/workspace-process";
 
 function localToday(): string {
   const now = new Date();
@@ -48,19 +53,24 @@ function dateFromPageKey(pageKey: string | null): string | null {
 interface ReflectionWorkspaceProps {
   initialDate: string | null;
   initialSearchFocus?: ValiSearchFocus | null;
+  routeTargetKey?: string;
 }
 
 export function ReflectionWorkspace({
   initialDate,
   initialSearchFocus = null,
+  routeTargetKey = "initial",
 }: ReflectionWorkspaceProps) {
+  const router = useRouter();
+  const processActive = useWorkspaceProcessActive();
   const { pages, activeKey, activatePage, closePage, openPage } = usePageSessions();
   const [today, setToday] = useState(initialDate ?? "");
   const [dateDraft, setDateDraft] = useState(initialDate ?? "");
   const [summaries, setSummaries] = useState<ReflectionSummaryDto[]>([]);
   const [indexLoading, setIndexLoading] = useState(true);
   const [error, setError] = useState("");
-  const initialOpenedRef = useRef(false);
+  const openedRouteTargetRef = useRef<string | null>(null);
+  const routeTargetTrackerRef = useRef(createWorkspaceProcessRouteTargetTracker());
 
   useEffect(() => {
     let active = true;
@@ -84,13 +94,29 @@ export function ReflectionWorkspace({
   }, [initialDate]);
 
   useEffect(() => {
-    if (indexLoading || initialOpenedRef.current) return;
-    initialOpenedRef.current = true;
+    const shouldApplyRouteTarget = workspaceProcessRouteTargetShouldApply(
+      routeTargetTrackerRef.current,
+      processActive,
+      routeTargetKey,
+    );
+    if (
+      indexLoading ||
+      !shouldApplyRouteTarget ||
+      openedRouteTargetRef.current === routeTargetKey
+    ) return;
+    openedRouteTargetRef.current = routeTargetKey;
     const requestedDate = initialDate && validReflectionDate(initialDate)
       ? initialDate
       : today;
     if (requestedDate) openPage(reflectionPage(requestedDate));
-  }, [indexLoading, initialDate, openPage, today]);
+  }, [
+    indexLoading,
+    initialDate,
+    openPage,
+    processActive,
+    routeTargetKey,
+    today,
+  ]);
 
   const activePage = pages.find(
     (page) => page.key === activeKey && page.kind === "Reflection",
@@ -112,21 +138,22 @@ export function ReflectionWorkspace({
   const hasUnsavedPages = pages.some((page) => page.dirty || page.pending);
 
   useEffect(() => {
-    if (activePage === null) return;
+    if (!processActive || activePage === null) return;
     const url = new URL(activePage.href, window.location.origin);
     const nextUrl = `${url.pathname}${url.search}${url.hash}`;
     const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
     if (nextUrl !== currentUrl) {
       window.history.replaceState(window.history.state, "", nextUrl);
     }
-  }, [activePage]);
-
-  usePageSessionHistoryGuard({
-    message: "Discard your unsaved reflection changes?",
-  });
+  }, [activePage, processActive]);
 
   useEffect(() => {
+    if (!processActive) return;
     const beforeNavigate = (event: Event) => {
+      const navigationEvent = event as CustomEvent<{ destination?: string }>;
+      if (isValiWorkspaceDestination(navigationEvent.detail?.destination ?? "")) {
+        return;
+      }
       const dirtyPages = pages.filter((page) => page.dirty || page.pending);
       if (
         dirtyPages.length > 0 &&
@@ -139,7 +166,7 @@ export function ReflectionWorkspace({
     };
     window.addEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
     return () => window.removeEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
-  }, [closePage, pages]);
+  }, [closePage, pages, processActive]);
 
   function openDate(date: string) {
     if (!validReflectionDate(date)) return;
@@ -151,7 +178,20 @@ export function ReflectionWorkspace({
     const params = new URLSearchParams();
     if (folderId !== undefined) params.set("folder", String(folderId));
     params.set("note", String(id));
-    window.location.assign(`/notes?${params}`);
+    const existingPage = pages.find((page) => page.key === `note:${id}`);
+    const href = folderId === undefined && existingPage !== undefined
+      ? existingPage.href
+      : `/notes?${params}`;
+    openPage(existingPage
+      ? { ...existingPage, href, scope: "notes" }
+      : {
+          key: `note:${id}`,
+          kind: "Note",
+          title: `Note ${id}`,
+          href,
+          scope: "notes",
+        });
+    router.push(href);
   }
 
   function handleSaved(saved: ReflectionDetailDto) {
@@ -163,6 +203,7 @@ export function ReflectionWorkspace({
 
   return (
     <div className={`reflection-workspace${hasUnsavedPages ? " has-unsaved" : ""}`}>
+      {processActive ? <ActiveReflectionHistoryGuard /> : null}
       <aside className="reflection-index workspace-panel" aria-label="Reflection dates">
         <div className="panel-heading">
           <div>
@@ -246,4 +287,12 @@ export function ReflectionWorkspace({
       )}
     </div>
   );
+}
+
+function ActiveReflectionHistoryGuard() {
+  usePageSessionHistoryGuard({
+    message: "Discard your unsaved reflection changes?",
+    preserveOnHistoryNavigation: true,
+  });
+  return null;
 }
