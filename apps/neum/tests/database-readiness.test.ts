@@ -12,7 +12,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { assertAppDatabaseReady } from "@/lib/db/readiness";
 import { GET as getHealth } from "@/app/api/health/route";
 
-const latestMigration = 1_784_217_600_000;
+const latestMigration = 1_785_834_975_976;
 const migrationsFolder = path.resolve(process.cwd(), "drizzle");
 
 test("Neum database readiness", async (t) => {
@@ -82,6 +82,7 @@ function createLatestLookingDatabase(databasePath: string): void {
   const sqlite = new BetterSqlite3(databasePath);
   try {
     sqlite.exec(`
+      CREATE TABLE folder (id integer PRIMARY KEY, position integer NOT NULL);
       CREATE TABLE entry (id integer PRIMARY KEY);
       CREATE TABLE __drizzle_migrations (
         id integer PRIMARY KEY AUTOINCREMENT,

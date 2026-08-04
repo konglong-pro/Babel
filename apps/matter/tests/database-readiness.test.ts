@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -12,8 +12,49 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { assertAppDatabaseReady } from "@/lib/db/readiness";
 import { GET as getHealth } from "@/app/api/health/route";
 
-const latestMigration = 1_784_217_600_000;
+const latestMigration = 1_785_835_489_449;
 const migrationsFolder = path.resolve(process.cwd(), "drizzle");
+
+test("folder position migration backfills each type and parent by legacy name order", () => {
+  const sqlite = new BetterSqlite3(":memory:");
+  try {
+    sqlite.exec(`
+      CREATE TABLE folder (
+        id integer PRIMARY KEY,
+        parent_id integer,
+        type text NOT NULL,
+        name text NOT NULL
+      );
+      INSERT INTO folder (id, parent_id, type, name) VALUES
+        (1, NULL, 'knowledge', 'Zulu'),
+        (2, NULL, 'knowledge', 'Alpha'),
+        (3, 2, 'knowledge', 'Beta'),
+        (4, 2, 'knowledge', 'Alpha'),
+        (5, NULL, 'exercise', 'Beta'),
+        (6, NULL, 'exercise', 'Alpha');
+    `);
+    sqlite.exec(
+      readFileSync(
+        path.join(migrationsFolder, "0006_brown_arclight.sql"),
+        "utf8",
+      ).replaceAll("--> statement-breakpoint", ""),
+    );
+
+    const rows = sqlite.prepare(
+      "SELECT id, position FROM folder ORDER BY id",
+    ).all();
+    assert.deepEqual(rows, [
+      { id: 1, position: 1 },
+      { id: 2, position: 0 },
+      { id: 3, position: 1 },
+      { id: 4, position: 0 },
+      { id: 5, position: 1 },
+      { id: 6, position: 0 },
+    ]);
+  } finally {
+    sqlite.close();
+  }
+});
 
 test("Matter database readiness", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "matter-readiness-"));

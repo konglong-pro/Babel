@@ -20,6 +20,7 @@ interface FolderRow {
   id: number;
   parentId: number | null;
   name: string;
+  position: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -94,12 +95,13 @@ export function assertPristineNeumTarget(sqlite: BetterSqlite3.Database): void {
     assertCurrentNeumSchema(sqlite);
     const folders = sqlite
       .prepare(
-        'SELECT "id", "parent_id" AS "parentId", "name", "created_at" AS "createdAt", "updated_at" AS "updatedAt" FROM "folder" ORDER BY "id"',
+        'SELECT "id", "parent_id" AS "parentId", "name", "position", "created_at" AS "createdAt", "updated_at" AS "updatedAt" FROM "folder" ORDER BY "id"',
       )
       .all() as Array<{
         id: number;
         parentId: number | null;
         name: string;
+        position: number;
         createdAt: string;
         updatedAt: string;
       }>;
@@ -108,6 +110,7 @@ export function assertPristineNeumTarget(sqlite: BetterSqlite3.Database): void {
       folders[0].id === 1 &&
       folders[0].parentId === null &&
       folders[0].name === "Inbox" &&
+      folders[0].position === 0 &&
       folders[0].createdAt === folders[0].updatedAt;
     const hasDomainRows = domainTables.some(
       (table) =>
@@ -156,7 +159,7 @@ export function restoreNeumDatabaseSnapshotRows(
   sqlite.prepare('DELETE FROM "folder" WHERE "id" = 1').run();
 
   const insertFolder = sqlite.prepare(
-    'INSERT INTO "folder" ("id", "parent_id", "name", "name_key", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?, ?)',
+    'INSERT INTO "folder" ("id", "parent_id", "name", "name_key", "position", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?, ?, ?)',
   );
   for (const item of foldersInParentFirstOrder(manifest.folders)) {
     insertFolder.run(
@@ -164,6 +167,7 @@ export function restoreNeumDatabaseSnapshotRows(
       item.parentId,
       item.name,
       identityKey(item.name),
+      item.position,
       item.createdAt,
       item.updatedAt,
     );
@@ -245,7 +249,7 @@ function reserveEntryIds(
 function readRows(sqlite: BetterSqlite3.Database): NeumDatabaseSnapshot {
   const folders = sqlite
     .prepare(
-      'SELECT "id", "parent_id" AS "parentId", "name", "created_at" AS "createdAt", "updated_at" AS "updatedAt" FROM "folder" ORDER BY "id"',
+      'SELECT "id", "parent_id" AS "parentId", "name", "position", "created_at" AS "createdAt", "updated_at" AS "updatedAt" FROM "folder" ORDER BY "id"',
     )
     .all() as FolderRow[];
   const tags = sqlite

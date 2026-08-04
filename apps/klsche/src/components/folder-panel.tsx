@@ -5,6 +5,10 @@ import {
   ReferencePanelTriggers,
   type ReferencePanelKind,
 } from "@babel-apps/markdown/reference";
+import {
+  type FolderReorderController,
+  useFolderReorder,
+} from "@babel-apps/platform/folders/react";
 
 import {
   type FolderExpansionState,
@@ -26,6 +30,7 @@ interface FolderPanelProps {
   onCreate: (name: string, parentId: number | null) => Promise<void>;
   onRename: (id: number, name: string) => Promise<void>;
   onMove: (id: number, parentId: number | null) => Promise<void>;
+  onReorder: (id: number, position: number) => Promise<void>;
   onDelete: (id: number) => Promise<void>;
 }
 
@@ -37,6 +42,7 @@ interface FolderBranchProps {
   onSelect: (id: number) => void;
   onToggle: (id: number) => void;
   onCreate: (parentId: number) => void;
+  reorder: FolderReorderController;
 }
 
 function FolderBranch({
@@ -47,6 +53,7 @@ function FolderBranch({
   onSelect,
   onToggle,
   onCreate,
+  reorder,
 }: FolderBranchProps) {
   const children = grouped.get(parentId) ?? [];
   if (children.length === 0) return null;
@@ -57,7 +64,10 @@ function FolderBranch({
         const expanded = expandedIds.has(folder.id);
         return (
           <li key={folder.id}>
-            <div className="folder-node-row">
+            <div
+              className={`folder-node-row ${reorder.dropClassName(folder.id)}`.trim()}
+              {...reorder.rowProps(folder.id)}
+            >
               <button
                 type="button"
                 className="folder-disclosure"
@@ -74,6 +84,12 @@ function FolderBranch({
                 <span className="folder-glyph" aria-hidden="true" />
                 <span>{folder.name}</span>
               </button>
+              <button
+                className="folder-reorder-handle"
+                {...reorder.handleProps(folder.id, folder.name)}
+              >
+                <span aria-hidden="true">⋮⋮</span>
+              </button>
             </div>
             {expanded ? (
               <>
@@ -85,6 +101,7 @@ function FolderBranch({
                   onSelect={onSelect}
                   onToggle={onToggle}
                   onCreate={onCreate}
+                  reorder={reorder}
                 />
                 <button type="button" className="tree-create-action" onClick={() => onCreate(folder.id)}>
                   + New subfolder
@@ -126,6 +143,7 @@ export function FolderPanel({
   onCreate,
   onRename,
   onMove,
+  onReorder,
   onDelete,
 }: FolderPanelProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -140,6 +158,11 @@ export function FolderPanel({
     revealedPathKey: "root",
   }));
   const dialogTitleId = useId();
+  const reorder = useFolderReorder({
+    folders,
+    disabled: busy,
+    onReorder,
+  });
 
   const grouped = useMemo(() => {
     const result = new Map<number | null, FolderDto[]>();
@@ -267,6 +290,7 @@ export function FolderPanel({
             onSelect={onSelect}
             onToggle={toggleFolder}
             onCreate={(parentId) => openDialog("create", parentId)}
+            reorder={reorder}
           />
         )}
       </nav>

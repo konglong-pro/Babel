@@ -18,7 +18,7 @@ const databasePathOptions = {
 export const appDatabaseReadinessOptions = {
   appName: "Vali",
   packageName: "@babel-apps/vali",
-  expectedMigration: 1_784_683_347_921,
+  expectedMigration: 1_785_835_739_552,
   requiredColumns: {
     note: ["parent_id"],
     note_template: ["name", "content_md", "created_at", "updated_at"],
@@ -38,6 +38,7 @@ export const appDatabaseReadinessOptions = {
     document_image: ["note_id", "reflection_date", "image_path"],
     note_search: ["title", "content_md", "tags"],
     reflection_search: ["date", "content_md"],
+    folder: ["position"],
   },
   requiredSchemaObjects: [
     {

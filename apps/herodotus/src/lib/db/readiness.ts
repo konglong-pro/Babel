@@ -18,8 +18,9 @@ const databasePathOptions = {
 export const appDatabaseReadinessOptions = {
   appName: "Herodotus",
   packageName: "@babel-apps/herodotus",
-  expectedMigration: 1_784_684_003_455,
+  expectedMigration: 1_785_835_010_668,
   requiredColumns: {
+    folder: ["position"],
     note: ["parent_id"],
     note_link: ["source_note_id", "target_title_key", "target_note_id"],
     note_template: ["name", "content_md", "created_at", "updated_at"],

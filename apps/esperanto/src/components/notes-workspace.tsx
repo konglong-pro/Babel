@@ -329,6 +329,16 @@ export function NotesWorkspace({
     }
   }
 
+  async function handleReorderFolder(id: number, position: number) {
+    try {
+      await updateFolder(id, { position });
+      await refreshIndex();
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+      throw caught;
+    }
+  }
+
   async function handleDeleteFolder(id: number) {
     try {
       await deleteFolder(id);
@@ -452,6 +462,7 @@ export function NotesWorkspace({
         onCreate={handleCreateFolder}
         onRename={handleRenameFolder}
         onMove={handleMoveFolder}
+        onReorder={handleReorderFolder}
         onDelete={handleDeleteFolder}
       />
 

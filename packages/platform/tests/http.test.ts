@@ -10,6 +10,7 @@ import {
   assertPatchHasFields,
   assertSameOrigin,
   normalizeLoopbackOrigin,
+  optionalNonNegativeInteger,
   optionalNullablePositiveInteger,
   optionalString,
   parsePositiveInteger,
@@ -79,11 +80,24 @@ test("shared request helpers preserve validation and normalization", async () =>
   assert.equal(requiredString(body, "title"), "Note");
   assert.equal(optionalNullablePositiveInteger(body, "parentId"), null);
   assert.equal(optionalString(body, "missing"), undefined);
+  assert.equal(optionalNonNegativeInteger({ position: 0 }, "position"), 0);
   assert.equal(parsePositiveInteger("42", "id"), 42);
   assert.doesNotThrow(() =>
     assertSameOrigin(new Request("http://127.0.0.1:3001/test")),
   );
 
+  assert.throws(
+    () => optionalNonNegativeInteger({ position: 1.5 }, "position"),
+    (error: unknown) => error instanceof ApiError && error.code === "VALIDATION_ERROR",
+  );
+  assert.throws(
+    () => optionalNonNegativeInteger({ position: "1" }, "position"),
+    (error: unknown) => error instanceof ApiError && error.code === "VALIDATION_ERROR",
+  );
+  assert.throws(
+    () => optionalNonNegativeInteger({ position: Number.MAX_SAFE_INTEGER + 1 }, "position"),
+    (error: unknown) => error instanceof ApiError && error.code === "VALIDATION_ERROR",
+  );
   assert.throws(
     () => assertPatchHasFields({ title: undefined, parentId: undefined }),
     (error: unknown) => error instanceof ApiError && error.code === "VALIDATION_ERROR",

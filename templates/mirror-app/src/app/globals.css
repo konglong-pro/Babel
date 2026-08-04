@@ -360,6 +360,49 @@ a {
   align-items: stretch;
 }
 
+.folder-reorder-handle {
+  display: grid;
+  width: 1.45rem;
+  min-height: 1.75rem;
+  flex: 0 0 1.45rem;
+  place-items: center;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-faint);
+  cursor: grab;
+  font-size: 0.72rem;
+  letter-spacing: -0.22rem;
+  padding: 0 0.22rem 0 0;
+  text-transform: none;
+}
+
+.folder-reorder-handle:hover:not(:disabled),
+.folder-reorder-handle:focus-visible {
+  border-color: transparent;
+  background: var(--blue-soft);
+  box-shadow: none;
+  color: var(--ink);
+  transform: none;
+}
+
+.folder-reorder-handle:active:not(:disabled) {
+  cursor: grabbing;
+}
+
+.folder-reorder-handle:disabled {
+  cursor: default;
+  opacity: 0.2;
+}
+
+.folder-node-row.folder-drop-before {
+  box-shadow: inset 0 2px 0 var(--focus);
+}
+
+.folder-node-row.folder-drop-after {
+  box-shadow: inset 0 -2px 0 var(--focus);
+}
+
 .folder-tree .folder-disclosure,
 .folder-disclosure-spacer {
   width: 1.45rem;

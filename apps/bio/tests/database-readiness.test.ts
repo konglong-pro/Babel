@@ -12,7 +12,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { assertAppDatabaseReady } from "@/lib/db/readiness";
 import { GET as getHealth } from "@/app/api/health/route";
 
-const latestMigration = 1_784_683_409_295;
+const latestMigration = 1_785_835_739_538;
 const migrationsFolder = path.resolve(process.cwd(), "drizzle");
 
 test("Bio database readiness", async (t) => {
@@ -26,6 +26,19 @@ test("Bio database readiness", async (t) => {
     sqlite.close();
 
     assert.doesNotThrow(() => assertAppDatabaseReady(databasePath));
+  });
+
+  await t.test("rejects a current database without folder positions", () => {
+    const databasePath = path.join(root, "missing-folder-position.db");
+    const sqlite = new BetterSqlite3(databasePath);
+    migrate(drizzle(sqlite), { migrationsFolder });
+    sqlite.exec("DROP INDEX folder_parent_position_idx; ALTER TABLE folder DROP COLUMN position;");
+    sqlite.close();
+
+    assert.throws(
+      () => assertAppDatabaseReady(databasePath),
+      /missing required column: folder\.position/i,
+    );
   });
 
   await t.test("rejects a latest-looking database without page hierarchy", () => {

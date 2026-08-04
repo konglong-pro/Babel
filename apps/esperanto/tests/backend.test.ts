@@ -96,13 +96,83 @@ const invalidPng = Buffer.from("not a png");
 test("Esperanto backend integration", async (t) => {
     await t.test("migration seeds the three editable root folders in order", () => {
       assert.deepEqual(
-        repositories.listFolders().map(({ name, parentId }) => ({ name, parentId })),
+        repositories.listFolders().map(({ name, parentId, position }) => ({ name, parentId, position })),
         [
-          { name: "Vocabulary", parentId: null },
-          { name: "Grammar", parentId: null },
-          { name: "Expressions", parentId: null },
+          { name: "Vocabulary", parentId: null, position: 0 },
+          { name: "Grammar", parentId: null, position: 1 },
+          { name: "Expressions", parentId: null, position: 2 },
         ],
       );
+    });
+
+    await t.test("folder ordering persists within each parent and stays normalized", () => {
+      const parentA = repositories.createFolder({ name: "Order parent A", parentId: null });
+      const parentB = repositories.createFolder({ name: "Order parent B", parentId: null });
+      const first = repositories.createFolder({ name: "Order first", parentId: parentA.id });
+      const second = repositories.createFolder({ name: "Order second", parentId: parentA.id });
+      const third = repositories.createFolder({ name: "Order third", parentId: parentA.id });
+      const target = repositories.createFolder({ name: "Order target", parentId: parentB.id });
+      const childrenOf = (parentId: number) =>
+        repositories.listFolders().filter((folder) => folder.parentId === parentId);
+
+      assert.deepEqual(
+        childrenOf(parentA.id).map(({ id, position }) => ({ id, position })),
+        [
+          { id: first.id, position: 0 },
+          { id: second.id, position: 1 },
+          { id: third.id, position: 2 },
+        ],
+      );
+
+      repositories.updateFolder(third.id, { position: 0 });
+      assert.deepEqual(
+        childrenOf(parentA.id).map(({ id, position }) => ({ id, position })),
+        [
+          { id: third.id, position: 0 },
+          { id: first.id, position: 1 },
+          { id: second.id, position: 2 },
+        ],
+      );
+      for (const position of [-1, 1.5, 3]) {
+        assert.throws(
+          () => repositories.updateFolder(first.id, { position }),
+          (error: unknown) =>
+            error instanceof repositories.RepositoryError && error.code === "VALIDATION",
+        );
+      }
+
+      repositories.updateFolder(first.id, { parentId: parentB.id });
+      assert.deepEqual(
+        childrenOf(parentA.id).map(({ id, position }) => ({ id, position })),
+        [
+          { id: third.id, position: 0 },
+          { id: second.id, position: 1 },
+        ],
+      );
+      assert.deepEqual(
+        childrenOf(parentB.id).map(({ id, position }) => ({ id, position })),
+        [
+          { id: target.id, position: 0 },
+          { id: first.id, position: 1 },
+        ],
+      );
+
+      repositories.updateFolder(first.id, { position: 0 });
+      repositories.deleteFolder(first.id);
+      assert.deepEqual(
+        childrenOf(parentB.id).map(({ id, position }) => ({ id, position })),
+        [{ id: target.id, position: 0 }],
+      );
+      repositories.deleteFolder(third.id);
+      assert.deepEqual(
+        childrenOf(parentA.id).map(({ id, position }) => ({ id, position })),
+        [{ id: second.id, position: 0 }],
+      );
+
+      repositories.deleteFolder(second.id);
+      repositories.deleteFolder(target.id);
+      repositories.deleteFolder(parentA.id);
+      repositories.deleteFolder(parentB.id);
     });
 
     await t.test("folder hierarchy prevents cycles and non-empty deletion", () => {

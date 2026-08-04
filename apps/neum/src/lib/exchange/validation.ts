@@ -10,6 +10,7 @@ import { identityKey } from "../identity";
 import { SnapshotError } from "./errors";
 import {
   NEUM_LEGACY_SNAPSHOT_SCHEMA_VERSION,
+  NEUM_PREVIOUS_SNAPSHOT_SCHEMA_VERSION,
   NEUM_SNAPSHOT_APP_ID,
   NEUM_SNAPSHOT_SCHEMA_VERSION,
   snapshotImageContentTypes,
@@ -69,10 +70,11 @@ export function validateSnapshotManifest(value: unknown): NeumSnapshotManifest {
   const sourceSchemaVersion = manifest.schemaVersion;
   if (
     sourceSchemaVersion !== NEUM_SNAPSHOT_SCHEMA_VERSION &&
+    sourceSchemaVersion !== NEUM_PREVIOUS_SNAPSHOT_SCHEMA_VERSION &&
     sourceSchemaVersion !== NEUM_LEGACY_SNAPSHOT_SCHEMA_VERSION
   ) {
     invalid(
-      `manifest.schemaVersion must be ${NEUM_LEGACY_SNAPSHOT_SCHEMA_VERSION} or ${NEUM_SNAPSHOT_SCHEMA_VERSION}.`,
+      `manifest.schemaVersion must be ${NEUM_LEGACY_SNAPSHOT_SCHEMA_VERSION}, ${NEUM_PREVIOUS_SNAPSHOT_SCHEMA_VERSION}, or ${NEUM_SNAPSHOT_SCHEMA_VERSION}.`,
     );
   }
 
@@ -81,7 +83,7 @@ export function validateSnapshotManifest(value: unknown): NeumSnapshotManifest {
     schemaVersion: NEUM_SNAPSHOT_SCHEMA_VERSION,
     exportedAt: timestamp(manifest.exportedAt, "manifest.exportedAt"),
     folders: array(manifest.folders, "manifest.folders").map((item, index) =>
-      folder(item, `manifest.folders[${index}]`),
+      folder(item, `manifest.folders[${index}]`, sourceSchemaVersion),
     ),
     entries: array(manifest.entries, "manifest.entries").map((item, index) =>
       entry(item, `manifest.entries[${index}]`, sourceSchemaVersion),
@@ -148,9 +150,24 @@ export function referencedSnapshotImagePaths(
   return paths;
 }
 
-function folder(value: unknown, label: string): SnapshotFolder {
+function folder(
+  value: unknown,
+  label: string,
+  sourceSchemaVersion: number,
+): SnapshotFolder {
   const item = record(value, label);
-  exactKeys(item, ["id", "parentId", "name", "createdAt", "updatedAt"], label);
+  exactKeys(
+    item,
+    [
+      "id",
+      "parentId",
+      "name",
+      ...(sourceSchemaVersion >= 3 ? ["position"] : []),
+      "createdAt",
+      "updatedAt",
+    ],
+    label,
+  );
   const name = trimmedString(item.name, `${label}.name`);
   return {
     id: positiveInteger(item.id, `${label}.id`),
@@ -159,6 +176,9 @@ function folder(value: unknown, label: string): SnapshotFolder {
         ? null
         : positiveInteger(item.parentId, `${label}.parentId`),
     name,
+    position: sourceSchemaVersion >= 3
+      ? nonNegativeInteger(item.position, `${label}.position`)
+      : 0,
     createdAt: timestamp(item.createdAt, `${label}.createdAt`),
     updatedAt: timestamp(item.updatedAt, `${label}.updatedAt`),
   };
@@ -569,6 +589,13 @@ function nullableString(value: unknown, label: string): string | null {
 function positiveInteger(value: unknown, label: string): number {
   if (!Number.isSafeInteger(value) || (value as number) <= 0) {
     invalid(`${label} must be a positive safe integer.`);
+  }
+  return value as number;
+}
+
+function nonNegativeInteger(value: unknown, label: string): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    invalid(`${label} must be a non-negative integer.`);
   }
   return value as number;
 }

@@ -188,6 +188,129 @@ test("knowledge notes form a parent-child tree inside one folder", () => {
   assert.equal(repositories.listKnowledge(folder.id).find((item) => item.id === child.id)?.parentId, parent.id);
 });
 
+test("folder positions remain contiguous within each type and parent", () => {
+  const knowledgeScope = repositories.createFolder({
+    type: "knowledge",
+    name: "Order knowledge scope",
+  });
+  const knowledgeA = repositories.createFolder({
+    type: "knowledge",
+    parentId: knowledgeScope.id,
+    name: "Order A",
+  });
+  const knowledgeB = repositories.createFolder({
+    type: "knowledge",
+    parentId: knowledgeScope.id,
+    name: "Order B",
+  });
+  const knowledgeC = repositories.createFolder({
+    type: "knowledge",
+    parentId: knowledgeScope.id,
+    name: "Order C",
+  });
+  const sourceParent = repositories.createFolder({
+    type: "knowledge",
+    parentId: knowledgeScope.id,
+    name: "Order source parent",
+  });
+  const childA = repositories.createFolder({
+    type: "knowledge",
+    parentId: sourceParent.id,
+    name: "Order child A",
+  });
+  const childB = repositories.createFolder({
+    type: "knowledge",
+    parentId: sourceParent.id,
+    name: "Order child B",
+  });
+  const targetParent = repositories.createFolder({
+    type: "knowledge",
+    parentId: knowledgeScope.id,
+    name: "Order target parent",
+  });
+  const targetChild = repositories.createFolder({
+    type: "knowledge",
+    parentId: targetParent.id,
+    name: "Order target child",
+  });
+  const exerciseScope = repositories.createFolder({
+    type: "exercise",
+    name: "Order exercise scope",
+  });
+  const exerciseA = repositories.createFolder({
+    type: "exercise",
+    parentId: exerciseScope.id,
+    name: "Order A",
+  });
+  const exerciseB = repositories.createFolder({
+    type: "exercise",
+    parentId: exerciseScope.id,
+    name: "Order B",
+  });
+
+  repositories.updateFolder(knowledgeC.id, { position: 0 });
+  assert.deepEqual(
+    foldersUnder("knowledge", knowledgeScope.id).map(({ id }) => id),
+    [knowledgeC.id, knowledgeA.id, knowledgeB.id, sourceParent.id, targetParent.id],
+  );
+  assert.deepEqual(
+    foldersUnder("knowledge", knowledgeScope.id).map(({ position }) => position),
+    [0, 1, 2, 3, 4],
+  );
+  assert.deepEqual(
+    foldersUnder("exercise", exerciseScope.id).map(({ id, position }) => [id, position]),
+    [[exerciseA.id, 0], [exerciseB.id, 1]],
+  );
+
+  repositories.updateFolder(childB.id, { position: 0 });
+  assert.deepEqual(
+    childFolders(sourceParent.id).map(({ id, position }) => [id, position]),
+    [[childB.id, 0], [childA.id, 1]],
+  );
+  assert.throws(
+    () => repositories.updateFolder(childB.id, { position: -1 }),
+    /non-negative integer/i,
+  );
+  assert.throws(
+    () => repositories.updateFolder(childB.id, { position: 0.5 }),
+    /non-negative integer/i,
+  );
+  assert.throws(
+    () => repositories.updateFolder(childB.id, { position: 99 }),
+    /sibling range/i,
+  );
+  assert.deepEqual(
+    childFolders(sourceParent.id).map(({ id, position }) => [id, position]),
+    [[childB.id, 0], [childA.id, 1]],
+  );
+
+  const moved = repositories.updateFolder(childB.id, { parentId: targetParent.id });
+  assert.equal(moved.position, 1);
+  assert.deepEqual(
+    childFolders(sourceParent.id).map(({ id, position }) => [id, position]),
+    [[childA.id, 0]],
+  );
+  assert.deepEqual(
+    childFolders(targetParent.id).map(({ id, position }) => [id, position]),
+    [[targetChild.id, 0], [childB.id, 1]],
+  );
+
+  repositories.updateFolder(childB.id, { position: 0 });
+  assert.equal(repositories.deleteFolder(targetChild.id), true);
+  assert.deepEqual(
+    childFolders(targetParent.id).map(({ id, position }) => [id, position]),
+    [[childB.id, 0]],
+  );
+});
+
+function foldersUnder(type: "knowledge" | "exercise", parentId: number) {
+  return repositories.listFolders(type).filter((folder) => folder.parentId === parentId);
+}
+
+function childFolders(parentId: number) {
+  return repositories.listFolders("knowledge").filter((folder) => folder.parentId === parentId);
+}
+
 test("knowledge page moves preserve tree invariants", () => {
   const source = repositories.createFolder({ type: "knowledge", name: "Tree source" });
   const target = repositories.createFolder({ type: "knowledge", name: "Tree target" });

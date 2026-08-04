@@ -88,11 +88,11 @@ const invalidPng = Buffer.from("not a png");
 test("Bio backend integration", async (t) => {
     await t.test("migration seeds the three editable root folders in order", () => {
       assert.deepEqual(
-        repositories.listFolders().map(({ name, parentId }) => ({ name, parentId })),
+        repositories.listFolders().map(({ name, parentId, position }) => ({ name, parentId, position })),
         [
-          { name: "Cell Biology", parentId: null },
-          { name: "Genetics", parentId: null },
-          { name: "Ecology", parentId: null },
+          { name: "Cell Biology", parentId: null, position: 0 },
+          { name: "Genetics", parentId: null, position: 1 },
+          { name: "Ecology", parentId: null, position: 2 },
         ],
       );
     });
@@ -117,6 +117,67 @@ test("Bio backend integration", async (t) => {
         () => repositories.deleteFolder(ancientRome.id),
         (error: unknown) =>
           error instanceof repositories.RepositoryError && error.code === "NOT_EMPTY",
+      );
+    });
+
+    await t.test("folders persist contiguous root and nested sibling order", async () => {
+      const originalRoots = repositories.listFolders().filter(({ parentId }) => parentId === null);
+      const rootA = repositories.createFolder({ name: "Order root A" });
+      const rootB = repositories.createFolder({ name: "Order root B" });
+      assert.equal(rootA.position, originalRoots.length);
+      assert.equal(rootB.position, originalRoots.length + 1);
+
+      const reorderedResponse = await folderItemRoute.PATCH(
+        new Request(`http://localhost/api/folders/${rootB.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ position: originalRoots.length }),
+        }),
+        { params: Promise.resolve({ id: String(rootB.id) }) },
+      );
+      assert.equal(reorderedResponse.status, 200);
+      assert.equal((await reorderedResponse.json() as { position: number }).position, originalRoots.length);
+      assert.deepEqual(
+        repositories.listFolders().filter(({ parentId }) => parentId === null).slice(-2).map(({ id }) => id),
+        [rootB.id, rootA.id],
+      );
+
+      const childA = repositories.createFolder({ name: "Order child A", parentId: rootA.id });
+      const childB = repositories.createFolder({ name: "Order child B", parentId: rootA.id });
+      const targetChild = repositories.createFolder({ name: "Target child", parentId: rootB.id });
+      repositories.updateFolder(childA.id, { position: 1 });
+      assert.deepEqual(
+        repositories.listFolders().filter(({ parentId }) => parentId === rootA.id).map(({ id, position }) => ({ id, position })),
+        [{ id: childB.id, position: 0 }, { id: childA.id, position: 1 }],
+      );
+
+      for (const position of [-1, 0.5, 2]) {
+        assert.throws(
+          () => repositories.updateFolder(childA.id, { position }),
+          (error: unknown) =>
+            error instanceof repositories.RepositoryError && error.code === "VALIDATION",
+        );
+      }
+
+      repositories.updateFolder(childB.id, { parentId: rootB.id });
+      assert.deepEqual(
+        repositories.listFolders().filter(({ parentId }) => parentId === rootA.id).map(({ id, position }) => ({ id, position })),
+        [{ id: childA.id, position: 0 }],
+      );
+      assert.deepEqual(
+        repositories.listFolders().filter(({ parentId }) => parentId === rootB.id).map(({ id, position }) => ({ id, position })),
+        [{ id: targetChild.id, position: 0 }, { id: childB.id, position: 1 }],
+      );
+
+      assert.equal(repositories.deleteFolder(targetChild.id), true);
+      assert.equal(repositories.getFolder(childB.id)?.position, 0);
+      assert.equal(repositories.deleteFolder(childA.id), true);
+      assert.equal(repositories.deleteFolder(childB.id), true);
+      assert.equal(repositories.deleteFolder(rootA.id), true);
+      assert.equal(repositories.deleteFolder(rootB.id), true);
+      assert.deepEqual(
+        repositories.listFolders().filter(({ parentId }) => parentId === null).map(({ id, position }) => ({ id, position })),
+        originalRoots.map(({ id }, position) => ({ id, position })),
       );
     });
 

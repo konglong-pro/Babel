@@ -27,10 +27,12 @@ export const folders = sqliteTable(
     ),
     name: text("name").notNull(),
     nameKey: text("name_key").notNull(),
+    position: integer("position").notNull().default(0),
     ...timestamps,
   },
   (table) => [
     index("folder_parent_idx").on(table.parentId),
+    index("folder_parent_position_idx").on(table.parentId, table.position, table.id),
     uniqueIndex("folder_root_name_unique")
       .on(table.nameKey)
       .where(sql`${table.parentId} is null`),

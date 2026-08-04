@@ -129,6 +129,32 @@ test("Neum core persistence", async (t) => {
     assert.equal(repository.deleteFolder(historical.id), true);
   });
 
+  await t.test("folders persist root and nested sibling order", () => {
+    const previousFirstRoot = repository.listFolders().find(({ parentId }) => parentId === null);
+    assert.ok(previousFirstRoot);
+    const rootA = repository.createFolder({ name: "Order root A" });
+    const rootB = repository.createFolder({ name: "Order root B" });
+    const childA = repository.createFolder({ name: "Order child A", parentId: rootA.id });
+    const childB = repository.createFolder({ name: "Order child B", parentId: rootA.id });
+
+    repository.updateFolder(rootB.id, { position: 0 });
+    repository.updateFolder(childB.id, { position: 0 });
+
+    const ordered = repository.listFolders();
+    assert.deepEqual(
+      ordered.filter(({ parentId }) => parentId === null).slice(0, 2).map(({ id }) => id),
+      [rootB.id, previousFirstRoot.id],
+    );
+    assert.deepEqual(
+      ordered.filter(({ parentId }) => parentId === rootA.id).map(({ id }) => id),
+      [childB.id, childA.id],
+    );
+    assert.throws(
+      () => repository.updateFolder(rootA.id, { position: 999 }),
+      repositoryConflict("VALIDATION"),
+    );
+  });
+
   await t.test("entries preserve raw code, relational tags, filters, and versions", () => {
     const inbox = repository.listFolders()[0];
     const child = repository.createFolder({ name: "Search child", parentId: inbox.id });

@@ -5,7 +5,7 @@ import type BetterSqlite3 from "better-sqlite3";
 import { resolveDatabasePath } from "@babel-apps/platform/db/client";
 import { assertLiveDatabaseMigrationsCurrent } from "@babel-apps/platform/db/readiness";
 
-export const NEUM_SCHEMA_MIGRATION_TIMESTAMP = 1_784_217_600_000;
+export const NEUM_SCHEMA_MIGRATION_TIMESTAMP = 1_785_834_975_976;
 
 const databasePathOptions = {
   envVar: "NEUM_DATABASE_PATH",
@@ -17,6 +17,7 @@ export const appDatabaseReadinessOptions = {
   packageName: "@babel-apps/neum",
   expectedMigration: NEUM_SCHEMA_MIGRATION_TIMESTAMP,
   requiredColumns: {
+    folder: ["position"],
     entry: ["parent_id"],
     entry_link: ["source_entry_id", "target_title_key", "target_entry_id"],
   },
@@ -49,7 +50,15 @@ export function assertAppDatabaseReady(databasePath = resolveAppDatabasePath()):
 }
 
 const requiredTables = {
-  folder: ["id", "parent_id", "name", "name_key", "created_at", "updated_at"],
+  folder: [
+    "id",
+    "parent_id",
+    "name",
+    "name_key",
+    "position",
+    "created_at",
+    "updated_at",
+  ],
   entry: [
     "id",
     "parent_id",
@@ -126,6 +135,11 @@ const requiredIndexes = {
     unique: false,
   },
   folder_parent_idx: { table: "folder", columns: ["parent_id"], unique: false },
+  folder_parent_position_idx: {
+    table: "folder",
+    columns: ["parent_id", "position", "id"],
+    unique: false,
+  },
   folder_root_name_unique: {
     table: "folder",
     columns: ["name_key"],

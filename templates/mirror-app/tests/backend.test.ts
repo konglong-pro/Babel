@@ -88,6 +88,10 @@ const invalidPng = Buffer.from("not a png");
 test("__APP_NAME__ backend integration", async (t) => {
     await t.test("migration seeds the three editable root folders in order", () => {
       assert.deepEqual(
+        repositories.listFolders().map(({ position }) => position),
+        [0, 1, 2],
+      );
+      assert.deepEqual(
         repositories.listFolders().map(({ name, parentId }) => ({ name, parentId })),
         [
           { name: "Vocabulary", parentId: null },
@@ -120,7 +124,119 @@ test("__APP_NAME__ backend integration", async (t) => {
       );
     });
 
-    await t.test("mutating routes reject foreign origins with unified errors", async () => {
+    await t.test("folder sibling order persists for roots, children, moves, and routes", async () => {
+      const rootA = repositories.createFolder({ name: "Order root A" });
+      const rootB = repositories.createFolder({ name: "Order root B" });
+    const childA = repositories.createFolder({ name: "Order child A", parentId: rootA.id });
+    const childB = repositories.createFolder({ name: "Order child B", parentId: rootA.id });
+
+      repositories.updateFolder(rootB.id, { position: rootA.position });
+      repositories.updateFolder(childB.id, { position: 0 });
+      let ordered = repositories.listFolders();
+      assert.deepEqual(
+        ordered
+          .filter(({ id }) => id === rootA.id || id === rootB.id)
+          .map(({ id, position }) => ({ id, position })),
+        [
+          { id: rootB.id, position: rootA.position },
+          { id: rootA.id, position: rootA.position + 1 },
+        ],
+      );
+      assert.deepEqual(
+        ordered
+          .filter(({ parentId }) => parentId === rootA.id)
+          .map(({ id, position }) => ({ id, position })),
+        [
+          { id: childB.id, position: 0 },
+          { id: childA.id, position: 1 },
+        ],
+      );
+
+      repositories.updateFolder(childB.id, { parentId: rootB.id });
+      ordered = repositories.listFolders();
+      assert.deepEqual(
+        ordered.filter(({ parentId }) => parentId === rootA.id).map(({ position }) => position),
+        [0],
+      );
+      assert.deepEqual(
+        ordered.filter(({ parentId }) => parentId === rootB.id).map(({ position }) => position),
+        [0],
+      );
+
+      const beforeInvalid = ordered.map(({ id, parentId, position }) => ({
+        id,
+        parentId,
+        position,
+      }));
+      assert.throws(
+      () => repositories.updateFolder(childA.id, { parentId: rootB.id, position: 999 }),
+        (error: unknown) =>
+          error instanceof repositories.RepositoryError && error.code === "VALIDATION",
+      );
+      assert.deepEqual(
+        repositories.listFolders().map(({ id, parentId, position }) => ({
+          id,
+          parentId,
+          position,
+        })),
+        beforeInvalid,
+      );
+
+      const restored = await folderItemRoute.PATCH(
+        new Request(`http://localhost/api/folders/${rootA.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ position: rootA.position }),
+        }),
+        { params: Promise.resolve({ id: String(rootA.id) }) },
+      );
+      assert.equal(restored.status, 200);
+      assert.equal((await restored.json() as { position: number }).position, rootA.position);
+    });
+
+  await t.test("moving a folder appends it after existing target siblings", () => {
+    const source = repositories.createFolder({ name: "Append source" });
+    const target = repositories.createFolder({ name: "Append target" });
+    const existing = repositories.createFolder({ name: "Append existing", parentId: target.id });
+    const moving = repositories.createFolder({ name: "Append moving", parentId: source.id });
+
+    repositories.updateFolder(moving.id, { parentId: target.id });
+
+    assert.deepEqual(
+      repositories
+        .listFolders()
+        .filter((folder) => folder.parentId === target.id)
+        .map((folder) => folder.id),
+      [existing.id, moving.id],
+    );
+  });
+
+  await t.test("an invalid cross-parent reorder rolls back both sibling lists", () => {
+    const source = repositories.createFolder({ name: "Rollback source" });
+    const target = repositories.createFolder({ name: "Rollback target" });
+    const moving = repositories.createFolder({ name: "Rollback moving", parentId: source.id });
+    const existing = repositories.createFolder({ name: "Rollback existing", parentId: target.id });
+    const beforeSource = repositories.listFolders().filter((folder) => folder.parentId === source.id);
+    const beforeTarget = repositories.listFolders().filter((folder) => folder.parentId === target.id);
+
+    assert.throws(
+      () => repositories.updateFolder(moving.id, { parentId: target.id, position: 999 }),
+      /position/i,
+    );
+
+    assert.deepEqual(
+      repositories.listFolders().filter((folder) => folder.parentId === source.id),
+      beforeSource,
+    );
+    assert.deepEqual(
+      repositories.listFolders().filter((folder) => folder.parentId === target.id),
+      beforeTarget,
+    );
+    assert.equal(repositories.getFolder(moving.id)?.parentId, source.id);
+    assert.equal(repositories.getFolder(existing.id)?.parentId, target.id);
+  });
+
+  await t.test("mutating routes reject foreign origins with unified errors", async () => {
       const before = repositories.listFolders().length;
       const foreignCreate = await folderCollectionRoute.POST(
         new Request("http://localhost/api/folders", {

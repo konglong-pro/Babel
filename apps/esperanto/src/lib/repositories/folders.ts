@@ -1,6 +1,6 @@
-import { asc, eq, sql, type SQL } from "drizzle-orm";
+import { asc, eq, isNull, sql, type SQL } from "drizzle-orm";
 
-import { db } from "@/lib/db/client";
+import { db, sqlite } from "@/lib/db/client";
 import { folders, notes } from "@/lib/db/schema";
 import type { FolderDto } from "@/lib/types";
 
@@ -21,13 +21,21 @@ export interface CreateFolderInput {
 export interface UpdateFolderInput {
   name?: string;
   parentId?: number | null;
+  position?: number;
 }
+
+const nowSql = sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`;
 
 export function listFolders(): FolderDto[] {
   return db
     .select()
     .from(folders)
-    .orderBy(asc(folders.createdAt), asc(folders.id))
+    .orderBy(
+      asc(folders.parentId),
+      asc(folders.position),
+      asc(folders.createdAt),
+      asc(folders.id),
+    )
     .all()
     .map(toFolderDto);
 }
@@ -42,9 +50,14 @@ export function createFolder(input: CreateFolderInput): FolderDto {
   const parentId = input.parentId ?? null;
   if (parentId !== null) requireFolder(parentId);
 
-  return toFolderDto(
-    db.insert(folders).values({ name, parentId }).returning().get(),
-  );
+  return toFolderDto(sqlite.transaction(() => {
+    normalizeSiblingPositions(parentId);
+    return db
+      .insert(folders)
+      .values({ name, parentId, position: siblingRows(parentId).length })
+      .returning()
+      .get();
+  })());
 }
 
 export function updateFolder(id: number, input: UpdateFolderInput): FolderDto {
@@ -54,33 +67,101 @@ export function updateFolder(id: number, input: UpdateFolderInput): FolderDto {
     throw new RepositoryError("NOT_FOUND", "Folder not found.", { folderId: id });
   }
 
+  const name = input.name === undefined
+    ? current.name
+    : normalizeRequiredText(input.name, "name");
+  const parentId = input.parentId === undefined ? current.parentId : input.parentId;
+  if (input.parentId !== undefined) assertValidMove(id, parentId);
+  if (input.position !== undefined) assertFolderPosition(input.position);
+  if (
+    input.name === undefined &&
+    input.parentId === undefined &&
+    input.position === undefined
+  ) return toFolderDto(current);
+
   const changes: {
     name?: string;
     parentId?: number | null;
+    position?: number;
     updatedAt: SQL;
-  } = { updatedAt: sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))` };
-  let changed = false;
+  } = { updatedAt: nowSql };
+  if (input.name !== undefined) changes.name = name;
+  const parentChanged = input.parentId !== undefined && parentId !== current.parentId;
+  if (input.parentId !== undefined) changes.parentId = parentId;
 
-  if (input.name !== undefined) {
-    changes.name = normalizeRequiredText(input.name, "name");
-    changed = true;
-  }
-  if (input.parentId !== undefined) {
-    const parentId = input.parentId ?? null;
-    assertValidMove(id, parentId);
-    changes.parentId = parentId;
-    changed = true;
-  }
+  return toFolderDto(sqlite.transaction(() => {
+    if (parentChanged) {
+      normalizeSiblingPositions(parentId);
+      changes.position = siblingRows(parentId).length;
+    }
+    if (input.name !== undefined || input.parentId !== undefined) {
+      db.update(folders).set(changes).where(eq(folders.id, id)).run();
+    }
+    if (parentChanged) normalizeSiblingPositions(current.parentId);
+    if (input.position !== undefined) reorderFolder(id, input.position);
+    return requireFolder(id);
+  })());
+}
 
-  if (!changed) return toFolderDto(current);
-  return toFolderDto(
-    db.update(folders).set(changes).where(eq(folders.id, id)).returning().get(),
-  );
+function siblingRows(parentId: number | null): Array<{ id: number; position: number }> {
+  return db
+    .select({ id: folders.id, position: folders.position })
+    .from(folders)
+    .where(folderParentCondition(parentId))
+    .orderBy(asc(folders.position), asc(folders.createdAt), asc(folders.id))
+    .all();
+}
+
+function reorderFolder(id: number, position: number): void {
+  const current = requireFolder(id);
+  const ordered = siblingRows(current.parentId).filter((folder) => folder.id !== id);
+  if (position > ordered.length) {
+    throw new RepositoryError(
+      "VALIDATION",
+      "position is outside the folder's sibling range.",
+      { field: "position", position },
+    );
+  }
+  ordered.splice(position, 0, { id, position: current.position });
+
+  ordered.forEach((folder, index) => {
+    db.update(folders)
+      .set(folder.id === id
+        ? { position: index, updatedAt: nowSql }
+        : { position: index })
+      .where(eq(folders.id, folder.id))
+      .run();
+  });
+}
+
+function normalizeSiblingPositions(parentId: number | null): void {
+  siblingRows(parentId).forEach((folder, position) => {
+    if (folder.position === position) return;
+    db.update(folders)
+      .set({ position })
+      .where(eq(folders.id, folder.id))
+      .run();
+  });
+}
+
+function folderParentCondition(parentId: number | null): SQL {
+  return parentId === null ? isNull(folders.parentId) : eq(folders.parentId, parentId);
+}
+
+function assertFolderPosition(position: number): void {
+  if (!Number.isSafeInteger(position) || position < 0) {
+    throw new RepositoryError(
+      "VALIDATION",
+      "position must be a non-negative integer.",
+      { field: "position" },
+    );
+  }
 }
 
 export function deleteFolder(id: number): boolean {
   assertPositiveId(id, "id");
-  if (!findFolder(id)) return false;
+  const current = findFolder(id);
+  if (!current) return false;
 
   const child = db
     .select({ id: folders.id })
@@ -98,7 +179,11 @@ export function deleteFolder(id: number): boolean {
     });
   }
 
-  return db.delete(folders).where(eq(folders.id, id)).returning().get() !== undefined;
+  return sqlite.transaction(() => {
+    const deleted = db.delete(folders).where(eq(folders.id, id)).returning().get();
+    normalizeSiblingPositions(current.parentId);
+    return deleted !== undefined;
+  })();
 }
 
 function assertValidMove(folderId: number, parentId: number | null): void {

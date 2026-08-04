@@ -25,10 +25,12 @@ export const folders = sqliteTable(
       { onDelete: "restrict" },
     ),
     name: text("name").notNull(),
+    position: integer("position").notNull().default(0),
     ...timestamps,
   },
   (table) => [
     index("folder_parent_idx").on(table.parentId),
+    index("folder_parent_position_idx").on(table.parentId, table.position, table.id),
     check("folder_name_not_blank", sql`length(trim(${table.name})) > 0`),
   ],
 );

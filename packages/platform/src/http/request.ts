@@ -135,6 +135,27 @@ export function optionalPositiveInteger(
   return requiredPositiveInteger(body, field);
 }
 
+export function optionalNonNegativeInteger(
+  body: JsonObject,
+  field: string,
+): number | undefined {
+  if (!hasOwn(body, field)) {
+    return undefined;
+  }
+
+  const value = body[field];
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throw new ApiError(
+      400,
+      "VALIDATION_ERROR",
+      `${field} must be a non-negative integer.`,
+      { field },
+    );
+  }
+
+  return value as number;
+}
+
 export function optionalNullablePositiveInteger(
   body: JsonObject,
   field: string,

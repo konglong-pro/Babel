@@ -24,6 +24,7 @@ export interface CreateFolderInput {
 export interface UpdateFolderInput {
   name?: string;
   parentId?: number | null;
+  position?: number;
 }
 
 export function listFolders(): FolderDto[] {
@@ -31,7 +32,12 @@ export function listFolders(): FolderDto[] {
   return db
     .select()
     .from(folders)
-    .orderBy(asc(folders.createdAt), asc(folders.id))
+    .orderBy(
+      asc(folders.parentId),
+      asc(folders.position),
+      asc(folders.createdAt),
+      asc(folders.id),
+    )
     .all()
     .map(toFolderDto);
 }
@@ -42,26 +48,32 @@ export function getFolder(id: number): FolderDto | null {
 }
 
 export function createFolder(input: CreateFolderInput): FolderDto {
-  const { db } = getNeumDatabase();
+  const { db, sqlite } = getNeumDatabase();
   const name = normalizeRequiredText(input.name, "name");
   const parentId = input.parentId ?? null;
   if (parentId !== null) requireFolder(parentId);
   assertSiblingNameAvailable(name, parentId);
   try {
-    return toFolderDto(
-      db
+    return toFolderDto(sqlite.transaction(() => {
+      normalizeSiblingPositions(parentId);
+      return db
         .insert(folders)
-        .values({ name, nameKey: identityKey(name), parentId })
+        .values({
+          name,
+          nameKey: identityKey(name),
+          parentId,
+          position: siblingRows(parentId).length,
+        })
         .returning()
-        .get(),
-    );
+        .get();
+    })());
   } catch (error) {
     throw translateFolderConstraint(error, name, parentId);
   }
 }
 
 export function updateFolder(id: number, input: UpdateFolderInput): FolderDto {
-  const { db } = getNeumDatabase();
+  const { db, sqlite } = getNeumDatabase();
   assertPositiveId(id, "id");
   const current = findFolder(id);
   if (!current) {
@@ -74,13 +86,19 @@ export function updateFolder(id: number, input: UpdateFolderInput): FolderDto {
       : normalizeRequiredText(input.name, "name");
   const parentId = input.parentId === undefined ? current.parentId : input.parentId;
   if (input.parentId !== undefined) assertValidMove(id, parentId);
-  if (input.name === undefined && input.parentId === undefined) return toFolderDto(current);
+  if (input.position !== undefined) assertFolderPosition(input.position);
+  if (
+    input.name === undefined &&
+    input.parentId === undefined &&
+    input.position === undefined
+  ) return toFolderDto(current);
   assertSiblingNameAvailable(name, parentId, id);
 
   const changes: {
     name?: string;
     nameKey?: string;
     parentId?: number | null;
+    position?: number;
     updatedAt: SQL;
   } = {
     updatedAt: nowSql,
@@ -89,21 +107,92 @@ export function updateFolder(id: number, input: UpdateFolderInput): FolderDto {
     changes.name = name;
     changes.nameKey = identityKey(name);
   }
-  if (input.parentId !== undefined) changes.parentId = parentId;
+  const parentChanged = input.parentId !== undefined && parentId !== current.parentId;
+  if (input.parentId !== undefined) {
+    changes.parentId = parentId;
+  }
 
   try {
-    return toFolderDto(
-      db.update(folders).set(changes).where(eq(folders.id, id)).returning().get(),
-    );
+    return toFolderDto(sqlite.transaction(() => {
+      if (parentChanged) {
+        normalizeSiblingPositions(parentId);
+        changes.position = siblingRows(parentId).length;
+      }
+      if (input.name !== undefined || input.parentId !== undefined) {
+        db.update(folders).set(changes).where(eq(folders.id, id)).run();
+      }
+      if (parentChanged) normalizeSiblingPositions(current.parentId);
+      if (input.position !== undefined) reorderFolder(id, input.position);
+      return requireFolder(id);
+    })());
   } catch (error) {
     throw translateFolderConstraint(error, name, parentId);
   }
 }
 
-export function deleteFolder(id: number): boolean {
+function siblingRows(parentId: number | null): Array<{ id: number; position: number }> {
   const { db } = getNeumDatabase();
+  return db
+    .select({ id: folders.id, position: folders.position })
+    .from(folders)
+    .where(folderParentCondition(parentId))
+    .orderBy(asc(folders.position), asc(folders.createdAt), asc(folders.id))
+    .all();
+}
+
+function reorderFolder(id: number, position: number): void {
+  const { db } = getNeumDatabase();
+  const current = requireFolder(id);
+  const ordered = siblingRows(current.parentId).filter((folder) => folder.id !== id);
+  if (position > ordered.length) {
+    throw new RepositoryError(
+      "VALIDATION",
+      "position is outside the folder's sibling range.",
+      { field: "position", position },
+    );
+  }
+  ordered.splice(position, 0, { id, position: current.position });
+
+  ordered.forEach((folder, index) => {
+    db.update(folders)
+      .set(folder.id === id
+        ? { position: index, updatedAt: nowSql }
+        : { position: index })
+      .where(eq(folders.id, folder.id))
+      .run();
+  });
+}
+
+function normalizeSiblingPositions(parentId: number | null): void {
+  const { db } = getNeumDatabase();
+  siblingRows(parentId).forEach((folder, position) => {
+    if (folder.position === position) return;
+    db.update(folders)
+      .set({ position })
+      .where(eq(folders.id, folder.id))
+      .run();
+  });
+}
+
+function folderParentCondition(parentId: number | null): SQL {
+  return parentId === null ? isNull(folders.parentId) : eq(folders.parentId, parentId);
+}
+
+function assertFolderPosition(position: number): void {
+  if (!Number.isSafeInteger(position) || position < 0) {
+    throw new RepositoryError(
+      "VALIDATION",
+      "position must be a non-negative integer.",
+      { field: "position" },
+    );
+  }
+}
+
+export function deleteFolder(id: number): boolean {
+  const { db, sqlite } = getNeumDatabase();
   assertPositiveId(id, "id");
-  if (!findFolder(id)) return false;
+  const current = findFolder(id);
+  if (!current) return false;
 
   const hasChild = db
     .select({ id: folders.id })
@@ -133,7 +222,11 @@ export function deleteFolder(id: number): boolean {
     });
   }
 
-  return db.delete(folders).where(eq(folders.id, id)).returning().get() !== undefined;
+  return sqlite.transaction(() => {
+    const deleted = db.delete(folders).where(eq(folders.id, id)).returning().get();
+    normalizeSiblingPositions(current.parentId);
+    return deleted !== undefined;
+  })();
 }
 
 function assertSiblingNameAvailable(

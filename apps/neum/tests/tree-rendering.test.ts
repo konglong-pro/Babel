@@ -14,8 +14,8 @@ const { createElement } = React;
 
 const timestamp = "2026-07-13T00:00:00.000Z";
 const folders: FolderDto[] = [
-  { id: 1, parentId: null, name: "Root", createdAt: timestamp, updatedAt: timestamp },
-  { id: 2, parentId: 1, name: "Leaf", createdAt: timestamp, updatedAt: timestamp },
+  { id: 1, parentId: null, name: "Root", position: 0, createdAt: timestamp, updatedAt: timestamp },
+  { id: 2, parentId: 1, name: "Leaf", position: 0, createdAt: timestamp, updatedAt: timestamp },
 ];
 const entries: EntrySummaryDto[] = [
   {
@@ -53,12 +53,15 @@ test("folder leaves retain disclosure controls and selected ancestors reveal", (
       async onCreate() {},
       async onRename() {},
       async onMove() {},
+      async onReorder() {},
       async onDelete() {},
     }),
   );
 
   assert.match(markup, /aria-label="Collapse Root"/);
   assert.match(markup, /aria-label="Expand Leaf"/);
+  assert.match(markup, /data-babel-folder-drag-handle=""/);
+  assert.match(markup, /aria-keyshortcuts="ArrowUp ArrowDown"/);
   assert.match(markup, /\+ New subfolder/);
 });
 
@@ -76,6 +79,7 @@ test("folder load failures are recoverable and never look like an empty library"
       async onCreate() {},
       async onRename() {},
       async onMove() {},
+      async onReorder() {},
       async onDelete() {},
     }),
   );

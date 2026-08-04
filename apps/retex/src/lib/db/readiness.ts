@@ -11,7 +11,7 @@ const databasePathOptions = {
 export const appDatabaseReadinessOptions = {
   appName: "ReTex",
   packageName: "@babel-apps/retex",
-  expectedMigration: 1_784_217_600_000,
+  expectedMigration: 1_785_835_475_578,
   requiredColumns: {
     knowledge_note: ["parent_id"],
     note_link: [
@@ -25,6 +25,7 @@ export const appDatabaseReadinessOptions = {
     exercise: ["problem_md", "answer_md", "solution_md"],
     knowledge_search: ["title", "content_md", "tags"],
     exercise_search: ["title", "problem_md", "answer_md", "solution_md", "tags"],
+    folder: ["position"],
   },
   requiredSchemaObjects: [
     {

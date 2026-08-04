@@ -34,6 +34,7 @@ export interface FolderDto {
   parentId: number | null;
   type: FolderType;
   name: string;
+  position: number;
   createdAt: string;
   updatedAt: string;
 }

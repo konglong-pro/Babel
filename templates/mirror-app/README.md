@@ -34,6 +34,12 @@ or discard. The active workspace history guard uses
 `preserveOnHistoryNavigation: true`, so browser
 Back/Forward also hides and restores processes without closing them.
 
+Folders and subfolders can be reordered with their drag handle, or with ↑/↓
+while that handle is focused. Reordering is deliberately sibling-only: it
+changes the zero-based `position` within one parent and never changes hierarchy.
+Use the existing **Move** action to change a folder's parent; moved and newly
+created folders append to the destination level.
+
 Editing an existing note opens a focused **Content + Outline** window aligned
 to the note-detail column. The main edit page continues to manage the title,
 folder, parent page, tags, Save, and Cancel; new-note drafts remain inline.

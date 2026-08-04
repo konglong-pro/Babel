@@ -272,6 +272,7 @@ test("renders the repository mirror template as an independent app", async (t) =
     readinessSource,
     /note:\s*\["parent_id"\]/,
   );
+  assert.match(readinessSource, /folder:\s*\["position"\]/);
   assert.match(
     readinessSource,
     /note_link:\s*\[[\s\S]*?"source_note_id"[\s\S]*?"target_title_key"[\s\S]*?"target_note_id"[\s\S]*?\]/,
@@ -310,6 +311,54 @@ test("renders the repository mirror template as an independent app", async (t) =
   );
   assert.match(templateMigration, /CREATE TABLE `note_template`/);
   assert.match(templateMigration, /CREATE UNIQUE INDEX `note_template_name_unique`/);
+  const folderPositionMigration = await readFile(
+    path.join(generatedRoot, "drizzle", "0003_mirror-notes_folder_position.sql"),
+    "utf8",
+  );
+  const addPositionStatement = folderPositionMigration
+    .replace(/\s+/g, " ")
+    .match(
+      /ALTER TABLE [`\"]?folder[`\"]?\s+ADD(?:\s+COLUMN)?\s+[`\"]?position[`\"]?\s+integer\b[^;]*;/i,
+    )?.[0];
+  assert.ok(addPositionStatement, "folder migration must add the position column");
+  assert.match(addPositionStatement, /\bNOT\s+NULL\b/i);
+  assert.match(
+    addPositionStatement,
+    /\bDEFAULT\s+(?:\(\s*)?0(?:\s*\))?(?=\s|;|$)/i,
+  );
+  assert.match(folderPositionMigration, /row_number\s*\(\s*\)\s*OVER\s*\(/i);
+  assert.match(
+    folderPositionMigration,
+    /PARTITION\s+BY\s+[`\"]?parent_id[`\"]?/i,
+  );
+  assert.match(folderPositionMigration, /folder_parent_position_idx/);
+  assert.doesNotMatch(folderPositionMigration, /__APP_/);
+
+  const generatedJournal = await readJson<{
+    entries: Array<{ tag: string; when: number }>;
+  }>(path.join(generatedRoot, "drizzle", "meta", "_journal.json"));
+  const latestJournalEntry = generatedJournal.entries.at(-1);
+  assert.ok(latestJournalEntry, "generated journal must contain migrations");
+  assert.equal(latestJournalEntry.tag, "0003_mirror-notes_folder_position");
+  assert.equal(latestJournalEntry.when, 1_785_835_547_912);
+  const expectedMigrationMatch = readinessSource.match(
+    /expectedMigration:\s*([\d_]+)/,
+  );
+  assert.ok(expectedMigrationMatch, "readiness must declare expectedMigration");
+  assert.equal(
+    Number(expectedMigrationMatch[1].replaceAll("_", "")),
+    latestJournalEntry.when,
+  );
+
+  const [previousSnapshot, folderPositionSnapshot] = await Promise.all([
+    readJson<{ id: string }>(
+      path.join(generatedRoot, "drizzle", "meta", "0002_snapshot.json"),
+    ),
+    readJson<{ prevId: string }>(
+      path.join(generatedRoot, "drizzle", "meta", "0003_snapshot.json"),
+    ),
+  ]);
+  assert.equal(folderPositionSnapshot.prevId, previousSnapshot.id);
 
   const markdownEditor = await readFile(
     path.join(generatedRoot, "src", "components", "markdown-editor.tsx"),
@@ -397,6 +446,14 @@ test("renders the repository mirror template as an independent app", async (t) =
   assert.match(folderPanel, /className="folder-disclosure"/);
   assert.doesNotMatch(folderPanel, /folder-disclosure-spacer/);
   assert.match(folderPanel, /New subfolder/);
+  assert.match(folderPanel, /@babel-apps\/platform\/folders\/react/);
+  assert.match(folderPanel, /useFolderReorder/);
+  assert.match(folderPanel, /\.handleProps\(/);
+  assert.match(folderPanel, /\.rowProps\(/);
+  assert.match(folderPanel, /onReorder/);
+  assert.match(generatedNotesWorkspace, /handleReorderFolder/);
+  assert.match(generatedNotesWorkspace, /updateFolder\(id, \{ position \}\)/);
+  assert.match(generatedNotesWorkspace, /onReorder=\{handleReorderFolder\}/);
   await access(
     path.join(generatedRoot, "src", "components", "folder-tree-state.ts"),
   );
@@ -430,6 +487,9 @@ test("renders the repository mirror template as an independent app", async (t) =
   );
   assert.match(globalStyles, /\.folder-node-row/);
   assert.match(globalStyles, /\.folder-disclosure/);
+  assert.match(globalStyles, /\.folder-reorder-handle/);
+  assert.match(globalStyles, /\.folder-node-row\.folder-drop-before/);
+  assert.match(globalStyles, /\.folder-node-row\.folder-drop-after/);
   assert.match(globalStyles, /\.note-disclosure/);
   assert.match(globalStyles, /\.document-outline-layout/);
   assert.match(globalStyles, /\.outline-panel/);
@@ -447,6 +507,13 @@ test("renders the repository mirror template as an independent app", async (t) =
   assert.match(generatedRepository, /requireNoteParent/);
   assert.match(generatedRepository, /noteDescendantIds/);
   assert.match(generatedRepository, /NOT_EMPTY/);
+  const generatedFolderRepository = await readFile(
+    path.join(generatedRoot, "src", "lib", "repositories", "folders.ts"),
+    "utf8",
+  );
+  assert.match(generatedFolderRepository, /position\?: number/);
+  assert.match(generatedFolderRepository, /\.transaction\s*\(/);
+  assert.match(generatedFolderRepository, /folders\.position/);
   const generatedCollectionRoute = await readFile(
     path.join(generatedRoot, "src", "app", "api", "notes", "route.ts"),
     "utf8",
@@ -464,6 +531,10 @@ test("renders the repository mirror template as an independent app", async (t) =
   assert.match(
     generatedBackendTests,
     /folder hierarchy prevents cycles and non-empty deletion/,
+  );
+  assert.match(
+    generatedBackendTests,
+    /folder sibling order persists for roots, children, moves, and routes/,
   );
   assert.match(
     generatedBackendTests,
@@ -498,6 +569,7 @@ test("renders the repository mirror template as an independent app", async (t) =
     "utf8",
   );
   assert.match(generatedSearchTypes, /interface NoteSearchResultDto/);
+  assert.match(generatedSearchTypes, /interface FolderDto[\s\S]*?position: number/);
   assert.match(generatedSearchTypes, /matchedFields: NoteSearchField\[\]/);
   const generatedSearchResults = await readFile(
     path.join(generatedRoot, "src", "components", "search-results.tsx"),

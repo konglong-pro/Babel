@@ -12,6 +12,7 @@ import type * as EntryItemRoute from "@/app/api/entries/[id]/route";
 import type * as EntryBacklinksRoute from "@/app/api/entries/[id]/backlinks/route";
 import type * as EntryTitlesRoute from "@/app/api/entries/titles/route";
 import type * as FolderCollectionRoute from "@/app/api/folders/route";
+import type * as FolderItemRoute from "@/app/api/folders/[id]/route";
 import type * as HealthRoute from "@/app/api/health/route";
 import type * as SearchRoute from "@/app/api/search/route";
 import type {
@@ -28,6 +29,7 @@ let entryItemRoute: typeof EntryItemRoute;
 let entryBacklinksRoute: typeof EntryBacklinksRoute;
 let entryTitlesRoute: typeof EntryTitlesRoute;
 let folderCollectionRoute: typeof FolderCollectionRoute;
+let folderItemRoute: typeof FolderItemRoute;
 let healthRoute: typeof HealthRoute;
 let searchRoute: typeof SearchRoute;
 
@@ -47,6 +49,7 @@ test("Neum HTTP contract", async (t) => {
       import("@/app/api/entries/[id]/backlinks/route"),
       import("@/app/api/entries/titles/route"),
       import("@/app/api/folders/route"),
+      import("@/app/api/folders/[id]/route"),
       import("@/app/api/health/route"),
       import("@/app/api/search/route"),
     ]),
@@ -60,6 +63,7 @@ test("Neum HTTP contract", async (t) => {
     entryBacklinksRoute,
     entryTitlesRoute,
     folderCollectionRoute,
+    folderItemRoute,
     healthRoute,
     searchRoute,
   ] = routes;
@@ -150,6 +154,33 @@ test("Neum HTTP contract", async (t) => {
       ),
     );
     assert.equal(foreignEntry.status, 403);
+  });
+
+  await t.test("folder position patches persist sibling order", async () => {
+    const firstResponse = await folderCollectionRoute.POST(
+      jsonRequest("http://localhost/api/folders", { name: "HTTP order A" }, "POST"),
+    );
+    const secondResponse = await folderCollectionRoute.POST(
+      jsonRequest("http://localhost/api/folders", { name: "HTTP order B" }, "POST"),
+    );
+    const first = await firstResponse.json() as { id: number };
+    const second = await secondResponse.json() as { id: number };
+
+    const reordered = await folderItemRoute.PATCH(
+      jsonRequest(`http://localhost/api/folders/${second.id}`, { position: 0 }, "PATCH"),
+      { params: Promise.resolve({ id: String(second.id) }) },
+    );
+    assert.equal(reordered.status, 200);
+    const folders = await (await folderCollectionRoute.GET()).json() as Array<{
+      id: number;
+      parentId: number | null;
+    }>;
+    assert.deepEqual(
+      folders
+        .filter(({ parentId, id }) => parentId === null && (id === first.id || id === second.id))
+        .map(({ id }) => id),
+      [second.id, first.id],
+    );
   });
 
   await t.test("entry routes enforce UTF-8 Markdown and code limits", async () => {

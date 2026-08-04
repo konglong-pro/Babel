@@ -2,6 +2,7 @@ export interface FolderDto {
   id: number;
   parentId: number | null;
   name: string;
+  position: number;
   createdAt: string;
   updatedAt: string;
 }

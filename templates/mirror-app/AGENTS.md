@@ -19,4 +19,12 @@ Back/Forward navigation cannot close another library's dirty pages. Page keys
 must be globally unique across scopes; prefer `scopedPageKey(scope, localKey)`
 from `@babel-apps/platform/pages/core` for new libraries.
 
+Folder ordering is a persisted contract. `folder.position` is a zero-based,
+contiguous index within one `parent_id`; drag and keyboard reordering must never
+change the parent. Use `@babel-apps/platform/folders/react` for the UI, accept
+`PATCH { position }`, and normalize the affected sibling set in one SQLite
+transaction. Folder creation and the explicit Move action append to the target
+parent. Preserve deterministic migration backfills and the
+`folder_parent_position_idx` index when evolving the schema.
+
 The root `AGENTS.md` owns shared commands and public/private data discipline.

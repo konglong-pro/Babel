@@ -82,7 +82,7 @@ export function createFolder(input: {
 
 export function updateFolder(
   id: number,
-  input: { name?: string; parentId?: number | null },
+  input: { name?: string; parentId?: number | null; position?: number },
 ): Promise<FolderDto> {
   return request(`/api/folders/${id}`, {
     method: "PATCH",

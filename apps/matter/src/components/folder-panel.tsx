@@ -11,6 +11,10 @@ import {
   ReferencePanelTriggers,
   type ReferencePanelKind,
 } from "@babel-apps/markdown/reference";
+import {
+  type FolderReorderController,
+  useFolderReorder,
+} from "@babel-apps/platform/folders/react";
 
 import {
   type FolderExpansionState,
@@ -32,6 +36,7 @@ interface FolderPanelProps {
   onCreate: (name: string, parentId: number | null) => Promise<void>;
   onRename: (id: number, name: string) => Promise<void>;
   onMove: (id: number, parentId: number | null) => Promise<void>;
+  onReorder: (id: number, position: number) => Promise<void>;
   onDelete: (id: number) => Promise<void>;
 }
 
@@ -43,6 +48,7 @@ interface FolderBranchProps {
   onSelect: (id: number) => void;
   onToggle: (id: number) => void;
   onCreateChild: (id: number) => void;
+  reorder: FolderReorderController;
 }
 
 function FolderBranch({
@@ -53,6 +59,7 @@ function FolderBranch({
   onSelect,
   onToggle,
   onCreateChild,
+  reorder,
 }: FolderBranchProps) {
   const children = grouped.get(parentId) ?? [];
   if (children.length === 0) return null;
@@ -64,7 +71,10 @@ function FolderBranch({
 
         return (
           <li key={folder.id}>
-            <div className="folder-node-row">
+            <div
+              className={`folder-node-row ${reorder.dropClassName(folder.id)}`.trim()}
+              {...reorder.rowProps(folder.id)}
+            >
               <button
                 type="button"
                 className="folder-disclosure"
@@ -81,6 +91,12 @@ function FolderBranch({
                 <span aria-hidden="true">▱</span>
                 <span>{folder.name}</span>
               </button>
+              <button
+                className="folder-reorder-handle"
+                {...reorder.handleProps(folder.id, folder.name)}
+              >
+                <span aria-hidden="true">⋮⋮</span>
+              </button>
             </div>
             {expanded ? (
               <div className="folder-tree-children">
@@ -92,6 +108,7 @@ function FolderBranch({
                   onSelect={onSelect}
                   onToggle={onToggle}
                   onCreateChild={onCreateChild}
+                  reorder={reorder}
                 />
                 <button
                   type="button"
@@ -151,6 +168,7 @@ export function FolderPanel({
   onCreate,
   onRename,
   onMove,
+  onReorder,
   onDelete,
 }: FolderPanelProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -184,9 +202,6 @@ export function FolderPanel({
       siblings.push(folder);
       result.set(folder.parentId, siblings);
     }
-    for (const siblings of result.values()) {
-      siblings.sort((a, b) => a.name.localeCompare(b.name, "en-US"));
-    }
     return result;
   }, [folders]);
 
@@ -204,6 +219,7 @@ export function FolderPanel({
         .sort((a, b) => a.path.localeCompare(b.path, "en-US")),
     [folderMap, folders, selectedId, unavailableTargets],
   );
+  const reorder = useFolderReorder({ folders, disabled: busy || pending, onReorder });
 
   function handleToggle(folderId: number) {
     setExpansionState((current) => {
@@ -302,6 +318,7 @@ export function FolderPanel({
             onSelect={onSelect}
             onToggle={handleToggle}
             onCreateChild={(id) => openDialog("create", id)}
+            reorder={reorder}
           />
         )}
       </nav>

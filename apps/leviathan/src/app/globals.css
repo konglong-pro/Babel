@@ -439,6 +439,47 @@ a {
   flex: 1;
 }
 
+.folder-reorder-handle {
+  display: grid;
+  width: 1.35rem;
+  min-height: 0;
+  flex: 0 0 1.35rem;
+  place-items: center;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink-faint);
+  padding: 0;
+  cursor: grab;
+}
+
+.folder-reorder-handle:active {
+  cursor: grabbing;
+}
+
+.folder-reorder-handle:hover:not(:disabled),
+.folder-reorder-handle:focus-visible {
+  border-color: transparent;
+  background: var(--paper-deep);
+  color: var(--ink);
+  box-shadow: none;
+  transform: none;
+}
+
+.folder-reorder-handle:disabled {
+  cursor: default;
+  opacity: 0.28;
+}
+
+.folder-node-row.folder-drop-before {
+  box-shadow: inset 0 2px 0 var(--ink);
+}
+
+.folder-node-row.folder-drop-after {
+  box-shadow: inset 0 -2px 0 var(--ink);
+}
+
+
 .folder-disclosure,
 .note-disclosure {
   width: 1.45rem;

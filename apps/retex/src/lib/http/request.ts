@@ -18,6 +18,7 @@ import { folderTypes, type FolderType } from "@/lib/types";
 export {
   assertSameOrigin,
   assertPatchHasFields,
+  optionalNonNegativeInteger,
   optionalNullablePositiveInteger,
   optionalPositiveInteger,
   optionalString,

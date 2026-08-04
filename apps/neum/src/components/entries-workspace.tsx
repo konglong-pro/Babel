@@ -50,6 +50,11 @@ import { isNeumWorkspaceDestination } from "@/lib/workspace-process";
 
 type ResponsiveStage = "library" | "entries" | "entry";
 const PAGE_LIMIT = 100;
+const FOLDERS_CHANGED_EVENT = "babel:neum-folders-changed";
+
+function notifyFoldersChanged(): void {
+  window.dispatchEvent(new Event(FOLDERS_CHANGED_EVENT));
+}
 
 interface EntriesWorkspaceProps {
   kind: EntryKind;
@@ -123,6 +128,15 @@ export function EntriesWorkspace({
       setFolderLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    const refreshHiddenWorkspace = () => {
+      if (processActive) return;
+      void refreshFolders().catch((caught) => setError(getErrorMessage(caught)));
+    };
+    window.addEventListener(FOLDERS_CHANGED_EVENT, refreshHiddenWorkspace);
+    return () => window.removeEventListener(FOLDERS_CHANGED_EVENT, refreshHiddenWorkspace);
+  }, [processActive, refreshFolders]);
 
   const refreshIndex = useCallback(async (folderId: number | null) => {
     const requestId = ++indexRequestRef.current;
@@ -381,6 +395,7 @@ export function EntriesWorkspace({
     try {
       const created = await createFolder({ name, parentId });
       await refreshIndex(created.id);
+      notifyFoldersChanged();
       showList(created.id);
     } catch (caught) {
       setError(getErrorMessage(caught));
@@ -391,6 +406,7 @@ export function EntriesWorkspace({
     try {
       await updateFolder(id, { name });
       await refreshFolders();
+      notifyFoldersChanged();
     } catch (caught) {
       setError(getErrorMessage(caught));
     }
@@ -400,6 +416,17 @@ export function EntriesWorkspace({
     try {
       await updateFolder(id, { parentId });
       await refreshFolders();
+      notifyFoldersChanged();
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+    }
+  }
+
+  async function handleReorderFolder(id: number, position: number) {
+    try {
+      await updateFolder(id, { position });
+      await refreshFolders();
+      notifyFoldersChanged();
     } catch (caught) {
       setError(getErrorMessage(caught));
     }
@@ -409,6 +436,7 @@ export function EntriesWorkspace({
     try {
       await deleteFolder(id);
       await refreshIndex(null);
+      notifyFoldersChanged();
       showList(null);
     } catch (caught) {
       setError(getErrorMessage(caught));
@@ -491,6 +519,7 @@ export function EntriesWorkspace({
         onCreate={handleCreateFolder}
         onRename={handleRenameFolder}
         onMove={handleMoveFolder}
+        onReorder={handleReorderFolder}
         onDelete={handleDeleteFolder}
       />
 

@@ -18,6 +18,8 @@
     "./http/errors": "./src/http/errors.ts",
     "./http/folder-routes": "./src/http/folder-routes.ts",
     "./http/request": "./src/http/request.ts",
+    "./folders/reorder": "./src/folders/reorder.ts",
+    "./folders/react": "./src/folders/react.tsx",
     "./pages/core": "./src/pages/core.ts",
     "./pages/next": "./src/pages/next.tsx",
     "./pages/react": "./src/pages/react.tsx",

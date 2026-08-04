@@ -103,6 +103,7 @@ export function toFolderDto(folder: FolderRow): FolderDto {
     id: folder.id,
     parentId: folder.parentId,
     name: folder.name,
+    position: folder.position,
     createdAt: folder.createdAt,
     updatedAt: folder.updatedAt,
   };

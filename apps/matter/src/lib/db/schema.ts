@@ -27,10 +27,17 @@ export const folders = sqliteTable(
     ),
     type: text("type", { enum: folderTypes }).notNull(),
     name: text("name").notNull(),
+    position: integer("position").notNull().default(0),
     ...timestamps,
   },
   (table) => [
     index("folder_type_parent_idx").on(table.type, table.parentId),
+    index("folder_type_parent_position_idx").on(
+      table.type,
+      table.parentId,
+      table.position,
+      table.id,
+    ),
     check("folder_type_check", sql`${table.type} in ('knowledge', 'exercise')`),
     check("folder_name_not_blank", sql`length(trim(${table.name})) > 0`),
   ],

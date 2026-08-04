@@ -10,6 +10,7 @@ import { ApiError, handleApi } from "@/lib/http/errors";
 import {
   assertPatchHasFields,
   assertSameOrigin,
+  optionalNonNegativeInteger,
   optionalNullablePositiveInteger,
   optionalString,
   parsePositiveInteger,
@@ -47,8 +48,10 @@ export function PATCH(request: Request, context: RouteContext): Promise<Response
     const patch: UpdateFolderInput = {};
     const name = optionalString(body, "name");
     const parentId = optionalNullablePositiveInteger(body, "parentId");
+    const position = optionalNonNegativeInteger(body, "position");
     if (name !== undefined) patch.name = name;
     if (parentId !== undefined) patch.parentId = parentId;
+    if (position !== undefined) patch.position = position;
     assertPatchHasFields({ ...patch });
 
     return NextResponse.json(updateFolder(id, patch));

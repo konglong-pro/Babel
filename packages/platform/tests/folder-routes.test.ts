@@ -59,6 +59,11 @@ test("folder route factories preserve the standard collection and item contract"
     body: JSON.stringify({ name: "Renamed" }),
   }), context);
   assert.equal((await patched.json()).name, "Renamed");
+  const reordered = await item.PATCH(new Request("http://localhost/api/folders/2", {
+    method: "PATCH",
+    body: JSON.stringify({ position: 0 }),
+  }), context);
+  assert.equal((await reordered.json()).position, 0);
   assert.equal(
     (await item.DELETE(new Request("http://localhost/api/folders/2", {
       method: "DELETE",
@@ -96,4 +101,10 @@ test("folder route factories reject foreign origins and empty patches", async ()
     body: "{}",
   }), { params: Promise.resolve({ id: "1" }) });
   assert.equal(emptyPatch.status, 400);
+
+  const invalidPosition = await item.PATCH(new Request("http://localhost/api/folders/1", {
+    method: "PATCH",
+    body: JSON.stringify({ position: -1 }),
+  }), { params: Promise.resolve({ id: "1" }) });
+  assert.equal(invalidPosition.status, 400);
 });

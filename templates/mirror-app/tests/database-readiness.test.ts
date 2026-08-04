@@ -12,7 +12,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { assertAppDatabaseReady } from "@/lib/db/readiness";
 import { GET as getHealth } from "@/app/api/health/route";
 
-const latestMigration = 1_784_683_409_295;
+const latestMigration = 1_785_835_547_912;
 const migrationsFolder = path.resolve(process.cwd(), "drizzle");
 
 test("__APP_NAME__ database readiness", async (t) => {
@@ -35,6 +35,16 @@ test("__APP_NAME__ database readiness", async (t) => {
     assert.throws(
       () => assertAppDatabaseReady(databasePath),
       /missing required column: note\.parent_id/i,
+    );
+  });
+
+  await t.test("rejects a latest-looking database without folder order", () => {
+    const databasePath = path.join(root, "missing-folder-position.db");
+    createLatestLookingDatabase(databasePath, true, false);
+
+    assert.throws(
+      () => assertAppDatabaseReady(databasePath),
+      /missing required column: folder\.position/i,
     );
   });
 
@@ -93,10 +103,15 @@ test("__APP_NAME__ database readiness", async (t) => {
 function createLatestLookingDatabase(
   databasePath: string,
   includeParentId = false,
+  includeFolderPosition = true,
 ): void {
   const sqlite = new BetterSqlite3(databasePath);
   try {
     sqlite.exec(`
+      CREATE TABLE folder (
+        id integer PRIMARY KEY
+        ${includeFolderPosition ? ", position integer NOT NULL" : ""}
+      );
       CREATE TABLE note (
         id integer PRIMARY KEY
         ${includeParentId ? ", parent_id integer" : ""}

@@ -57,7 +57,8 @@ test("complete database and image snapshots round-trip without semantic loss", a
       exportedAt: created,
     });
     assert.equal(exported.manifest.appId, "neum");
-    assert.equal(exported.manifest.schemaVersion, 2);
+    assert.equal(exported.manifest.schemaVersion, 3);
+    assert.deepEqual(exported.manifest.folders.map(({ position }) => position), [1, 0]);
     assert.equal(exported.manifest.entries[1].parentId, 11);
     assert.equal(exported.manifest.entries[1].code, "root: [still, editable");
     assert.equal(exported.manifest.trash[0].snapshot.entry.id, 99);
@@ -215,8 +216,26 @@ test("legacy version 1 snapshots import existing entries as root pages", () => {
   };
 
   const parsed = validateSnapshotManifest(manifest);
-  assert.equal(parsed.schemaVersion, 2);
+  assert.equal(parsed.schemaVersion, 3);
   assert.equal(parsed.entries[0].parentId, null);
+  assert.equal(parsed.folders[0].position, 0);
+});
+
+test("version 2 snapshots import folders with their legacy order", () => {
+  const parsed = validateSnapshotManifest({
+    appId: "neum",
+    schemaVersion: 2,
+    exportedAt: created,
+    folders: [
+      { id: 1, parentId: null, name: "Inbox", createdAt: created, updatedAt: created },
+    ],
+    entries: [],
+    tags: [],
+    trash: [],
+    images: [],
+  });
+  assert.equal(parsed.schemaVersion, 3);
+  assert.equal(parsed.folders[0].position, 0);
 });
 
 test("import rejects non-pristine targets before writing files", async () => {
@@ -393,11 +412,13 @@ function createSchema(sqlite: BetterSqlite3.Database): void {
       parent_id INTEGER REFERENCES folder(id) ON DELETE RESTRICT,
       name TEXT NOT NULL,
       name_key TEXT NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       CONSTRAINT folder_name_not_blank CHECK(length(trim(name)) > 0)
     );
     CREATE INDEX folder_parent_idx ON folder(parent_id);
+    CREATE INDEX folder_parent_position_idx ON folder(parent_id, position, id);
     CREATE UNIQUE INDEX folder_root_name_unique ON folder(name_key) WHERE parent_id IS NULL;
     CREATE UNIQUE INDEX folder_sibling_name_unique ON folder(parent_id, name_key) WHERE parent_id IS NOT NULL;
     CREATE TABLE entry (
@@ -519,21 +540,22 @@ function createSchema(sqlite: BetterSqlite3.Database): void {
     );
     INSERT INTO __drizzle_migrations (hash, created_at)
       VALUES ('test-migration', ${NEUM_SCHEMA_MIGRATION_TIMESTAMP});
-    INSERT INTO folder (id, parent_id, name, name_key, created_at, updated_at)
-      VALUES (1, NULL, 'Inbox', 'inbox', '${created}', '${created}');
+    INSERT INTO folder (id, parent_id, name, name_key, position, created_at, updated_at)
+      VALUES (1, NULL, 'Inbox', 'inbox', 0, '${created}', '${created}');
   `);
 }
 
 function seedRichSource(sqlite: BetterSqlite3.Database): void {
   sqlite.exec('DELETE FROM "folder"');
   const insertFolder = sqlite.prepare(
-    'INSERT INTO "folder" ("id", "parent_id", "name", "name_key", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?, ?)',
+    'INSERT INTO "folder" ("id", "parent_id", "name", "name_key", "position", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?, ?, ?)',
   );
   insertFolder.run(
     7,
     null,
     "Computer Science",
     identityKey("Computer Science"),
+    1,
     created,
     updated,
   );
@@ -542,6 +564,7 @@ function seedRichSource(sqlite: BetterSqlite3.Database): void {
     7,
     "Configuration",
     identityKey("Configuration"),
+    0,
     created,
     updated,
   );

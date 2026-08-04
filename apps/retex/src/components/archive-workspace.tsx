@@ -319,6 +319,15 @@ export function ArchiveWorkspace({
     }
   }
 
+  async function handleReorderFolder(id: number, position: number) {
+    try {
+      await updateFolder(id, { position });
+      await loadIndex();
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+    }
+  }
+
   async function handleDeleteFolder(id: number) {
     try {
       await deleteFolder(id);
@@ -438,6 +447,7 @@ export function ArchiveWorkspace({
           onCreate={handleCreateFolder}
           onRename={handleRenameFolder}
           onMove={handleMoveFolder}
+          onReorder={handleReorderFolder}
           onDelete={handleDeleteFolder}
         />
         <ItemList

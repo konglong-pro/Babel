@@ -5,6 +5,7 @@ import {
   assertOnlyFields,
   assertPatchHasFields,
   assertSameOrigin,
+  optionalNonNegativeInteger,
   optionalNullablePositiveInteger,
   optionalString,
   parsePositiveInteger,
@@ -34,7 +35,7 @@ export interface FolderItemRouteOptions<TFolder> {
   getFolder: (id: number) => TFolder | null;
   updateFolder: (
     id: number,
-    patch: { name?: string; parentId?: number | null },
+    patch: { name?: string; parentId?: number | null; position?: number },
   ) => TFolder;
   deleteFolder: (id: number) => boolean;
 }
@@ -90,12 +91,18 @@ export function createFolderItemRoute<TFolder>(
       return options.handleApi(async () => {
         assertSameOrigin(request);
         const body = await readJsonObject(request);
-        assertOnlyFields(body, ["name", "parentId"]);
-        const patch: { name?: string; parentId?: number | null } = {};
+        assertOnlyFields(body, ["name", "parentId", "position"]);
+        const patch: {
+          name?: string;
+          parentId?: number | null;
+          position?: number;
+        } = {};
         const name = optionalString(body, "name");
         const parentId = optionalNullablePositiveInteger(body, "parentId");
+        const position = optionalNonNegativeInteger(body, "position");
         if (name !== undefined) patch.name = name;
         if (parentId !== undefined) patch.parentId = parentId;
+        if (position !== undefined) patch.position = position;
         assertPatchHasFields(patch);
         return NextResponse.json(
           options.updateFolder(await routeId(context), patch),
