@@ -12,7 +12,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { assertAppDatabaseReady } from "@/lib/db/readiness";
 import { GET as getHealth } from "@/app/api/health/route";
 
-const latestMigration = 1_785_835_475_578;
+const latestMigration = 1_785_924_022_236;
 const migrationsFolder = path.resolve(process.cwd(), "drizzle");
 
 test("folder position migration backfills each type and parent by legacy name order", () => {
@@ -51,6 +51,54 @@ test("folder position migration backfills each type and parent by legacy name or
       { id: 5, position: 1 },
       { id: 6, position: 0 },
     ]);
+  } finally {
+    sqlite.close();
+  }
+});
+
+test("content position migration preserves each legacy list order", () => {
+  const sqlite = new BetterSqlite3(":memory:");
+  try {
+    sqlite.exec(`
+      CREATE TABLE knowledge_note (
+        id integer PRIMARY KEY,
+        parent_id integer,
+        folder_id integer NOT NULL,
+        title text NOT NULL,
+        updated_at text NOT NULL
+      );
+      CREATE TABLE exercise (
+        id integer PRIMARY KEY,
+        folder_id integer NOT NULL,
+        title text NOT NULL,
+        updated_at text NOT NULL
+      );
+      INSERT INTO knowledge_note VALUES
+        (1, NULL, 10, 'Older root', '2026-01-01'),
+        (2, NULL, 10, 'Newer root', '2026-01-02'),
+        (3, 1, 10, 'Child B', '2026-01-03'),
+        (4, 1, 10, 'Child A', '2026-01-03');
+      INSERT INTO exercise VALUES
+        (1, 20, 'Older exercise', '2026-01-01'),
+        (2, 20, 'Newer exercise', '2026-01-02');
+    `);
+    sqlite.exec(
+      readFileSync(path.join(migrationsFolder, "0007_needy_king_bedlam.sql"), "utf8")
+        .replaceAll("--> statement-breakpoint", ""),
+    );
+    assert.deepEqual(
+      sqlite.prepare("SELECT id, position FROM knowledge_note ORDER BY id").all(),
+      [
+        { id: 1, position: 1 },
+        { id: 2, position: 0 },
+        { id: 3, position: 1 },
+        { id: 4, position: 0 },
+      ],
+    );
+    assert.deepEqual(
+      sqlite.prepare("SELECT id, position FROM exercise ORDER BY id").all(),
+      [{ id: 1, position: 1 }, { id: 2, position: 0 }],
+    );
   } finally {
     sqlite.close();
   }
@@ -138,7 +186,7 @@ function createLatestLookingDatabase(
     sqlite.exec(`
       CREATE TABLE knowledge_note (
         id integer PRIMARY KEY
-        ${includeParentId ? ", parent_id integer" : ""}
+        ${includeParentId ? ", parent_id integer, position integer" : ""}
       );
       ${includeNoteLink ? `
         CREATE TABLE note_link (

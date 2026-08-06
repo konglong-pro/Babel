@@ -1,6 +1,10 @@
 "use client";
 
 import { type ChangeEvent, useMemo, useRef, useState } from "react";
+import {
+  useItemReorder,
+  type ItemReorderController,
+} from "@babel-apps/platform/items/react";
 
 import {
   type NoteExpansionState,
@@ -19,6 +23,7 @@ interface NoteListProps {
   loading?: boolean;
   referencePanelOpen?: boolean;
   onSelect: (id: number) => void;
+  onReorder?: (id: number, position: number) => Promise<void> | void;
   onCreate: (parentId: number | null, folderId?: number) => void;
   onImport: (file: File) => Promise<void> | void;
   onEditTemplates: () => void;
@@ -34,6 +39,7 @@ interface NoteBranchProps {
   expandedIds: ReadonlySet<number>;
   onSelect: (id: number) => void;
   onToggle: (id: number) => void;
+  reorder: ItemReorderController;
   onCreate: (parentId: number, folderId: number) => void;
 }
 
@@ -63,6 +69,7 @@ function NoteBranch({
   expandedIds,
   onSelect,
   onToggle,
+  reorder,
   onCreate,
 }: NoteBranchProps) {
   const children = grouped.get(parentId) ?? [];
@@ -74,7 +81,10 @@ function NoteBranch({
         const expanded = expandedIds.has(note.id);
         return (
           <li key={note.id}>
-            <div className="note-node-row">
+            <div
+              className={`note-node-row ${reorder.dropClassName(note.id)}`.trim()}
+              {...reorder.rowProps(note.id)}
+            >
               <button
                 type="button"
                 className="note-disclosure"
@@ -85,6 +95,7 @@ function NoteBranch({
               <button
                 type="button"
                 className={selectedNoteId === note.id ? "note-card selected" : "note-card"}
+                {...reorder.selectionProps(note.id)}
                 aria-current={selectedNoteId === note.id ? "page" : undefined}
                 onClick={() => onSelect(note.id)}
               >
@@ -107,6 +118,7 @@ function NoteBranch({
                   expandedIds={expandedIds}
                   onSelect={onSelect}
                   onToggle={onToggle}
+                  reorder={reorder}
                   onCreate={onCreate}
                 />
                 <button
@@ -133,6 +145,7 @@ export function NoteList({
   loading,
   referencePanelOpen = false,
   onSelect,
+  onReorder,
   onCreate,
   onImport,
   onEditTemplates,
@@ -140,6 +153,15 @@ export function NoteList({
 }: NoteListProps) {
   const importInputRef = useRef<HTMLInputElement>(null);
   const selectedFolder = selectedFolderId === null ? undefined : folders.get(selectedFolderId);
+  const reorder = useItemReorder({
+    items: notes.map((note) => ({
+      id: note.id,
+      parentId: note.parentId,
+      scopeId: note.folderId,
+    })),
+    disabled: selectedFolderId === null,
+    onReorder: onReorder ?? (() => undefined),
+  });
   const grouped = useMemo(() => {
     const result = new Map<number | null, NoteSummaryDto[]>();
     for (const note of notes) {
@@ -244,6 +266,7 @@ export function NoteList({
           expandedIds={revealedTreeState.expandedIds}
           onSelect={onSelect}
           onToggle={toggleNote}
+          reorder={reorder}
           onCreate={(parentId, folderId) => onCreate(parentId, folderId)}
         />
       </nav>

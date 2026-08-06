@@ -18,9 +18,9 @@ const databasePathOptions = {
 export const appDatabaseReadinessOptions = {
   appName: "Vali",
   packageName: "@babel-apps/vali",
-  expectedMigration: 1_785_835_739_552,
+  expectedMigration: 1_785_924_073_993,
   requiredColumns: {
-    note: ["parent_id"],
+    note: ["parent_id", "position"],
     note_template: ["name", "content_md", "created_at", "updated_at"],
     reflection: ["date", "content_md"],
     note_link: [

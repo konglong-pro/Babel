@@ -270,7 +270,7 @@ test("renders the repository mirror template as an independent app", async (t) =
   );
   assert.match(
     readinessSource,
-    /note:\s*\["parent_id"\]/,
+    /note:\s*\["parent_id", "position"\]/,
   );
   assert.match(readinessSource, /folder:\s*\["position"\]/);
   assert.match(
@@ -333,14 +333,23 @@ test("renders the repository mirror template as an independent app", async (t) =
   );
   assert.match(folderPositionMigration, /folder_parent_position_idx/);
   assert.doesNotMatch(folderPositionMigration, /__APP_/);
+  const notePositionMigration = await readFile(
+    path.join(generatedRoot, "drizzle", "0004_mirror-notes_note_position.sql"),
+    "utf8",
+  );
+  assert.match(notePositionMigration, /ALTER TABLE [`"]?note[`"]? ADD [`"]?position/i);
+  assert.match(notePositionMigration, /row_number\s*\(\s*\)\s*OVER/i);
+  assert.match(notePositionMigration, /PARTITION\s+BY[\s\S]*?folder_id[\s\S]*?parent_id/i);
+  assert.match(notePositionMigration, /note_scope_position_idx/);
+  assert.doesNotMatch(notePositionMigration, /__APP_/);
 
   const generatedJournal = await readJson<{
     entries: Array<{ tag: string; when: number }>;
   }>(path.join(generatedRoot, "drizzle", "meta", "_journal.json"));
   const latestJournalEntry = generatedJournal.entries.at(-1);
   assert.ok(latestJournalEntry, "generated journal must contain migrations");
-  assert.equal(latestJournalEntry.tag, "0003_mirror-notes_folder_position");
-  assert.equal(latestJournalEntry.when, 1_785_835_547_912);
+  assert.equal(latestJournalEntry.tag, "0004_mirror-notes_note_position");
+  assert.equal(latestJournalEntry.when, 1_785_924_064_088);
   const expectedMigrationMatch = readinessSource.match(
     /expectedMigration:\s*([\d_]+)/,
   );
@@ -350,15 +359,19 @@ test("renders the repository mirror template as an independent app", async (t) =
     latestJournalEntry.when,
   );
 
-  const [previousSnapshot, folderPositionSnapshot] = await Promise.all([
+  const [previousSnapshot, folderPositionSnapshot, notePositionSnapshot] = await Promise.all([
     readJson<{ id: string }>(
       path.join(generatedRoot, "drizzle", "meta", "0002_snapshot.json"),
     ),
-    readJson<{ prevId: string }>(
+    readJson<{ id: string; prevId: string }>(
       path.join(generatedRoot, "drizzle", "meta", "0003_snapshot.json"),
+    ),
+    readJson<{ prevId: string }>(
+      path.join(generatedRoot, "drizzle", "meta", "0004_snapshot.json"),
     ),
   ]);
   assert.equal(folderPositionSnapshot.prevId, previousSnapshot.id);
+  assert.equal(notePositionSnapshot.prevId, folderPositionSnapshot.id);
 
   const markdownEditor = await readFile(
     path.join(generatedRoot, "src", "components", "markdown-editor.tsx"),
@@ -448,7 +461,8 @@ test("renders the repository mirror template as an independent app", async (t) =
   assert.match(folderPanel, /New subfolder/);
   assert.match(folderPanel, /@babel-apps\/platform\/folders\/react/);
   assert.match(folderPanel, /useFolderReorder/);
-  assert.match(folderPanel, /\.handleProps\(/);
+  assert.match(folderPanel, /\.selectionProps\(/);
+  assert.doesNotMatch(folderPanel, /folder-reorder-handle|\.handleProps\(/);
   assert.match(folderPanel, /\.rowProps\(/);
   assert.match(folderPanel, /onReorder/);
   assert.match(generatedNotesWorkspace, /handleReorderFolder/);
@@ -464,6 +478,8 @@ test("renders the repository mirror template as an independent app", async (t) =
   );
   assert.match(noteList, /className="note-disclosure"/);
   assert.match(noteList, /New subnote/);
+  assert.match(noteList, /@babel-apps\/platform\/items\/react/);
+  assert.match(noteList, /\.selectionProps\(/);
   assert.doesNotMatch(noteList, /reader-trigger-slot|babel-detached-reader-trigger-target/);
   assert.match(noteList, /Edit Templates/);
   await access(
@@ -487,7 +503,8 @@ test("renders the repository mirror template as an independent app", async (t) =
   );
   assert.match(globalStyles, /\.folder-node-row/);
   assert.match(globalStyles, /\.folder-disclosure/);
-  assert.match(globalStyles, /\.folder-reorder-handle/);
+  assert.match(globalStyles, /data-babel-folder-drag-source/);
+  assert.match(globalStyles, /data-babel-item-drag-source/);
   assert.match(globalStyles, /\.folder-node-row\.folder-drop-before/);
   assert.match(globalStyles, /\.folder-node-row\.folder-drop-after/);
   assert.match(globalStyles, /\.note-disclosure/);
@@ -507,6 +524,8 @@ test("renders the repository mirror template as an independent app", async (t) =
   assert.match(generatedRepository, /requireNoteParent/);
   assert.match(generatedRepository, /noteDescendantIds/);
   assert.match(generatedRepository, /NOT_EMPTY/);
+  assert.match(generatedRepository, /position\?: number/);
+  assert.match(generatedRepository, /notes\.position/);
   const generatedFolderRepository = await readFile(
     path.join(generatedRoot, "src", "lib", "repositories", "folders.ts"),
     "utf8",
@@ -524,6 +543,7 @@ test("renders the repository mirror template as an independent app", async (t) =
   );
   assert.match(generatedCollectionRoute, /parentId/);
   assert.match(generatedItemRoute, /parentId/);
+  assert.match(generatedItemRoute, /position/);
   const generatedBackendTests = await readFile(
     path.join(generatedRoot, "tests", "backend.test.ts"),
     "utf8",

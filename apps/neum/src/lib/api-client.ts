@@ -247,6 +247,16 @@ export function updateEntry(
   });
 }
 
+export function reorderEntry(
+  id: number,
+  expectedVersion: number,
+  position: number,
+): Promise<EntryDetailDto> {
+  const formData = new FormData();
+  formData.set("payload", JSON.stringify({ expectedVersion, position }));
+  return request(`/api/entries/${id}`, { method: "PATCH", body: formData });
+}
+
 export function deleteEntry(id: number, expectedVersion: number): Promise<void> {
   return request(`/api/entries/${id}`, {
     method: "DELETE",

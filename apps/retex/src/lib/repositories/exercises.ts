@@ -1,4 +1,4 @@
-import { asc, desc, eq, sql, type SQL } from "drizzle-orm";
+import { asc, eq, sql, type SQL } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
 import { exercises, knowledgeExercises } from "@/lib/db/schema";
@@ -55,6 +55,7 @@ export interface UpdateExerciseInput {
   solutionMd?: string;
   tags?: readonly string[];
   knowledgeIds?: readonly number[];
+  position?: number;
 }
 
 export function listExercises(folderId?: number): ExerciseSummaryDto[] {
@@ -64,7 +65,7 @@ export function listExercises(folderId?: number): ExerciseSummaryDto[] {
       .select()
       .from(exercises)
       .where(eq(exercises.folderId, folderId))
-      .orderBy(desc(exercises.updatedAt), asc(exercises.title))
+      .orderBy(asc(exercises.position), asc(exercises.id))
       .all()
       .map(toExerciseSummary);
   }
@@ -72,7 +73,7 @@ export function listExercises(folderId?: number): ExerciseSummaryDto[] {
   return db
     .select()
     .from(exercises)
-    .orderBy(desc(exercises.updatedAt), asc(exercises.title))
+    .orderBy(asc(exercises.position), asc(exercises.id))
     .all()
     .map(toExerciseSummary);
 }
@@ -111,6 +112,10 @@ export function createExercise(
   );
 
   return db.transaction((transaction) => {
+    transaction.update(exercises)
+      .set({ position: sql`${exercises.position} + 1` })
+      .where(eq(exercises.folderId, input.folderId))
+      .run();
     const row = transaction
       .insert(exercises)
       .values({
@@ -120,6 +125,7 @@ export function createExercise(
         answerMd,
         solutionMd,
         tags,
+        position: 0,
       })
       .returning()
       .get();
@@ -176,6 +182,7 @@ export function updateExercise(
     answerMd?: string;
     solutionMd?: string;
     tags?: string;
+    position?: number;
     updatedAt: SQL;
   } = { updatedAt: sql`CURRENT_TIMESTAMP` };
   let hasChanges = newImagePaths.length > 0;
@@ -230,6 +237,18 @@ export function updateExercise(
     hasChanges = true;
   }
 
+  const nextFolderId = input.folderId ?? current.folderId;
+  const requestedPosition = input.position === undefined
+    ? undefined
+    : normalizePosition(input.position);
+  const orderPlan = nextFolderId !== current.folderId || requestedPosition !== undefined
+    ? planExerciseOrder(current, nextFolderId, requestedPosition)
+    : null;
+  if (orderPlan !== null) {
+    changes.position = orderPlan.position;
+    hasChanges = true;
+  }
+
   if (!hasChanges) {
     return getExercise(id)!;
   }
@@ -247,6 +266,12 @@ export function updateExercise(
   );
 
   return db.transaction((transaction) => {
+    for (const change of orderPlan?.siblings ?? []) {
+      transaction.update(exercises)
+        .set({ position: change.position })
+        .where(eq(exercises.id, change.id))
+        .run();
+    }
     const row = transaction
       .update(exercises)
       .set(changes)
@@ -313,6 +338,7 @@ export async function deleteExercise(
 
     deleteNoteImageRows(transaction, "exercise", id);
     transaction.delete(exercises).where(eq(exercises.id, id)).run();
+    normalizeExerciseFolder(exercise.folderId);
     deleteEntityLinks(transaction, "exercise", id, exercise.title);
     return true;
   });
@@ -321,12 +347,66 @@ export async function deleteExercise(
   return true;
 }
 
+interface ExerciseOrderPlan {
+  position: number;
+  siblings: Array<{ id: number; position: number }>;
+}
+
+function planExerciseOrder(
+  current: ExerciseRow,
+  folderId: number,
+  requestedPosition: number | undefined,
+): ExerciseOrderPlan {
+  const sameFolder = current.folderId === folderId;
+  const sourceIds = orderedExerciseIds(current.folderId).filter((id) => id !== current.id);
+  const targetIds = sameFolder
+    ? sourceIds
+    : orderedExerciseIds(folderId).filter((id) => id !== current.id);
+  const position = Math.min(requestedPosition ?? targetIds.length, targetIds.length);
+  const orderedTargetIds = [...targetIds];
+  orderedTargetIds.splice(position, 0, current.id);
+  return {
+    position,
+    siblings: [
+      ...(sameFolder ? [] : sourceIds.map((id, index) => ({ id, position: index }))),
+      ...orderedTargetIds
+        .map((id, index) => ({ id, position: index }))
+        .filter(({ id }) => id !== current.id),
+    ],
+  };
+}
+
+function orderedExerciseIds(folderId: number): number[] {
+  return db.select({ id: exercises.id })
+    .from(exercises)
+    .where(eq(exercises.folderId, folderId))
+    .orderBy(asc(exercises.position), asc(exercises.id))
+    .all()
+    .map(({ id }) => id);
+}
+
+function normalizeExerciseFolder(folderId: number): void {
+  for (const [position, id] of orderedExerciseIds(folderId).entries()) {
+    db.update(exercises).set({ position }).where(eq(exercises.id, id)).run();
+  }
+}
+
+function normalizePosition(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new RepositoryError("VALIDATION", "position must be a non-negative integer.", {
+      field: "position",
+    });
+  }
+  return value;
+}
+
 function toExerciseSummary(row: ExerciseRow): ExerciseSummaryDto {
   return {
     id: row.id,
     folderId: row.folderId,
     title: row.title,
     tags: tagsFromJson(row.tags),
+    position: row.position,
     updatedAt: row.updatedAt,
   };
 }

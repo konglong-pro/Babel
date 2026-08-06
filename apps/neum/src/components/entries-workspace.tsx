@@ -31,6 +31,7 @@ import {
   deleteFolder,
   getErrorMessage,
   listEntries,
+  reorderEntry,
   listFolders,
   updateFolder,
 } from "@/lib/api-client";
@@ -443,6 +444,17 @@ export function EntriesWorkspace({
     }
   }
 
+  async function handleReorderEntry(id: number, position: number) {
+    const entry = entries.find((candidate) => candidate.id === id);
+    if (!entry) return;
+    try {
+      await reorderEntry(id, entry.version, position);
+      await refreshEntries(visibleFolderId);
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+    }
+  }
+
   async function handleImportMarkdown(file: File) {
     if (selectedFolderId === null) return;
     if (file.size > ENTRY_NOTES_MAX_BYTES) {
@@ -534,6 +546,7 @@ export function EntriesWorkspace({
         loadingMore={entryPageLoading}
         referencePanelOpen={activeReferencePanel !== null}
         onSelect={(id) => openEntry(id, kind)}
+        onReorder={handleReorderEntry}
         onLoadMore={loadMoreEntries}
         onImport={kind === "knowledge" ? handleImportMarkdown : undefined}
         onCreate={() => beginCreateEntry(null)}

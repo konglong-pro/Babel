@@ -35,6 +35,8 @@ import {
   listExercises,
   listFolders,
   listKnowledge,
+  reorderExercise,
+  reorderKnowledge,
   updateFolder,
 } from "@/lib/api-client";
 import {
@@ -217,9 +219,7 @@ export function ArchiveWorkspace({
     const filtered = visibleFolderId === null
       ? items
       : items.filter((item) => item.folderId === visibleFolderId);
-    return [...filtered].sort(
-      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-    );
+    return filtered;
   }, [items, visibleFolderId]);
   const selectedItemId = savedItemId(activeKey, type);
   const hasUnsavedPages = pages.some((page) => page.dirty || page.pending);
@@ -333,6 +333,16 @@ export function ArchiveWorkspace({
       await deleteFolder(id);
       await loadIndex();
       showList(null);
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+    }
+  }
+
+  async function handleReorderItem(id: number, position: number) {
+    try {
+      if (type === "knowledge") await reorderKnowledge(id, position);
+      else await reorderExercise(id, position);
+      await loadIndex();
     } catch (caught) {
       setError(getErrorMessage(caught));
     }
@@ -458,6 +468,7 @@ export function ArchiveWorkspace({
           loading={indexLoading}
           referencePanelOpen={activeReferencePanel !== null}
           onSelect={openItem}
+          onReorder={handleReorderItem}
           onCreate={beginCreate}
           onImport={type === "knowledge" ? handleImportMarkdown : undefined}
         />

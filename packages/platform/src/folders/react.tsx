@@ -19,15 +19,12 @@ import {
 
 export interface FolderReorderController {
   dropClassName: (folderId: number) => string;
-  handleProps: (
-    folderId: number,
-    folderName: string,
-  ) => FolderReorderHandleProps;
+  selectionProps: (folderId: number) => FolderReorderSelectionProps;
   rowProps: (folderId: number) => HTMLAttributes<HTMLDivElement>;
 }
 
-export type FolderReorderHandleProps = ButtonHTMLAttributes<HTMLButtonElement> & {
-  "data-babel-folder-drag-handle": string;
+export type FolderReorderSelectionProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+  "data-babel-folder-drag-source": string;
 };
 
 export interface UseFolderReorderOptions {
@@ -73,19 +70,13 @@ export function useFolderReorder({
     setDropTarget(null);
   }, []);
 
-  const handleProps = useCallback((
-    folderId: number,
-    folderName: string,
-  ): FolderReorderHandleProps => {
+  const selectionProps = useCallback((folderId: number): FolderReorderSelectionProps => {
     const unavailable = disabled || pending || !canMove.has(folderId);
     return {
-      type: "button",
       draggable: !unavailable,
-      disabled: unavailable,
-      "aria-label": `Reorder ${folderName}`,
       "aria-keyshortcuts": "ArrowUp ArrowDown",
       title: "Drag to reorder · use ↑/↓ with keyboard",
-      "data-babel-folder-drag-handle": "",
+      "data-babel-folder-drag-source": "",
       onDragStart(event: DragEvent<HTMLButtonElement>) {
         if (unavailable) {
           event.preventDefault();
@@ -148,5 +139,5 @@ export function useFolderReorder({
     return `folder-drop-${dropTarget.placement}`;
   }, [dropTarget]);
 
-  return { dropClassName, handleProps, rowProps };
+  return { dropClassName, selectionProps, rowProps };
 }

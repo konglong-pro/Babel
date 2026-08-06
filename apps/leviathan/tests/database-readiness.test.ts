@@ -12,7 +12,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { assertAppDatabaseReady } from "@/lib/db/readiness";
 import { GET as getHealth } from "@/app/api/health/route";
 
-const latestMigration = 1_785_834_959_969;
+const latestMigration = 1_785_924_042_280;
 const migrationsFolder = path.resolve(process.cwd(), "drizzle");
 
 test("Leviathan database readiness", async (t) => {
@@ -129,7 +129,7 @@ function createLatestLookingDatabase(
       );
       CREATE TABLE note (
         id integer PRIMARY KEY
-        ${includeParentId ? ", parent_id integer" : ""}
+        ${includeParentId ? ", parent_id integer, position integer" : ""}
       );
       ${includeParentId ? "CREATE TABLE note_template (name text, content_md text, updated_at text);" : ""}
       CREATE TABLE __drizzle_migrations (

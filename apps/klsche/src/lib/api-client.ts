@@ -158,6 +158,12 @@ export function updateNote(
   });
 }
 
+export function reorderNote(id: number, position: number): Promise<NoteDetailDto> {
+  const formData = new FormData();
+  formData.set("payload", JSON.stringify({ position }));
+  return request(`/api/notes/${id}`, { method: "PATCH", body: formData });
+}
+
 export function deleteNote(id: number): Promise<void> {
   return request(`/api/notes/${id}`, { method: "DELETE" });
 }

@@ -85,17 +85,12 @@ function FolderBranch({
               <button
                 type="button"
                 className={selectedId === folder.id ? "folder-node selected" : "folder-node"}
+                {...reorder.selectionProps(folder.id)}
                 aria-current={selectedId === folder.id ? "true" : undefined}
                 onClick={() => onSelect(folder.id)}
               >
                 <span aria-hidden="true">▱</span>
                 <span>{folder.name}</span>
-              </button>
-              <button
-                className="folder-reorder-handle"
-                {...reorder.handleProps(folder.id, folder.name)}
-              >
-                <span aria-hidden="true">⋮⋮</span>
               </button>
             </div>
             {expanded ? (

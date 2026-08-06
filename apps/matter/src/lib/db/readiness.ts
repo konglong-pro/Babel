@@ -11,9 +11,9 @@ const databasePathOptions = {
 export const appDatabaseReadinessOptions = {
   appName: "Matter",
   packageName: "@babel-apps/matter",
-  expectedMigration: 1_785_835_489_449,
+  expectedMigration: 1_785_924_021_972,
   requiredColumns: {
-    knowledge_note: ["parent_id"],
+    knowledge_note: ["parent_id", "position"],
     note_link: [
       "source_kind",
       "source_id",
@@ -22,7 +22,7 @@ export const appDatabaseReadinessOptions = {
       "target_id",
     ],
     note_image: ["source_kind", "source_id", "image_path"],
-    exercise: ["problem_md", "answer_md", "solution_md"],
+    exercise: ["problem_md", "answer_md", "solution_md", "position"],
     knowledge_search: ["title", "content_md", "tags"],
     exercise_search: ["title", "problem_md", "answer_md", "solution_md", "tags"],
     folder: ["position"],

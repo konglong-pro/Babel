@@ -34,6 +34,7 @@ import {
   getErrorMessage,
   listFolders,
   listNotes,
+  reorderNote,
   listNoteTemplates,
   updateFolder,
 } from "@/lib/api-client";
@@ -83,11 +84,6 @@ function subtreeIds(rootId: number, folders: readonly FolderDto[]): Set<number> 
     }
   }
   return ids;
-}
-
-function newestFirst(a: NoteSummaryDto, b: NoteSummaryDto): number {
-  const timeDifference = new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
-  return timeDifference || a.title.localeCompare(b.title, "en-US") || a.id - b.id;
 }
 
 function templateNameOrder(a: NoteTemplateDto, b: NoteTemplateDto): number {
@@ -280,7 +276,7 @@ export function NotesWorkspace({
     const filtered = scopedFolderIds === null
       ? notes
       : notes.filter((note) => scopedFolderIds.has(note.folderId));
-    return [...filtered].sort(newestFirst);
+    return filtered;
   }, [folders, notes, visibleFolderId]);
   const selectedTemplate = useMemo(
     () => templates.find((template) => template.id === selectedTemplateId) ?? null,
@@ -385,6 +381,15 @@ export function NotesWorkspace({
       await deleteFolder(id);
       await refreshIndex();
       showList(null);
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+    }
+  }
+
+  async function handleReorderNote(id: number, position: number) {
+    try {
+      await reorderNote(id, position);
+      await refreshIndex();
     } catch (caught) {
       setError(getErrorMessage(caught));
     }
@@ -538,6 +543,7 @@ export function NotesWorkspace({
           loading={indexLoading}
           referencePanelOpen={activeReferencePanel !== null}
           onSelect={openNote}
+          onReorder={handleReorderNote}
           onImport={handleImportMarkdown}
           onManageTemplates={beginManagingTemplates}
           onCreate={(parentId) => {

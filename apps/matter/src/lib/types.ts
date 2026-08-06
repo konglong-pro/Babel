@@ -50,6 +50,7 @@ export interface KnowledgeSummaryDto {
   folderId: number;
   title: string;
   tags: string[];
+  position?: number;
   updatedAt: string;
 }
 
@@ -65,6 +66,7 @@ export interface ExerciseSummaryDto {
   folderId: number;
   title: string;
   tags: string[];
+  position?: number;
   updatedAt: string;
 }
 

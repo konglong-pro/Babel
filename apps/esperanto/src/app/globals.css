@@ -25,6 +25,34 @@
   --pixel: "Cascadia Mono", "Lucida Console", Consolas, monospace;
 }
 
+.folder-node-row {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+[data-babel-folder-drag-source][draggable="true"],
+[data-babel-item-drag-source][draggable="true"] {
+  cursor: grab;
+}
+
+[data-babel-folder-drag-source][draggable="true"]:active,
+[data-babel-item-drag-source][draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.note-node-row.item-drop-before,
+.entry-node-row.item-drop-before,
+.item-tree-row.item-drop-before,
+.item-list-row.item-drop-before {
+  box-shadow: inset 0 2px 0 currentColor;
+}
+
+.note-node-row.item-drop-after,
+.entry-node-row.item-drop-after,
+.item-tree-row.item-drop-after,
+.item-list-row.item-drop-after {
+  box-shadow: inset 0 -2px 0 currentColor;
+}
+
 * {
   box-sizing: border-box;
 }

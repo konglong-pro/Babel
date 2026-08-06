@@ -7,6 +7,7 @@ import {
   assertSameOrigin,
   optionalPositiveInteger,
   optionalNullablePositiveInteger,
+  optionalNonNegativeInteger,
   optionalString,
   optionalStringArray,
   parsePositiveInteger,
@@ -55,7 +56,7 @@ export function PATCH(request: Request, context: RouteContext): Promise<Response
     await ensureNoteImageStorageRecovered();
     const id = await routeId(context);
     const { payload, uploads } = await readNoteMultipart(request);
-    assertOnlyFields(payload, ["folderId", "parentId", "title", "contentMd", "tags"]);
+    assertOnlyFields(payload, ["folderId", "parentId", "title", "contentMd", "tags", "position"]);
     const patch: UpdateNoteInput = {};
     const folderId = optionalPositiveInteger(payload, "folderId");
     const parentId = optionalNullablePositiveInteger(payload, "parentId");
@@ -65,10 +66,12 @@ export function PATCH(request: Request, context: RouteContext): Promise<Response
       trim: false,
     });
     const tags = optionalStringArray(payload, "tags");
+    const position = optionalNonNegativeInteger(payload, "position");
     if (folderId !== undefined) patch.folderId = folderId;
     if (parentId !== undefined) patch.parentId = parentId;
     if (title !== undefined) patch.title = title;
     if (tags !== undefined) patch.tags = tags;
+    if (position !== undefined) patch.position = position;
 
     if (contentMd === undefined && uploads.size > 0) {
       throw new ApiError(

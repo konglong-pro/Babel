@@ -156,6 +156,13 @@ export function updateKnowledge(
   });
 }
 
+export function reorderKnowledge(id: number, position: number): Promise<KnowledgeDetailDto> {
+  return request(`/api/knowledge/${id}`, {
+    method: "PATCH",
+    ...jsonBody({ position }),
+  });
+}
+
 export function deleteKnowledge(id: number): Promise<void> {
   return request(`/api/knowledge/${id}`, { method: "DELETE" });
 }
@@ -201,6 +208,13 @@ export function updateExercise(
   return request(`/api/exercises/${id}`, {
     method: "PATCH",
     ...markdownMutationBody(input, stagedImages),
+  });
+}
+
+export function reorderExercise(id: number, position: number): Promise<ExerciseDetailDto> {
+  return request(`/api/exercises/${id}`, {
+    method: "PATCH",
+    ...jsonBody({ position }),
   });
 }
 

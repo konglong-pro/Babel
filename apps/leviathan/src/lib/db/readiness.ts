@@ -18,10 +18,10 @@ const databasePathOptions = {
 export const appDatabaseReadinessOptions = {
   appName: "Leviathan",
   packageName: "@babel-apps/leviathan",
-  expectedMigration: 1_785_834_959_969,
+  expectedMigration: 1_785_924_042_280,
   requiredColumns: {
     folder: ["position"],
-    note: ["parent_id"],
+    note: ["parent_id", "position"],
     note_link: ["source_note_id", "target_title_key", "target_note_id"],
     note_template: ["name", "content_md", "created_at", "updated_at"],
     note_search: ["title", "content_md", "tags"],

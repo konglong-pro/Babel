@@ -10,6 +10,7 @@ import { identityKey } from "../identity";
 import { SnapshotError } from "./errors";
 import {
   NEUM_LEGACY_SNAPSHOT_SCHEMA_VERSION,
+  NEUM_FOLDER_POSITION_SNAPSHOT_SCHEMA_VERSION,
   NEUM_PREVIOUS_SNAPSHOT_SCHEMA_VERSION,
   NEUM_SNAPSHOT_APP_ID,
   NEUM_SNAPSHOT_SCHEMA_VERSION,
@@ -71,10 +72,11 @@ export function validateSnapshotManifest(value: unknown): NeumSnapshotManifest {
   if (
     sourceSchemaVersion !== NEUM_SNAPSHOT_SCHEMA_VERSION &&
     sourceSchemaVersion !== NEUM_PREVIOUS_SNAPSHOT_SCHEMA_VERSION &&
+    sourceSchemaVersion !== NEUM_FOLDER_POSITION_SNAPSHOT_SCHEMA_VERSION &&
     sourceSchemaVersion !== NEUM_LEGACY_SNAPSHOT_SCHEMA_VERSION
   ) {
     invalid(
-      `manifest.schemaVersion must be ${NEUM_LEGACY_SNAPSHOT_SCHEMA_VERSION}, ${NEUM_PREVIOUS_SNAPSHOT_SCHEMA_VERSION}, or ${NEUM_SNAPSHOT_SCHEMA_VERSION}.`,
+      `manifest.schemaVersion must be between ${NEUM_LEGACY_SNAPSHOT_SCHEMA_VERSION} and ${NEUM_SNAPSHOT_SCHEMA_VERSION}.`,
     );
   }
 
@@ -98,6 +100,9 @@ export function validateSnapshotManifest(value: unknown): NeumSnapshotManifest {
       image(item, `manifest.images[${index}]`),
     ),
   };
+  if (sourceSchemaVersion < NEUM_SNAPSHOT_SCHEMA_VERSION) {
+    parsed.entries = legacyEntryPositions(parsed.entries);
+  }
   validateRelationships(parsed);
   return parsed;
 }
@@ -131,6 +136,24 @@ export function normalizeSnapshotImagePath(imagePath: string): string {
     invalid(`Unsupported managed image extension: ${JSON.stringify(imagePath)}.`);
   }
   return `${prefix}${fileName}`;
+}
+
+function legacyEntryPositions(entries: readonly SnapshotEntry[]): SnapshotEntry[] {
+  const grouped = new Map<string, SnapshotEntry[]>();
+  for (const entry of entries) {
+    const key = `${entry.kind}:${entry.folderId}:${entry.parentId ?? "root"}`;
+    const siblings = grouped.get(key) ?? [];
+    siblings.push(entry);
+    grouped.set(key, siblings);
+  }
+  const positions = new Map<number, number>();
+  for (const siblings of grouped.values()) {
+    siblings
+      .sort((left, right) =>
+        right.updatedAt.localeCompare(left.updatedAt) || right.id - left.id)
+      .forEach((entry, position) => positions.set(entry.id, position));
+  }
+  return entries.map((entry) => ({ ...entry, position: positions.get(entry.id) ?? 0 }));
 }
 
 export function snapshotImageFileName(imagePath: string): string {
@@ -212,6 +235,7 @@ function entry(
       "language",
       "filename",
       "version",
+      ...(sourceSchemaVersion >= 4 ? ["position"] : []),
       "createdAt",
       "updatedAt",
       "tagIds",
@@ -250,6 +274,7 @@ function entryRecord(
         "language",
         "filename",
         "version",
+        ...(sourceSchemaVersion >= 4 ? ["position"] : []),
         "createdAt",
         "updatedAt",
       ],
@@ -283,6 +308,9 @@ function entryRecord(
     language,
     filename,
     version: positiveInteger(value.version, `${label}.version`),
+    position: sourceSchemaVersion >= 4
+      ? nonNegativeInteger(value.position, `${label}.position`)
+      : 0,
     createdAt: timestamp(value.createdAt, `${label}.createdAt`),
     updatedAt: timestamp(value.updatedAt, `${label}.updatedAt`),
   };

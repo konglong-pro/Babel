@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
 import { folders, noteImages, notes } from "@/lib/db/schema";
@@ -37,6 +37,7 @@ export interface UpdateNoteInput {
   title?: string;
   contentMd?: string;
   tags?: readonly string[];
+  position?: number;
 }
 
 export interface UpdatedNoteResult {
@@ -53,7 +54,7 @@ export function listNotes(folderId?: number): NoteSummaryDto[] {
     return db
       .select()
       .from(notes)
-      .orderBy(desc(notes.updatedAt), desc(notes.id))
+      .orderBy(asc(notes.position), asc(notes.id))
       .all()
       .map(toNoteSummary);
   }
@@ -83,7 +84,7 @@ export function listNotes(folderId?: number): NoteSummaryDto[] {
     .select()
     .from(notes)
     .where(inArray(notes.folderId, [...descendants]))
-    .orderBy(desc(notes.updatedAt), desc(notes.id))
+    .orderBy(asc(notes.position), asc(notes.id))
     .all()
     .map(toNoteSummary);
 }
@@ -118,9 +119,14 @@ export function createNote(
   assertManagedImageOwnership(contentMd, [], imagePaths);
 
   return db.transaction((transaction) => {
+    transaction
+      .update(notes)
+      .set({ position: sql`${notes.position} + 1` })
+      .where(noteScopeCondition(input.folderId, parentId))
+      .run();
     const inserted = transaction
       .insert(notes)
-      .values({ folderId: input.folderId, parentId, title, contentMd, tags })
+      .values({ folderId: input.folderId, parentId, title, contentMd, tags, position: 0 })
       .returning()
       .get();
     if (imagePaths.length > 0) {
@@ -165,6 +171,7 @@ export function updateNote(
     title?: string;
     contentMd?: string;
     tags?: string;
+    position?: number;
     updatedAt: SQL;
   } = { updatedAt: sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))` };
   let changed = imagePaths.length > 0;
@@ -197,6 +204,21 @@ export function updateNote(
     changes.tags = tagsToJson(input.tags);
     changed = true;
   }
+  const nextFolderId = changes.folderId ?? current.folderId;
+  const nextParentId = changes.parentId === undefined ? current.parentId : changes.parentId;
+  const requestedPosition = input.position === undefined
+    ? undefined
+    : normalizePosition(input.position);
+  const orderPlan =
+    nextFolderId !== current.folderId ||
+    nextParentId !== current.parentId ||
+    requestedPosition !== undefined
+      ? planNoteOrder(current, nextFolderId, nextParentId, requestedPosition)
+      : null;
+  if (orderPlan !== null) {
+    changes.position = orderPlan.position;
+    changed = true;
+  }
   if (!changed) return { note: getNote(id)!, removedImagePaths: [] };
 
   const ownedImagePaths = listNoteImagePaths(id);
@@ -212,6 +234,12 @@ export function updateNote(
   assertPreparedImageRemoval(removedImagePaths, expectedRemovedImagePaths);
 
   const updated = db.transaction((transaction) => {
+    for (const change of orderPlan?.siblings ?? []) {
+      transaction.update(notes)
+        .set({ position: change.position })
+        .where(eq(notes.id, change.id))
+        .run();
+    }
     const row = transaction
       .update(notes)
       .set(changes)
@@ -258,7 +286,12 @@ export function deleteNote(
 ): DeletedNoteResult | null {
   assertPositiveId(id, "id");
   const current = db
-    .select({ id: notes.id, title: notes.title })
+    .select({
+      id: notes.id,
+      folderId: notes.folderId,
+      parentId: notes.parentId,
+      title: notes.title,
+    })
     .from(notes)
     .where(eq(notes.id, id))
     .get();
@@ -277,6 +310,7 @@ export function deleteNote(
   assertPreparedImageRemoval(imagePaths, expectedImagePaths);
   db.transaction((transaction) => {
     transaction.delete(notes).where(eq(notes.id, id)).run();
+    normalizeNoteScope(current.folderId, current.parentId);
     resolveIncomingLinksForTitle(transaction, current.title);
   });
   return { imagePaths };
@@ -343,6 +377,68 @@ function assertManagedImageOwnership(
   return referenced;
 }
 
+interface NoteOrderPlan {
+  position: number;
+  siblings: Array<{ id: number; position: number }>;
+}
+
+function planNoteOrder(
+  current: NoteRow,
+  folderId: number,
+  parentId: number | null,
+  requestedPosition: number | undefined,
+): NoteOrderPlan {
+  const sameScope = current.folderId === folderId && current.parentId === parentId;
+  const sourceIds = orderedNoteIds(current.folderId, current.parentId)
+    .filter((id) => id !== current.id);
+  const targetIds = sameScope
+    ? sourceIds
+    : orderedNoteIds(folderId, parentId).filter((id) => id !== current.id);
+  const position = Math.min(requestedPosition ?? targetIds.length, targetIds.length);
+  const orderedTargetIds = [...targetIds];
+  orderedTargetIds.splice(position, 0, current.id);
+  return {
+    position,
+    siblings: [
+      ...(sameScope ? [] : sourceIds.map((id, index) => ({ id, position: index }))),
+      ...orderedTargetIds
+        .map((id, index) => ({ id, position: index }))
+        .filter(({ id }) => id !== current.id),
+    ],
+  };
+}
+
+function orderedNoteIds(folderId: number, parentId: number | null): number[] {
+  return db.select({ id: notes.id })
+    .from(notes)
+    .where(noteScopeCondition(folderId, parentId))
+    .orderBy(asc(notes.position), asc(notes.id))
+    .all()
+    .map(({ id }) => id);
+}
+
+function noteScopeCondition(folderId: number, parentId: number | null): SQL {
+  return and(
+    eq(notes.folderId, folderId),
+    parentId === null ? isNull(notes.parentId) : eq(notes.parentId, parentId),
+  )!;
+}
+
+function normalizeNoteScope(folderId: number, parentId: number | null): void {
+  for (const [position, id] of orderedNoteIds(folderId, parentId).entries()) {
+    db.update(notes).set({ position }).where(eq(notes.id, id)).run();
+  }
+}
+
+function normalizePosition(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new RepositoryError("VALIDATION", "position must be a non-negative integer.", {
+      field: "position",
+    });
+  }
+  return value;
+}
+
 function toNoteSummary(row: NoteRow): NoteSummaryDto {
   return {
     id: row.id,
@@ -350,6 +446,7 @@ function toNoteSummary(row: NoteRow): NoteSummaryDto {
     folderId: row.folderId,
     title: row.title,
     tags: tagsFromJson(row.tags),
+    position: row.position,
     updatedAt: row.updatedAt,
   };
 }

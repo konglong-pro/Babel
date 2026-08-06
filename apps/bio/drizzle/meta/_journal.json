@@ -29,6 +29,13 @@
       "when": 1785835739538,
       "tag": "0003_daily_champions",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1785924022832,
+      "tag": "0004_icy_tag",
+      "breakpoints": true
     }
   ]
 }

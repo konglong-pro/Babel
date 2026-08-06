@@ -68,13 +68,14 @@ test("every folder adapter persists and renders sibling order", async (t) => {
 
       assert.match(folderPanel, /@babel-apps\/platform\/folders\/react/);
       assert.match(folderPanel, /useFolderReorder/);
-      assert.match(folderPanel, /\.handleProps\(/);
+      assert.match(folderPanel, /\.selectionProps\(/);
       assert.match(folderPanel, /\.rowProps\(/);
+      assert.doesNotMatch(folderPanel, /folder-reorder-handle|\.handleProps\(/);
       assert.match(folderPanel, /onReorder/);
       assert.match(workspace, /handleReorderFolder/);
       assert.match(workspace, /onReorder=\{handleReorderFolder\}/);
       assert.match(readiness, /requiredColumns:[\s\S]*?folder:[\s\S]*?position/);
-      assert.match(css, /\.folder-reorder-handle/);
+      assert.match(css, /data-babel-folder-drag-source/);
       assert.match(css, /\.folder-node-row\.folder-drop-before/);
       assert.match(css, /\.folder-node-row\.folder-drop-after/);
 

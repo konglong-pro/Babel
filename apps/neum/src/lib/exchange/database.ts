@@ -36,6 +36,7 @@ interface EntryRow {
   language: string | null;
   filename: string | null;
   version: number;
+  position: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -181,7 +182,7 @@ export function restoreNeumDatabaseSnapshotRows(
   }
 
   const insertEntry = sqlite.prepare(
-    'INSERT INTO "entry" ("id", "parent_id", "folder_id", "kind", "title", "notes_md", "code", "language", "filename", "version", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO "entry" ("id", "parent_id", "folder_id", "kind", "title", "notes_md", "code", "language", "filename", "version", "position", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
   );
   const insertEntryTag = sqlite.prepare(
     'INSERT INTO "entry_tag" ("entry_id", "tag_id") VALUES (?, ?)',
@@ -201,6 +202,7 @@ export function restoreNeumDatabaseSnapshotRows(
       item.language,
       item.filename,
       item.version,
+      item.position,
       item.createdAt,
       item.updatedAt,
     );
@@ -257,7 +259,7 @@ function readRows(sqlite: BetterSqlite3.Database): NeumDatabaseSnapshot {
     .all() as TagRow[];
   const entryRows = sqlite
     .prepare(
-      'SELECT "id", "parent_id" AS "parentId", "folder_id" AS "folderId", "kind", "title", "notes_md" AS "notesMd", "code", "language", "filename", "version", "created_at" AS "createdAt", "updated_at" AS "updatedAt" FROM "entry" ORDER BY "id"',
+      'SELECT "id", "parent_id" AS "parentId", "folder_id" AS "folderId", "kind", "title", "notes_md" AS "notesMd", "code", "language", "filename", "version", "position", "created_at" AS "createdAt", "updated_at" AS "updatedAt" FROM "entry" ORDER BY "id"',
     )
     .all() as EntryRow[];
   const entryTagRows = sqlite
@@ -314,6 +316,9 @@ function parseTrashSnapshot(row: TrashRow): SnapshotTrashPayload {
     } & Record<string, unknown>;
     if (parsed.entry && parsed.entry.parentId === undefined) {
       parsed.entry.parentId = null;
+    }
+    if (parsed.entry && parsed.entry.position === undefined) {
+      parsed.entry.position = 0;
     }
     return parsed as unknown as SnapshotTrashPayload;
   } catch (error) {

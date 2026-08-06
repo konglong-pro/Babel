@@ -181,6 +181,47 @@ test("Bio backend integration", async (t) => {
       );
     });
 
+    await t.test("notes are created first and persist manual sibling order", () => {
+      const folder = repositories.createFolder({ name: "Note order scope" });
+      const first = repositories.createNote({ folderId: folder.id, title: "First note" });
+      const second = repositories.createNote({ folderId: folder.id, title: "Second note" });
+      assert.deepEqual(
+        repositories.listNotes(folder.id).map(({ id, position }) => ({ id, position })),
+        [{ id: second.id, position: 0 }, { id: first.id, position: 1 }],
+      );
+
+      repositories.updateNote(first.id, { position: 0 });
+      const childA = repositories.createNote({
+        folderId: folder.id,
+        parentId: first.id,
+        title: "Child A",
+      });
+      const childB = repositories.createNote({
+        folderId: folder.id,
+        parentId: first.id,
+        title: "Child B",
+      });
+      repositories.updateNote(childA.id, { position: 0 });
+      assert.deepEqual(
+        repositories.listNotes(folder.id)
+          .filter(({ parentId }) => parentId === first.id)
+          .map(({ id, position }) => ({ id, position })),
+        [{ id: childA.id, position: 0 }, { id: childB.id, position: 1 }],
+      );
+      assert.throws(
+        () => repositories.updateNote(first.id, { position: -1 }),
+        (error: unknown) =>
+          error instanceof repositories.RepositoryError && error.code === "VALIDATION",
+      );
+
+      repositories.deleteNote(childA.id);
+      assert.equal(repositories.getNote(childB.id)?.position, 0);
+      repositories.deleteNote(childB.id);
+      repositories.deleteNote(first.id);
+      repositories.deleteNote(second.id);
+      assert.equal(repositories.deleteFolder(folder.id), true);
+    });
+
     await t.test("mutating routes reject foreign origins with unified errors", async () => {
       const before = repositories.listFolders().length;
       const foreignCreate = await folderCollectionRoute.POST(

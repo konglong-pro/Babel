@@ -57,7 +57,7 @@ test("complete database and image snapshots round-trip without semantic loss", a
       exportedAt: created,
     });
     assert.equal(exported.manifest.appId, "neum");
-    assert.equal(exported.manifest.schemaVersion, 3);
+    assert.equal(exported.manifest.schemaVersion, 4);
     assert.deepEqual(exported.manifest.folders.map(({ position }) => position), [1, 0]);
     assert.equal(exported.manifest.entries[1].parentId, 11);
     assert.equal(exported.manifest.entries[1].code, "root: [still, editable");
@@ -216,7 +216,7 @@ test("legacy version 1 snapshots import existing entries as root pages", () => {
   };
 
   const parsed = validateSnapshotManifest(manifest);
-  assert.equal(parsed.schemaVersion, 3);
+  assert.equal(parsed.schemaVersion, 4);
   assert.equal(parsed.entries[0].parentId, null);
   assert.equal(parsed.folders[0].position, 0);
 });
@@ -234,8 +234,34 @@ test("version 2 snapshots import folders with their legacy order", () => {
     trash: [],
     images: [],
   });
-  assert.equal(parsed.schemaVersion, 3);
+  assert.equal(parsed.schemaVersion, 4);
   assert.equal(parsed.folders[0].position, 0);
+});
+
+test("version 3 snapshots recover the former updated-time entry order", () => {
+  const parsed = validateSnapshotManifest({
+    appId: "neum",
+    schemaVersion: 3,
+    exportedAt: created,
+    folders: [
+      { id: 1, parentId: null, name: "Inbox", position: 0, createdAt: created, updatedAt: created },
+    ],
+    entries: [
+      {
+        id: 1, parentId: null, folderId: 1, kind: "knowledge", title: "Older",
+        notesMd: "", code: null, language: null, filename: null, version: 1,
+        createdAt: created, updatedAt: created, tagIds: [], images: [],
+      },
+      {
+        id: 2, parentId: null, folderId: 1, kind: "knowledge", title: "Newer",
+        notesMd: "", code: null, language: null, filename: null, version: 1,
+        createdAt: created, updatedAt: updated, tagIds: [], images: [],
+      },
+    ],
+    tags: [], trash: [], images: [],
+  });
+  assert.equal(parsed.schemaVersion, 4);
+  assert.deepEqual(parsed.entries.map(({ id, position }) => [id, position]), [[1, 1], [2, 0]]);
 });
 
 test("import rejects non-pristine targets before writing files", async () => {
@@ -432,6 +458,7 @@ function createSchema(sqlite: BetterSqlite3.Database): void {
       language TEXT,
       filename TEXT,
       version INTEGER NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       CONSTRAINT entry_title_not_blank CHECK(length(trim(title)) > 0),
@@ -447,6 +474,8 @@ function createSchema(sqlite: BetterSqlite3.Database): void {
     CREATE INDEX entry_kind_idx ON entry(kind);
     CREATE INDEX entry_title_idx ON entry(title);
     CREATE INDEX entry_updated_idx ON entry(updated_at, id);
+    CREATE INDEX entry_scope_position_idx
+      ON entry(kind, folder_id, parent_id, position, id);
     CREATE VIRTUAL TABLE entry_search USING fts5(
       title,
       notes_md,
@@ -574,7 +603,7 @@ function seedRichSource(sqlite: BetterSqlite3.Database): void {
   insertTag.run(5, "Älgorithms", identityKey("Älgorithms"));
   insertTag.run(6, "YAML", identityKey("YAML"));
   const insertEntry = sqlite.prepare(
-    'INSERT INTO "entry" ("id", "parent_id", "folder_id", "kind", "title", "notes_md", "code", "language", "filename", "version", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    'INSERT INTO "entry" ("id", "parent_id", "folder_id", "kind", "title", "notes_md", "code", "language", "filename", "version", "position", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
   );
   insertEntry.run(
     11,
@@ -587,6 +616,7 @@ function seedRichSource(sqlite: BetterSqlite3.Database): void {
     null,
     null,
     3,
+    0,
     created,
     updated,
   );
@@ -601,6 +631,7 @@ function seedRichSource(sqlite: BetterSqlite3.Database): void {
     "yaml",
     "config.yaml",
     1,
+    0,
     created,
     updated,
   );

@@ -7,6 +7,7 @@ import {
   assertSameOrigin,
   optionalNullablePositiveInteger,
   optionalNullableString,
+  optionalNonNegativeInteger,
   optionalPositiveInteger,
   optionalString,
   optionalStringArray,
@@ -68,6 +69,7 @@ export function PATCH(request: Request, context: RouteContext): Promise<Response
       "language",
       "filename",
       "tags",
+      "position",
     ]);
 
     const patch: UpdateEntryInput = {
@@ -88,6 +90,7 @@ export function PATCH(request: Request, context: RouteContext): Promise<Response
     const language = optionalNullableString(payload, "language");
     const filename = optionalNullableString(payload, "filename");
     const tags = optionalStringArray(payload, "tags");
+    const position = optionalNonNegativeInteger(payload, "position");
     if (folderId !== undefined) patch.folderId = folderId;
     if (parentId !== undefined) patch.parentId = parentId;
     if (kind !== undefined) patch.kind = kind;
@@ -96,6 +99,7 @@ export function PATCH(request: Request, context: RouteContext): Promise<Response
     if (language !== undefined) patch.language = language;
     if (filename !== undefined) patch.filename = filename;
     if (tags !== undefined) patch.tags = tags;
+    if (position !== undefined) patch.position = position;
 
     if (notesMd === undefined && uploads.size > 0) {
       throw new ApiError(
@@ -125,6 +129,7 @@ export function PATCH(request: Request, context: RouteContext): Promise<Response
         language,
         filename,
         tags,
+        position,
         uploads: uploads.size > 0 ? true : undefined,
       },
       "At least one entry field must be provided for update.",

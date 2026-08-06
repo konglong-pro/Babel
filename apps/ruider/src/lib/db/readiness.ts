@@ -18,10 +18,10 @@ const databasePathOptions = {
 export const appDatabaseReadinessOptions = {
   appName: "Ruider",
   packageName: "@babel-apps/ruider",
-  expectedMigration: 1_785_835_739_539,
+  expectedMigration: 1_785_924_069_106,
   requiredColumns: {
     canvas: ["title", "scene", "updated_at"],
-    note: ["parent_id"],
+    note: ["parent_id", "position"],
     note_link: ["source_note_id", "target_title_key", "target_note_id"],
     note_search: ["title", "content_md", "tags"],
     note_template: ["name", "content_md", "created_at", "updated_at"],

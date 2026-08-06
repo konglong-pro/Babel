@@ -60,7 +60,7 @@ test("folder leaves retain disclosure controls and selected ancestors reveal", (
 
   assert.match(markup, /aria-label="Collapse Root"/);
   assert.match(markup, /aria-label="Expand Leaf"/);
-  assert.match(markup, /data-babel-folder-drag-handle=""/);
+  assert.match(markup, /data-babel-folder-drag-source=""/);
   assert.match(markup, /aria-keyshortcuts="ArrowUp ArrowDown"/);
   assert.match(markup, /\+ New subfolder/);
 });
@@ -108,6 +108,7 @@ test("entry leaves retain disclosure controls and selected ancestors reveal", ()
   );
 
   assert.match(markup, /aria-label="Collapse Parent page"/);
+  assert.match(markup, /data-babel-item-drag-source=""/);
   assert.match(markup, /aria-label="Expand Leaf page"/);
   assert.match(markup, /\+ New subnote/);
 });

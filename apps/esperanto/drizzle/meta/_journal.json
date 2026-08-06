@@ -43,6 +43,13 @@
       "when": 1785834961109,
       "tag": "0005_worthless_mordo",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1785924038414,
+      "tag": "0006_true_supreme_intelligence",
+      "breakpoints": true
     }
   ]
 }

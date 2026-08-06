@@ -155,6 +155,56 @@ test("Neum core persistence", async (t) => {
     );
   });
 
+  await t.test("entries are created first and keep manual order per unit and parent", () => {
+    const folder = repository.createFolder({ name: "Entry order scope" });
+    const first = repository.createEntry({
+      folderId: folder.id,
+      kind: "knowledge",
+      title: "First entry",
+    });
+    const second = repository.createEntry({
+      folderId: folder.id,
+      kind: "knowledge",
+      title: "Second entry",
+    });
+    const snippet = repository.createEntry({
+      folderId: folder.id,
+      kind: "snippet",
+      title: "Independent snippet",
+      code: "return 1;",
+      language: "c",
+    });
+    assert.deepEqual(
+      repository.listEntries({ folderId: folder.id, kind: "knowledge" }).items
+        .map(({ id, position }) => ({ id, position })),
+      [{ id: second.id, position: 0 }, { id: first.id, position: 1 }],
+    );
+    assert.equal(snippet.position, 0);
+
+    const reordered = repository.updateEntry(first.id, {
+      expectedVersion: first.version,
+      position: 0,
+    }).entry;
+    assert.deepEqual(
+      repository.listEntries({ folderId: folder.id, kind: "knowledge" }).items
+        .map(({ id, position }) => ({ id, position })),
+      [{ id: first.id, position: 0 }, { id: second.id, position: 1 }],
+    );
+    assert.throws(
+      () => repository.updateEntry(second.id, {
+        expectedVersion: second.version,
+        position: -1,
+      }),
+      repositoryConflict("VALIDATION"),
+    );
+
+    assert.ok(repository.deleteEntry(first.id, reordered.version));
+    assert.equal(repository.getEntry(second.id)?.position, 0);
+    assert.ok(repository.deleteEntry(second.id, second.version));
+    assert.ok(repository.deleteEntry(snippet.id, snippet.version));
+    assert.equal(repository.deleteFolder(folder.id), true);
+  });
+
   await t.test("entries preserve raw code, relational tags, filters, and versions", () => {
     const inbox = repository.listFolders()[0];
     const child = repository.createFolder({ name: "Search child", parentId: inbox.id });

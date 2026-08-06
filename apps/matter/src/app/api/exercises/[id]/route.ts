@@ -13,6 +13,7 @@ import {
   assertPatchHasFields,
   assertSameOrigin,
   optionalIdArray,
+  optionalNonNegativeInteger,
   optionalPositiveInteger,
   optionalString,
   optionalStringArray,
@@ -88,6 +89,7 @@ export function PATCH(request: Request, context: RouteContext): Promise<Response
           "knowledgeIds",
           "relatedKnowledgeIds",
         );
+        const position = optionalNonNegativeInteger(body, "position");
         if (folderId !== undefined) patch.folderId = folderId;
         if (title !== undefined) patch.title = title;
         if (problemMd !== undefined) patch.problemMd = problemMd;
@@ -95,6 +97,7 @@ export function PATCH(request: Request, context: RouteContext): Promise<Response
         if (solutionMd !== undefined) patch.solutionMd = solutionMd;
         if (tags !== undefined) patch.tags = tags;
         if (knowledgeIds !== undefined) patch.knowledgeIds = knowledgeIds;
+        if (position !== undefined) patch.position = position;
 
         if (
           uploads.size > 0 &&

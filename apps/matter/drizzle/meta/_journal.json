@@ -50,6 +50,13 @@
       "when": 1785835489449,
       "tag": "0006_brown_arclight",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1785924021972,
+      "tag": "0007_complex_makkari",
+      "breakpoints": true
     }
   ]
 }

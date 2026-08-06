@@ -13,6 +13,7 @@ export interface NoteSummaryDto {
   folderId: number;
   title: string;
   tags: string[];
+  position?: number;
   updatedAt: string;
 }
 

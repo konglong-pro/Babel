@@ -5,6 +5,7 @@ import {
   desc,
   eq,
   inArray,
+  isNull,
   or,
   sql,
   type AnyColumn,
@@ -94,6 +95,7 @@ export interface UpdateEntryInput {
   language?: string | null;
   filename?: string | null;
   tags?: readonly string[];
+  position?: number;
 }
 
 export interface UpdatedEntryResult {
@@ -164,7 +166,11 @@ export function createEntry(
   assertManagedImageOwnership(fields.notesMd, [], imagePaths);
 
   return sqlite.transaction(() => {
-    const row = db.insert(entries).values(fields).returning().get();
+    db.update(entries)
+      .set({ position: sql`${entries.position} + 1` })
+      .where(entryScopeCondition(fields.folderId, fields.parentId, fields.kind))
+      .run();
+    const row = db.insert(entries).values({ ...fields, position: 0 }).returning().get();
     replaceEntryTags(row.id, normalizedTags);
     if (imagePaths.length > 0) {
       db.insert(entryImages)
@@ -210,11 +216,30 @@ export function updateEntry(
   assertPreparedImageRemoval(removedImagePaths, expectedRemovedImagePaths);
   const normalizedTags =
     input.tags === undefined ? undefined : normalizeTags(input.tags);
+  const scopeChanged =
+    fields.folderId !== current.folderId || fields.parentId !== current.parentId;
+  const position = input.position === undefined
+    ? undefined
+    : normalizePosition(input.position);
+  const orderPlan = scopeChanged || position !== undefined
+    ? planEntryOrder(current, fields, position)
+    : null;
 
   const updated = sqlite.transaction(() => {
+    for (const change of orderPlan?.siblings ?? []) {
+      db.update(entries)
+        .set({ position: change.position })
+        .where(eq(entries.id, change.id))
+        .run();
+    }
     const row = db
       .update(entries)
-      .set({ ...fields, version: current.version + 1, updatedAt: nowSql })
+      .set({
+        ...fields,
+        ...(orderPlan === null ? {} : { position: orderPlan.position }),
+        version: current.version + 1,
+        updatedAt: nowSql,
+      })
       .where(and(eq(entries.id, id), eq(entries.version, input.expectedVersion)))
       .returning()
       .get();
@@ -297,6 +322,7 @@ export function deleteEntry(
       .returning({ id: entries.id })
       .get();
     if (!deleted) throw versionConflict(id, expectedVersion);
+    normalizeEntryScope(current.folderId, current.parentId, current.kind);
     resolveIncomingLinksForTitle(sqlite, current.title);
     pruneUnusedTags();
     return { imagePaths };
@@ -321,6 +347,7 @@ export function entryRowToSummary(
     title: row.title,
     tags: [...tagNames],
     version: row.version,
+    position: row.position,
     updatedAt: row.updatedAt,
   };
 }
@@ -363,6 +390,83 @@ export function assertExpectedVersion(
   }
 }
 
+interface EntryOrderPlan {
+  position: number;
+  siblings: Array<{ id: number; position: number }>;
+}
+
+function planEntryOrder(
+  current: EntryRow,
+  fields: NormalizedEntryFields,
+  requestedPosition: number | undefined,
+): EntryOrderPlan {
+  const sameScope =
+    current.folderId === fields.folderId && current.parentId === fields.parentId;
+  const sourceIds = orderedEntryIds(current.folderId, current.parentId, current.kind)
+    .filter((id) => id !== current.id);
+  const targetIds = sameScope
+    ? sourceIds
+    : orderedEntryIds(fields.folderId, fields.parentId, fields.kind)
+        .filter((id) => id !== current.id);
+  const position = Math.min(requestedPosition ?? targetIds.length, targetIds.length);
+  const orderedTargetIds = [...targetIds];
+  orderedTargetIds.splice(position, 0, current.id);
+  const siblings = [
+    ...(sameScope ? [] : sourceIds.map((id, index) => ({ id, position: index }))),
+    ...orderedTargetIds
+      .map((id, index) => ({ id, position: index }))
+      .filter(({ id }) => id !== current.id),
+  ];
+  return { position, siblings };
+}
+
+function orderedEntryIds(
+  folderId: number,
+  parentId: number | null,
+  kind: EntryKind,
+): number[] {
+  const { db } = getNeumDatabase();
+  return db
+    .select({ id: entries.id })
+    .from(entries)
+    .where(entryScopeCondition(folderId, parentId, kind))
+    .orderBy(asc(entries.position), asc(entries.id))
+    .all()
+    .map(({ id }) => id);
+}
+
+function entryScopeCondition(
+  folderId: number,
+  parentId: number | null,
+  kind: EntryKind,
+): SQL {
+  return and(
+    eq(entries.folderId, folderId),
+    parentId === null ? isNull(entries.parentId) : eq(entries.parentId, parentId),
+    eq(entries.kind, kind),
+  )!;
+}
+
+function normalizeEntryScope(
+  folderId: number,
+  parentId: number | null,
+  kind: EntryKind,
+): void {
+  const { db } = getNeumDatabase();
+  for (const [position, id] of orderedEntryIds(folderId, parentId, kind).entries()) {
+    db.update(entries).set({ position }).where(eq(entries.id, id)).run();
+  }
+}
+
+function normalizePosition(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new RepositoryError("VALIDATION", "position must be a non-negative integer.", {
+      field: "position",
+    });
+  }
+  return value;
+}
+
 export function normalizePagination(
   requestedLimit: number | undefined,
   requestedOffset: number | undefined,
@@ -395,7 +499,7 @@ function queryEntries(options: EntryListOptions): PaginatedDto<EntrySummaryDto> 
     .select()
     .from(entries)
     .where(where)
-    .orderBy(desc(entries.updatedAt), desc(entries.id));
+    .orderBy(asc(entries.position), asc(entries.id));
   const rows = options.completeTree === true
     ? orderedQuery.all()
     : orderedQuery.limit(limit).offset(offset).all();

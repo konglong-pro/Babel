@@ -15,6 +15,7 @@ export {
   assertPatchHasFields,
   assertSameOrigin,
   optionalNullablePositiveInteger,
+  optionalNonNegativeInteger,
   optionalPositiveInteger,
   optionalString,
   parsePositiveInteger,

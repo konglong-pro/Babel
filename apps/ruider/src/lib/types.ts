@@ -26,6 +26,7 @@ export interface NoteSummaryDto {
   parentId: number | null;
   title: string;
   tags: string[];
+  position?: number;
   updatedAt: string;
 }
 

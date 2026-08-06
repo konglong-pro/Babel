@@ -188,6 +188,63 @@ test("knowledge notes form a parent-child tree inside one folder", () => {
   assert.equal(repositories.listKnowledge(folder.id).find((item) => item.id === child.id)?.parentId, parent.id);
 });
 
+test("knowledge and exercises are created first and persist manual order", async () => {
+  const knowledgeFolder = repositories.createFolder({
+    type: "knowledge",
+    name: "Knowledge item order",
+  });
+  const firstKnowledge = repositories.createKnowledge({
+    folderId: knowledgeFolder.id,
+    title: "First knowledge",
+  });
+  const secondKnowledge = repositories.createKnowledge({
+    folderId: knowledgeFolder.id,
+    title: "Second knowledge",
+  });
+  assert.deepEqual(
+    repositories.listKnowledge(knowledgeFolder.id).map(({ id, position }) => ({ id, position })),
+    [{ id: secondKnowledge.id, position: 0 }, { id: firstKnowledge.id, position: 1 }],
+  );
+  repositories.updateKnowledge(firstKnowledge.id, { position: 0 });
+  assert.deepEqual(
+    repositories.listKnowledge(knowledgeFolder.id).map(({ id }) => id),
+    [firstKnowledge.id, secondKnowledge.id],
+  );
+
+  const exerciseFolder = repositories.createFolder({
+    type: "exercise",
+    name: "Exercise item order",
+  });
+  const firstExercise = repositories.createExercise({
+    folderId: exerciseFolder.id,
+    title: "First exercise",
+    problemMd: "Problem one",
+  });
+  const secondExercise = repositories.createExercise({
+    folderId: exerciseFolder.id,
+    title: "Second exercise",
+    problemMd: "Problem two",
+  });
+  repositories.updateExercise(firstExercise.id, { position: 0 });
+  assert.deepEqual(
+    repositories.listExercises(exerciseFolder.id).map(({ id, position }) => ({ id, position })),
+    [{ id: firstExercise.id, position: 0 }, { id: secondExercise.id, position: 1 }],
+  );
+  assert.throws(
+    () => repositories.updateExercise(firstExercise.id, { position: -1 }),
+    /position must be a non-negative integer/i,
+  );
+
+  assert.equal(repositories.deleteKnowledge(firstKnowledge.id), true);
+  assert.equal(repositories.getKnowledge(secondKnowledge.id)?.position, 0);
+  assert.equal(repositories.deleteKnowledge(secondKnowledge.id), true);
+  assert.equal(await repositories.deleteExercise(firstExercise.id), true);
+  assert.equal(repositories.getExercise(secondExercise.id)?.position, 0);
+  assert.equal(await repositories.deleteExercise(secondExercise.id), true);
+  assert.equal(repositories.deleteFolder(knowledgeFolder.id), true);
+  assert.equal(repositories.deleteFolder(exerciseFolder.id), true);
+});
+
 test("folder positions remain contiguous within each type and parent", () => {
   const knowledgeScope = repositories.createFolder({
     type: "knowledge",

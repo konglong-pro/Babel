@@ -1,4 +1,4 @@
-import { asc, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
 import { knowledgeExercises, knowledgeNotes } from "@/lib/db/schema";
@@ -53,6 +53,7 @@ export interface UpdateKnowledgeInput {
   contentMd?: string;
   tags?: readonly string[];
   exerciseIds?: readonly number[];
+  position?: number;
 }
 
 export function listKnowledge(folderId?: number): KnowledgeSummaryDto[] {
@@ -62,7 +63,7 @@ export function listKnowledge(folderId?: number): KnowledgeSummaryDto[] {
       .select()
       .from(knowledgeNotes)
       .where(eq(knowledgeNotes.folderId, folderId))
-      .orderBy(desc(knowledgeNotes.updatedAt), asc(knowledgeNotes.title))
+      .orderBy(asc(knowledgeNotes.position), asc(knowledgeNotes.id))
       .all()
       .map(toKnowledgeSummary);
   }
@@ -70,7 +71,7 @@ export function listKnowledge(folderId?: number): KnowledgeSummaryDto[] {
   return db
     .select()
     .from(knowledgeNotes)
-    .orderBy(desc(knowledgeNotes.updatedAt), asc(knowledgeNotes.title))
+    .orderBy(asc(knowledgeNotes.position), asc(knowledgeNotes.id))
     .all()
     .map(toKnowledgeSummary);
 }
@@ -110,9 +111,13 @@ export function createKnowledge(
   const preparedImagePaths = prepareNewNoteImages([contentMd], newImagePaths);
 
   return db.transaction((transaction) => {
+    transaction.update(knowledgeNotes)
+      .set({ position: sql`${knowledgeNotes.position} + 1` })
+      .where(knowledgeScopeCondition(input.folderId, parentId))
+      .run();
     const row = transaction
       .insert(knowledgeNotes)
-      .values({ folderId: input.folderId, parentId, title, contentMd, tags })
+      .values({ folderId: input.folderId, parentId, title, contentMd, tags, position: 0 })
       .returning()
       .get();
 
@@ -164,6 +169,7 @@ export function updateKnowledge(
     title?: string;
     contentMd?: string;
     tags?: string;
+    position?: number;
     updatedAt: SQL;
   } = { updatedAt: sql`CURRENT_TIMESTAMP` };
   let hasChanges = false;
@@ -220,6 +226,20 @@ export function updateKnowledge(
     hasChanges = true;
   }
 
+  const requestedPosition = input.position === undefined
+    ? undefined
+    : normalizePosition(input.position);
+  const orderPlan =
+    nextFolderId !== current.folderId ||
+    nextParentId !== current.parentId ||
+    requestedPosition !== undefined
+      ? planKnowledgeOrder(current, nextFolderId, nextParentId, requestedPosition)
+      : null;
+  if (orderPlan !== null) {
+    changes.position = orderPlan.position;
+    hasChanges = true;
+  }
+
   if (
     input.contentMd !== undefined ||
     newImagePaths.length > 0 ||
@@ -248,6 +268,12 @@ export function updateKnowledge(
     ? knowledgeDescendantIds(id).filter((knowledgeId) => knowledgeId !== id)
     : [];
   return db.transaction((transaction) => {
+    for (const change of orderPlan?.siblings ?? []) {
+      transaction.update(knowledgeNotes)
+        .set({ position: change.position })
+        .where(eq(knowledgeNotes.id, change.id))
+        .run();
+    }
     if (descendantIdsToMove.length > 0) {
       transaction
         .update(knowledgeNotes)
@@ -313,7 +339,12 @@ export function deleteKnowledge(
   assertNoteImageDeletionPrepared("knowledge", id, expectedImagePaths);
   return db.transaction((transaction) => {
     const current = transaction
-      .select({ id: knowledgeNotes.id, title: knowledgeNotes.title })
+      .select({
+        id: knowledgeNotes.id,
+        folderId: knowledgeNotes.folderId,
+        parentId: knowledgeNotes.parentId,
+        title: knowledgeNotes.title,
+      })
       .from(knowledgeNotes)
       .where(eq(knowledgeNotes.id, id))
       .get();
@@ -336,10 +367,75 @@ export function deleteKnowledge(
       .returning({ id: knowledgeNotes.id })
       .get();
     if (!deleted) return false;
+    normalizeKnowledgeScope(current.folderId, current.parentId);
     deleteNoteImageRows(transaction, "knowledge", id);
     deleteEntityLinks(transaction, "knowledge", id, current.title);
     return true;
   });
+}
+
+interface KnowledgeOrderPlan {
+  position: number;
+  siblings: Array<{ id: number; position: number }>;
+}
+
+function planKnowledgeOrder(
+  current: KnowledgeRow,
+  folderId: number,
+  parentId: number | null,
+  requestedPosition: number | undefined,
+): KnowledgeOrderPlan {
+  const sameScope = current.folderId === folderId && current.parentId === parentId;
+  const sourceIds = orderedKnowledgeIds(current.folderId, current.parentId)
+    .filter((id) => id !== current.id);
+  const targetIds = sameScope
+    ? sourceIds
+    : orderedKnowledgeIds(folderId, parentId).filter((id) => id !== current.id);
+  const position = Math.min(requestedPosition ?? targetIds.length, targetIds.length);
+  const orderedTargetIds = [...targetIds];
+  orderedTargetIds.splice(position, 0, current.id);
+  return {
+    position,
+    siblings: [
+      ...(sameScope ? [] : sourceIds.map((id, index) => ({ id, position: index }))),
+      ...orderedTargetIds
+        .map((id, index) => ({ id, position: index }))
+        .filter(({ id }) => id !== current.id),
+    ],
+  };
+}
+
+function orderedKnowledgeIds(folderId: number, parentId: number | null): number[] {
+  return db.select({ id: knowledgeNotes.id })
+    .from(knowledgeNotes)
+    .where(knowledgeScopeCondition(folderId, parentId))
+    .orderBy(asc(knowledgeNotes.position), asc(knowledgeNotes.id))
+    .all()
+    .map(({ id }) => id);
+}
+
+function knowledgeScopeCondition(folderId: number, parentId: number | null): SQL {
+  return and(
+    eq(knowledgeNotes.folderId, folderId),
+    parentId === null
+      ? isNull(knowledgeNotes.parentId)
+      : eq(knowledgeNotes.parentId, parentId),
+  )!;
+}
+
+function normalizeKnowledgeScope(folderId: number, parentId: number | null): void {
+  for (const [position, id] of orderedKnowledgeIds(folderId, parentId).entries()) {
+    db.update(knowledgeNotes).set({ position }).where(eq(knowledgeNotes.id, id)).run();
+  }
+}
+
+function normalizePosition(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new RepositoryError("VALIDATION", "position must be a non-negative integer.", {
+      field: "position",
+    });
+  }
+  return value;
 }
 
 function toKnowledgeSummary(row: KnowledgeRow): KnowledgeSummaryDto {
@@ -349,6 +445,7 @@ function toKnowledgeSummary(row: KnowledgeRow): KnowledgeSummaryDto {
     folderId: row.folderId,
     title: row.title,
     tags: tagsFromJson(row.tags),
+    position: row.position,
     updatedAt: row.updatedAt,
   };
 }

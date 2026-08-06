@@ -17,6 +17,7 @@ export interface EntrySummaryDto {
   title: string;
   tags: string[];
   version: number;
+  position?: number;
   updatedAt: string;
 }
 

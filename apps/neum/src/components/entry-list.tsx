@@ -1,6 +1,10 @@
 "use client";
 
 import { type ChangeEvent, useMemo, useRef, useState } from "react";
+import {
+  useItemReorder,
+  type ItemReorderController,
+} from "@babel-apps/platform/items/react";
 
 import {
   type EntryExpansionState,
@@ -23,6 +27,7 @@ interface EntryListProps {
   loadingMore?: boolean;
   referencePanelOpen?: boolean;
   onSelect: (id: number) => void;
+  onReorder?: (id: number, position: number) => Promise<void> | void;
   onLoadMore: () => Promise<void>;
   onImport?: (file: File) => Promise<void> | void;
   onCreate: () => void;
@@ -58,6 +63,7 @@ interface EntryBranchProps {
   onSelect: (id: number) => void;
   onToggle: (id: number) => void;
   onCreateChild: (parentId: number) => void;
+  reorder: ItemReorderController;
 }
 
 function EntryBranch({
@@ -70,6 +76,7 @@ function EntryBranch({
   onSelect,
   onToggle,
   onCreateChild,
+  reorder,
 }: EntryBranchProps) {
   const children = grouped.get(parentId) ?? [];
   if (children.length === 0) return null;
@@ -80,7 +87,10 @@ function EntryBranch({
         const expanded = expandedIds.has(entry.id);
         return (
           <li key={entry.id}>
-            <div className="entry-node-row">
+            <div
+              className={`entry-node-row ${reorder.dropClassName(entry.id)}`.trim()}
+              {...reorder.rowProps(entry.id)}
+            >
               <button
                 type="button"
                 className="entry-disclosure"
@@ -91,6 +101,7 @@ function EntryBranch({
               <button
                 type="button"
                 className={selectedEntryId === entry.id ? "entry-card selected" : "entry-card"}
+                {...reorder.selectionProps(entry.id)}
                 aria-current={selectedEntryId === entry.id ? "page" : undefined}
                 onClick={() => onSelect(entry.id)}
               >
@@ -115,6 +126,7 @@ function EntryBranch({
                   onSelect={onSelect}
                   onToggle={onToggle}
                   onCreateChild={onCreateChild}
+                  reorder={reorder}
                 />
                 <button
                   type="button"
@@ -143,6 +155,7 @@ export function EntryList({
   loadingMore,
   referencePanelOpen = false,
   onSelect,
+  onReorder,
   onLoadMore,
   onImport,
   onCreate,
@@ -165,6 +178,15 @@ export function EntryList({
     setExpansionState(revealedExpansionState);
   }
   const visibleExpandedIds = revealedExpansionState.expandedIds;
+  const reorder = useItemReorder({
+    items: entries.map((entry) => ({
+      id: entry.id,
+      parentId: entry.parentId,
+      scopeId: `${entry.kind}:${entry.folderId}`,
+    })),
+    disabled: selectedFolderId === null,
+    onReorder: onReorder ?? (() => undefined),
+  });
   const grouped = useMemo(() => {
     const entryIds = new Set(entries.map(({ id }) => id));
     const result = new Map<number | null, EntrySummaryDto[]>();
@@ -277,6 +299,7 @@ export function EntryList({
           onSelect={onSelect}
           onToggle={handleToggle}
           onCreateChild={onCreateChild}
+          reorder={reorder}
         />
       </nav>
       {entries.length < total ? (

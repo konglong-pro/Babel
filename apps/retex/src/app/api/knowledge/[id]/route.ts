@@ -14,6 +14,7 @@ import {
   assertSameOrigin,
   optionalIdArray,
   optionalNullablePositiveInteger,
+  optionalNonNegativeInteger,
   optionalPositiveInteger,
   optionalString,
   optionalStringArray,
@@ -69,11 +70,13 @@ export function PATCH(request: Request, context: RouteContext): Promise<Response
     );
     const tags = optionalStringArray(payload, "tags");
     const exerciseIds = optionalIdArray(payload, "exerciseIds", "relatedExerciseIds");
+    const position = optionalNonNegativeInteger(payload, "position");
     if (folderId !== undefined) patch.folderId = folderId;
     if (parentId !== undefined) patch.parentId = parentId;
     if (title !== undefined) patch.title = title;
     if (tags !== undefined) patch.tags = tags;
     if (exerciseIds !== undefined) patch.exerciseIds = exerciseIds;
+    if (position !== undefined) patch.position = position;
 
     if (contentMd === undefined && uploads.size > 0) {
       throw new ApiError(

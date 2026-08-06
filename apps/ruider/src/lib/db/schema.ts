@@ -49,11 +49,18 @@ export const notes = sqliteTable(
     title: text("title").notNull(),
     contentMd: text("content_md").notNull().default(""),
     tags: text("tags").notNull().default("[]"),
+    position: integer("position").notNull().default(0),
     ...timestamps,
   },
   (table) => [
     index("note_folder_idx").on(table.folderId),
     index("note_parent_idx").on(table.parentId),
+    index("note_scope_position_idx").on(
+      table.folderId,
+      table.parentId,
+      table.position,
+      table.id,
+    ),
     index("note_title_idx").on(table.title),
     check("note_title_not_blank", sql`length(trim(${table.title})) > 0`),
   ],

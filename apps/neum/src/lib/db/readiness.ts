@@ -5,7 +5,7 @@ import type BetterSqlite3 from "better-sqlite3";
 import { resolveDatabasePath } from "@babel-apps/platform/db/client";
 import { assertLiveDatabaseMigrationsCurrent } from "@babel-apps/platform/db/readiness";
 
-export const NEUM_SCHEMA_MIGRATION_TIMESTAMP = 1_785_834_975_976;
+export const NEUM_SCHEMA_MIGRATION_TIMESTAMP = 1_785_924_020_413;
 
 const databasePathOptions = {
   envVar: "NEUM_DATABASE_PATH",
@@ -18,7 +18,7 @@ export const appDatabaseReadinessOptions = {
   expectedMigration: NEUM_SCHEMA_MIGRATION_TIMESTAMP,
   requiredColumns: {
     folder: ["position"],
-    entry: ["parent_id"],
+    entry: ["parent_id", "position"],
     entry_link: ["source_entry_id", "target_title_key", "target_entry_id"],
   },
   requiredSchemaObjects: [
@@ -70,6 +70,7 @@ const requiredTables = {
     "language",
     "filename",
     "version",
+    "position",
     "created_at",
     "updated_at",
   ],
@@ -102,6 +103,11 @@ const requiredIndexes = {
   entry_updated_idx: {
     table: "entry",
     columns: ["updated_at", "id"],
+    unique: false,
+  },
+  entry_scope_position_idx: {
+    table: "entry",
+    columns: ["kind", "folder_id", "parent_id", "position", "id"],
     unique: false,
   },
   entry_image_entry_idx: {

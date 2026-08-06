@@ -18,9 +18,9 @@ const databasePathOptions = {
 export const appDatabaseReadinessOptions = {
   appName: "Bio",
   packageName: "@babel-apps/bio",
-  expectedMigration: 1_785_835_739_538,
+  expectedMigration: 1_785_924_022_832,
   requiredColumns: {
-    note: ["parent_id"],
+    note: ["parent_id", "position"],
     note_link: ["source_note_id", "target_title_key", "target_note_id"],
     note_search: ["title", "content_md", "tags"],
     note_template: ["name", "content_md", "created_at", "updated_at"],

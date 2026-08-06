@@ -1,6 +1,10 @@
 "use client";
 
 import { type ChangeEvent, useMemo, useRef, useState } from "react";
+import {
+  useItemReorder,
+  type ItemReorderController,
+} from "@babel-apps/platform/items/react";
 
 import {
   type PageExpansionState,
@@ -21,6 +25,7 @@ interface ItemListProps {
   loading?: boolean;
   referencePanelOpen?: boolean;
   onSelect: (id: number) => void;
+  onReorder?: (id: number, position: number) => Promise<void> | void;
   onCreate: (parentId: number | null) => void;
   onImport?: (file: File) => Promise<void> | void;
 }
@@ -32,6 +37,7 @@ interface KnowledgeBranchProps {
   expandedIds: ReadonlySet<number>;
   onSelect: (id: number) => void;
   onToggle: (id: number) => void;
+  reorder: ItemReorderController;
   onCreate: (parentId: number) => void;
 }
 
@@ -42,6 +48,7 @@ function KnowledgeBranch({
   expandedIds,
   onSelect,
   onToggle,
+  reorder,
   onCreate,
 }: KnowledgeBranchProps) {
   const children = grouped.get(parentId) ?? [];
@@ -53,7 +60,10 @@ function KnowledgeBranch({
         const expanded = expandedIds.has(item.id);
         return (
           <li key={item.id}>
-            <div className="item-tree-row">
+            <div
+              className={`item-tree-row ${reorder.dropClassName(item.id)}`.trim()}
+              {...reorder.rowProps(item.id)}
+            >
               <button
                 type="button"
                 className="item-disclosure"
@@ -61,7 +71,12 @@ function KnowledgeBranch({
                 aria-label={`${expanded ? "Collapse" : "Expand"} ${item.title}`}
                 onClick={() => onToggle(item.id)}
               />
-              <ItemCard item={item} selected={selectedId === item.id} onSelect={onSelect} />
+              <ItemCard
+                item={item}
+                selected={selectedId === item.id}
+                onSelect={onSelect}
+                reorder={reorder}
+              />
             </div>
             {expanded ? (
               <div className="item-tree-children">
@@ -72,6 +87,7 @@ function KnowledgeBranch({
                   expandedIds={expandedIds}
                   onSelect={onSelect}
                   onToggle={onToggle}
+                  reorder={reorder}
                   onCreate={onCreate}
                 />
                 <button
@@ -94,15 +110,18 @@ function ItemCard({
   item,
   selected,
   onSelect,
+  reorder,
 }: {
   item: ArchiveSummary;
   selected: boolean;
   onSelect: (id: number) => void;
+  reorder: ItemReorderController;
 }) {
   return (
     <button
       type="button"
       className={selected ? "item-card selected" : "item-card"}
+      {...reorder.selectionProps(item.id)}
       aria-current={selected ? "true" : undefined}
       onClick={() => onSelect(item.id)}
     >
@@ -121,11 +140,21 @@ export function ItemList({
   loading,
   referencePanelOpen = false,
   onSelect,
+  onReorder,
   onCreate,
   onImport,
 }: ItemListProps) {
   const importInputRef = useRef<HTMLInputElement>(null);
   const itemName = type === "knowledge" ? "Knowledge Notes" : "Exercises";
+  const reorder = useItemReorder({
+    items: items.map((item) => ({
+      id: item.id,
+      parentId: "parentId" in item ? item.parentId : null,
+      scopeId: item.folderId,
+    })),
+    disabled: selectedFolderId === null,
+    onReorder: onReorder ?? (() => undefined),
+  });
   const knowledgeItems = useMemo(
     () => (type === "knowledge" ? (items as KnowledgeSummaryDto[]) : []),
     [items, type],
@@ -234,6 +263,7 @@ export function ItemList({
             expandedIds={revealedState.expandedIds}
             onSelect={onSelect}
             onToggle={toggleKnowledge}
+            reorder={reorder}
             onCreate={onCreate}
           />
         </nav>
@@ -241,7 +271,17 @@ export function ItemList({
         <ul className="item-list">
           {items.map((item) => (
             <li key={item.id}>
-              <ItemCard item={item} selected={selectedId === item.id} onSelect={onSelect} />
+              <div
+                className={`item-list-row ${reorder.dropClassName(item.id)}`.trim()}
+                {...reorder.rowProps(item.id)}
+              >
+                <ItemCard
+                  item={item}
+                  selected={selectedId === item.id}
+                  onSelect={onSelect}
+                  reorder={reorder}
+                />
+              </div>
             </li>
           ))}
         </ul>
