@@ -11,6 +11,13 @@ param(
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
+$global:BabelLauncherExitCode = 0
+
+$processHelperPath = Join-Path $PSScriptRoot "Babel.Process.ps1"
+if (-not (Test-Path -LiteralPath $processHelperPath -PathType Leaf)) {
+    throw "Process helper not found: $processHelperPath"
+}
+. $processHelperPath
 
 try {
     $Host.UI.RawUI.WindowTitle = "Babel"
@@ -522,7 +529,6 @@ function Get-BabelApps {
             Port = $port
             Url = $internalBaseUrl
             HealthUrl = $internalBaseUrl + $healthPath
-            IdentityHealthUrl = $internalBaseUrl + $identityPath
             IdentityUrl = $publicBaseUrl + $identityPath
             IdentityText = $identityText
             ReadyTimeoutSeconds = $readyTimeoutSeconds
@@ -612,19 +618,10 @@ function Test-AppHealth {
             return $false
         }
 
-        $identityResponse = Invoke-WebRequest `
-            -Uri $App.IdentityHealthUrl `
-            -UseBasicParsing `
-            -TimeoutSec 2
-
-        if ($identityResponse.StatusCode -lt 200 -or $identityResponse.StatusCode -ge 400) {
-            return $false
-        }
-
-        return $identityResponse.Content.IndexOf(
-            $App.IdentityText,
-            [System.StringComparison]::OrdinalIgnoreCase
-        ) -ge 0
+        $health = $response.Content | ConvertFrom-Json -ErrorAction Stop
+        return `
+            [string]$health.status -ieq "ok" -and
+            [string]$health.app -ieq [string]$App.IdentityText
     } catch {
         return $false
     }
@@ -846,21 +843,10 @@ function Start-AppProcess {
     $environmentSnapshot = Set-TemporaryEnvironment -Environment $App.Environment
 
     try {
-        $startInfo = New-Object System.Diagnostics.ProcessStartInfo
-        $startInfo.FileName = $command.Source
-        $startInfo.Arguments = @($App.StartArguments) -join " "
-        $startInfo.WorkingDirectory = $App.StartWorkingDirectory
-        $startInfo.UseShellExecute = $false
-        $startInfo.CreateNoWindow = $false
-
-        $process = New-Object System.Diagnostics.Process
-        $process.StartInfo = $startInfo
-
-        if (-not $process.Start()) {
-            throw "Failed to create the $($App.Name) process."
-        }
-
-        return $process
+        return Start-BabelDetachedProcess `
+            -FilePath $command.Source `
+            -Arguments (@($App.StartArguments) -join " ") `
+            -WorkingDirectory $App.StartWorkingDirectory
     } finally {
         Restore-Environment -Snapshot $environmentSnapshot
     }
@@ -1132,7 +1118,7 @@ function Wait-ForStopRequest {
             $nextProcessCheck = [DateTime]::UtcNow.AddSeconds(1)
         }
 
-        Start-Sleep -Milliseconds 100
+        Start-Sleep -Milliseconds 500
     }
 }
 
@@ -1185,6 +1171,7 @@ try {
 }
 
 if ($exitCode -ne 0) {
+    $global:BabelLauncherExitCode = $exitCode
     if (
         -not $VerifyAndExit -and
         -not $PSBoundParameters.ContainsKey("StopSignalPath") -and

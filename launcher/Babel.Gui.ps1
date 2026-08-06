@@ -39,18 +39,23 @@ Add-Type -AssemblyName System.Windows.Forms
 $babelRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $registryPath = Join-Path $babelRoot "babel.apps.json"
 $xamlPath = Join-Path $PSScriptRoot "Babel.xaml"
+$nativeLauncherPath = Join-Path $PSScriptRoot "Babel.exe"
 $workerScriptPath = Join-Path $PSScriptRoot "Babel.ps1"
+$processHelperPath = Join-Path $PSScriptRoot "Babel.Process.ps1"
 $shortcutHelperPath = Join-Path $PSScriptRoot "Babel.Shortcuts.ps1"
 $shortcutXamlPath = Join-Path $PSScriptRoot "Babel.Shortcuts.xaml"
 $shortcutDefaultsPath = Join-Path $babelRoot "packages\platform\shortcuts.defaults.json"
 
-if (-not (Test-Path -LiteralPath $shortcutHelperPath -PathType Leaf)) {
-    throw "Shortcut helper not found: $shortcutHelperPath"
+foreach ($helperPath in @($processHelperPath, $shortcutHelperPath)) {
+    if (-not (Test-Path -LiteralPath $helperPath -PathType Leaf)) {
+        throw "Launcher helper not found: $helperPath"
+    }
 }
 try {
+    . $processHelperPath
     . $shortcutHelperPath
 } catch {
-    throw "Could not load the shortcut helper: $($_.Exception.Message)"
+    throw "Could not load a launcher helper: $($_.Exception.Message)"
 }
 
 function Test-RequiredProperty {
@@ -150,7 +155,6 @@ function Get-RegisteredApps {
             IdentityPath = $identityPath
             IdentityText = $identityText
             HealthUrl = $internalBaseUrl + $healthPath
-            IdentityHealthUrl = $internalBaseUrl + $identityPath
             IdentityUrl = $publicBaseUrl + $identityPath
         }
         $ids[$id] = $true
@@ -208,18 +212,10 @@ function Test-AppHealth {
             return $false
         }
 
-        $identityResponse = Invoke-WebRequest `
-            -Uri $App.IdentityHealthUrl `
-            -UseBasicParsing `
-            -TimeoutSec 2
-        if ($identityResponse.StatusCode -lt 200 -or $identityResponse.StatusCode -ge 400) {
-            return $false
-        }
-
-        return $identityResponse.Content.IndexOf(
-            $App.IdentityText,
-            [StringComparison]::OrdinalIgnoreCase
-        ) -ge 0
+        $health = $healthResponse.Content | ConvertFrom-Json -ErrorAction Stop
+        return `
+            [string]$health.status -ieq "ok" -and
+            [string]$health.app -ieq [string]$App.IdentityText
     } catch {
         return $false
     }
@@ -371,30 +367,35 @@ if ($StateSmokeTest) {
         $foreignPort = ([Net.IPEndPoint]$foreignListener.LocalEndpoint).Port
         $foreignApp = [pscustomobject]@{
             HealthUrl = "http://127.0.0.1:$foreignPort/api/health"
-            IdentityHealthUrl = "http://127.0.0.1:$foreignPort/notes"
             IdentityText = "Babel state smoke identity"
         }
         if (Test-AppHealth -App $foreignApp) {
-            throw "A port-only foreign listener passed the Babel health and identity checks."
+            throw "A port-only foreign listener passed the Babel health identity check."
         }
     } finally {
         $foreignListener.Stop()
     }
 
-    $independentWorkers = @{
-        retex = [pscustomobject]@{ AppId = "retex" }
-        vali = [pscustomobject]@{ AppId = "vali" }
+    $workerScopes = @{
+        all = [pscustomobject]@{ ManagesAll = $true }
+        retex = [pscustomobject]@{ AppId = "retex"; ManagesAll = $false }
     }
-    if ($independentWorkers.Count -ne 2 -or $independentWorkers.retex.AppId -eq $independentWorkers.vali.AppId) {
-        throw "State smoke test could not model independent workers."
+    if (
+        $workerScopes.Count -ne 2 -or
+        -not $workerScopes.all.ManagesAll -or
+        $workerScopes.retex.ManagesAll
+    ) {
+        throw "State smoke test could not model aggregate and independent worker scopes."
     }
 
-    Write-Output "Babel GUI state smoke test passed: Stopped, Starting, Ready, Unhealthy, External; foreign listener rejected; independent workers."
+    Write-Output "Babel GUI state smoke test passed: Stopped, Starting, Ready, Unhealthy, External; foreign listener rejected; aggregate Start All and independent OPEN workers."
     return
 }
 
-if (-not (Test-Path -LiteralPath $workerScriptPath -PathType Leaf)) {
-    throw "Babel worker not found: $workerScriptPath"
+foreach ($launcherPath in @($nativeLauncherPath, $workerScriptPath)) {
+    if (-not (Test-Path -LiteralPath $launcherPath -PathType Leaf)) {
+        throw "Babel launcher component not found: $launcherPath"
+    }
 }
 
 $script:Window = $window
@@ -418,8 +419,17 @@ $script:RegisteredApps = $registeredApps
 $script:AppsById = @{}
 $script:RowsById = @{}
 $script:WorkersById = @{}
+$script:AllWorker = $null
+$script:AllWorkerManagedAppIds = @{}
+$script:AllWorkerReadyById = @{}
 $script:VerifyWorker = $null
 $script:WorkerHistory = New-Object System.Collections.ArrayList
+$script:MaximumWorkerHistory = 20
+$script:MaximumLogTailLines = 2000
+$script:MaximumLogCharactersPerStream = 131072
+$script:MaximumRenderedLogCharacters = 1048576
+$script:HealthProbeIntervalSeconds = 30
+$script:StatusPollIntervalSeconds = 5
 $script:LastPortOpenById = @{}
 $script:LastHealthById = @{}
 $script:LastProbeAtById = @{}
@@ -429,7 +439,6 @@ $script:ExternalOpenRequestsById = @{}
 $script:HealthProbeScript = @'
 param(
     [string]$HealthUrl,
-    [string]$IdentityHealthUrl,
     [string]$IdentityText
 )
 
@@ -440,21 +449,17 @@ try {
         return $false
     }
 
-    $identityResponse = Invoke-WebRequest -Uri $IdentityHealthUrl -UseBasicParsing -TimeoutSec 2
-    if ($identityResponse.StatusCode -lt 200 -or $identityResponse.StatusCode -ge 400) {
-        return $false
-    }
-
-    return $identityResponse.Content.IndexOf(
-        $IdentityText,
-        [StringComparison]::OrdinalIgnoreCase
-    ) -ge 0
+    $health = $healthResponse.Content | ConvertFrom-Json -ErrorAction Stop
+    return `
+        [string]$health.status -ieq "ok" -and
+        [string]$health.app -ieq $IdentityText
 } catch {
     return $false
 }
 '@
+$healthProbeConcurrency = [Math]::Min(2, $script:RegisteredApps.Count)
 $script:HealthProbeRunspacePool = `
-    [Management.Automation.Runspaces.RunspaceFactory]::CreateRunspacePool(1, $script:RegisteredApps.Count)
+    [Management.Automation.Runspaces.RunspaceFactory]::CreateRunspacePool(1, $healthProbeConcurrency)
 $script:HealthProbeRunspacePool.Open()
 $script:CloseRequested = $false
 $script:AllowClose = $false
@@ -922,6 +927,59 @@ function Get-AppWorkerState {
     return $workerState
 }
 
+function Get-AllWorkerState {
+    if (-not (Test-WorkerStateActive -WorkerState $script:AllWorker)) {
+        return $null
+    }
+    return $script:AllWorker
+}
+
+function Get-AppManagingWorkerState {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$AppId
+    )
+
+    $workerState = Get-AppWorkerState -AppId $AppId
+    if ($null -ne $workerState) {
+        return $workerState
+    }
+    if (-not $script:AllWorkerManagedAppIds.ContainsKey($AppId)) {
+        return $null
+    }
+    return Get-AllWorkerState
+}
+
+function Set-AppReadyObserved {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$AppId
+    )
+
+    $workerState = Get-AppWorkerState -AppId $AppId
+    if ($null -ne $workerState) {
+        $workerState.ReadyObserved = $true
+    }
+
+    $allWorker = Get-AllWorkerState
+    if ($null -eq $allWorker) {
+        return
+    }
+
+    $script:AllWorkerReadyById[$AppId] = $true
+    $allReady = $true
+    foreach ($app in $script:RegisteredApps) {
+        if (
+            -not $script:AllWorkerReadyById.ContainsKey($app.Id) -or
+            -not [bool]$script:AllWorkerReadyById[$app.Id]
+        ) {
+            $allReady = $false
+            break
+        }
+    }
+    $allWorker.ReadyObserved = $allReady
+}
+
 function Get-ActiveWorkerStates {
     $activeWorkers = @()
     foreach ($appId in @($script:WorkersById.Keys)) {
@@ -929,6 +987,9 @@ function Get-ActiveWorkerStates {
         if (Test-WorkerStateActive -WorkerState $workerState) {
             $activeWorkers += $workerState
         }
+    }
+    if (Test-WorkerStateActive -WorkerState $script:AllWorker) {
+        $activeWorkers += $script:AllWorker
     }
     if (Test-WorkerStateActive -WorkerState $script:VerifyWorker) {
         $activeWorkers += $script:VerifyWorker
@@ -963,6 +1024,12 @@ function Refresh-ButtonState {
 
     $activeWorkers = @(Get-ActiveWorkerStates)
     $verifyActive = Test-WorkerStateActive -WorkerState $script:VerifyWorker
+    $allWorkerActive = Test-WorkerStateActive -WorkerState $script:AllWorker
+    $independentStartActive = @(
+        $activeWorkers | Where-Object {
+            $_.Mode -eq "Start" -and -not [bool]$_.ManagesAll
+        }
+    ).Count -gt 0
     $hasStartingWorker = @(
         $activeWorkers | Where-Object {
             $_.Mode -eq "Start" -and -not $_.ReadyObserved
@@ -970,7 +1037,11 @@ function Refresh-ButtonState {
     ).Count -gt 0
 
     $script:OpenSelectedButton.IsEnabled = $hasSelection -and -not $script:CloseRequested
-    $script:StartAllButton.IsEnabled = -not $verifyActive -and -not $script:CloseRequested
+    $script:StartAllButton.IsEnabled = `
+        -not $verifyActive -and
+        -not $allWorkerActive -and
+        -not $independentStartActive -and
+        -not $script:CloseRequested
     $script:VerifyButton.IsEnabled = `
         -not $verifyActive -and -not $hasStartingWorker -and -not $script:CloseRequested
     $script:StopSelectedButton.IsEnabled = `
@@ -985,6 +1056,9 @@ function Refresh-ButtonState {
         }
         if ($verifyActive) {
             $summary += " / VERIFYING"
+        }
+        if ($allWorkerActive) {
+            $summary += " / ALL SESSION"
         }
         $script:WorkerText.Text = $summary
     } else {
@@ -1049,7 +1123,6 @@ function Start-AppHealthProbe {
         $probePowerShell.RunspacePool = $script:HealthProbeRunspacePool
         [void]$probePowerShell.AddScript($script:HealthProbeScript)
         [void]$probePowerShell.AddArgument($App.HealthUrl)
-        [void]$probePowerShell.AddArgument($App.IdentityHealthUrl)
         [void]$probePowerShell.AddArgument($App.IdentityText)
         $asyncResult = $probePowerShell.BeginInvoke()
     } catch {
@@ -1095,10 +1168,7 @@ function Complete-AppHealthProbes {
         $script:LastHealthById[$appId] = $healthy
         $script:LastProbeAtById[$appId] = [DateTime]::UtcNow
         if ($healthy) {
-            $workerState = Get-AppWorkerState -AppId $appId
-            if ($null -ne $workerState) {
-                $workerState.ReadyObserved = $true
-            }
+            Set-AppReadyObserved -AppId $appId
         }
     }
 }
@@ -1142,14 +1212,29 @@ function Refresh-AppStatuses {
             $healthy = [bool]$script:LastHealthById[$app.Id]
         }
         $workerState = Get-AppWorkerState -AppId $app.Id
-        $workerActive = $null -ne $workerState
+        $managingWorker = Get-AppManagingWorkerState -AppId $app.Id
+        $allWorker = $null
+        if ($null -ne $managingWorker -and [bool]$managingWorker.ManagesAll) {
+            $allWorker = $managingWorker
+        }
+        $workerActive = $null -ne $managingWorker
 
         if ($portOpen) {
             $probeDue = $ForceProbe -or -not $script:LastProbeAtById.ContainsKey($app.Id)
             if (-not $probeDue) {
-                $probeDue = ($now - [DateTime]$script:LastProbeAtById[$app.Id]).TotalSeconds -ge 10
+                $probeDue = `
+                    ($now - [DateTime]$script:LastProbeAtById[$app.Id]).TotalSeconds -ge
+                    $script:HealthProbeIntervalSeconds
             }
-            if ($workerActive -and $workerState.OpenPending) {
+            $managedOpenPending = `
+                $null -ne $workerState -and [bool]$workerState.OpenPending
+            if (
+                $script:ExternalOpenRequestsById.ContainsKey($app.Id) -and
+                [bool]$script:ExternalOpenRequestsById[$app.Id].ManagedByAll
+            ) {
+                $managedOpenPending = $true
+            }
+            if ($workerActive -and $managedOpenPending) {
                 $probeDue = $true
             }
 
@@ -1173,10 +1258,18 @@ function Refresh-AppStatuses {
 
         $script:LastPortOpenById[$app.Id] = $portOpen
         if ($healthy -and $workerActive) {
-            $workerState.ReadyObserved = $true
+            Set-AppReadyObserved -AppId $app.Id
         }
 
-        $readyObserved = $workerActive -and [bool]$workerState.ReadyObserved
+        $readyObserved = $false
+        if ($null -ne $workerState) {
+            $readyObserved = [bool]$workerState.ReadyObserved
+        } elseif (
+            $null -ne $allWorker -and
+            $script:AllWorkerReadyById.ContainsKey($app.Id)
+        ) {
+            $readyObserved = [bool]$script:AllWorkerReadyById[$app.Id]
+        }
         $status = Get-AppDisplayStatus `
             -PortOpen $portOpen `
             -Healthy $healthy `
@@ -1193,6 +1286,94 @@ function Refresh-AppStatuses {
     $script:AppsGrid.Items.Refresh()
 }
 
+function Read-WorkerLogTail {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return ""
+    }
+
+    try {
+        $lines = @(
+            Get-Content `
+                -LiteralPath $Path `
+                -Tail $script:MaximumLogTailLines `
+                -ErrorAction Stop
+        )
+        $text = [string]($lines -join "`r`n")
+        if ($text.Length -le $script:MaximumLogCharactersPerStream) {
+            return $text
+        }
+
+        $start = $text.Length - $script:MaximumLogCharactersPerStream
+        return "[earlier output omitted]`r`n" + $text.Substring($start)
+    } catch {
+        return ""
+    }
+}
+
+function Remove-WorkerSessionDirectory {
+    param(
+        [Parameter(Mandatory = $true)]
+        [object]$WorkerState
+    )
+
+    if (-not [bool]$WorkerState.Completed) {
+        return
+    }
+
+    try {
+        $sessionRoot = [IO.Path]::GetFullPath(
+            (Join-Path ([IO.Path]::GetTempPath()) "BabelLauncher")
+        ).TrimEnd("\")
+        $sessionDirectory = [IO.Path]::GetFullPath([string]$WorkerState.SessionDirectory).TrimEnd("\")
+        $sessionPrefix = $sessionRoot + "\"
+        $sessionName = Split-Path -Leaf $sessionDirectory
+        if (
+            -not $sessionDirectory.StartsWith($sessionPrefix, [StringComparison]::OrdinalIgnoreCase) -or
+            $sessionName -notmatch "^[0-9a-f]{32}$"
+        ) {
+            return
+        }
+
+        if (Test-Path -LiteralPath $sessionDirectory -PathType Container) {
+            Remove-Item -LiteralPath $sessionDirectory -Recurse -Force -ErrorAction Stop
+        }
+    } catch {
+        # Diagnostics cleanup must never disrupt worker lifecycle management.
+    }
+}
+
+function Trim-WorkerHistory {
+    while ($script:WorkerHistory.Count -gt $script:MaximumWorkerHistory) {
+        $completedIndex = -1
+        for ($index = 0; $index -lt $script:WorkerHistory.Count; $index++) {
+            if ([bool]$script:WorkerHistory[$index].Completed) {
+                $completedIndex = $index
+                break
+            }
+        }
+        if ($completedIndex -lt 0) {
+            return
+        }
+
+        $expiredWorker = $script:WorkerHistory[$completedIndex]
+        $script:WorkerHistory.RemoveAt($completedIndex)
+        Remove-WorkerSessionDirectory -WorkerState $expiredWorker
+    }
+}
+
+function Remove-CompletedWorkerSessions {
+    foreach ($workerState in @($script:WorkerHistory)) {
+        if ([bool]$workerState.Completed) {
+            Remove-WorkerSessionDirectory -WorkerState $workerState
+        }
+    }
+}
+
 function Update-LogView {
     if (-not $script:AdvancedExpander.IsExpanded) {
         return
@@ -1203,20 +1384,8 @@ function Update-LogView {
         $standardOutput = ""
         $standardError = ""
 
-        if (Test-Path -LiteralPath $workerState.StdOutLogPath -PathType Leaf) {
-            try {
-                $standardOutput = [string](Get-Content -LiteralPath $workerState.StdOutLogPath -Raw -ErrorAction Stop)
-            } catch {
-                # The worker can briefly hold the redirected log while writing it.
-            }
-        }
-        if (Test-Path -LiteralPath $workerState.StdErrLogPath -PathType Leaf) {
-            try {
-                $standardError = [string](Get-Content -LiteralPath $workerState.StdErrLogPath -Raw -ErrorAction Stop)
-            } catch {
-                # The worker can briefly hold the redirected log while writing it.
-            }
-        }
+        $standardOutput = Read-WorkerLogTail -Path $workerState.StdOutLogPath
+        $standardError = Read-WorkerLogTail -Path $workerState.StdErrLogPath
 
         $workerLog = "===== $($workerState.Label) / $($workerState.StartedAt.ToLocalTime().ToString('yyyy-MM-dd HH:mm:ss')) ====="
         if (-not [string]::IsNullOrWhiteSpace($standardOutput)) {
@@ -1234,6 +1403,10 @@ function Update-LogView {
     $rendered = "No worker sessions yet."
     if ($logSections.Count -gt 0) {
         $rendered = $logSections -join "`r`n`r`n"
+    }
+    if ($rendered.Length -gt $script:MaximumRenderedLogCharacters) {
+        $start = $rendered.Length - $script:MaximumRenderedLogCharacters
+        $rendered = "[earlier sessions omitted]`r`n" + $rendered.Substring($start)
     }
 
     if ($rendered -ne $script:LastRenderedLog) {
@@ -1256,6 +1429,9 @@ function Request-WorkerStop {
         return $true
     }
     $WorkerState.OpenPending = $false
+    if ([bool]$WorkerState.ManagesAll) {
+        $script:ExternalOpenRequestsById = @{}
+    }
 
     try {
         if ([string]::IsNullOrWhiteSpace($WorkerState.StopSignalPath)) {
@@ -1296,6 +1472,7 @@ function Request-AllWorkersStop {
         Set-UiStatus -Message "No workers are currently managed by this launcher."
         return
     }
+    $script:ExternalOpenRequestsById = @{}
     foreach ($workerState in $activeWorkers) {
         [void](Request-WorkerStop -WorkerState $workerState)
     }
@@ -1333,7 +1510,14 @@ function Complete-WorkerStateIfExited {
     $WorkerState.Completed = $true
     $WorkerState.ExitCode = $exitCode
 
-    if ($WorkerState.Mode -eq "Start") {
+    if ($WorkerState.Mode -eq "Start" -and [bool]$WorkerState.ManagesAll) {
+        if ([object]::ReferenceEquals($script:AllWorker, $WorkerState)) {
+            $script:AllWorker = $null
+            $script:AllWorkerManagedAppIds = @{}
+            $script:AllWorkerReadyById = @{}
+            $script:ExternalOpenRequestsById = @{}
+        }
+    } elseif ($WorkerState.Mode -eq "Start") {
         if (
             $script:WorkersById.ContainsKey($WorkerState.AppId) -and
             [object]::ReferenceEquals($script:WorkersById[$WorkerState.AppId], $WorkerState)
@@ -1362,12 +1546,16 @@ function Complete-WorkerStateIfExited {
             Show-BabelError -Message "$($WorkerState.Label) did not become ready. Review Diagnostics."
         }
     }
+    Trim-WorkerHistory
     return $true
 }
 
 function Complete-WorkersIfExited {
     foreach ($appId in @($script:WorkersById.Keys)) {
         [void](Complete-WorkerStateIfExited -WorkerState $script:WorkersById[$appId])
+    }
+    if ($null -ne $script:AllWorker) {
+        [void](Complete-WorkerStateIfExited -WorkerState $script:AllWorker)
     }
     if ($null -ne $script:VerifyWorker) {
         [void](Complete-WorkerStateIfExited -WorkerState $script:VerifyWorker)
@@ -1404,26 +1592,36 @@ function Start-BabelWorker {
     }
     Complete-WorkersIfExited
     $app = $null
+    $isAllStart = `
+        $Mode -eq "Start" -and
+        $Selection.Equals("All", [StringComparison]::OrdinalIgnoreCase)
     if ($Mode -eq "Start") {
         if (Test-WorkerStateActive -WorkerState $script:VerifyWorker) {
             throw "Verification is running. Wait for it to finish before starting another notebook."
         }
-        if (-not $script:AppsById.ContainsKey($Selection)) {
+        if ($isAllStart) {
+            $existingWorker = Get-AllWorkerState
+            if ($null -ne $existingWorker) {
+                return $existingWorker
+            }
+        } elseif (-not $script:AppsById.ContainsKey($Selection)) {
             throw "Unknown notebook '$Selection'."
-        }
-        $app = $script:AppsById[$Selection]
-        $existingWorker = Get-AppWorkerState -AppId $Selection
-        if ($null -ne $existingWorker) {
-            return $existingWorker
+        } else {
+            if (
+                $null -ne (Get-AllWorkerState) -and
+                $script:AllWorkerManagedAppIds.ContainsKey($Selection)
+            ) {
+                throw "The Start All session already manages notebook startup. Use STOP ALL before starting an independent worker."
+            }
+            $app = $script:AppsById[$Selection]
+            $existingWorker = Get-AppWorkerState -AppId $Selection
+            if ($null -ne $existingWorker) {
+                return $existingWorker
+            }
         }
     } elseif (Test-WorkerStateActive -WorkerState $script:VerifyWorker) {
         Set-UiStatus -Message "Verification is already running."
         return $script:VerifyWorker
-    }
-
-    $powershellPath = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
-    if (-not (Test-Path -LiteralPath $powershellPath -PathType Leaf)) {
-        throw "Windows PowerShell 5.1 not found: $powershellPath"
     }
 
     $sessionDirectory = Join-Path ([IO.Path]::GetTempPath()) ("BabelLauncher\" + [Guid]::NewGuid().ToString("N"))
@@ -1443,36 +1641,29 @@ function Start-BabelWorker {
         $workerCommand += " -VerifyAndExit"
     }
 
-    # Keep each native stream in a pollable temporary file while preserving the
-    # worker's exit code. EncodedCommand avoids nested Windows quoting hazards.
+    # Keep each native stream in a pollable temporary file. The native host
+    # reads BabelLauncherExitCode after this runspace finishes.
     $workerCommand += " 2> " + (ConvertTo-PowerShellLiteral -Value $stdErrLogPath) +
         " 3>&1 4>&1 5>&1 6>&1 1> " + (ConvertTo-PowerShellLiteral -Value $stdOutLogPath) +
-        '; $workerExitCode = $LASTEXITCODE; exit $workerExitCode'
+        '; if ($null -eq $global:BabelLauncherExitCode) { $global:BabelLauncherExitCode = [int]$LASTEXITCODE }'
     $encodedCommand = [Convert]::ToBase64String(
         [Text.Encoding]::Unicode.GetBytes($workerCommand)
     )
 
     try {
-        $startInfo = New-Object Diagnostics.ProcessStartInfo
-        $startInfo.FileName = $powershellPath
-        $startInfo.Arguments = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand $encodedCommand"
-        $startInfo.WorkingDirectory = $babelRoot
-        $startInfo.UseShellExecute = $false
-        $startInfo.CreateNoWindow = $true
-        $startInfo.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
-
-        $process = New-Object Diagnostics.Process
-        $process.StartInfo = $startInfo
-        if (-not $process.Start()) {
-            throw "Windows did not create the worker process."
-        }
+        $process = Start-BabelDetachedProcess `
+            -FilePath $nativeLauncherPath `
+            -Arguments "--encoded-command $encodedCommand" `
+            -WorkingDirectory $babelRoot
     } catch {
         throw "Could not start the Babel worker: $($_.Exception.Message)"
     }
 
     $label = "Verify all"
     $appId = ""
-    if ($Mode -eq "Start") {
+    if ($isAllStart) {
+        $label = "All notebooks"
+    } elseif ($Mode -eq "Start") {
         $label = $app.Name
         $appId = $app.Id
     }
@@ -1481,6 +1672,7 @@ function Start-BabelWorker {
         App = $app
         Label = $label
         Mode = $Mode
+        ManagesAll = $isAllStart
         Process = $process
         StopSignalPath = $stopSignalPath
         StdOutLogPath = $stdOutLogPath
@@ -1496,14 +1688,20 @@ function Start-BabelWorker {
 
     if ($Mode -eq "Verify") {
         $script:VerifyWorker = $workerState
+    } elseif ($isAllStart) {
+        $script:AllWorker = $workerState
+        $script:AllWorkerReadyById = @{}
     } else {
         $script:WorkersById[$app.Id] = $workerState
     }
     [void]$script:WorkerHistory.Add($workerState)
+    Trim-WorkerHistory
     $script:LastRenderedLog = ""
 
     if ($Mode -eq "Verify") {
         Set-UiStatus -Message "Verifying all applications. Temporary services will stop automatically."
+    } elseif ($isAllStart) {
+        Set-UiStatus -Message "Starting all notebooks in one managed worker. Use STOP ALL to stop this session."
     } else {
         Set-UiStatus -Message "Starting $($app.Name). OPEN will continue after its identity check passes."
     }
@@ -1533,10 +1731,7 @@ function Open-BabelApp {
 
     if (Test-AppHealthRecentlyPassed -App $App) {
         $script:LastPortOpenById[$App.Id] = $true
-        $workerState = Get-AppWorkerState -AppId $App.Id
-        if ($null -ne $workerState) {
-            $workerState.ReadyObserved = $true
-        }
+        Set-AppReadyObserved -AppId $App.Id
         Open-AppIdentity -App $App
         return
     }
@@ -1558,16 +1753,38 @@ function Open-BabelApp {
     if (Test-WorkerStateActive -WorkerState $script:VerifyWorker) {
         throw "Verification is preparing applications. Wait for it to finish, then choose OPEN again."
     }
+
+    $allWorker = Get-AllWorkerState
+    if (
+        $null -ne $allWorker -and
+        $script:AllWorkerManagedAppIds.ContainsKey($App.Id)
+    ) {
+        if (-not $script:ExternalOpenRequestsById.ContainsKey($App.Id)) {
+            Invalidate-AppHealthProbe -AppId $App.Id
+            $script:ExternalOpenRequestsById[$App.Id] = [pscustomobject]@{
+                App = $App
+                RequestedAt = [DateTime]::UtcNow
+                ManagedByAll = $true
+            }
+        }
+        if (Test-LocalPort -Port $App.Port) {
+            Start-AppHealthProbe -App $App
+        }
+        Set-UiStatus -Message "$($App.Name) is starting in the Start All session. It will open after its registered health identity passes."
+        return
+    }
+
     if (Test-LocalPort -Port $App.Port) {
         if (-not $script:ExternalOpenRequestsById.ContainsKey($App.Id)) {
             Invalidate-AppHealthProbe -AppId $App.Id
             $script:ExternalOpenRequestsById[$App.Id] = [pscustomobject]@{
                 App = $App
                 RequestedAt = [DateTime]::UtcNow
+                ManagedByAll = $false
             }
         }
         Start-AppHealthProbe -App $App
-        Set-UiStatus -Message "Checking the $($App.Name) health endpoint and page identity before OPEN."
+        Set-UiStatus -Message "Checking the $($App.Name) registered health identity before OPEN."
         return
     }
 
@@ -1615,6 +1832,29 @@ function Complete-PendingOpens {
             continue
         }
 
+        if ([bool]$openRequest.ManagedByAll) {
+            $allWorker = Get-AllWorkerState
+            if ($null -eq $allWorker -or $allWorker.StopRequested) {
+                $script:ExternalOpenRequestsById.Remove($appId)
+                continue
+            }
+            if (-not (Test-LocalPort -Port $app.Port)) {
+                continue
+            }
+            if (Test-AppHealthRecentlyPassed -App $app) {
+                $script:ExternalOpenRequestsById.Remove($appId)
+                Set-AppReadyObserved -AppId $appId
+                try {
+                    Open-AppIdentity -App $app
+                } catch {
+                    Show-BabelError -Message "Could not open the default browser.`r`n`r`n$($_.Exception.Message)"
+                }
+            } else {
+                Start-AppHealthProbe -App $app
+            }
+            continue
+        }
+
         if (-not (Test-LocalPort -Port $app.Port)) {
             $script:ExternalOpenRequestsById.Remove($appId)
             if (Test-WorkerStateActive -WorkerState $script:VerifyWorker) {
@@ -1656,43 +1896,70 @@ function Start-AllNotebookWorkers {
     if ($script:CloseRequested) {
         throw "The launcher is closing and cannot start more notebooks."
     }
+    Complete-WorkersIfExited
 
-    $startedNames = New-Object System.Collections.ArrayList
-    $blockedNames = New-Object System.Collections.ArrayList
+    if ($null -ne (Get-AllWorkerState)) {
+        Set-UiStatus -Message "The Start All session is already running."
+        return
+    }
+    if ($script:WorkersById.Count -gt 0) {
+        Set-UiStatus -Message "Stop independent OPEN workers before starting the aggregate Start All session."
+        return
+    }
 
+    $needsAggregateWorker = $false
+    $managedAppIds = @{}
     foreach ($app in $script:RegisteredApps) {
         if ($null -ne (Get-AppWorkerState -AppId $app.Id)) {
             continue
         }
-
-        $portOpen = Test-LocalPort -Port $app.Port
-        if ($portOpen) {
+        if (Test-LocalPort -Port $app.Port) {
             $script:LastPortOpenById[$app.Id] = $true
-            if (-not (Test-AppHealthRecentlyPassed -App $app)) {
-                Start-AppHealthProbe -App $app
-                [void]$blockedNames.Add($app.Name)
-            }
             continue
         }
 
         Invalidate-AppHealthProbe -AppId $app.Id
-        [void](Start-BabelWorker -Selection $app.Id -Mode "Start")
-        [void]$startedNames.Add($app.Name)
+        $managedAppIds[$app.Id] = $true
+        $needsAggregateWorker = $true
     }
 
-    if ($blockedNames.Count -gt 0) {
-        Set-UiStatus -Message "Started $($startedNames.Count) notebook(s). Skipped occupied ports pending or failing identity: $($blockedNames -join ', ')."
-    } elseif ($startedNames.Count -gt 0) {
-        Set-UiStatus -Message "Started $($startedNames.Count) independent notebook worker(s)."
-    } else {
-        Set-UiStatus -Message "All notebooks are already running or starting."
+    if (-not $needsAggregateWorker) {
+        Set-UiStatus -Message "Every notebook already has a worker or an occupied port; no Start All worker was needed."
+        return
     }
+
+    $script:AllWorkerManagedAppIds = $managedAppIds
+    try {
+        [void](Start-BabelWorker -Selection "All" -Mode "Start")
+    } catch {
+        $script:AllWorkerManagedAppIds = @{}
+        throw
+    }
+    Set-UiStatus -Message "Starting all notebooks in one managed worker. Use STOP ALL to stop this session."
 }
 
 if ($LifecycleSmokeTest) {
     $lifecycleStopSignalPath = [IO.Path]::GetTempFileName()
     $lifecycleForeignListener = $null
+    $lifecycleCleanupWorkerState = $null
     try {
+        $lifecycleSessionDirectory = Join-Path `
+            ([IO.Path]::GetTempPath()) `
+            ("BabelLauncher\" + [Guid]::NewGuid().ToString("N"))
+        [void](New-Item -ItemType Directory -Path $lifecycleSessionDirectory -Force)
+        [IO.File]::WriteAllText(
+            (Join-Path $lifecycleSessionDirectory "stdout.log"),
+            "lifecycle diagnostics cleanup smoke"
+        )
+        $lifecycleCleanupWorkerState = [pscustomobject]@{
+            Completed = $true
+            SessionDirectory = $lifecycleSessionDirectory
+        }
+        Remove-WorkerSessionDirectory -WorkerState $lifecycleCleanupWorkerState
+        if (Test-Path -LiteralPath $lifecycleSessionDirectory) {
+            throw "Lifecycle smoke test did not remove a completed diagnostics session."
+        }
+
         $lifecycleForeignListener = `
             New-Object Net.Sockets.TcpListener -ArgumentList ([Net.IPAddress]::Loopback), 0
         $lifecycleForeignListener.Start()
@@ -1700,7 +1967,6 @@ if ($LifecycleSmokeTest) {
         $probeSmokeApp = [pscustomobject]@{
             Id = "lifecycle-probe-smoke"
             HealthUrl = "http://127.0.0.1:$lifecycleForeignPort/api/health"
-            IdentityHealthUrl = "http://127.0.0.1:$lifecycleForeignPort/notes"
             IdentityText = "Babel lifecycle smoke identity"
         }
         $probeStartTime = [DateTime]::UtcNow
@@ -1726,11 +1992,10 @@ if ($LifecycleSmokeTest) {
 
         $originalHealthProbeScript = $script:HealthProbeScript
         try {
-            $script:HealthProbeScript = 'param($HealthUrl, $IdentityHealthUrl, $IdentityText); return $true'
+            $script:HealthProbeScript = 'param($HealthUrl, $IdentityText); return $true'
             $trueProbeApp = [pscustomobject]@{
                 Id = "lifecycle-true-probe-smoke"
                 HealthUrl = "http://127.0.0.1/unused-health"
-                IdentityHealthUrl = "http://127.0.0.1/unused-identity"
                 IdentityText = "unused"
             }
             Start-AppHealthProbe -App $trueProbeApp
@@ -1776,12 +2041,16 @@ if ($LifecycleSmokeTest) {
         $fakeProcessTwo = [pscustomobject]@{ HasExited = $false; ExitCode = 0; Id = 1002 }
         $fakeProcessTwo | Add-Member -MemberType ScriptMethod -Name Refresh -Value {} -Force
         $fakeProcessTwo | Add-Member -MemberType ScriptMethod -Name Dispose -Value {} -Force
+        $fakeAllProcess = [pscustomobject]@{ HasExited = $false; ExitCode = 0; Id = 1003 }
+        $fakeAllProcess | Add-Member -MemberType ScriptMethod -Name Refresh -Value {} -Force
+        $fakeAllProcess | Add-Member -MemberType ScriptMethod -Name Dispose -Value {} -Force
 
         $firstWorkerState = [pscustomobject]@{
             AppId = $script:RegisteredApps[0].Id
             App = $script:RegisteredApps[0]
             Label = $script:RegisteredApps[0].Name
             Mode = "Start"
+            ManagesAll = $false
             Process = $fakeProcessOne
             StopSignalPath = $lifecycleStopSignalPath
             StdOutLogPath = $lifecycleStopSignalPath + ".stdout"
@@ -1799,7 +2068,26 @@ if ($LifecycleSmokeTest) {
             App = $script:RegisteredApps[1]
             Label = $script:RegisteredApps[1].Name
             Mode = "Start"
+            ManagesAll = $false
             Process = $fakeProcessTwo
+            StopSignalPath = $lifecycleStopSignalPath
+            StdOutLogPath = $lifecycleStopSignalPath + ".stdout"
+            StdErrLogPath = $lifecycleStopSignalPath + ".stderr"
+            SessionDirectory = [IO.Path]::GetTempPath()
+            StartedAt = [DateTime]::UtcNow
+            StopRequested = $false
+            ReadyObserved = $false
+            OpenPending = $false
+            Completed = $false
+            ExitCode = $null
+        }
+        $allWorkerState = [pscustomobject]@{
+            AppId = ""
+            App = $null
+            Label = "All notebooks"
+            Mode = "Start"
+            ManagesAll = $true
+            Process = $fakeAllProcess
             StopSignalPath = $lifecycleStopSignalPath
             StdOutLogPath = $lifecycleStopSignalPath + ".stdout"
             StdErrLogPath = $lifecycleStopSignalPath + ".stderr"
@@ -1813,10 +2101,22 @@ if ($LifecycleSmokeTest) {
         }
         $script:WorkersById[$firstWorkerState.AppId] = $firstWorkerState
         $script:WorkersById[$secondWorkerState.AppId] = $secondWorkerState
+        $script:AllWorker = $allWorkerState
+        $script:AllWorkerManagedAppIds[$script:RegisteredApps[2].Id] = $true
 
-        if (@(Get-ActiveWorkerStates).Count -ne 2) {
-            throw "Lifecycle smoke test did not observe two independent workers."
+        if (@(Get-ActiveWorkerStates).Count -ne 3) {
+            throw "Lifecycle smoke test did not observe one aggregate and two independent workers."
         }
+        $script:AppsGrid.SelectedIndex = 2
+        Refresh-ButtonState
+        if (
+            $script:StopSelectedButton.IsEnabled -or
+            -not $script:StopAllButton.IsEnabled -or
+            $script:StartAllButton.IsEnabled
+        ) {
+            throw "Lifecycle smoke test did not reserve aggregate worker shutdown for STOP ALL."
+        }
+        $script:AppsGrid.SelectedIndex = 0
 
         $script:CloseRequested = $true
         Refresh-ButtonState
@@ -1867,14 +2167,26 @@ if ($LifecycleSmokeTest) {
             throw "Lifecycle smoke test did not remove an exited worker."
         }
 
-        Write-Output "Babel GUI lifecycle smoke test passed: true/false asynchronous health probes; stale result rejection; independent workers; closing gate; pending OPEN cancellation; failed-stop cancellation; worker cleanup."
+        $fakeAllProcess.HasExited = $true
+        [void](Complete-WorkerStateIfExited -WorkerState $allWorkerState)
+        if ($null -ne $script:AllWorker) {
+            throw "Lifecycle smoke test did not remove an exited aggregate worker."
+        }
+
+        Write-Output "Babel GUI lifecycle smoke test passed: true/false asynchronous health probes; stale result rejection; aggregate Start All with independent OPEN workers; STOP ALL ownership; bounded diagnostics cleanup; closing gate; pending OPEN cancellation; failed-stop cancellation; worker cleanup."
     } finally {
         $script:WorkersById = @{}
+        $script:AllWorker = $null
+        $script:AllWorkerManagedAppIds = @{}
+        $script:AllWorkerReadyById = @{}
         if ($null -ne $lifecycleForeignListener) {
             $lifecycleForeignListener.Stop()
         }
         if (Test-Path -LiteralPath $lifecycleStopSignalPath -PathType Leaf) {
             Remove-Item -LiteralPath $lifecycleStopSignalPath -Force
+        }
+        if ($null -ne $lifecycleCleanupWorkerState) {
+            Remove-WorkerSessionDirectory -WorkerState $lifecycleCleanupWorkerState
         }
         Dispose-AppHealthProbes
         Dispose-BabelTrayResources
@@ -1974,7 +2286,7 @@ $script:AppsGrid.Add_SelectionChanged({
 })
 
 $timer = New-Object Windows.Threading.DispatcherTimer
-$timer.Interval = [TimeSpan]::FromSeconds(2)
+$timer.Interval = [TimeSpan]::FromSeconds($script:StatusPollIntervalSeconds)
 $timer.Add_Tick({
     try {
         Complete-AppHealthProbes
@@ -2066,6 +2378,7 @@ try {
     }
     Dispose-AppHealthProbes
     Dispose-BabelTrayResources
+    Remove-CompletedWorkerSessions
 }
 
 if ($TraySmokeTest) {

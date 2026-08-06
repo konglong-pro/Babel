@@ -345,17 +345,18 @@
                             x:Name="StartAllButton"
                             Content="START ALL (_A)"
                             Style="{StaticResource ActionButtonStyle}"
-                            AutomationProperties.Name="Start all applications" />
+                            ToolTip="Start all stopped notebooks in one managed session after independent workers are stopped; stop it with STOP ALL."
+                            AutomationProperties.Name="Start all applications in one managed session" />
                         <Button
                             x:Name="StopSelectedButton"
                             Content="STOP SELECTED (_T)"
                             Style="{StaticResource StopButtonStyle}"
-                            AutomationProperties.Name="Stop the selected notebook managed by this window" />
+                            AutomationProperties.Name="Stop the selected notebook worker created by OPEN" />
                         <Button
                             x:Name="StopAllButton"
                             Content="STOP ALL"
                             Style="{StaticResource StopButtonStyle}"
-                            AutomationProperties.Name="Stop all notebooks managed by this window" />
+                            AutomationProperties.Name="Stop all notebook workers including the Start All session" />
                         <Button
                             x:Name="VerifyButton"
                             Content="VERIFY ALL (_V)"

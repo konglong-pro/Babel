@@ -11,6 +11,7 @@ const execFileAsync = promisify(execFile);
 const root = path.resolve(import.meta.dirname, "..");
 const workerPath = path.join(root, "launcher", "Babel.ps1");
 const guiPath = path.join(root, "launcher", "Babel.Gui.ps1");
+const processHelperPath = path.join(root, "launcher", "Babel.Process.ps1");
 const xamlPath = path.join(root, "launcher", "Babel.xaml");
 const nativeLauncherPath = path.join(root, "launcher", "Babel.exe");
 const nativeLauncherSourcePath = path.join(root, "launcher", "Babel.Launcher.cs");
@@ -22,6 +23,7 @@ const shortcutDefaultsPath = path.join(root, "packages", "platform", "shortcuts.
 const [
   workerSource,
   guiSource,
+  processHelperSource,
   xamlSource,
   nativeLauncherSource,
   nativeLauncherBuildSource,
@@ -32,6 +34,7 @@ const [
 ] = await Promise.all([
   readFile(workerPath, "utf8"),
   readFile(guiPath, "utf8"),
+  readFile(processHelperPath, "utf8"),
   readFile(xamlPath, "utf8"),
   readFile(nativeLauncherSourcePath, "utf8"),
   readFile(nativeLauncherBuildPath, "utf8"),
@@ -85,7 +88,7 @@ test("the previous control-panel visual shell keeps the current launcher contrac
   assert.match(xamlSource, /x:Name=["']AdvancedExpander["'][\s\S]{0,120}IsExpanded=["']True["']/i);
 });
 
-test("Babel.exe is a thin, reproducible STA entry point", () => {
+test("Babel.exe is a reproducible STA PowerShell host", () => {
   assert.equal(nativeLauncher.subarray(0, 2).toString("ascii"), "MZ");
   assert.ok(nativeLauncher.length > 1_024, "the checked-in launcher must contain a PE executable");
   const peOffset = nativeLauncher.readUInt32LE(0x3c);
@@ -97,18 +100,19 @@ test("Babel.exe is a thin, reproducible STA entry point", () => {
   );
   assert.match(nativeLauncherSource, /\[STAThread\]/);
   assert.match(nativeLauncherSource, /"Babel\.Gui\.ps1"/);
-  assert.match(nativeLauncherSource, /"-STA"/);
-  assert.match(nativeLauncherSource, /WorkingDirectory\s*=\s*repositoryRoot/);
-  assert.match(nativeLauncherSource, /CreateNoWindow\s*=\s*true/);
-  assert.match(nativeLauncherSource, /WaitForExit\(\)/);
-  assert.match(nativeLauncherSource, /return process\.ExitCode/);
-  assert.doesNotMatch(nativeLauncherSource, /XamlReader|RunspaceFactory/);
+  assert.match(nativeLauncherSource, /Directory\.SetCurrentDirectory\(repositoryRoot\)/);
+  assert.match(nativeLauncherSource, /RunspaceFactory\.CreateRunspace\(\)/);
+  assert.match(nativeLauncherSource, /ApartmentState\s*=\s*ApartmentState\.STA/);
+  assert.match(nativeLauncherSource, /PSThreadOptions\.UseNewThread/);
+  assert.match(nativeLauncherSource, /--encoded-command/);
+  assert.doesNotMatch(nativeLauncherSource, /XamlReader/);
   assert.match(nativeLauncherBuildSource, /v4\.0\.30319/i);
   assert.match(nativeLauncherBuildSource, /csc\.exe/i);
   assert.match(nativeLauncherBuildSource, /\/target:winexe/i);
   assert.match(nativeLauncherBuildSource, /\/noconfig/i);
   assert.match(nativeLauncherBuildSource, /\/nostdlib\+/i);
   assert.match(nativeLauncherBuildSource, /\/win32icon:/i);
+  assert.match(nativeLauncherBuildSource, /System\.Management\.Automation\.dll/i);
   assert.match(nativeLauncherBuildSource, /Babel\.Launcher\.cs/i);
 });
 
@@ -142,7 +146,7 @@ test(
   },
 );
 
-test("the GUI retains the complete health and identity contract", () => {
+test("the GUI verifies application identity from the lightweight health response", () => {
   for (const field of ["healthPath", "identityPath", "identityText"]) {
     assert.match(
       guiSource,
@@ -151,15 +155,16 @@ test("the GUI retains the complete health and identity contract", () => {
     );
   }
   assert.match(guiSource, /\bHealthUrl\s*=\s*\$internalBaseUrl\s*\+\s*\$healthPath/i);
-  assert.match(guiSource, /\bIdentityHealthUrl\s*=\s*\$internalBaseUrl\s*\+\s*\$identityPath/i);
   assert.match(guiSource, /\bIdentityUrl\s*=\s*\$publicBaseUrl\s*\+\s*\$identityPath/i);
   assert.match(guiSource, /\bIdentityText\s*=\s*\$identityText/i);
 
   const appHealthSource =
     guiSource.match(/function\s+Test-AppHealth\b([\s\S]*?)function\s+[A-Za-z]/i)?.[1] ?? "";
   assert.match(appHealthSource, /-Uri\s+\$App\.HealthUrl\b/i);
-  assert.match(appHealthSource, /-Uri\s+\$App\.IdentityHealthUrl\b/i);
+  assert.match(appHealthSource, /ConvertFrom-Json/i);
+  assert.match(appHealthSource, /\$health\.app\s+-ieq\s+\[string\]\$App\.IdentityText/i);
   assert.match(appHealthSource, /\$App\.IdentityText/i);
+  assert.doesNotMatch(appHealthSource, /IdentityHealthUrl|IdentityUrl/i);
 
   const statusRefreshSource =
     guiSource.match(/function\s+Refresh-AppStatuses\b([\s\S]*?)function\s+Update-LogView/i)?.[1] ?? "";
@@ -175,7 +180,12 @@ test("the GUI retains the complete health and identity contract", () => {
   const startAllSource =
     guiSource.match(/function\s+Start-AllNotebookWorkers\b([\s\S]*?)if\s*\(\$LifecycleSmokeTest\)/i)?.[1] ?? "";
   assert.doesNotMatch(startAllSource, /Test-AppHealth\s+-App/i);
-  assert.match(startAllSource, /Start-AppHealthProbe\s+-App\s+\$app/i);
+  assert.match(startAllSource, /Start-BabelWorker\s+-Selection\s+["']All["']\s+-Mode\s+["']Start["']/i);
+  assert.equal(
+    startAllSource.match(/Start-BabelWorker/gi)?.length ?? 0,
+    1,
+    "START ALL must create exactly one aggregate worker",
+  );
 });
 
 test("managed workers survive transient listener probe failures", () => {
@@ -204,19 +214,30 @@ test("the GUI bounds background status probe frequency", () => {
 
   assert.match(
     statusRefreshSource,
-    /\.TotalSeconds\s+-ge\s+10\b/i,
+    /\.TotalSeconds\s+-ge[\s\S]{0,100}\$script:HealthProbeIntervalSeconds/i,
     "background HTTP health probes must be spaced out",
+  );
+  assert.match(guiSource, /\$script:HealthProbeIntervalSeconds\s*=\s*30\b/i);
+  assert.match(guiSource, /CreateRunspacePool\(1,\s*\$healthProbeConcurrency\)/i);
+  assert.match(guiSource, /\$healthProbeConcurrency\s*=\s*\[Math\]::Min\(2,/i);
+  assert.match(
+    guiSource,
+    /\$script:StatusPollIntervalSeconds\s*=\s*5\b/i,
   );
   assert.match(
     guiSource,
-    /\$timer\.Interval\s*=\s*\[TimeSpan\]::FromSeconds\(2\)/i,
+    /\$timer\.Interval\s*=\s*\[TimeSpan\]::FromSeconds\(\$script:StatusPollIntervalSeconds\)/i,
     "GUI status polling must leave breathing room for notebook processes",
   );
 });
 
-test("notebooks have independent workers and the five product states", () => {
+test("START ALL has one aggregate worker while OPEN retains independent workers", () => {
   assert.match(guiSource, /\$script:WorkersById\s*=\s*@\{\}/i);
-  assert.doesNotMatch(guiSource, /\$script:Worker\s*=\s*\$null/i);
+  assert.match(guiSource, /\$script:AllWorker\s*=\s*\$null/i);
+  assert.match(guiSource, /\bManagesAll\s*=\s*\$isAllStart/i);
+  assert.match(guiSource, /function\s+Get-AllWorkerState\b/i);
+  assert.match(guiSource, /\$independentStartActive\s*=\s*@\(/i);
+  assert.match(guiSource, /\$script:StopSelectedButton\.IsEnabled[\s\S]{0,160}\$selectedWorker/i);
   assert.match(guiSource, /function\s+Get-AppDisplayStatus\b/i);
   for (const status of ["Stopped", "Starting", "Ready", "Unhealthy", "External"]) {
     assert.match(guiSource, new RegExp(`return ["']${status}["']`, "i"));
@@ -226,6 +247,33 @@ test("notebooks have independent workers and the five product states", () => {
   assert.match(xamlSource, /x:Name=["']StartAllButton["']/i);
   assert.match(xamlSource, /x:Name=["']VerifyButton["']/i);
   assert.match(xamlSource, /x:Name=["']LogTextBox["']/i);
+});
+
+test("diagnostics keep bounded history and log tails", () => {
+  const updateLogSource =
+    guiSource.match(/function\s+Update-LogView\b([\s\S]*?)function\s+Request-WorkerStop/i)?.[1] ?? "";
+
+  assert.match(guiSource, /\$script:MaximumWorkerHistory\s*=\s*20\b/i);
+  assert.match(guiSource, /\$script:MaximumLogCharactersPerStream\s*=\s*131072\b/i);
+  assert.match(guiSource, /\$script:MaximumRenderedLogCharacters\s*=\s*1048576\b/i);
+  assert.match(guiSource, /function\s+Trim-WorkerHistory\b/i);
+  assert.match(guiSource, /function\s+Remove-WorkerSessionDirectory\b/i);
+  assert.match(updateLogSource, /Read-WorkerLogTail\s+-Path/i);
+  assert.doesNotMatch(updateLogSource, /Get-Content[^\r\n]*-Raw/i);
+});
+
+test("notebook processes run without allocating console hosts", () => {
+  const startProcessSource =
+    workerSource.match(/function\s+Start-AppProcess\b([\s\S]*?)function\s+Wait-AppReady/i)?.[1] ?? "";
+
+  assert.match(workerSource, /\.\s+\$processHelperPath/i);
+  assert.match(guiSource, /\.\s+\$processHelperPath/i);
+  assert.match(startProcessSource, /Start-BabelDetachedProcess/i);
+  assert.match(guiSource, /-FilePath\s+\$nativeLauncherPath/i);
+  assert.match(guiSource, /--encoded-command\s+\$encodedCommand/i);
+  assert.match(processHelperSource, /DetachedProcessFlag\s*=\s*0x00000008/i);
+  assert.match(processHelperSource, /CreateProcessW\(/i);
+  assert.doesNotMatch(startProcessSource, /CreateNoWindow/i);
 });
 
 test("the tray menu exposes every registered notebook", () => {
@@ -249,7 +297,7 @@ test("ready messages publish the registered identity URL", () => {
   );
 });
 
-test("the launcher separates internal probes from the public identity URL", () => {
+test("the launcher separates lightweight internal identity probes from the public URL", () => {
   const appHealthSource =
     workerSource.match(/function\s+Test-AppHealth\b([\s\S]*?)function\s+Get-NewestInputTimeUtc\b/i)?.[1] ?? "";
 
@@ -270,23 +318,20 @@ test("the launcher separates internal probes from the public identity URL", () =
   );
   assert.match(
     workerSource,
-    /\bIdentityHealthUrl\s*=\s*\$internalBaseUrl\s*\+\s*\$identityPath/i,
-    "identity readiness checks must use the internal loopback URL",
-  );
-  assert.match(
-    workerSource,
     /\bIdentityUrl\s*=\s*\$publicBaseUrl\s*\+\s*\$identityPath/i,
     "the identity URL shown to users must use localhost",
   );
   assert.match(
     appHealthSource,
-    /-Uri\s+\$App\.IdentityHealthUrl\b/i,
-    "Test-AppHealth must request the internal identity health URL",
+    /-Uri\s+\$App\.HealthUrl\b/i,
+    "Test-AppHealth must request the internal health URL",
   );
+  assert.match(appHealthSource, /ConvertFrom-Json/i);
+  assert.match(appHealthSource, /\$health\.app\s+-ieq\s+\[string\]\$App\.IdentityText/i);
   assert.doesNotMatch(
     appHealthSource,
-    /-Uri\s+\$App\.IdentityUrl\b/i,
-    "Test-AppHealth must not request the public identity URL",
+    /IdentityHealthUrl|\$App\.IdentityUrl/i,
+    "Test-AppHealth must not render the public identity page",
   );
   assert.match(
     workerSource,
@@ -630,12 +675,13 @@ test(
       assert.match(stdout, new RegExp(`\\b${status}\\b`, "i"));
     }
     assert.match(stdout, /foreign listener rejected/i);
-    assert.match(stdout, /independent workers/i);
+    assert.match(stdout, /aggregate Start All/i);
+    assert.match(stdout, /independent OPEN workers/i);
   },
 );
 
 test(
-  "the multi-worker lifecycle passes a real Windows PowerShell smoke test",
+  "the aggregate and independent worker lifecycle passes a real Windows PowerShell smoke test",
   { skip: process.platform !== "win32" },
   async () => {
     const { stdout } = await execFileAsync(
@@ -656,7 +702,10 @@ test(
     assert.match(stdout, /Babel GUI lifecycle smoke test passed/i);
     assert.match(stdout, /asynchronous health probe/i);
     assert.match(stdout, /stale result rejection/i);
-    assert.match(stdout, /independent workers/i);
+    assert.match(stdout, /aggregate Start All/i);
+    assert.match(stdout, /independent OPEN workers/i);
+    assert.match(stdout, /STOP ALL ownership/i);
+    assert.match(stdout, /bounded diagnostics cleanup/i);
     assert.match(stdout, /closing gate/i);
     assert.match(stdout, /pending OPEN cancellation/i);
     assert.match(stdout, /failed-stop cancellation/i);
