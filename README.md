@@ -93,6 +93,21 @@ do not remain resident.
 `MINIMIZE TO TRAY` hides the launcher without stopping its workers. The tray
 menu lists every notebook; choosing one follows the same start, identity-check,
 and open flow. Tray `Exit` gracefully stops all workers owned by that launcher.
+While the launcher process is running, the global `Ctrl+Alt+B` hotkey toggles
+the window: it restores and focuses the notebook table when hidden or behind
+another app, and returns the launcher to the tray when it is already in front.
+After restoring, use `1`-`9` or `0` (the tenth row) to select a notebook,
+Up/Down to move, Enter to `OPEN`, Delete to stop the selected independent
+worker, and Escape to return to the tray. A keyboard `OPEN` returns to the tray
+only after the registered health identity passes and the browser opens; errors
+keep or restore the launcher so they remain visible.
+The `OPEN`, `STOP SELECTED`, and `MINIMIZE TO TRAY` buttons remain clickable,
+but they no longer expose O/T/M access keys; their only window-level keyboard
+commands are Enter, Delete, and Escape respectively.
+
+Closing the launcher with its X still stops its managed workers and exits, which
+also unregisters the global hotkey. Use Escape or `MINIMIZE TO TRAY` when you
+want to leave the hotkey available.
 
 `Babel.exe` is a small Windows-native wrapper around `Babel.Gui.ps1`; it does not
 duplicate launcher behavior. Rebuild it with the Windows .NET Framework compiler
@@ -102,9 +117,14 @@ already included with Windows:
 npm.cmd run launcher:build
 ```
 
-`SHORTCUTS` opens the global shortcut editor. Babel stores the user override in
-`%LOCALAPPDATA%\Babel\shortcuts.json`, outside both the public repository and the
-private notebook-data repository. The defaults are `Ctrl+S` (save),
+`SHORTCUTS` configures both the launcher toggle and web application commands.
+The launcher binding is stored independently in
+`%LOCALAPPDATA%\Babel\launcher.json`; the nine web command overrides remain in
+`%LOCALAPPDATA%\Babel\shortcuts.json`. Both files are outside the public
+repository and the private notebook-data repository. A changed launcher binding
+is registered immediately; if Windows reports that the combination is already
+in use, Babel keeps the previous binding and settings. The web defaults are
+`Ctrl+S` (save),
 `Ctrl+Alt+N` (new), `Ctrl+Alt+E` (edit), `Ctrl+R` (read), `Ctrl+Enter`
 (confirm), `Escape` (cancel), `Ctrl+F` (search), `Ctrl+Delete` (delete), and
 `Ctrl+K` (command palette). Reload an open notebook page after saving changes

@@ -334,12 +334,13 @@
                             Margin="1,0,0,8"
                             Foreground="#777068"
                             FontSize="11"
-                            Text="Keys: O / A / T / V / K / M" />
+                            Text="Keys: 1-0 / Up-Down / Enter / Delete / Esc | Alt+A / Alt+V / Alt+K"
+                            TextWrapping="Wrap" />
                         <Button
                             x:Name="OpenSelectedButton"
-                            Content="OPEN (_O)"
-                            IsDefault="True"
+                            Content="OPEN"
                             Style="{StaticResource PrimaryButtonStyle}"
+                            ToolTip="Open the selected notebook; keyboard Enter returns to the tray after a successful open."
                             AutomationProperties.Name="Open selected notebook" />
                         <Button
                             x:Name="StartAllButton"
@@ -349,7 +350,7 @@
                             AutomationProperties.Name="Start all applications in one managed session" />
                         <Button
                             x:Name="StopSelectedButton"
-                            Content="STOP SELECTED (_T)"
+                            Content="STOP SELECTED"
                             Style="{StaticResource StopButtonStyle}"
                             AutomationProperties.Name="Stop the selected notebook worker created by OPEN" />
                         <Button
@@ -366,12 +367,13 @@
                             x:Name="ShortcutsButton"
                             Content="SHORTCUTS (_K)"
                             Style="{StaticResource ActionButtonStyle}"
-                            AutomationProperties.Name="Configure global application shortcuts" />
+                            AutomationProperties.Name="Configure launcher hotkey and web application shortcuts" />
                         <Button
                             x:Name="MinimizeToTrayButton"
-                            Content="MINIMIZE TO TRAY (_M)"
+                            Content="MINIMIZE TO TRAY"
                             Margin="0"
                             Style="{StaticResource ActionButtonStyle}"
+                            ToolTip="Keep the launcher and global hotkey running in the Windows notification area; Escape does the same."
                             AutomationProperties.Name="Hide the launcher in the Windows notification area" />
                     </StackPanel>
                 </ScrollViewer>

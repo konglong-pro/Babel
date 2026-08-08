@@ -6,14 +6,22 @@ param(
 
     [switch]$StateSmokeTest,
 
-    [switch]$LifecycleSmokeTest
+    [switch]$LifecycleSmokeTest,
+
+    [switch]$HotkeySmokeTest
 )
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
 
 $testModeCount = 0
-foreach ($testModeEnabled in @($SmokeTest, $TraySmokeTest, $StateSmokeTest, $LifecycleSmokeTest)) {
+foreach ($testModeEnabled in @(
+    $SmokeTest,
+    $TraySmokeTest,
+    $StateSmokeTest,
+    $LifecycleSmokeTest,
+    $HotkeySmokeTest
+)) {
     if ($testModeEnabled) {
         $testModeCount++
     }
@@ -35,6 +43,55 @@ Add-Type -AssemblyName WindowsBase
 Add-Type -AssemblyName System.Data
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Windows.Forms
+
+if ($null -eq ("BabelLauncher.GlobalHotkeyNativeMethods" -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+namespace BabelLauncher
+{
+    public static class GlobalHotkeyNativeMethods
+    {
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool RegisterHotKey(
+            IntPtr windowHandle,
+            int identifier,
+            uint modifiers,
+            uint virtualKey);
+
+        public static int RegisterHotKeyWithError(
+            IntPtr windowHandle,
+            int identifier,
+            uint modifiers,
+            uint virtualKey)
+        {
+            if (RegisterHotKey(windowHandle, identifier, modifiers, virtualKey))
+            {
+                return 0;
+            }
+            return Marshal.GetLastWin32Error();
+        }
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool UnregisterHotKey(IntPtr windowHandle, int identifier);
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool PostMessage(
+            IntPtr windowHandle,
+            uint message,
+            IntPtr wParam,
+            IntPtr lParam);
+    }
+}
+'@
+}
 
 $babelRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $registryPath = Join-Path $babelRoot "babel.apps.json"
@@ -279,6 +336,7 @@ if (($actualShortcutCommands -join "|") -cne ($expectedShortcutCommands -join "|
 $shortcutDefaultBindings = Get-BabelDefaultShortcutBindings -Definitions $shortcutDefinitions
 
 $shortcutControlNames = @(
+    "LauncherHotkeyBox",
     "ShortcutGrid",
     "ShortcutErrorText",
     "ShortcutStatusText",
@@ -436,6 +494,7 @@ $script:LastProbeAtById = @{}
 $script:HealthProbesById = @{}
 $script:ProbeGenerationById = @{}
 $script:ExternalOpenRequestsById = @{}
+$script:HideAfterOpenById = @{}
 $script:HealthProbeScript = @'
 param(
     [string]$HealthUrl,
@@ -472,6 +531,20 @@ $script:TrayExitMenuItem = $null
 $script:TrayAppMenuItems = @{}
 $script:TraySmokeTimer = $null
 $script:TraySmokeError = $null
+$script:WindowHandle = [IntPtr]::Zero
+$script:GlobalHotkeySource = $null
+$script:GlobalHotkeyHook = $null
+$script:GlobalHotkeyRegistered = $false
+$script:GlobalHotkeyId = 0
+$script:GlobalHotkeyBinding = ""
+$script:GlobalHotkeyIds = @(0x4241, 0x4242)
+$script:GlobalHotkeyWarning = ""
+$script:ShortcutDialogWindow = $null
+$script:HotkeySmokeTimer = $null
+$script:HotkeySmokeError = $null
+$script:HotkeySmokePhase = 0
+$script:HotkeySmokeForegroundOverride = $null
+$script:WmHotkey = [uint32]0x0312
 
 $appTable = New-Object System.Data.DataTable
 [void]$appTable.Columns.Add("Id", [string])
@@ -689,6 +762,7 @@ function Get-BabelShortcutDialogState {
 
 function Show-BabelShortcutSettings {
     $settings = Read-BabelShortcutSettings -Definitions $script:ShortcutDefinitions
+    $launcherSettings = Read-BabelLauncherHotkeySettings
     $shortcutWindow = Import-BabelWindow -Path $script:ShortcutXamlPath
     $shortcutControls = @{}
     foreach ($controlName in $script:ShortcutControlNames) {
@@ -714,6 +788,7 @@ function Show-BabelShortcutSettings {
         [void]$shortcutTable.Rows.Add($row)
     }
     $shortcutControls.ShortcutGrid.ItemsSource = $shortcutTable.DefaultView
+    $shortcutControls.LauncherHotkeyBox.Text = [string]$launcherSettings.Binding
 
     $state = [pscustomobject]@{
         Window = $shortcutWindow
@@ -721,11 +796,19 @@ function Show-BabelShortcutSettings {
         Table = $shortcutTable
         Definitions = @($script:ShortcutDefinitions)
         DefaultBindings = $script:ShortcutDefaultBindings
+        DefaultLauncherBinding = Get-BabelDefaultLauncherHotkeyBinding
+        LauncherBinding = [string]$launcherSettings.Binding
         Saved = $false
     }
     $shortcutWindow.Tag = $state
-    if (-not [string]::IsNullOrWhiteSpace([string]$settings.Warning)) {
-        $shortcutControls.ShortcutStatusText.Text = [string]$settings.Warning
+    $settingsWarnings = @(
+        @(
+            [string]$settings.Warning,
+            [string]$launcherSettings.Warning
+        ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    )
+    if ($settingsWarnings.Count -gt 0) {
+        $shortcutControls.ShortcutStatusText.Text = $settingsWarnings -join " "
     }
 
     $shortcutWindow.Add_PreviewKeyDown({
@@ -735,7 +818,7 @@ function Show-BabelShortcutSettings {
         if (
             $null -eq $focusedElement -or
             -not ($focusedElement -is [Windows.Controls.TextBox]) -or
-            $focusedElement.Name -ne "ShortcutCaptureBox" -or
+            @("LauncherHotkeyBox", "ShortcutCaptureBox") -notcontains $focusedElement.Name -or
             [string]::IsNullOrWhiteSpace([string]$focusedElement.Tag)
         ) {
             return
@@ -744,26 +827,53 @@ function Show-BabelShortcutSettings {
         $dialogState = Get-BabelShortcutDialogState -Sender $sender
         try {
             $canonicalBinding = ConvertFrom-WpfShortcutKeyEvent -EventArgs $eventArgs
-            $commandId = [string]$focusedElement.Tag
-            foreach ($otherRow in $dialogState.Table.Rows) {
+            if ($focusedElement.Name -eq "LauncherHotkeyBox") {
+                [void](ConvertTo-BabelLauncherHotkeyRegistration -Binding $canonicalBinding)
+                foreach ($otherRow in $dialogState.Table.Rows) {
+                    if (
+                        [string]::Equals(
+                            [string]$otherRow.Shortcut,
+                            $canonicalBinding,
+                            [StringComparison]::OrdinalIgnoreCase
+                        )
+                    ) {
+                        throw "Hotkey '$canonicalBinding' is already assigned to the $($otherRow.Label) web command."
+                    }
+                }
+                $dialogState.LauncherBinding = $canonicalBinding
+                $dialogState.Controls.LauncherHotkeyBox.Text = $canonicalBinding
+            } else {
+                $commandId = [string]$focusedElement.Tag
                 if (
-                    [string]$otherRow.Id -ne $commandId -and
                     [string]::Equals(
-                        [string]$otherRow.Shortcut,
+                        [string]$dialogState.LauncherBinding,
                         $canonicalBinding,
                         [StringComparison]::OrdinalIgnoreCase
                     )
                 ) {
-                    throw "Shortcut '$canonicalBinding' is already assigned to $($otherRow.Label)."
+                    throw "Shortcut '$canonicalBinding' is already assigned to the launcher toggle."
                 }
-            }
+                foreach ($otherRow in $dialogState.Table.Rows) {
+                    if (
+                        [string]$otherRow.Id -ne $commandId -and
+                        [string]::Equals(
+                            [string]$otherRow.Shortcut,
+                            $canonicalBinding,
+                            [StringComparison]::OrdinalIgnoreCase
+                        )
+                    ) {
+                        throw "Shortcut '$canonicalBinding' is already assigned to $($otherRow.Label)."
+                    }
+                }
 
-            $currentRows = @($dialogState.Table.Select("Id = '" + $commandId.Replace("'", "''") + "'"))
-            if ($currentRows.Count -ne 1) {
-                throw "Could not find shortcut command '$commandId'."
+                $escapedCommandId = $commandId.Replace("'", "''")
+                $currentRows = @($dialogState.Table.Select("Id = '$escapedCommandId'"))
+                if ($currentRows.Count -ne 1) {
+                    throw "Could not find shortcut command '$commandId'."
+                }
+                $currentRows[0].Shortcut = $canonicalBinding
+                $dialogState.Controls.ShortcutGrid.Items.Refresh()
             }
-            $currentRows[0].Shortcut = $canonicalBinding
-            $dialogState.Controls.ShortcutGrid.Items.Refresh()
             $dialogState.Controls.ShortcutErrorText.Text = ""
             $dialogState.Controls.ShortcutStatusText.Text = "Shortcut captured. Choose Save to apply the complete set."
         } catch {
@@ -780,6 +890,8 @@ function Show-BabelShortcutSettings {
         foreach ($row in $dialogState.Table.Rows) {
             $row.Shortcut = [string]$dialogState.DefaultBindings[[string]$row.Id]
         }
+        $dialogState.LauncherBinding = [string]$dialogState.DefaultLauncherBinding
+        $dialogState.Controls.LauncherHotkeyBox.Text = [string]$dialogState.LauncherBinding
         $dialogState.Controls.ShortcutGrid.Items.Refresh()
         $dialogState.Controls.ShortcutErrorText.Text = ""
         $dialogState.Controls.ShortcutStatusText.Text = "Defaults restored in this window. Choose Save to persist them."
@@ -796,31 +908,58 @@ function Show-BabelShortcutSettings {
         param($sender, $eventArgs)
 
         $dialogState = Get-BabelShortcutDialogState -Sender $sender
+        $candidate = $null
         try {
             $bindings = [ordered]@{}
             foreach ($row in $dialogState.Table.Rows) {
                 $bindings[[string]$row.Id] = [string]$row.Shortcut
             }
-            $savedPath = Write-BabelShortcutSettings `
+            $launcherRegistration = ConvertTo-BabelLauncherHotkeyRegistration `
+                -Binding ([string]$dialogState.LauncherBinding)
+            foreach ($row in $dialogState.Table.Rows) {
+                if (
+                    [string]::Equals(
+                        [string]$row.Shortcut,
+                        [string]$launcherRegistration.Binding,
+                        [StringComparison]::OrdinalIgnoreCase
+                    )
+                ) {
+                    throw "Hotkey '$($launcherRegistration.Binding)' is already assigned to the $($row.Label) web command."
+                }
+            }
+
+            $candidate = Register-BabelGlobalHotkeyCandidate -Registration $launcherRegistration
+            $savedShortcutPath = Write-BabelShortcutSettings `
                 -Definitions $dialogState.Definitions `
                 -Bindings $bindings
+            $savedLauncherPath = Write-BabelLauncherHotkeySettings `
+                -Binding $launcherRegistration.Binding
+            Commit-BabelGlobalHotkeyCandidate -Candidate $candidate
             $dialogState.Saved = $true
             $dialogState.Controls.ShortcutErrorText.Text = ""
-            $dialogState.Controls.ShortcutStatusText.Text = "Saved. Reload open application pages to use the new shortcuts."
+            $dialogState.Controls.ShortcutStatusText.Text = "Saved. The launcher hotkey is active now; reload open application pages for web command changes."
             [Windows.MessageBox]::Show(
                 $dialogState.Window,
-                "Global shortcuts were saved to:`r`n$savedPath`r`n`r`nReload open application pages to use the new shortcuts.",
+                "Launcher hotkey applied now: $($launcherRegistration.Binding)`r`n`r`nLauncher setting:`r`n$savedLauncherPath`r`n`r`nWeb command settings:`r`n$savedShortcutPath`r`n`r`nReload open application pages for web command changes.",
                 "Babel Shortcuts",
                 [Windows.MessageBoxButton]::OK,
                 [Windows.MessageBoxImage]::Information
             ) | Out-Null
             $dialogState.Window.DialogResult = $true
         } catch {
+            Cancel-BabelGlobalHotkeyCandidate -Candidate $candidate
             $dialogState.Controls.ShortcutErrorText.Text = $_.Exception.Message
         }
     })
 
-    [void]$shortcutWindow.ShowDialog()
+    $script:ShortcutDialogWindow = $shortcutWindow
+    try {
+        [void]$shortcutWindow.ShowDialog()
+    } finally {
+        if ([object]::ReferenceEquals($script:ShortcutDialogWindow, $shortcutWindow)) {
+            $script:ShortcutDialogWindow = $null
+        }
+    }
     return [bool]$state.Saved
 }
 
@@ -862,6 +1001,253 @@ function Dispose-BabelTrayResources {
     if ($null -ne $script:TrayIconImage) {
         $script:TrayIconImage.Dispose()
         $script:TrayIconImage = $null
+    }
+}
+
+function Focus-BabelAppList {
+    if ($script:AppsGrid.Items.Count -gt 0 -and $script:AppsGrid.SelectedIndex -lt 0) {
+        $script:AppsGrid.SelectedIndex = 0
+    }
+    if ($null -ne $script:AppsGrid.SelectedItem) {
+        $script:AppsGrid.ScrollIntoView($script:AppsGrid.SelectedItem)
+    }
+
+    [void]$script:AppsGrid.Focus()
+    [void][Windows.Input.Keyboard]::Focus($script:AppsGrid)
+
+    $focusAction = [Action]{
+        [void]$script:AppsGrid.Focus()
+        [void][Windows.Input.Keyboard]::Focus($script:AppsGrid)
+    }
+    [void]$script:AppsGrid.Dispatcher.BeginInvoke(
+        [Windows.Threading.DispatcherPriority]::Input,
+        $focusAction
+    )
+}
+
+function Test-BabelWindowIsForeground {
+    if ($HotkeySmokeTest -and $null -ne $script:HotkeySmokeForegroundOverride) {
+        return [bool]$script:HotkeySmokeForegroundOverride
+    }
+    if ($script:WindowHandle -eq [IntPtr]::Zero) {
+        return $false
+    }
+    return (
+        [BabelLauncher.GlobalHotkeyNativeMethods]::GetForegroundWindow() -eq
+        $script:WindowHandle
+    )
+}
+
+function Invoke-BabelGlobalHotkeyToggle {
+    if (
+        $null -ne $script:ShortcutDialogWindow -and
+        $script:ShortcutDialogWindow.IsVisible
+    ) {
+        [void]$script:ShortcutDialogWindow.Activate()
+        return
+    }
+
+    if (Test-BabelWindowIsForeground) {
+        Hide-BabelWindowToTray
+        return
+    }
+
+    Restore-BabelWindowFromTray
+    Focus-BabelAppList
+}
+
+function Get-BabelLastWin32ErrorText {
+    param(
+        [int]$ErrorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+    )
+
+    $exception = New-Object ComponentModel.Win32Exception -ArgumentList $ErrorCode
+    return "$($exception.Message) (Win32 error $ErrorCode)"
+}
+
+function Register-BabelGlobalHotkeyCandidate {
+    param(
+        [Parameter(Mandatory = $true)]
+        [pscustomobject]$Registration
+    )
+
+    if ($script:WindowHandle -eq [IntPtr]::Zero -or $null -eq $script:GlobalHotkeySource) {
+        throw "The launcher window handle is not ready for global hotkey registration."
+    }
+    if ($null -eq $script:NotifyIcon) {
+        throw "The launcher hotkey is unavailable because notification-area mode could not be initialized."
+    }
+
+    $binding = [string]$Registration.Binding
+    if (
+        $script:GlobalHotkeyRegistered -and
+        [string]::Equals(
+            $script:GlobalHotkeyBinding,
+            $binding,
+            [StringComparison]::OrdinalIgnoreCase
+        )
+    ) {
+        return [pscustomobject]@{
+            Changed = $false
+            Committed = $true
+            Id = $script:GlobalHotkeyId
+            Binding = $script:GlobalHotkeyBinding
+        }
+    }
+
+    $candidateId = [int]$script:GlobalHotkeyIds[0]
+    if ($script:GlobalHotkeyRegistered -and $candidateId -eq $script:GlobalHotkeyId) {
+        $candidateId = [int]$script:GlobalHotkeyIds[1]
+    }
+
+    $registrationError = [BabelLauncher.GlobalHotkeyNativeMethods]::RegisterHotKeyWithError(
+        $script:WindowHandle,
+        $candidateId,
+        [uint32]$Registration.Modifiers,
+        [uint32]$Registration.VirtualKey
+    )
+    if ($registrationError -ne 0) {
+        $errorText = Get-BabelLastWin32ErrorText -ErrorCode $registrationError
+        throw "Could not register launcher hotkey '$binding'. It may already be in use by another application. $errorText"
+    }
+
+    return [pscustomobject]@{
+        Changed = $true
+        Committed = $false
+        Id = $candidateId
+        Binding = $binding
+    }
+}
+
+function Cancel-BabelGlobalHotkeyCandidate {
+    param(
+        [AllowNull()]
+        [pscustomobject]$Candidate
+    )
+
+    if (
+        $null -eq $Candidate -or
+        -not [bool]$Candidate.Changed -or
+        [bool]$Candidate.Committed -or
+        $script:WindowHandle -eq [IntPtr]::Zero
+    ) {
+        return
+    }
+    [void][BabelLauncher.GlobalHotkeyNativeMethods]::UnregisterHotKey(
+        $script:WindowHandle,
+        [int]$Candidate.Id
+    )
+}
+
+function Commit-BabelGlobalHotkeyCandidate {
+    param(
+        [Parameter(Mandatory = $true)]
+        [pscustomobject]$Candidate
+    )
+
+    if (-not [bool]$Candidate.Changed) {
+        return
+    }
+
+    if ($script:GlobalHotkeyRegistered) {
+        $unregistered = [BabelLauncher.GlobalHotkeyNativeMethods]::UnregisterHotKey(
+            $script:WindowHandle,
+            $script:GlobalHotkeyId
+        )
+        if (-not $unregistered) {
+            $errorText = Get-BabelLastWin32ErrorText
+            throw "Could not replace the existing launcher hotkey. $errorText"
+        }
+    }
+
+    $script:GlobalHotkeyRegistered = $true
+    $script:GlobalHotkeyId = [int]$Candidate.Id
+    $script:GlobalHotkeyBinding = [string]$Candidate.Binding
+    $Candidate.Committed = $true
+}
+
+function Dispose-BabelGlobalHotkeyResources {
+    if (
+        $script:GlobalHotkeyRegistered -and
+        $script:WindowHandle -ne [IntPtr]::Zero
+    ) {
+        [void][BabelLauncher.GlobalHotkeyNativeMethods]::UnregisterHotKey(
+            $script:WindowHandle,
+            $script:GlobalHotkeyId
+        )
+    }
+    $script:GlobalHotkeyRegistered = $false
+    $script:GlobalHotkeyId = 0
+    $script:GlobalHotkeyBinding = ""
+
+    if ($null -ne $script:GlobalHotkeySource -and $null -ne $script:GlobalHotkeyHook) {
+        try {
+            $script:GlobalHotkeySource.RemoveHook($script:GlobalHotkeyHook)
+        } catch {
+            # The HwndSource may already be disposed during application shutdown.
+        }
+    }
+    $script:GlobalHotkeyHook = $null
+    $script:GlobalHotkeySource = $null
+    $script:WindowHandle = [IntPtr]::Zero
+}
+
+function Initialize-BabelGlobalHotkey {
+    $interopHelper = New-Object Windows.Interop.WindowInteropHelper($script:Window)
+    $script:WindowHandle = $interopHelper.Handle
+    if ($script:WindowHandle -eq [IntPtr]::Zero) {
+        throw "Windows did not create a launcher window handle."
+    }
+
+    $script:GlobalHotkeySource = [Windows.Interop.HwndSource]::FromHwnd($script:WindowHandle)
+    if ($null -eq $script:GlobalHotkeySource) {
+        throw "Could not attach the launcher hotkey message source."
+    }
+
+    $script:GlobalHotkeyHook = [Windows.Interop.HwndSourceHook]{
+        param($windowHandle, $message, $wParam, $lParam, [ref]$handled)
+
+        if (
+            [uint32]$message -eq $script:WmHotkey -and
+            $script:GlobalHotkeyRegistered -and
+            $wParam.ToInt32() -eq $script:GlobalHotkeyId
+        ) {
+            $handled.Value = $true
+            try {
+                Invoke-BabelGlobalHotkeyToggle
+            } catch {
+                try {
+                    Set-UiStatus -Message "Launcher hotkey failed: $($_.Exception.Message)"
+                } catch {
+                    # Never allow a status-rendering failure to escape the window hook.
+                }
+            }
+        }
+        return [IntPtr]::Zero
+    }
+    $script:GlobalHotkeySource.AddHook($script:GlobalHotkeyHook)
+
+    if ($HotkeySmokeTest) {
+        $registration = [pscustomobject]@{
+            Binding = "Ctrl+Alt+Shift+F24 (smoke)"
+            Modifiers = [uint32]0x4007
+            VirtualKey = [uint32]0x87
+        }
+    } else {
+        $settings = Read-BabelLauncherHotkeySettings
+        if (-not [string]::IsNullOrWhiteSpace([string]$settings.Warning)) {
+            $script:GlobalHotkeyWarning = [string]$settings.Warning
+        }
+        $registration = ConvertTo-BabelLauncherHotkeyRegistration -Binding $settings.Binding
+    }
+
+    $candidate = $null
+    try {
+        $candidate = Register-BabelGlobalHotkeyCandidate -Registration $registration
+        Commit-BabelGlobalHotkeyCandidate -Candidate $candidate
+    } catch {
+        Cancel-BabelGlobalHotkeyCandidate -Candidate $candidate
+        throw
     }
 }
 
@@ -1431,6 +1817,9 @@ function Request-WorkerStop {
     $WorkerState.OpenPending = $false
     if ([bool]$WorkerState.ManagesAll) {
         $script:ExternalOpenRequestsById = @{}
+        $script:HideAfterOpenById = @{}
+    } elseif (-not [string]::IsNullOrWhiteSpace([string]$WorkerState.AppId)) {
+        Clear-BabelHideAfterOpen -AppId ([string]$WorkerState.AppId)
     }
 
     try {
@@ -1473,6 +1862,7 @@ function Request-AllWorkersStop {
         return
     }
     $script:ExternalOpenRequestsById = @{}
+    $script:HideAfterOpenById = @{}
     foreach ($workerState in $activeWorkers) {
         [void](Request-WorkerStop -WorkerState $workerState)
     }
@@ -1516,6 +1906,7 @@ function Complete-WorkerStateIfExited {
             $script:AllWorkerManagedAppIds = @{}
             $script:AllWorkerReadyById = @{}
             $script:ExternalOpenRequestsById = @{}
+            $script:HideAfterOpenById = @{}
         }
     } elseif ($WorkerState.Mode -eq "Start") {
         if (
@@ -1543,7 +1934,11 @@ function Complete-WorkerStateIfExited {
     if ($WorkerState.OpenPending) {
         $WorkerState.OpenPending = $false
         if (-not $WorkerState.StopRequested) {
-            Show-BabelError -Message "$($WorkerState.Label) did not become ready. Review Diagnostics."
+            Show-BabelOpenError `
+                -AppId ([string]$WorkerState.AppId) `
+                -Message "$($WorkerState.Label) did not become ready. Review Diagnostics."
+        } else {
+            Clear-BabelHideAfterOpen -AppId ([string]$WorkerState.AppId)
         }
     }
     Trim-WorkerHistory
@@ -1719,20 +2114,78 @@ function Open-AppIdentity {
     Set-UiStatus -Message "Opened $($App.Name) in the default browser."
 }
 
-function Open-BabelApp {
+function Clear-BabelHideAfterOpen {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$AppId
+    )
+
+    if ($script:HideAfterOpenById.ContainsKey($AppId)) {
+        $script:HideAfterOpenById.Remove($AppId)
+    }
+}
+
+function Restore-BabelWindowAfterOpenFailure {
+    if (-not $script:Window.IsVisible -or -not $script:Window.ShowInTaskbar) {
+        Restore-BabelWindowFromTray
+        Focus-BabelAppList
+    }
+}
+
+function Show-BabelOpenError {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$AppId,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Message
+    )
+
+    Clear-BabelHideAfterOpen -AppId $AppId
+    Restore-BabelWindowAfterOpenFailure
+    Show-BabelError -Message $Message
+}
+
+function Complete-BabelOpenSuccess {
     param(
         [Parameter(Mandatory = $true)]
         [pscustomobject]$App
     )
 
+    try {
+        Open-AppIdentity -App $App
+    } catch {
+        Clear-BabelHideAfterOpen -AppId $App.Id
+        Restore-BabelWindowAfterOpenFailure
+        throw
+    }
+
+    $hideAfterOpen = $script:HideAfterOpenById.ContainsKey($App.Id)
+    Clear-BabelHideAfterOpen -AppId $App.Id
+    if ($hideAfterOpen) {
+        Hide-BabelWindowToTray
+    }
+}
+
+function Open-BabelApp {
+    param(
+        [Parameter(Mandatory = $true)]
+        [pscustomobject]$App,
+
+        [switch]$HideAfterOpen
+    )
+
     if ($script:CloseRequested) {
         throw "The launcher is closing and cannot open another notebook."
+    }
+    if ($HideAfterOpen) {
+        $script:HideAfterOpenById[$App.Id] = $true
     }
 
     if (Test-AppHealthRecentlyPassed -App $App) {
         $script:LastPortOpenById[$App.Id] = $true
         Set-AppReadyObserved -AppId $App.Id
-        Open-AppIdentity -App $App
+        Complete-BabelOpenSuccess -App $App
         return
     }
 
@@ -1803,6 +2256,7 @@ function Complete-PendingOpens {
         }
         if ($script:CloseRequested -or $workerState.StopRequested) {
             $workerState.OpenPending = $false
+            Clear-BabelHideAfterOpen -AppId $appId
             continue
         }
         if (
@@ -1815,9 +2269,11 @@ function Complete-PendingOpens {
         $workerState.ReadyObserved = $true
         $workerState.OpenPending = $false
         try {
-            Open-AppIdentity -App $workerState.App
+            Complete-BabelOpenSuccess -App $workerState.App
         } catch {
-            Show-BabelError -Message "Could not open the default browser.`r`n`r`n$($_.Exception.Message)"
+            Show-BabelOpenError `
+                -AppId $appId `
+                -Message "Could not complete OPEN.`r`n`r`n$($_.Exception.Message)"
         }
     }
 
@@ -1826,6 +2282,7 @@ function Complete-PendingOpens {
         $app = $openRequest.App
         if ($script:CloseRequested) {
             $script:ExternalOpenRequestsById.Remove($appId)
+            Clear-BabelHideAfterOpen -AppId $appId
             continue
         }
         if ($script:HealthProbesById.ContainsKey($appId)) {
@@ -1836,6 +2293,7 @@ function Complete-PendingOpens {
             $allWorker = Get-AllWorkerState
             if ($null -eq $allWorker -or $allWorker.StopRequested) {
                 $script:ExternalOpenRequestsById.Remove($appId)
+                Clear-BabelHideAfterOpen -AppId $appId
                 continue
             }
             if (-not (Test-LocalPort -Port $app.Port)) {
@@ -1845,9 +2303,11 @@ function Complete-PendingOpens {
                 $script:ExternalOpenRequestsById.Remove($appId)
                 Set-AppReadyObserved -AppId $appId
                 try {
-                    Open-AppIdentity -App $app
+                    Complete-BabelOpenSuccess -App $app
                 } catch {
-                    Show-BabelError -Message "Could not open the default browser.`r`n`r`n$($_.Exception.Message)"
+                    Show-BabelOpenError `
+                        -AppId $appId `
+                        -Message "Could not complete OPEN.`r`n`r`n$($_.Exception.Message)"
                 }
             } else {
                 Start-AppHealthProbe -App $app
@@ -1858,7 +2318,9 @@ function Complete-PendingOpens {
         if (-not (Test-LocalPort -Port $app.Port)) {
             $script:ExternalOpenRequestsById.Remove($appId)
             if (Test-WorkerStateActive -WorkerState $script:VerifyWorker) {
-                Show-BabelError -Message "$($app.Name) stopped during its identity check while verification is running."
+                Show-BabelOpenError `
+                    -AppId $appId `
+                    -Message "$($app.Name) stopped during its identity check while verification is running."
                 continue
             }
             try {
@@ -1866,7 +2328,7 @@ function Complete-PendingOpens {
                 $workerState = Start-BabelWorker -Selection $appId -Mode "Start"
                 $workerState.OpenPending = $true
             } catch {
-                Show-BabelError -Message $_.Exception.Message
+                Show-BabelOpenError -AppId $appId -Message $_.Exception.Message
             }
             continue
         }
@@ -1882,12 +2344,16 @@ function Complete-PendingOpens {
         $script:ExternalOpenRequestsById.Remove($appId)
         if (Test-AppHealthRecentlyPassed -App $app) {
             try {
-                Open-AppIdentity -App $app
+                Complete-BabelOpenSuccess -App $app
             } catch {
-                Show-BabelError -Message "Could not open the default browser.`r`n`r`n$($_.Exception.Message)"
+                Show-BabelOpenError `
+                    -AppId $appId `
+                    -Message "Could not complete OPEN.`r`n`r`n$($_.Exception.Message)"
             }
         } else {
-            Show-BabelError -Message "Port $($app.Port) is occupied, but the listener is not a healthy $($app.Name) instance. OPEN was blocked."
+            Show-BabelOpenError `
+                -AppId $appId `
+                -Message "Port $($app.Port) is occupied, but the listener is not a healthy $($app.Name) instance. OPEN was blocked."
         }
     }
 }
@@ -2194,6 +2660,75 @@ if ($LifecycleSmokeTest) {
     return
 }
 
+function Get-BabelNumberSelectionIndex {
+    param(
+        [Parameter(Mandatory = $true)]
+        [Windows.Input.Key]$Key
+    )
+
+    $keyText = $Key.ToString()
+    $numberText = $null
+    if ($keyText -match "^D([0-9])$") {
+        $numberText = $Matches[1]
+    } elseif ($keyText -match "^NumPad([0-9])$") {
+        $numberText = $Matches[1]
+    }
+    if ($null -eq $numberText) {
+        return -1
+    }
+
+    $number = [int]$numberText
+    if ($number -eq 0) {
+        return 9
+    }
+    return $number - 1
+}
+
+function Select-BabelAppByIndex {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$Index
+    )
+
+    if ($Index -lt 0 -or $Index -ge $script:AppsGrid.Items.Count) {
+        Set-UiStatus -Message "No notebook is registered at keyboard position $($Index + 1)."
+        return
+    }
+
+    $script:AppsGrid.SelectedIndex = $Index
+    $script:AppsGrid.ScrollIntoView($script:AppsGrid.SelectedItem)
+    Focus-BabelAppList
+}
+
+function Move-BabelAppSelection {
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet(-1, 1)]
+        [int]$Delta
+    )
+
+    $itemCount = $script:AppsGrid.Items.Count
+    if ($itemCount -eq 0) {
+        Set-UiStatus -Message "No notebooks are registered."
+        return
+    }
+
+    $currentIndex = $script:AppsGrid.SelectedIndex
+    if ($currentIndex -lt 0) {
+        $currentIndex = 0
+    }
+    $nextIndex = [Math]::Max(0, [Math]::Min($itemCount - 1, $currentIndex + $Delta))
+    Select-BabelAppByIndex -Index $nextIndex
+}
+
+function Test-BabelEditableTextInputFocused {
+    $focusedElement = [Windows.Input.Keyboard]::FocusedElement
+    return (
+        $focusedElement -is [Windows.Controls.Primitives.TextBoxBase] -and
+        -not [bool]$focusedElement.IsReadOnly
+    )
+}
+
 $script:OpenSelectedButton.Add_Click({
     try {
         $app = Get-SelectedApp
@@ -2231,7 +2766,7 @@ $script:StopAllButton.Add_Click({
 $script:ShortcutsButton.Add_Click({
     try {
         if (Show-BabelShortcutSettings) {
-            Set-UiStatus -Message "Global shortcuts saved. Reload open application pages to use them."
+            Set-UiStatus -Message "Launcher hotkey applied. Reload open application pages for web command changes."
         }
     } catch {
         Show-BabelError -Message "Could not open shortcut settings.`r`n`r`n$($_.Exception.Message)"
@@ -2285,6 +2820,86 @@ $script:AppsGrid.Add_SelectionChanged({
     Refresh-ButtonState
 })
 
+$script:Window.Add_PreviewKeyDown({
+    param($sender, $eventArgs)
+
+    $key = $eventArgs.Key
+    if ($key -eq [Windows.Input.Key]::System) {
+        $key = $eventArgs.SystemKey
+    }
+    $modifiers = $eventArgs.KeyboardDevice.Modifiers
+    $hasNoModifiers = $modifiers -eq [Windows.Input.ModifierKeys]::None
+
+    if (-not $hasNoModifiers) {
+        return
+    }
+
+    if ($key -eq [Windows.Input.Key]::Escape) {
+        try {
+            Hide-BabelWindowToTray
+        } catch {
+            Show-BabelError -Message $_.Exception.Message
+        }
+        $eventArgs.Handled = $true
+        return
+    }
+
+    if (Test-BabelEditableTextInputFocused) {
+        return
+    }
+
+    $selectionIndex = Get-BabelNumberSelectionIndex -Key $key
+    if ($selectionIndex -ge 0) {
+        Select-BabelAppByIndex -Index $selectionIndex
+        $eventArgs.Handled = $true
+        return
+    }
+
+    if ($key -eq [Windows.Input.Key]::Up) {
+        Move-BabelAppSelection -Delta -1
+        $eventArgs.Handled = $true
+        return
+    }
+
+    if ($key -eq [Windows.Input.Key]::Down) {
+        Move-BabelAppSelection -Delta 1
+        $eventArgs.Handled = $true
+        return
+    }
+
+    if ($key -eq [Windows.Input.Key]::Return) {
+        $app = Get-SelectedApp
+        if ($null -eq $app) {
+            Set-UiStatus -Message "Select a notebook first."
+        } else {
+            try {
+                Open-BabelApp -App $app -HideAfterOpen
+            } catch {
+                Show-BabelOpenError -AppId $app.Id -Message $_.Exception.Message
+            }
+        }
+        $eventArgs.Handled = $true
+        return
+    }
+
+    if ($key -eq [Windows.Input.Key]::Delete) {
+        $app = Get-SelectedApp
+        if ($null -eq $app) {
+            Set-UiStatus -Message "Select a notebook first."
+        } else {
+            $workerState = Get-AppWorkerState -AppId $app.Id
+            if ($null -eq $workerState) {
+                Set-UiStatus -Message "The selected notebook has no independent launcher worker to stop."
+            } elseif ($workerState.StopRequested) {
+                Set-UiStatus -Message "Stop is already pending for $($app.Name)."
+            } else {
+                Request-AppWorkerStop -AppId $app.Id
+            }
+        }
+        $eventArgs.Handled = $true
+    }
+})
+
 $timer = New-Object Windows.Threading.DispatcherTimer
 $timer.Interval = [TimeSpan]::FromSeconds($script:StatusPollIntervalSeconds)
 $timer.Add_Tick({
@@ -2309,6 +2924,7 @@ $script:Window.Add_Closing({
 
     if ($script:AllowClose) {
         $timer.Stop()
+        Dispose-BabelGlobalHotkeyResources
         return
     }
 
@@ -2319,6 +2935,31 @@ $script:Window.Add_Closing({
         Request-AllWorkersStop
     } else {
         $timer.Stop()
+        Dispose-BabelGlobalHotkeyResources
+    }
+})
+
+$script:Window.Add_SourceInitialized({
+    if ($TraySmokeTest) {
+        return
+    }
+    try {
+        Initialize-BabelGlobalHotkey
+        if (-not $HotkeySmokeTest) {
+            $hotkeyStatus = "Launcher hotkey $($script:GlobalHotkeyBinding) is active."
+            if (-not [string]::IsNullOrWhiteSpace($script:GlobalHotkeyWarning)) {
+                $hotkeyStatus = "$($script:GlobalHotkeyWarning) $hotkeyStatus"
+            }
+            Set-UiStatus -Message $hotkeyStatus
+        }
+    } catch {
+        $warningMessage = "Launcher global hotkey is unavailable: $($_.Exception.Message)"
+        $script:GlobalHotkeyWarning = $warningMessage
+        if ($HotkeySmokeTest) {
+            $script:HotkeySmokeError = $warningMessage
+        } else {
+            Set-UiStatus -Message $warningMessage
+        }
     }
 })
 
@@ -2362,6 +3003,93 @@ if ($TraySmokeTest) {
     $script:TraySmokeTimer.Start()
 }
 
+if ($HotkeySmokeTest) {
+    $script:Window.WindowStartupLocation = [Windows.WindowStartupLocation]::Manual
+    $script:Window.Left = -10000
+    $script:Window.Top = -10000
+    $script:Window.Opacity = 0
+    $script:Window.ShowInTaskbar = $false
+
+    $script:HotkeySmokeTimer = New-Object Windows.Threading.DispatcherTimer
+    $script:HotkeySmokeTimer.Interval = [TimeSpan]::FromMilliseconds(150)
+    $script:HotkeySmokeTimer.Add_Tick({
+        try {
+            if (-not [string]::IsNullOrWhiteSpace($script:HotkeySmokeError)) {
+                throw $script:HotkeySmokeError
+            }
+
+            switch ($script:HotkeySmokePhase) {
+                0 {
+                    if (
+                        -not $script:GlobalHotkeyRegistered -or
+                        $script:GlobalHotkeyId -eq 0 -or
+                        $null -eq $script:GlobalHotkeySource -or
+                        $null -eq $script:GlobalHotkeyHook
+                    ) {
+                        throw "The smoke hotkey and window-message hook were not registered."
+                    }
+
+                    Hide-BabelWindowToTray
+                    if ($script:Window.IsVisible -or -not $script:NotifyIcon.Visible) {
+                        throw "The smoke setup could not hide the launcher to the tray."
+                    }
+                    $script:HotkeySmokeForegroundOverride = $false
+                    $posted = [BabelLauncher.GlobalHotkeyNativeMethods]::PostMessage(
+                        $script:WindowHandle,
+                        $script:WmHotkey,
+                        [IntPtr]$script:GlobalHotkeyId,
+                        [IntPtr]::Zero
+                    )
+                    if (-not $posted) {
+                        throw "Could not post the restore WM_HOTKEY message. $(Get-BabelLastWin32ErrorText)"
+                    }
+                    $script:HotkeySmokePhase = 1
+                    return
+                }
+                1 {
+                    if (
+                        -not $script:Window.IsVisible -or
+                        -not $script:Window.ShowInTaskbar -or
+                        $script:NotifyIcon.Visible
+                    ) {
+                        throw "WM_HOTKEY did not restore the launcher from the tray."
+                    }
+                    $script:HotkeySmokeForegroundOverride = $true
+                    $posted = [BabelLauncher.GlobalHotkeyNativeMethods]::PostMessage(
+                        $script:WindowHandle,
+                        $script:WmHotkey,
+                        [IntPtr]$script:GlobalHotkeyId,
+                        [IntPtr]::Zero
+                    )
+                    if (-not $posted) {
+                        throw "Could not post the hide WM_HOTKEY message. $(Get-BabelLastWin32ErrorText)"
+                    }
+                    $script:HotkeySmokePhase = 2
+                    return
+                }
+                2 {
+                    if (
+                        $script:Window.IsVisible -or
+                        $script:Window.ShowInTaskbar -or
+                        -not $script:NotifyIcon.Visible
+                    ) {
+                        throw "WM_HOTKEY did not hide the foreground launcher to the tray."
+                    }
+                    $script:HotkeySmokeTimer.Stop()
+                    $script:AllowClose = $true
+                    $script:Window.Close()
+                }
+            }
+        } catch {
+            $script:HotkeySmokeError = $_.Exception.Message
+            $script:HotkeySmokeTimer.Stop()
+            $script:AllowClose = $true
+            $script:Window.Close()
+        }
+    })
+    $script:HotkeySmokeTimer.Start()
+}
+
 Refresh-AppStatuses
 Refresh-ButtonState
 Set-UiStatus -Message "Choose a notebook and OPEN it. Stopped notebooks start automatically."
@@ -2376,7 +3104,12 @@ try {
         $script:TraySmokeTimer.Stop()
         $script:TraySmokeTimer = $null
     }
+    if ($null -ne $script:HotkeySmokeTimer) {
+        $script:HotkeySmokeTimer.Stop()
+        $script:HotkeySmokeTimer = $null
+    }
     Dispose-AppHealthProbes
+    Dispose-BabelGlobalHotkeyResources
     Dispose-BabelTrayResources
     Remove-CompletedWorkerSessions
 }
@@ -2396,4 +3129,20 @@ if ($TraySmokeTest) {
         throw "Babel GUI tray smoke test failed to release notification-area resources."
     }
     Write-Output "Babel GUI tray smoke test passed."
+}
+
+if ($HotkeySmokeTest) {
+    if (-not [string]::IsNullOrWhiteSpace($script:HotkeySmokeError)) {
+        throw "Babel GUI hotkey smoke test failed: $($script:HotkeySmokeError)"
+    }
+    if (
+        $script:GlobalHotkeyRegistered -or
+        $script:GlobalHotkeyId -ne 0 -or
+        $null -ne $script:GlobalHotkeySource -or
+        $null -ne $script:GlobalHotkeyHook -or
+        $script:WindowHandle -ne [IntPtr]::Zero
+    ) {
+        throw "Babel GUI hotkey smoke test failed to release the registration or HwndSource hook."
+    }
+    Write-Output "Babel GUI hotkey smoke test passed: WM_HOTKEY restore/hide toggle and resource cleanup."
 }

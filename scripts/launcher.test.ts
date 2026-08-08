@@ -63,17 +63,20 @@ test("the launcher opens a verified notebook in the system browser", () => {
   );
   assert.match(guiSource, /\bOpenSelectedButton\b/i);
   assert.match(xamlSource, /x:Name=["']OpenSelectedButton["']/i);
-  assert.match(xamlSource, /Content=["']OPEN \(_O\)["']/i);
+  assert.match(xamlSource, /Content=["']OPEN["']/i);
 
   const openSource =
     guiSource.match(/function\s+Open-BabelApp\b([\s\S]*?)function\s+[A-Za-z]/i)?.[1] ?? "";
+  const completeOpenSource =
+    guiSource.match(/function\s+Complete-BabelOpenSuccess\b([\s\S]*?)function\s+[A-Za-z]/i)?.[1] ?? "";
   assert.match(openSource, /Test-AppHealthRecentlyPassed\s+-App\s+\$App/i);
   assert.doesNotMatch(openSource, /Test-AppHealth\s+-App/i);
   assert.match(openSource, /Start-AppHealthProbe\s+-App\s+\$App/i);
-  assert.match(openSource, /Open-AppIdentity\s+-App\s+\$App/i);
+  assert.match(openSource, /Complete-BabelOpenSuccess\s+-App\s+\$App/i);
+  assert.match(completeOpenSource, /Open-AppIdentity\s+-App\s+\$App/i);
   assert.ok(
     openSource.search(/Test-AppHealthRecentlyPassed\s+-App\s+\$App/i) <
-      openSource.search(/Open-AppIdentity\s+-App\s+\$App/i),
+      openSource.search(/Complete-BabelOpenSuccess\s+-App\s+\$App/i),
     "OPEN must verify health and identity before opening the browser",
   );
 });
@@ -412,6 +415,7 @@ test("the launcher edits the shared nine-command shortcut contract", () => {
   );
 
   for (const controlName of [
+    "LauncherHotkeyBox",
     "ShortcutGrid",
     "ShortcutErrorText",
     "ShortcutStatusText",
@@ -426,7 +430,87 @@ test("the launcher edits the shared nine-command shortcut contract", () => {
   assert.match(guiSource, /Add_PreviewKeyDown/i, "the modal must capture complete WPF key combinations");
   assert.match(guiSource, /Read-BabelShortcutSettings/i);
   assert.match(guiSource, /Write-BabelShortcutSettings/i);
+  assert.match(guiSource, /Read-BabelLauncherHotkeySettings/i);
+  assert.match(guiSource, /Write-BabelLauncherHotkeySettings/i);
   assert.match(guiSource, /reload open application pages/i);
+});
+
+test("the launcher owns one configurable global toggle hotkey", () => {
+  assert.match(shortcutsHelperSource, /Get-BabelLauncherHotkeySettingsPath/i);
+  assert.match(shortcutsHelperSource, /["']launcher\.json["']/i);
+  assert.match(shortcutsHelperSource, /Get-BabelDefaultLauncherHotkeyBinding[\s\S]{0,160}Ctrl\+Alt\+B/i);
+  assert.match(shortcutsHelperSource, /schemaVersion\s*=\s*1[\s\S]{0,100}toggleLauncher/i);
+  assert.match(
+    shortcutsHelperSource,
+    /\$modifiers\s*=\s*\[uint32\]0x4000/i,
+    "RegisterHotKey must include MOD_NOREPEAT",
+  );
+
+  assert.match(guiSource, /RegisterHotKey/i);
+  assert.match(
+    guiSource,
+    /RegisterHotKeyWithError[\s\S]{0,520}Marshal\.GetLastWin32Error\(\)/i,
+    "registration failures must capture their Win32 code before returning to PowerShell",
+  );
+  assert.match(guiSource, /UnregisterHotKey/i);
+  assert.match(guiSource, /HwndSourceHook/i);
+  assert.match(guiSource, /Add_SourceInitialized/i);
+  assert.match(guiSource, /\$script:WmHotkey\s*=\s*\[uint32\]0x0312/i);
+  assert.match(guiSource, /function\s+Invoke-BabelGlobalHotkeyToggle/i);
+  assert.match(
+    guiSource,
+    /ShortcutDialogWindow[\s\S]{0,240}\.Activate\(\)[\s\S]{0,120}return/i,
+    "the global toggle must keep the shortcut modal visible",
+  );
+  assert.match(
+    guiSource,
+    /Register-BabelGlobalHotkeyCandidate[\s\S]{0,1600}Write-BabelLauncherHotkeySettings[\s\S]{0,320}Commit-BabelGlobalHotkeyCandidate/i,
+    "a replacement must register successfully before it is committed",
+  );
+  assert.match(guiSource, /Dispose-BabelGlobalHotkeyResources/i);
+});
+
+test("the visible launcher supports the complete keyboard loop", () => {
+  assert.match(guiSource, /\$script:Window\.Add_PreviewKeyDown/i);
+  assert.match(guiSource, /\^D\(\[0-9\]\)\$/i);
+  assert.match(guiSource, /\^NumPad\(\[0-9\]\)\$/i);
+  assert.match(guiSource, /\$number\s+-eq\s+0[\s\S]{0,80}return\s+9/i);
+  assert.match(guiSource, /\[Windows\.Input\.Key\]::Up[\s\S]{0,180}Move-BabelAppSelection\s+-Delta\s+-1/i);
+  assert.match(guiSource, /\[Windows\.Input\.Key\]::Down[\s\S]{0,180}Move-BabelAppSelection\s+-Delta\s+1/i);
+  assert.match(guiSource, /focusedElement\s+-is\s+\[Windows\.Controls\.Primitives\.TextBoxBase\]/i);
+  assert.match(guiSource, /-not\s+\[bool\]\$focusedElement\.IsReadOnly/i);
+  assert.doesNotMatch(
+    guiSource,
+    /\$script:AppsGrid\.IsKeyboardFocusWithin/i,
+    "window keyboard commands must not depend on a delayed DataGrid focus transition",
+  );
+  assert.match(guiSource, /\[Windows\.Input\.Key\]::Return[\s\S]{0,520}Open-BabelApp\s+-App\s+\$app\s+-HideAfterOpen/i);
+  assert.match(guiSource, /\[Windows\.Input\.Key\]::Delete[\s\S]{0,520}Get-AppWorkerState\s+-AppId\s+\$app\.Id[\s\S]{0,520}Request-AppWorkerStop/i);
+  assert.match(guiSource, /\[Windows\.Input\.Key\]::Escape[\s\S]{0,240}Hide-BabelWindowToTray/i);
+
+  const focusSource =
+    guiSource.match(/function\s+Focus-BabelAppList\b([\s\S]*?)function\s+[A-Za-z]/i)?.[1] ?? "";
+  assert.ok(
+    (focusSource.match(/\$script:AppsGrid\.Focus\(\)/gi)?.length ?? 0) >= 2,
+    "list focus must be applied synchronously and reinforced on the Dispatcher",
+  );
+
+  for (const content of ["OPEN", "STOP SELECTED", "MINIMIZE TO TRAY"]) {
+    assert.match(xamlSource, new RegExp(`Content=["']${content}["']`, "i"));
+  }
+  for (const removedAccessKey of ["_O", "_T", "_M"]) {
+    assert.doesNotMatch(xamlSource, new RegExp(removedAccessKey, "i"));
+  }
+  assert.doesNotMatch(xamlSource, /IsDefault=["']True["']/i);
+
+  const completeOpenSource =
+    guiSource.match(/function\s+Complete-BabelOpenSuccess\b([\s\S]*?)function\s+[A-Za-z]/i)?.[1] ?? "";
+  assert.ok(
+    completeOpenSource.search(/Open-AppIdentity\s+-App\s+\$App/i) <
+      completeOpenSource.search(/Hide-BabelWindowToTray/i),
+    "keyboard OPEN may hide only after the browser open succeeds",
+  );
+  assert.match(guiSource, /function\s+Show-BabelOpenError[\s\S]{0,480}Restore-BabelWindowAfterOpenFailure/i);
 });
 
 test("shortcut settings are normalized, validated, and replaced atomically", () => {
@@ -452,11 +536,13 @@ test(
   async () => {
     const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "babel-launcher-shortcuts-"));
     const settingsPath = path.join(temporaryRoot, "shortcuts.json");
+    const launcherSettingsPath = path.join(temporaryRoot, "launcher.json");
     const powershellSource = String.raw`
 $ErrorActionPreference = "Stop"
 . ([Environment]::GetEnvironmentVariable("BABEL_TEST_SHORTCUT_HELPER"))
 $definitions = @(Get-BabelShortcutDefinitions -Path ([Environment]::GetEnvironmentVariable("BABEL_TEST_SHORTCUT_DEFAULTS")))
 $settingsPath = [Environment]::GetEnvironmentVariable("BABEL_TEST_SHORTCUT_SETTINGS")
+$launcherSettingsPath = [Environment]::GetEnvironmentVariable("BABEL_TEST_LAUNCHER_SETTINGS")
 $legacyDocument = [ordered]@{
     schemaVersion = 1
     bindings = [ordered]@{
@@ -498,6 +584,51 @@ foreach ($forbiddenBinding in @("Ctrl", "A", "Shift+S", "Enter", "Ctrl+W", "F5")
         throw "Forbidden shortcut was accepted: $forbiddenBinding"
     }
 }
+$defaultLauncherSettings = Read-BabelLauncherHotkeySettings -Path $launcherSettingsPath
+if (
+    $defaultLauncherSettings.Source -ne "Defaults" -or
+    $defaultLauncherSettings.Binding -ne "Ctrl+Alt+B"
+) {
+    throw "Missing launcher settings did not use the default toggle binding."
+}
+[IO.File]::WriteAllText(
+    $launcherSettingsPath,
+    '{"schemaVersion":1,"toggleLauncher":"Ctrl+Alt+B","extra":true}',
+    (New-Object Text.UTF8Encoding($false))
+)
+$invalidLauncherSettings = Read-BabelLauncherHotkeySettings -Path $launcherSettingsPath
+if (
+    $invalidLauncherSettings.Source -ne "Defaults" -or
+    $invalidLauncherSettings.Binding -ne "Ctrl+Alt+B" -or
+    [string]::IsNullOrWhiteSpace([string]$invalidLauncherSettings.Warning)
+) {
+    throw "Invalid launcher settings did not warn and fall back to defaults."
+}
+$launcherRegistration = ConvertTo-BabelLauncherHotkeyRegistration -Binding "alt + ctrl + b"
+if (
+    $launcherRegistration.Binding -ne "Ctrl+Alt+B" -or
+    $launcherRegistration.Modifiers -ne 0x4003 -or
+    $launcherRegistration.VirtualKey -ne 0x42
+) {
+    throw "Launcher hotkey registration values were not canonical or did not include MOD_NOREPEAT."
+}
+$launcherEscapeRejected = $false
+try {
+    [void](ConvertTo-BabelLauncherHotkeyRegistration -Binding "Escape")
+} catch {
+    $launcherEscapeRejected = $true
+}
+if (-not $launcherEscapeRejected) {
+    throw "The launcher accepted an unmodified system-wide Escape hotkey."
+}
+[void](Write-BabelLauncherHotkeySettings -Binding "Ctrl+Alt+L" -Path $launcherSettingsPath)
+$loadedLauncherSettings = Read-BabelLauncherHotkeySettings -Path $launcherSettingsPath
+if (
+    $loadedLauncherSettings.Source -ne "User" -or
+    $loadedLauncherSettings.Binding -ne "Ctrl+Alt+L"
+) {
+    throw "Launcher hotkey settings did not round-trip."
+}
 Write-Output "Babel shortcut replacement test passed."
 `;
 
@@ -522,12 +653,13 @@ Write-Output "Babel shortcut replacement test passed."
             BABEL_TEST_SHORTCUT_HELPER: shortcutsHelperPath,
             BABEL_TEST_SHORTCUT_DEFAULTS: shortcutDefaultsPath,
             BABEL_TEST_SHORTCUT_SETTINGS: settingsPath,
+            BABEL_TEST_LAUNCHER_SETTINGS: launcherSettingsPath,
           },
         },
       );
 
       assert.match(stdout, /Babel shortcut replacement test passed/i);
-      assert.deepEqual(await readdir(temporaryRoot), ["shortcuts.json"]);
+      assert.deepEqual((await readdir(temporaryRoot)).sort(), ["launcher.json", "shortcuts.json"]);
 
       const settingsBytes = await readFile(settingsPath);
       assert.equal(
@@ -545,6 +677,16 @@ Write-Output "Babel shortcut replacement test passed."
         Object.keys(savedSettings.bindings ?? {}),
         shortcutDefaults.commands?.map(({ command }) => command),
       );
+
+      const launcherSettingsBytes = await readFile(launcherSettingsPath);
+      assert.equal(
+        launcherSettingsBytes.subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf])),
+        false,
+      );
+      assert.deepEqual(JSON.parse(launcherSettingsBytes.toString("utf8")), {
+        schemaVersion: 1,
+        toggleLauncher: "Ctrl+Alt+L",
+      });
     } finally {
       await rm(temporaryRoot, { recursive: true, force: true });
     }
@@ -610,6 +752,13 @@ test(
       windowsHide: true,
     });
 
+    await execFileAsync(nativeLauncherPath, ["-HotkeySmokeTest"], {
+      cwd: os.tmpdir(),
+      encoding: "utf8",
+      timeout: 30_000,
+      windowsHide: true,
+    });
+
     await assert.rejects(
       execFileAsync(nativeLauncherPath, ["-SmokeTest", "-StateSmokeTest"], {
         cwd: os.tmpdir(),
@@ -646,7 +795,7 @@ test(
     );
 
     assert.match(stdout, /Babel GUI smoke test passed/i);
-    assert.match(stdout, /6 shortcut control\(s\)/i);
+    assert.match(stdout, /7 shortcut control\(s\)/i);
     assert.match(stdout, /9 shortcut command\(s\)/i);
   },
 );
@@ -733,6 +882,31 @@ test(
     );
 
     assert.match(stdout, /Babel GUI tray smoke test passed/i);
+  },
+);
+
+test(
+  "the global hotkey toggle passes a real Windows PowerShell smoke test",
+  { skip: process.platform !== "win32" },
+  async () => {
+    const { stdout } = await execFileAsync(
+      "powershell.exe",
+      [
+        "-NoLogo",
+        "-NoProfile",
+        "-STA",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        guiPath,
+        "-HotkeySmokeTest",
+      ],
+      { cwd: root, encoding: "utf8", timeout: 30_000, windowsHide: true },
+    );
+
+    assert.match(stdout, /Babel GUI hotkey smoke test passed/i);
+    assert.match(stdout, /WM_HOTKEY restore\/hide toggle/i);
+    assert.match(stdout, /resource cleanup/i);
   },
 );
 

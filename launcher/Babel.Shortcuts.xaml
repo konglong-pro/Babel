@@ -4,9 +4,9 @@
     x:Name="BabelShortcutsWindow"
     Title="Babel Shortcuts"
     Width="720"
-    Height="640"
+    Height="720"
     MinWidth="620"
-    MinHeight="560"
+    MinHeight="640"
     WindowStartupLocation="CenterOwner"
     ResizeMode="CanResize"
     ShowInTaskbar="False"
@@ -87,6 +87,8 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -114,10 +116,64 @@
             Foreground="#5E5952"
             FontSize="12"
             TextWrapping="Wrap"
-            Text="Select a shortcut field, then press the complete key combination. Shortcuts require Ctrl or Alt; Escape is the only unmodified key allowed." />
+            Text="Select a shortcut field, then press the complete key combination. The launcher hotkey is system-wide; application commands apply inside Babel notebooks." />
 
         <Border
             Grid.Row="2"
+            Margin="0,0,0,14"
+            Padding="16,13"
+            Background="#FFFFFC"
+            BorderBrush="#1D1B18"
+            BorderThickness="2"
+            CornerRadius="9">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="250" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                    <TextBlock
+                        Foreground="#EF2B2D"
+                        FontFamily="Arial"
+                        FontSize="11"
+                        FontWeight="Bold"
+                        Text="L  A  U  N  C  H  E  R" />
+                    <TextBlock
+                        Margin="0,4,16,0"
+                        Foreground="#5E5952"
+                        FontSize="12"
+                        Text="Toggle launcher / tray"
+                        TextWrapping="Wrap" />
+                </StackPanel>
+                <TextBox
+                    x:Name="LauncherHotkeyBox"
+                    Grid.Column="1"
+                    Tag="toggleLauncher"
+                    IsReadOnly="True"
+                    Cursor="Hand"
+                    Padding="9,7"
+                    VerticalAlignment="Center"
+                    Background="#FBF8EF"
+                    BorderBrush="#1D1B18"
+                    BorderThickness="1"
+                    FontFamily="Consolas"
+                    FontWeight="Bold"
+                    AutomationProperties.Name="Toggle launcher global hotkey"
+                    AutomationProperties.HelpText="Focus this field and press a complete global hotkey" />
+            </Grid>
+        </Border>
+
+        <TextBlock
+            Grid.Row="3"
+            Margin="1,0,0,7"
+            Foreground="#777068"
+            FontFamily="Arial"
+            FontSize="11"
+            FontWeight="Bold"
+            Text="WEB APPLICATION COMMANDS" />
+
+        <Border
+            Grid.Row="4"
             Background="#FFFFFC"
             BorderBrush="#1D1B18"
             BorderThickness="2"
@@ -164,7 +220,7 @@
             </DataGrid>
         </Border>
 
-        <StackPanel Grid.Row="3" Margin="0,12,0,14">
+        <StackPanel Grid.Row="5" Margin="0,12,0,14">
             <TextBlock
                 x:Name="ShortcutErrorText"
                 MinHeight="18"
@@ -183,7 +239,7 @@
                 AutomationProperties.LiveSetting="Polite" />
         </StackPanel>
 
-        <Grid Grid.Row="4">
+        <Grid Grid.Row="6">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />

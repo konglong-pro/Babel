@@ -51,6 +51,26 @@ function Get-BabelShortcutSettingsPath {
     )
 }
 
+function Get-BabelLauncherHotkeySettingsPath {
+    param(
+        [string]$LocalApplicationDataPath = [Environment]::GetFolderPath(
+            [Environment+SpecialFolder]::LocalApplicationData
+        )
+    )
+
+    if ([string]::IsNullOrWhiteSpace($LocalApplicationDataPath)) {
+        throw "Windows did not provide a LocalApplicationData directory."
+    }
+
+    return [IO.Path]::GetFullPath(
+        (Join-Path (Join-Path $LocalApplicationDataPath "Babel") "launcher.json")
+    )
+}
+
+function Get-BabelDefaultLauncherHotkeyBinding {
+    return "Ctrl+Alt+B"
+}
+
 function ConvertTo-BabelShortcutBinding {
     param(
         [Parameter(Mandatory = $true)]
@@ -177,6 +197,52 @@ function ConvertTo-BabelShortcutBinding {
     }
 
     return $canonicalBinding
+}
+
+function ConvertTo-BabelLauncherHotkeyRegistration {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Binding
+    )
+
+    $canonicalBinding = ConvertTo-BabelShortcutBinding -Binding $Binding
+    if ($canonicalBinding -eq "Escape") {
+        throw "Launcher hotkey '$canonicalBinding' must include Ctrl or Alt."
+    }
+    $modifiers = [uint32]0x4000
+    $keyName = $null
+    foreach ($token in @($canonicalBinding -split "\+")) {
+        switch ($token) {
+            "Ctrl" { $modifiers = $modifiers -bor [uint32]0x0002; continue }
+            "Alt" { $modifiers = $modifiers -bor [uint32]0x0001; continue }
+            "Shift" { $modifiers = $modifiers -bor [uint32]0x0004; continue }
+            default { $keyName = $token }
+        }
+    }
+
+    $virtualKey = 0
+    if ($keyName -match "^[A-Z]$") {
+        $virtualKey = [int][char]$keyName
+    } elseif ($keyName -match "^[0-9]$") {
+        $virtualKey = [int][char]$keyName
+    } elseif ($keyName -match "^F([1-9]|1[0-2])$") {
+        $virtualKey = 0x70 + [int]$Matches[1] - 1
+    } else {
+        switch ($keyName) {
+            "Enter" { $virtualKey = 0x0D }
+            "Escape" { $virtualKey = 0x1B }
+            "Delete" { $virtualKey = 0x2E }
+            "Backspace" { $virtualKey = 0x08 }
+            "Space" { $virtualKey = 0x20 }
+            default { throw "Launcher hotkey '$canonicalBinding' has an unsupported key '$keyName'." }
+        }
+    }
+
+    return [pscustomobject]@{
+        Binding = $canonicalBinding
+        Modifiers = [uint32]$modifiers
+        VirtualKey = [uint32]$virtualKey
+    }
 }
 
 function ConvertTo-BabelShortcutBindingMap {
@@ -437,6 +503,102 @@ function Write-BabelShortcutSettings {
         bindings = $canonicalBindings
     }
     $json = $document | ConvertTo-Json -Depth 4
+    $operationId = [Guid]::NewGuid().ToString("N")
+    $fileName = [IO.Path]::GetFileName($fullPath)
+    $temporaryPath = Join-Path $directory ("." + $fileName + "." + $operationId + ".tmp")
+    $backupPath = Join-Path $directory ("." + $fileName + "." + $operationId + ".bak")
+
+    try {
+        [IO.File]::WriteAllText(
+            $temporaryPath,
+            $json,
+            (New-Object Text.UTF8Encoding($false))
+        )
+        if (Test-Path -LiteralPath $fullPath -PathType Leaf) {
+            [IO.File]::Replace($temporaryPath, $fullPath, $backupPath)
+        } else {
+            [IO.File]::Move($temporaryPath, $fullPath)
+        }
+    } finally {
+        if (Test-Path -LiteralPath $temporaryPath -PathType Leaf) {
+            Remove-Item -LiteralPath $temporaryPath -Force
+        }
+        if (Test-Path -LiteralPath $backupPath -PathType Leaf) {
+            Remove-Item -LiteralPath $backupPath -Force
+        }
+    }
+
+    return $fullPath
+}
+
+function Read-BabelLauncherHotkeySettings {
+    param(
+        [string]$Path = (Get-BabelLauncherHotkeySettingsPath)
+    )
+
+    $defaultBinding = Get-BabelDefaultLauncherHotkeyBinding
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return [pscustomobject]@{
+            Binding = $defaultBinding
+            Warning = $null
+            Source = "Defaults"
+        }
+    }
+
+    try {
+        $document = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop | ConvertFrom-Json
+        Assert-BabelShortcutExactProperties `
+            -InputObject $document `
+            -Names @("schemaVersion", "toggleLauncher") `
+            -Description "Launcher hotkey settings"
+        if (-not ($document.schemaVersion -is [int]) -or [int]$document.schemaVersion -ne 1) {
+            throw "Unsupported launcher hotkey schemaVersion '$($document.schemaVersion)'."
+        }
+        if (-not ($document.toggleLauncher -is [string])) {
+            throw "Launcher hotkey toggleLauncher must be a string."
+        }
+
+        $registration = ConvertTo-BabelLauncherHotkeyRegistration `
+            -Binding ([string]$document.toggleLauncher)
+        return [pscustomobject]@{
+            Binding = [string]$registration.Binding
+            Warning = $null
+            Source = "User"
+        }
+    } catch {
+        $warningMessage = "Launcher hotkey settings at '$Path' are invalid. Using '$defaultBinding'. $($_.Exception.Message)"
+        Write-Warning $warningMessage
+        return [pscustomobject]@{
+            Binding = $defaultBinding
+            Warning = $warningMessage
+            Source = "Defaults"
+        }
+    }
+}
+
+function Write-BabelLauncherHotkeySettings {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Binding,
+
+        [string]$Path = (Get-BabelLauncherHotkeySettingsPath)
+    )
+
+    $registration = ConvertTo-BabelLauncherHotkeyRegistration -Binding $Binding
+    $fullPath = [IO.Path]::GetFullPath($Path)
+    $directory = [IO.Path]::GetDirectoryName($fullPath)
+    if ([string]::IsNullOrWhiteSpace($directory)) {
+        throw "Launcher hotkey settings path must include a directory."
+    }
+    if (-not (Test-Path -LiteralPath $directory -PathType Container)) {
+        [void](New-Item -ItemType Directory -Path $directory -Force)
+    }
+
+    $document = [ordered]@{
+        schemaVersion = 1
+        toggleLauncher = [string]$registration.Binding
+    }
+    $json = $document | ConvertTo-Json -Depth 3
     $operationId = [Guid]::NewGuid().ToString("N")
     $fileName = [IO.Path]::GetFileName($fullPath)
     $temporaryPath = Join-Path $directory ("." + $fileName + "." + $operationId + ".tmp")
