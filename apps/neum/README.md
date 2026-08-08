@@ -34,6 +34,29 @@ Existing databases and older snapshot bundles may contain historical
 `trash_entry` records. Neum preserves those private records for storage and
 snapshot compatibility, but no longer exposes Trash UI or runtime API routes.
 
+## Keyboard navigation
+
+Neum follows Babel's Ready/Edit keyboard model. `Ctrl+F6` and
+`Ctrl+Shift+F6` cycle the visible folder tree, entry tree, tab strip, and detail
+pane, skipping absent panes and remembering each pane's last focus. Hierarchical
+folders and entries expose `tree`/`treeitem`; flat search results expose
+`listbox`. Up/Down moves, Left/Right collapses or expands,
+Home/End/PageUp/PageDown moves through supported lists, and typed letters jump
+by title. `Enter` selects a folder or opens an entry tab; `F2` renames a focused
+folder or opens a focused entry directly in edit mode. The `tablist` uses
+Left/Right to move and Enter to activate.
+
+Reordering uses `Ctrl+Alt+ArrowUp` and `Ctrl+Alt+ArrowDown`. Escape gives the
+topmost dialog or overlay priority, then leaves edit mode for the reader and the
+reader for the entry tree; dirty-edit confirmations still apply. `Ctrl+K`
+searches commands, registered actions, and titles, while `Ctrl+Alt+P` searches
+titles only. `Ctrl+Alt+H` opens keyboard help. Tab defaults are
+`Ctrl+Alt+ArrowRight`, `Ctrl+Alt+ArrowLeft`, and `Ctrl+Alt+W` for next, previous,
+and close. Schema v1/v2 bindings are preserved during migration; a conflicting
+new command remains `Unbound`. See the
+[root keyboard contract](../../README.md#launcher) for the complete schema-v3
+command table.
+
 The App build runs against temporary database and upload paths, so `npm.cmd run
 build -w @babel-apps/neum` does not open or modify the configured notebook data.
 

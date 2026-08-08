@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -20,6 +21,13 @@ test("editing focus preserves text editing commands", () => {
     "cancel",
     "search",
     "commandPalette",
+    "focusNextPane",
+    "focusPreviousPane",
+    "nextTab",
+    "previousTab",
+    "closeTab",
+    "quickOpen",
+    "help",
   ] as const) {
     assert.equal(commandAllowedFromEditable(command, true), true);
   }
@@ -91,6 +99,7 @@ test("the Read shortcut does not consume unrelated or unsafe key events", () => 
     makeEvent({ repeat: true }),
     makeEvent({ key: "r", metaKey: true }),
     makeEvent({ key: "r", isComposing: true }),
+    makeEvent({ key: "r", getModifierState: (key: string) => key === "AltGraph" }),
     makeEvent({ key: "r", defaultPrevented: true }),
   ]) {
     assert.equal(
@@ -102,6 +111,25 @@ test("the Read shortcut does not consume unrelated or unsafe key events", () => 
     );
   }
   assert.deepEqual({ executions, prevented }, { executions: 0, prevented: 0 });
+});
+
+test("an unbound Read command does not consume its former default", () => {
+  let prevented = 0;
+  const handled = handleReadShortcutKeyDown(
+    {
+      key: "r",
+      ctrlKey: true,
+      preventDefault: () => {
+        prevented += 1;
+      },
+      stopPropagation: () => undefined,
+    },
+    null,
+    false,
+    () => true,
+  );
+  assert.equal(handled, false);
+  assert.equal(prevented, 0);
 });
 
 test("shortcut provider renders an accessible built-in command palette", () => {
@@ -116,7 +144,30 @@ test("shortcut provider renders an accessible built-in command palette", () => {
   assert.match(markup, /<main>Notebook<\/main>/);
   assert.match(markup, /<dialog[^>]+aria-labelledby=/);
   assert.match(markup, />Command Palette</);
-  assert.match(markup, />Search commands</);
-  assert.match(markup, /aria-label="Commands"/);
-  assert.equal((markup.match(/<kbd>/g) ?? []).length, 9);
+  assert.match(markup, />Search commands and titles</);
+  assert.match(markup, /role="combobox"/);
+  assert.match(markup, /role="listbox"/);
+  assert.match(markup, /<li role="presentation"><button[^>]+role="option"/);
+  assert.match(markup, /aria-label="Commands, actions, and titles"/);
+  assert.match(markup, />Keyboard Help</);
+  assert.match(markup, />Ready mode</);
+  assert.match(markup, />Quick Open</);
+});
+
+test("palette actions and item sources follow the active cached workspace", () => {
+  const source = readFileSync(new URL("../src/shortcuts/react.tsx", import.meta.url), "utf8");
+
+  assert.equal(
+    (source.match(/const processActive = useWorkspaceProcessActive\(\)/g) ?? []).length,
+    2,
+  );
+  assert.match(source, /context === null \|\| !processActive/);
+  assert.match(
+    source,
+    /registeredSource\.scope !== "global" && !processActive/,
+  );
+  assert.match(source, /searchItems\?: \(/);
+  assert.match(source, /controller\.abort\(\)/);
+  assert.match(source, /seenItems\.has\(dedupeKey\)/);
+  assert.match(source, /Searching titles…/);
 });

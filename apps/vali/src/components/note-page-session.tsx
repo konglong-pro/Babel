@@ -7,6 +7,7 @@ import {
   usePageSessionLifecycle,
   usePageSessions,
 } from "@babel-apps/platform/pages/react";
+import { useCommandPaletteActions } from "@babel-apps/platform/shortcuts/react";
 
 import { NoteDetail, type NoteViewMode } from "@/components/note-detail";
 import {
@@ -40,6 +41,8 @@ interface NotePageSessionProps {
   folders: FolderDto[];
   notes: NoteSummaryDto[];
   templates: NoteTemplateDto[];
+  editRequested: boolean;
+  onEditRequestConsumed: () => void;
   searchFocus: ValiSearchFocus | null;
   onOpenNote: (id: number, folderId?: number) => void;
   onOpenDraft: (input: Omit<NoteDraftSession, "title"> & { title?: string }) => void;
@@ -68,6 +71,8 @@ export function NotePageSession({
   folders,
   notes,
   templates,
+  editRequested,
+  onEditRequestConsumed,
   searchFocus,
   onOpenNote,
   onOpenDraft,
@@ -76,7 +81,7 @@ export function NotePageSession({
   onShowList,
   onError,
 }: NotePageSessionProps) {
-  const { closePage, rekeyPage, setPageStatus, updatePage } = usePageSessions();
+  const { activeKey, closePage, rekeyPage, setPageStatus, updatePage } = usePageSessions();
   const [detail, setDetail] = useState<NoteDetailDto | null>(null);
   const [backlinks, setBacklinks] = useState<DocumentBacklinkDto[]>([]);
   const [mode, setMode] = useState<NoteViewMode>(noteId === null ? "create" : "view");
@@ -184,17 +189,36 @@ export function NotePageSession({
     setMode("view");
   }
 
+  useEffect(() => {
+    if (!editRequested || noteId === null || loading || detail === null) return;
+    const frame = window.requestAnimationFrame(() => {
+      setMode("edit");
+      onEditRequestConsumed();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [detail, editRequested, loading, noteId, onEditRequestConsumed]);
   function retryLoading() {
     setLoading(true);
     setLoadError("");
     setReloadVersion((version) => version + 1);
   }
 
+  useCommandPaletteActions(`vali.note-detail.${pageKey}`, activeKey === pageKey && Boolean(loadError) ? [
+    {
+      id: "note.retry",
+      label: "Retry loading note",
+      keywords: ["reload", "error"],
+      group: "Notes",
+      available: !loading,
+      run: retryLoading,
+    },
+  ] : []);
+
   if (loadError) {
     return (
       <PageDeckPage pageKey={pageKey}>
-        <section className="detail-panel error-state" role="alert">
-          <button className="content-back" type="button" onClick={onShowList}>← Notes</button>
+        <section className="detail-panel error-state" data-babel-pane="detail" tabIndex={-1} role="alert">
+          <button className="content-back" data-babel-escape="list" type="button" onClick={onShowList}>← Notes</button>
           <span aria-hidden="true">!</span>
           <h2>Could not load this note</h2>
           <p>{loadError}</p>

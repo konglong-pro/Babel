@@ -41,6 +41,32 @@ Select a concrete folder to import a UTF-8 `.md` file as a new draft. Relative
 GFM image references can be matched to local image files before saving; remote
 HTTP(S) image links remain remote. Import never overwrites an existing note.
 
+## Keyboard navigation
+
+The Ready/Edit bindings apply to Ruider's `/notes` workspace and to the outer
+canvas list, tabs, and document actions. Keyboard traversal and movement of
+elements inside an open canvas remain outside this scope.
+`Ctrl+F6` and `Ctrl+Shift+F6` cycle the visible folder tree, note tree, tab
+strip, and detail pane, skipping absent panes and remembering each pane's last
+focus. Hierarchical folders and notes expose `tree`/`treeitem`; flat search
+results expose `listbox`. Up/Down moves, Left/Right collapses or expands,
+Home/End/PageUp/PageDown moves through supported lists, and typed letters jump
+by title. `Enter` selects a folder or opens a note tab; `F2` renames a focused
+folder or opens a focused note directly in edit mode. The `tablist` uses
+Left/Right to move and Enter to activate. In the outer canvas list, `Enter`
+opens the focused canvas and `F2` opens its rename flow.
+
+Reordering uses `Ctrl+Alt+ArrowUp` and `Ctrl+Alt+ArrowDown`. Escape gives the
+topmost dialog or overlay priority, then leaves edit mode for the reader and the
+reader for the note tree; dirty-edit confirmations still apply. `Ctrl+K`
+searches commands, registered actions, and titles, while `Ctrl+Alt+P` searches
+titles only. `Ctrl+Alt+H` opens keyboard help. Tab defaults are
+`Ctrl+Alt+ArrowRight`, `Ctrl+Alt+ArrowLeft`, and `Ctrl+Alt+W` for next, previous,
+and close. Schema v1/v2 bindings are preserved during migration; a conflicting
+new command remains `Unbound`. See the
+[root keyboard contract](../../README.md#launcher) for the complete schema-v3
+command table.
+
 Run schema generation or migration only for an explicit database task and only
 while Ruider is stopped. Use the root `npm.cmd run data:backup` workflow for
 normal backups; never commit notebook data to the public Babel repository.

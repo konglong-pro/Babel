@@ -66,8 +66,8 @@ export function getErrorMessage(error: unknown): string {
     : "An unknown error occurred. Please try again.";
 }
 
-export function listCanvases(): Promise<CanvasSummaryDto[]> {
-  return request("/api/canvases");
+export function listCanvases(signal?: AbortSignal): Promise<CanvasSummaryDto[]> {
+  return request("/api/canvases", { signal });
 }
 
 export function getCanvas(id: number, signal?: AbortSignal): Promise<CanvasDetailDto> {

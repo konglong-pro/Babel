@@ -14,6 +14,8 @@ import {
   useWorkspaceProcessActive,
   workspaceProcessRouteTargetShouldApply,
 } from "@babel-apps/platform/pages/react";
+import { usePaneFocus } from "@babel-apps/platform/navigation/react";
+import { useCommandPaletteItemSource } from "@babel-apps/platform/shortcuts/react";
 
 import {
   BEFORE_NAVIGATE_EVENT,
@@ -96,6 +98,7 @@ export function NotesWorkspace({
   const router = useRouter();
   const processActive = useWorkspaceProcessActive();
   const { pages, activeKey, activatePage, closePage, openPage } = usePageSessions();
+  const { focusPane } = usePaneFocus();
   const [folders, setFolders] = useState<FolderDto[]>([]);
   const [notes, setNotes] = useState<NoteSummaryDto[]>([]);
   const [templates, setTemplates] = useState<NoteTemplateDto[]>([]);
@@ -106,6 +109,7 @@ export function NotesWorkspace({
   const [indexLoading, setIndexLoading] = useState(true);
   const [error, setError] = useState("");
   const [drafts, setDrafts] = useState<Record<string, NoteDraftSession>>({});
+  const [pendingEditPageKey, setPendingEditPageKey] = useState<string | null>(null);
   const [templateMode, setTemplateMode] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
   const [creatingTemplate, setCreatingTemplate] = useState(false);
@@ -259,6 +263,7 @@ export function NotesWorkspace({
     setStage("notes");
     const nextUrl = folderId === null ? "/notes" : `/notes?folder=${folderId}`;
     window.history.replaceState(window.history.state, "", nextUrl);
+    window.requestAnimationFrame(() => focusPane("items"));
   }
 
   function openNote(id: number, folderId?: number) {
@@ -277,6 +282,13 @@ export function NotesWorkspace({
         });
     if (targetFolderId !== null) setSelectedFolderId(targetFolderId);
     setStage("note");
+    window.requestAnimationFrame(() => focusPane("detail"));
+  }
+
+  function openNoteForEdit(id: number, folderId?: number) {
+    const note = notes.find((candidate) => candidate.id === id);
+    setPendingEditPageKey(note ? savedNotePage(note).key : `note:${id}`);
+    openNote(id, folderId);
   }
 
   function openReflection(date: string) {
@@ -456,6 +468,20 @@ export function NotesWorkspace({
     window.requestAnimationFrame(() => referenceTriggerRef.current?.focus());
   }
 
+  useCommandPaletteItemSource({
+    id: "vali.notes",
+    label: "Notes",
+    items: notes.map((note) => ({
+      id: String(note.id),
+      dedupeKey: `vali:note:${note.id}`,
+      label: note.title,
+      description: folderMap.get(note.folderId)?.name ?? "Note",
+      keywords: note.tags,
+      open: () => openNote(note.id, note.folderId),
+      edit: () => openNoteForEdit(note.id, note.folderId),
+    })),
+  });
+
   return (
     <div
       className={`notes-workspace stage-${visibleStage}${hasUnsavedPages || templateDirty ? " has-unsaved" : ""}${showingTemplates ? " managing-templates" : ""}`}
@@ -513,6 +539,7 @@ export function NotesWorkspace({
           loading={indexLoading}
           referencePanelOpen={activeReferencePanel !== null}
           onSelect={openNote}
+          onEdit={openNoteForEdit}
           onReorder={handleReorderNote}
           onImport={handleImportMarkdown}
           onEditTemplates={openTemplateManager}
@@ -585,6 +612,10 @@ export function NotesWorkspace({
                   notes={notes}
                   templates={templates}
                   searchFocus={noteId === initialNoteId ? initialSearchFocus : null}
+                  editRequested={pendingEditPageKey === page.key}
+                  onEditRequestConsumed={() => {
+                    setPendingEditPageKey((current) => current === page.key ? null : current);
+                  }}
                   onOpenNote={openNote}
                   onOpenDraft={openDraft}
                   onOpenReflection={openReflection}
@@ -595,7 +626,7 @@ export function NotesWorkspace({
               );
             })}
           {activePage === null ? (
-            <section className="detail-panel empty-state" aria-label="Note details">
+            <section className="detail-panel empty-state" data-babel-pane="detail" tabIndex={-1} aria-label="Note details">
               <button className="content-back" type="button" onClick={() => showList()}>
                 <span aria-hidden="true">←</span> Notes
               </button>

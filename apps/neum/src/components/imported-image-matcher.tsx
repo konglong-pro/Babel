@@ -1,6 +1,8 @@
 "use client";
 
-import { type ChangeEvent, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, useId, useMemo, useRef, useState } from "react";
+import { usePageDeckPageContext } from "@babel-apps/platform/pages/react";
+import { useCommandPaletteActions } from "@babel-apps/platform/shortcuts/react";
 
 import {
   imageFileError,
@@ -32,6 +34,8 @@ export function ImportedImageMatcher({
   const bulkInputRef = useRef<HTMLInputElement>(null);
   const manualInputRef = useRef<HTMLInputElement>(null);
   const manualTokenRef = useRef<string | null>(null);
+  const actionSourceId = useId();
+  const page = usePageDeckPageContext();
   const [status, setStatus] = useState("");
   const stagedByToken = useMemo(
     () => new Map(stagedImages.map((image) => [image.token, image])),
@@ -86,6 +90,37 @@ export function ImportedImageMatcher({
     setStatus(`Assigned ${file.name}.`);
   }
 
+  function openManualPicker(token: string) {
+    if (disabled) return;
+    manualTokenRef.current = token;
+    manualInputRef.current?.click();
+  }
+
+  useCommandPaletteActions(
+    `imported-images.${page.pageKey ?? actionSourceId}`,
+    page.active && references.length > 0 ? [
+      {
+        id: "imported-images.select",
+        label: "Select imported images",
+        keywords: ["match", "files", "bulk"],
+        group: "Imported images",
+        available: !disabled,
+        run: () => bulkInputRef.current?.click(),
+      },
+      ...references.map((reference) => {
+        const staged = stagedByToken.get(reference.token);
+        return {
+          id: `imported-image.${reference.token}`,
+          label: `${staged ? "Replace" : "Choose"} ${reference.path}`,
+          keywords: ["image", "file", reference.path],
+          group: "Imported images",
+          available: !disabled,
+          run: () => openManualPicker(reference.token),
+        };
+      }),
+    ] : [],
+  );
+
   if (references.length === 0) return null;
 
   return (
@@ -139,10 +174,7 @@ export function ImportedImageMatcher({
               <button
                 type="button"
                 disabled={disabled}
-                onClick={() => {
-                  manualTokenRef.current = reference.token;
-                  manualInputRef.current?.click();
-                }}
+                onClick={() => openManualPicker(reference.token)}
               >
                 {staged ? "Replace" : "Choose file"}
               </button>

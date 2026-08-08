@@ -1,7 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { useListKeyboardNavigation } from "@babel-apps/platform/navigation/react";
+import { useCommandPaletteActions } from "@babel-apps/platform/shortcuts/react";
 
 import { formatDate } from "@/components/shared";
 import { getErrorMessage, searchNotes } from "@/lib/api-client";
@@ -31,7 +34,12 @@ const DOCUMENT_KIND_LABELS: Record<DocumentKind, string> = {
   reflection: "Reflection",
 };
 
+function documentResultKey(result: DocumentSearchResultsDto["results"][number]): string {
+  return result.kind === "note" ? `note:${result.id}` : `reflection:${result.date}`;
+}
+
 export function SearchResults({ query }: { query: string }) {
+  const router = useRouter();
   const [results, setResults] = useState<DocumentSearchResultsDto>(EMPTY_RESULTS);
   const [loading, setLoading] = useState(Boolean(query));
   const [loadingMore, setLoadingMore] = useState(false);
@@ -58,6 +66,27 @@ export function SearchResults({ query }: { query: string }) {
 
   const total = results.total;
   const canLoadMore = results.results.length < results.total;
+  useCommandPaletteActions("vali.search", canLoadMore ? [
+    {
+      id: "search.loadMore",
+      label: "Load more search results",
+      keywords: ["next", "page", "results"],
+      group: "Search",
+      available: !loadingMore,
+      run: loadMore,
+    },
+  ] : []);
+  const navigation = useListKeyboardNavigation<string>({
+    items: results.results.map((result) => ({
+      id: documentResultKey(result),
+      label: result.match.title.map((part) => part.text).join(""),
+    })),
+    onActivate: (id) => {
+      const result = results.results.find((candidate) => documentResultKey(candidate) === id);
+      if (result) router.push(documentSearchResultHref(result, query));
+    },
+    label: "Search results",
+  });
 
   function loadMore() {
     if (loadingMore || !canLoadMore) return;
@@ -108,10 +137,13 @@ export function SearchResults({ query }: { query: string }) {
 
       {!loading && total > 0 ? (
         <>
-        <ul className="search-result-list" aria-label="Search results">
+        <ul className="search-result-list" {...navigation.listboxProps}>
           {results.results.map((result) => (
-            <li key={result.kind === "note" ? `note:${result.id}` : `reflection:${result.date}`}>
-              <Link href={documentSearchResultHref(result, query)}>
+            <li key={documentResultKey(result)} role="presentation">
+              <Link
+                {...navigation.getOptionProps(documentResultKey(result))}
+                href={documentSearchResultHref(result, query)}
+              >
                 <span className="eyebrow">{DOCUMENT_KIND_LABELS[result.kind]}</span>
                 <strong><HighlightedText parts={result.match.title} /></strong>
                 <span className="search-match-fields">

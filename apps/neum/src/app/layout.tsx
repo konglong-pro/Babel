@@ -11,6 +11,7 @@ import { PageSessionProvider } from "@babel-apps/platform/pages/react";
 import { ShortcutProvider } from "@babel-apps/platform/shortcuts/react";
 
 import { AppHeader } from "@/components/app-header";
+import { GlobalQuickOpenSource } from "@/components/global-quick-open-source";
 import {
   NeumPageTabs,
   NeumWorkspaceProcessHost,
@@ -33,6 +34,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
             <a className="skip-link" href="#main-content">Skip to main content</a>
             <AppHeader />
             <NeumPageTabs />
+            <GlobalQuickOpenSource />
             <main id="main-content">
               <NeumWorkspaceProcessHost>{children}</NeumWorkspaceProcessHost>
             </main>

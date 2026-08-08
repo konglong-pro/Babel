@@ -9,6 +9,14 @@ import {
   useWorkspaceProcessActive,
   workspaceProcessRouteTargetShouldApply,
 } from "@babel-apps/platform/pages/react";
+import {
+  useListKeyboardNavigation,
+  usePaneFocus,
+} from "@babel-apps/platform/navigation/react";
+import {
+  useCommandPaletteActions,
+  useCommandPaletteItemSource,
+} from "@babel-apps/platform/shortcuts/react";
 
 import {
   BEFORE_NAVIGATE_EVENT,
@@ -69,8 +77,10 @@ export function ReflectionWorkspace({
   const [summaries, setSummaries] = useState<ReflectionSummaryDto[]>([]);
   const [indexLoading, setIndexLoading] = useState(true);
   const [error, setError] = useState("");
+  const [pendingEditPageKey, setPendingEditPageKey] = useState<string | null>(null);
   const openedRouteTargetRef = useRef<string | null>(null);
   const routeTargetTrackerRef = useRef(createWorkspaceProcessRouteTargetTracker());
+  const { focusPane } = usePaneFocus();
 
   useEffect(() => {
     let active = true;
@@ -168,10 +178,18 @@ export function ReflectionWorkspace({
     return () => window.removeEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
   }, [closePage, pages, processActive]);
 
-  function openDate(date: string) {
+  function openDate(date: string, edit = false) {
     if (!validReflectionDate(date)) return;
-    openPage(reflectionPage(date));
+    const page = reflectionPage(date);
+    if (edit) setPendingEditPageKey(page.key);
+    openPage(page);
     setDateDraft(date);
+    window.requestAnimationFrame(() => focusPane("detail"));
+  }
+
+  function showDateList() {
+    activatePage(null);
+    window.requestAnimationFrame(() => focusPane("items"));
   }
 
   function openNote(id: number, folderId?: number) {
@@ -201,10 +219,55 @@ export function ReflectionWorkspace({
     ].sort((left, right) => right.date.localeCompare(left.date)));
   }
 
+  const dateNavigation = useListKeyboardNavigation<string>({
+    items: visibleDates.map((date) => ({ id: date, label: date })),
+    selectedId: selectedDate,
+    onActivate: (date) => openDate(date),
+    onEdit: (date) => openDate(date, true),
+    label: "Reflection dates",
+  });
+
+  useCommandPaletteItemSource({
+    id: "vali.reflections",
+    label: "Reflections",
+    items: visibleDates.map((date) => ({
+      id: date,
+      dedupeKey: `vali:reflection:${date}`,
+      label: date,
+      description: date === today ? "Today" : formatWeekday(date),
+      open: () => openDate(date),
+      edit: () => openDate(date, true),
+    })),
+  });
+
+  useCommandPaletteActions("vali.reflections", [
+    {
+      id: "vali.reflections.open-today",
+      label: "Open today's reflection",
+      keywords: ["today", "daily", "reflection"],
+      group: "Reflection",
+      available: Boolean(today),
+      run: () => openDate(today),
+    },
+    {
+      id: "vali.reflections.edit-today",
+      label: "Edit today's reflection",
+      keywords: ["today", "daily", "reflection", "write"],
+      group: "Reflection",
+      available: Boolean(today),
+      run: () => openDate(today, true),
+    },
+  ]);
+
   return (
     <div className={`reflection-workspace${hasUnsavedPages ? " has-unsaved" : ""}`}>
       {processActive ? <ActiveReflectionHistoryGuard /> : null}
-      <aside className="reflection-index workspace-panel" aria-label="Reflection dates">
+      <aside
+        className="reflection-index workspace-panel"
+        data-babel-pane="items"
+        tabIndex={-1}
+        aria-label="Reflection dates"
+      >
         <div className="panel-heading">
           <div>
             <span className="eyebrow">Daily unit</span>
@@ -233,10 +296,11 @@ export function ReflectionWorkspace({
         </form>
         {indexLoading ? <p className="panel-status">Loading dates…</p> : null}
         {error ? <p className="form-error" role="alert">{error}</p> : null}
-        <ol className="reflection-date-list">
+        <ol className="reflection-date-list" {...dateNavigation.listboxProps}>
           {visibleDates.map((date) => (
-            <li key={date}>
+            <li key={date} role="presentation">
               <button
+                {...dateNavigation.getOptionProps(date)}
                 className={date === selectedDate ? "selected" : undefined}
                 type="button"
                 aria-current={date === selectedDate ? "date" : undefined}
@@ -252,7 +316,11 @@ export function ReflectionWorkspace({
       </aside>
 
       {indexLoading ? (
-        <main className="reflection-detail detail-panel">
+        <main
+          className="reflection-detail detail-panel"
+          data-babel-pane="detail"
+          tabIndex={-1}
+        >
           <div className="standalone-status">Loading reflections…</div>
         </main>
       ) : (
@@ -269,14 +337,23 @@ export function ReflectionWorkspace({
                   date={date}
                   exists={savedDates.has(date)}
                   searchFocus={date === initialDate ? initialSearchFocus : null}
+                  editRequested={pendingEditPageKey === page.key}
+                  onEditRequestConsumed={() => {
+                    setPendingEditPageKey((current) => current === page.key ? null : current);
+                  }}
                   onOpenDate={openDate}
                   onOpenNote={openNote}
                   onSaved={handleSaved}
+                  onShowList={showDateList}
                 />
               );
             })}
           {activePage === null ? (
-            <main className="reflection-detail detail-panel">
+            <main
+              className="reflection-detail detail-panel"
+              data-babel-pane="detail"
+              tabIndex={-1}
+            >
               <div className="standalone-status">
                 Choose a date to open a reflection page.
                 <button type="button" onClick={() => activatePage(null)}>Dates</button>

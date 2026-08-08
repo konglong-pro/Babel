@@ -35,7 +35,7 @@ test("shortcut loader rereads valid settings and falls back for missing or inval
     assert.deepEqual(loadShortcutSettings({ path: settingsPath }), DEFAULT_SHORTCUT_SETTINGS);
 
     const changed = {
-      schemaVersion: 2,
+      schemaVersion: 3,
       bindings: { ...DEFAULT_SHORTCUT_SETTINGS.bindings, save: "Ctrl+Alt+S" },
     };
     writeFileSync(settingsPath, JSON.stringify(changed), "utf8");
@@ -63,12 +63,44 @@ test("shortcut loader rereads valid settings and falls back for missing or inval
     };
     writeFileSync(settingsPath, JSON.stringify(legacy), "utf8");
     assert.deepEqual(loadShortcutSettings({ path: settingsPath }), {
-      schemaVersion: 2,
+      schemaVersion: 3,
       bindings: {
-        ...legacy.bindings,
+        save: "Ctrl+Alt+S",
+        new: "Ctrl+Alt+N",
+        edit: "Ctrl+Alt+E",
         read: "Ctrl+R",
+        confirm: "Ctrl+Enter",
+        cancel: "Escape",
+        search: "Ctrl+F",
+        delete: "Ctrl+Delete",
+        commandPalette: "Ctrl+K",
+        focusNextPane: "Ctrl+F6",
+        focusPreviousPane: "Ctrl+Shift+F6",
+        nextTab: "Ctrl+Alt+ArrowRight",
+        previousTab: "Ctrl+Alt+ArrowLeft",
+        closeTab: "Ctrl+Alt+W",
+        quickOpen: "Ctrl+Alt+P",
+        help: "Ctrl+Alt+H",
       },
     });
+
+    const versionTwoWithConflict = {
+      schemaVersion: 2,
+      bindings: {
+        save: "Ctrl+Alt+S",
+        new: "Ctrl+Alt+N",
+        edit: "Ctrl+Alt+E",
+        read: "Ctrl+R",
+        confirm: "Ctrl+Enter",
+        cancel: "Escape",
+        search: "Ctrl+F",
+        delete: "Ctrl+Delete",
+        commandPalette: "Ctrl+Alt+P",
+      },
+    };
+    writeFileSync(settingsPath, JSON.stringify(versionTwoWithConflict), "utf8");
+    assert.equal(loadShortcutSettings({ path: settingsPath }).bindings.commandPalette, "Ctrl+Alt+P");
+    assert.equal(loadShortcutSettings({ path: settingsPath }).bindings.quickOpen, null);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

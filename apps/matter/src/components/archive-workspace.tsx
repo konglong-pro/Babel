@@ -14,6 +14,11 @@ import {
   useWorkspaceProcessActive,
   workspaceProcessRouteTargetShouldApply,
 } from "@babel-apps/platform/pages/react";
+import { usePaneFocus } from "@babel-apps/platform/navigation/react";
+import {
+  useCommandPaletteActions,
+  useCommandPaletteItemSource,
+} from "@babel-apps/platform/shortcuts/react";
 
 import {
   ArchivePageSession,
@@ -96,6 +101,7 @@ export function ArchiveWorkspace({
   const router = useRouter();
   const processActive = useWorkspaceProcessActive();
   const { pages, activeKey, activatePage, closePage, openPage } = usePageSessions();
+  const { focusPane } = usePaneFocus();
   const pageKind = archivePageKind(type);
   const [folders, setFolders] = useState<FolderDto[]>([]);
   const [items, setItems] = useState<ArchiveSummary[]>([]);
@@ -104,6 +110,7 @@ export function ArchiveWorkspace({
   const [error, setError] = useState("");
   const [navigationError, setNavigationError] = useState("");
   const [drafts, setDrafts] = useState<Record<string, ArchiveDraftSession>>({});
+  const [pendingEditPageKey, setPendingEditPageKey] = useState<string | null>(null);
   const [wikilinkCreation, setWikilinkCreation] = useState<WikilinkCreationRequest | null>(null);
   const [knowledgeFolders, setKnowledgeFolders] = useState<FolderDto[]>([]);
   const [knowledgeFoldersLoading, setKnowledgeFoldersLoading] = useState(false);
@@ -232,6 +239,7 @@ export function ArchiveWorkspace({
       "",
       entityLocation(type, null, folderId),
     );
+    window.requestAnimationFrame(() => focusPane("items"));
   }
 
   function openItem(id: number, exactFolderId?: number) {
@@ -247,6 +255,13 @@ export function ArchiveWorkspace({
           scope: type,
         });
     if (folderId !== null) setSelectedFolderId(folderId);
+    window.requestAnimationFrame(() => focusPane("detail"));
+  }
+
+  function openItemForEdit(id: number) {
+    const item = items.find((candidate) => candidate.id === id);
+    setPendingEditPageKey(item ? savedArchivePage(type, item).key : `${type}:${id}`);
+    openItem(id, item?.folderId);
   }
 
   function openEntity(kind: LinkEntityKind, id: number, folderId?: number) {
@@ -440,6 +455,40 @@ export function ArchiveWorkspace({
     window.requestAnimationFrame(() => referenceTriggerRef.current?.focus());
   }
 
+  function retryIndexLoading() {
+    setError("");
+    setIndexLoading(true);
+    void loadIndex()
+      .catch((caught) => setError(getErrorMessage(caught)))
+      .finally(() => setIndexLoading(false));
+  }
+
+  useCommandPaletteItemSource({
+    id: `matter.${type}.items`,
+    label: type === "knowledge" ? "Knowledge notes" : "Exercises",
+    items: items.map((item) => ({
+      id: String(item.id),
+      dedupeKey: `matter:${type}:${item.id}`,
+      label: item.title,
+      description: folders.find((folder) => folder.id === item.folderId)?.name ?? pageKind,
+      keywords: item.tags,
+      open: () => openItem(item.id, item.folderId),
+      edit: () => openItemForEdit(item.id),
+    })),
+  });
+
+  useCommandPaletteActions(`matter.${type}.workspace`,
+    processActive && Boolean(error) && !indexLoading ? [
+      {
+        id: "archive.retryIndex",
+        label: "Retry loading archive",
+        keywords: ["reload", "error"],
+        group: pageKind,
+        run: retryIndexLoading,
+      },
+    ] : [],
+  );
+
   return (
     <>
       {processActive ? <ActiveArchiveHistoryGuard /> : null}
@@ -468,25 +517,20 @@ export function ArchiveWorkspace({
           loading={indexLoading}
           referencePanelOpen={activeReferencePanel !== null}
           onSelect={openItem}
+          onEdit={openItemForEdit}
           onReorder={handleReorderItem}
           onCreate={beginCreate}
           onImport={type === "knowledge" ? handleImportMarkdown : undefined}
         />
 
         {error ? (
-          <section className="detail-panel error-state" role="alert">
+          <section className="detail-panel error-state" data-babel-pane="detail" tabIndex={-1} role="alert">
             <span aria-hidden="true">!</span>
             <h2>Couldn’t load the archive</h2>
             <p>{error}</p>
             <button
               type="button"
-              onClick={() => {
-                setError("");
-                setIndexLoading(true);
-                void loadIndex()
-                  .catch((caught) => setError(getErrorMessage(caught)))
-                  .finally(() => setIndexLoading(false));
-              }}
+              onClick={retryIndexLoading}
             >
               Retry
             </button>
@@ -508,6 +552,10 @@ export function ArchiveWorkspace({
                     type={type}
                     items={items}
                     searchFocus={itemId === initialItemId ? initialSearchFocus : null}
+                    editRequested={pendingEditPageKey === page.key}
+                    onEditRequestConsumed={() => {
+                      setPendingEditPageKey((current) => current === page.key ? null : current);
+                    }}
                     onOpenEntity={openEntity}
                     onOpenDraft={openDraft}
                     onRequestKnowledgeCreation={requestKnowledgeCreation}
@@ -518,7 +566,7 @@ export function ArchiveWorkspace({
                 );
               })}
             {activePage === null ? (
-              <section className="detail-panel empty-state" aria-label={`${pageKind} details`}>
+              <section className="detail-panel empty-state" data-babel-pane="detail" tabIndex={-1} aria-label={`${pageKind} details`}>
                 <span aria-hidden="true">{type === "knowledge" ? "R" : "∫"}</span>
                 <h2>Keep several {pageKind.toLowerCase()} pages open</h2>
                 <p>Select an item to open it in a persistent page tab.</p>

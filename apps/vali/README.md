@@ -35,6 +35,29 @@ at 100 MiB, and multipart requests are capped at 160 MiB on the wire. Image and
 database mutations are serialized. Startup recovery restores quarantined files
 that are still owned by either unit and deletes only generated, unowned files.
 
+## Keyboard navigation
+
+Notes follows Babel's Ready/Edit keyboard model. `Ctrl+F6` and
+`Ctrl+Shift+F6` cycle the visible folder tree, note tree, tab strip, and detail
+pane, skipping absent panes and remembering each pane's last focus. Hierarchical
+folders and notes expose `tree`/`treeitem`; flat search results expose `listbox`.
+Up/Down moves, Left/Right collapses or expands, Home/End/PageUp/PageDown moves
+through supported lists, and typed letters jump by title. `Enter` selects a
+folder or opens a note tab; `F2` renames a focused folder or opens a focused note
+directly in edit mode. The `tablist` uses Left/Right to move and Enter to
+activate.
+
+Reordering uses `Ctrl+Alt+ArrowUp` and `Ctrl+Alt+ArrowDown`. Escape gives the
+topmost dialog or overlay priority, then leaves edit mode for the reader and the
+reader for the note tree; dirty-edit confirmations still apply. `Ctrl+K`
+searches commands, registered actions, and titles, while `Ctrl+Alt+P` searches
+titles only. `Ctrl+Alt+H` opens keyboard help. Tab defaults are
+`Ctrl+Alt+ArrowRight`, `Ctrl+Alt+ArrowLeft`, and `Ctrl+Alt+W` for next, previous,
+and close. Schema v1/v2 bindings are preserved during migration; a conflicting
+new command remains `Unbound`. See the
+[root keyboard contract](../../README.md#launcher) for the complete schema-v3
+command table.
+
 To verify the app without opening the formal notebook database, point the build
 at temporary paths before running the workspace gate:
 

@@ -57,6 +57,9 @@ test("renders the Markdown guide with exactly Category, Syntax, and Usage column
 
   assert.match(html, /role="dialog"/u);
   assert.match(html, /aria-modal="false"/u);
+  assert.match(html, /data-babel-focus-scope="overlay"/u);
+  assert.match(html, /data-babel-pane="detail" tabindex="-1"/u);
+  assert.match(html, /data-babel-escape="overlay"/u);
   assert.match(html, />Markdown Writing Guide<\/h2>/u);
   assert.match(html, />All categories<\/option>/u);
   assert.match(html, new RegExp(`>${markdownWritingGuideRows.length} rules<`, "u"));
@@ -77,6 +80,9 @@ test("renders the complete English Typst reference as the default formula tab", 
     onClose: () => undefined,
   }));
 
+  assert.match(html, /data-babel-focus-scope="overlay"/u);
+  assert.match(html, /data-babel-pane="detail" tabindex="-1"/u);
+  assert.match(html, /data-babel-escape="overlay"/u);
   assert.match(html, />Formula Reference<\/h2>/u);
   assert.match(html, /role="tab" aria-selected="true" class="is-active">Typst<\/button>/u);
   assert.match(html, /role="tab" aria-selected="false">LaTeX \/ KaTeX<\/button>/u);

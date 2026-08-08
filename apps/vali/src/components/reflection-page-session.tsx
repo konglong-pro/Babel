@@ -25,6 +25,7 @@ import {
   usePageSessionLifecycle,
   usePageSessions,
 } from "@babel-apps/platform/pages/react";
+import { useCommandPaletteActions } from "@babel-apps/platform/shortcuts/react";
 
 import { MarkdownEditor, type StagedImage } from "@/components/markdown-editor";
 import { formatDate } from "@/components/shared";
@@ -55,9 +56,12 @@ interface ReflectionPageSessionProps {
   date: string;
   exists: boolean;
   searchFocus: ValiSearchFocus | null;
+  editRequested: boolean;
+  onEditRequestConsumed: () => void;
   onOpenDate: (date: string) => void;
   onOpenNote: (id: number, folderId?: number) => void;
   onSaved: (detail: ReflectionDetailDto) => void;
+  onShowList: () => void;
 }
 
 export function reflectionPage(date: string): PageSessionDescriptor {
@@ -75,11 +79,14 @@ export function ReflectionPageSession({
   date,
   exists,
   searchFocus,
+  editRequested,
+  onEditRequestConsumed,
   onOpenDate,
   onOpenNote,
   onSaved,
+  onShowList,
 }: ReflectionPageSessionProps) {
-  const { setPageStatus, updatePage } = usePageSessions();
+  const { activeKey, setPageStatus, updatePage } = usePageSessions();
   const formRef = useRef<HTMLFormElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const stagedRef = useRef<StagedImage[]>([]);
@@ -179,6 +186,16 @@ export function ReflectionPageSession({
   useEffect(() => {
     stagedRef.current = stagedImages;
   }, [stagedImages]);
+
+  useEffect(() => {
+    if (!editRequested || loading || (exists && detail === null)) return;
+    const frame = window.requestAnimationFrame(() => {
+      setMode("edit");
+      onEditRequestConsumed();
+      window.requestAnimationFrame(() => textareaRef.current?.focus());
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [detail, editRequested, exists, loading, onEditRequestConsumed]);
 
   useEffect(() => {
     const root = detailRootRef.current;
@@ -335,17 +352,41 @@ export function ReflectionPageSession({
     </div>
   );
 
-  if (error && exists && detail === null && !loading) {
+  function retryLoading() {
+    setLoading(true);
+    setError("");
+    setReloadVersion((version) => version + 1);
+  }
+
+  const canRetryLoading = Boolean(error) && exists && detail === null && !loading;
+  useCommandPaletteActions(
+    `vali.reflection-detail.${pageKey}`,
+    activeKey === pageKey && canRetryLoading ? [
+      {
+        id: "reflection.retry",
+        label: "Retry loading reflection",
+        keywords: ["reload", "error"],
+        group: "Reflection",
+        run: retryLoading,
+      },
+    ] : [],
+  );
+
+  if (canRetryLoading) {
     return (
       <PageDeckPage pageKey={pageKey}>
-        <main className="reflection-detail detail-panel">
+        <main
+          className="reflection-detail detail-panel"
+          data-babel-pane="detail"
+          tabIndex={-1}
+        >
           <div className="standalone-status error-state" role="alert">
             <h1>Could not open this reflection</h1>
             <p>{error}</p>
-            <button type="button" onClick={() => {
-              setLoading(true);
-              setReloadVersion((version) => version + 1);
-            }}>
+            <button data-babel-escape="list" type="button" onClick={onShowList}>
+              Dates
+            </button>
+            <button type="button" onClick={retryLoading}>
               Retry
             </button>
           </div>
@@ -356,7 +397,12 @@ export function ReflectionPageSession({
 
   return (
     <PageDeckPage pageKey={pageKey}>
-      <main ref={detailRootRef} className="reflection-detail detail-panel">
+      <main
+        ref={detailRootRef}
+        className="reflection-detail detail-panel"
+        data-babel-pane="detail"
+        tabIndex={-1}
+      >
         {error ? <p className="form-error" role="alert">{error}</p> : null}
         {!error && limitError ? <p className="form-error" role="alert">{limitError}</p> : null}
         {loading ? (
@@ -425,6 +471,14 @@ export function ReflectionPageSession({
           </form>
         ) : (
           <article>
+            <button
+              className="content-back"
+              data-babel-escape="list"
+              type="button"
+              onClick={onShowList}
+            >
+              <span aria-hidden="true">←</span> Dates
+            </button>
             <header className="document-header">
               <div>
                 <DetachedReaderWindow

@@ -74,8 +74,8 @@ export function useFolderReorder({
     const unavailable = disabled || pending || !canMove.has(folderId);
     return {
       draggable: !unavailable,
-      "aria-keyshortcuts": "ArrowUp ArrowDown",
-      title: "Drag to reorder · use ↑/↓ with keyboard",
+      "aria-keyshortcuts": "Control+Alt+ArrowUp Control+Alt+ArrowDown",
+      title: "Drag to reorder · use Ctrl+Alt+↑/↓ with keyboard",
       "data-babel-folder-drag-source": "",
       onDragStart(event: DragEvent<HTMLButtonElement>) {
         if (unavailable) {
@@ -88,6 +88,12 @@ export function useFolderReorder({
       },
       onDragEnd: clearDrag,
       onKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+        if (
+          event.nativeEvent.isComposing ||
+          event.nativeEvent.getModifierState("AltGraph") ||
+          event.key === "Process"
+        ) return;
+        if (!event.ctrlKey || !event.altKey || event.metaKey || event.shiftKey) return;
         const direction = event.key === "ArrowUp"
           ? "up"
           : event.key === "ArrowDown"

@@ -247,7 +247,7 @@ export function KnowledgeDetail({
   }, [detailId, mode, searchFocusField, searchFocusQuery]);
 
   if (loading) {
-    return <section className="detail-panel panel-status">Loading note…</section>;
+    return <section className="detail-panel panel-status" data-babel-pane="detail" tabIndex={-1}>Loading note…</section>;
   }
 
   if (mode === "create" || mode === "edit") {
@@ -273,7 +273,7 @@ export function KnowledgeDetail({
 
   if (!detail) {
     return (
-      <section className="detail-panel empty-state" aria-label="Knowledge details">
+      <section className="detail-panel empty-state" data-babel-pane="detail" tabIndex={-1} aria-label="Knowledge details">
         <span aria-hidden="true">∴</span>
         <h2>Archive Ideas Worth Revisiting</h2>
         <p>Select a note on the left, or create a new Knowledge note inside a folder.</p>
@@ -282,7 +282,7 @@ export function KnowledgeDetail({
   }
 
   return (
-    <article ref={detailRootRef} className="detail-panel document-view">
+    <article ref={detailRootRef} className="detail-panel document-view" data-babel-pane="detail" tabIndex={-1}>
       <header className="document-header">
         <div>
           <DetachedReaderWindow
@@ -662,7 +662,7 @@ function KnowledgeForm({
   );
 
   return (
-    <section className="detail-panel form-view">
+    <section className="detail-panel form-view" data-babel-pane="detail" tabIndex={-1}>
       <form ref={formRef} onSubmit={submit} aria-busy={pending}>
         <fieldset className="form-controls" disabled={pending}>
         <header className="document-header">
@@ -728,6 +728,7 @@ function KnowledgeForm({
           <label className="field">
             <span>Title</span>
             <input
+              autoFocus
               name="title"
               autoComplete="off"
               required

@@ -313,7 +313,7 @@ export function EntryDetail({
   }, [detailId, mode, searchFocusField, searchFocusQuery]);
 
   if (loading) {
-    return <section className="detail-panel panel-status detail-loading">Loading entry…</section>;
+    return <section className="detail-panel panel-status detail-loading" data-babel-pane="detail" tabIndex={-1}>Loading entry…</section>;
   }
 
   if (mode === "create" || mode === "edit") {
@@ -343,7 +343,7 @@ export function EntryDetail({
 
   if (!detail) {
     return (
-      <section className="detail-panel empty-state" aria-label="Entry details">
+      <section className="detail-panel empty-state" data-babel-pane="detail" tabIndex={-1} aria-label="Entry details">
         <button className="content-back" type="button" onClick={onBack}>
           <span aria-hidden="true">←</span> {entryUnitLabel(kind)}
         </button>
@@ -355,8 +355,8 @@ export function EntryDetail({
   }
 
   return (
-    <article ref={detailRootRef} className="detail-panel document-view">
-      <button className="content-back" type="button" onClick={onBack}>
+    <article ref={detailRootRef} className="detail-panel document-view" data-babel-pane="detail" tabIndex={-1}>
+        <button className="content-back" data-babel-escape="list" type="button" onClick={onBack}>
         <span aria-hidden="true">←</span> {entryUnitLabel(kind)}
       </button>
       <header className="document-header">
@@ -777,7 +777,7 @@ function EntryForm({
   );
 
   return (
-    <section className="detail-panel form-view">
+    <section className="detail-panel form-view" data-babel-pane="detail" tabIndex={-1}>
       <form ref={formRef} onSubmit={submit}>
         <header className="document-header form-header">
           <div>
@@ -835,6 +835,7 @@ function EntryForm({
           <label className="field title-field">
             <span>Title</span>
             <input
+              autoFocus
               name="title"
               autoComplete="off"
               required

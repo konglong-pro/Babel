@@ -141,16 +141,6 @@
   display: none !important;
 }
 
-.babel-page-close-backdrop {
-  position: fixed;
-  z-index: 10000;
-  inset: 0;
-  display: grid;
-  padding: 24px;
-  background: rgb(0 0 0 / 45%);
-  place-items: center;
-}
-
 .babel-page-close-dialog {
   width: min(30rem, 100%);
   padding: 24px;
@@ -159,6 +149,10 @@
   background: Canvas;
   box-shadow: 0 24px 70px rgb(0 0 0 / 28%);
   color: CanvasText;
+}
+
+.babel-page-close-dialog::backdrop {
+  background: rgb(0 0 0 / 45%);
 }
 
 .babel-page-close-dialog__eyebrow {

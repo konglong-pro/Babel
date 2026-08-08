@@ -40,7 +40,7 @@ const entries: EntrySummaryDto[] = [
   },
 ];
 
-test("folder leaves retain disclosure controls and selected ancestors reveal", () => {
+test("folder tree exposes hierarchy on treeitems without leaf disclosure controls", () => {
   const markup = renderToStaticMarkup(
     createElement(FolderPanel, {
       folders,
@@ -58,10 +58,22 @@ test("folder leaves retain disclosure controls and selected ancestors reveal", (
     }),
   );
 
-  assert.match(markup, /aria-label="Collapse Root"/);
-  assert.match(markup, /aria-label="Expand Leaf"/);
+  assert.match(markup, /data-babel-folder-disclosure=""[^>]*aria-expanded="true"[^>]*title="Collapse Root"/);
+  assert.match(markup, /class="folder-disclosure-spacer"/);
+  const rootTreeItem = markup.match(/<button[^>]*data-babel-navigation-id="1"[^>]*>/)?.[0];
+  const leafTreeItem = markup.match(/<button[^>]*data-babel-navigation-id="2"[^>]*>/)?.[0];
+  assert.ok(rootTreeItem);
+  assert.ok(leafTreeItem);
+  assert.match(rootTreeItem, /aria-expanded="true"/);
+  assert.match(rootTreeItem, /aria-level="1"/);
+  assert.match(leafTreeItem, /aria-level="2"/);
+  assert.doesNotMatch(leafTreeItem, /aria-expanded=/);
+  assert.doesNotMatch(markup, /aria-label="Expand Leaf"/);
   assert.match(markup, /data-babel-folder-drag-source=""/);
-  assert.match(markup, /aria-keyshortcuts="ArrowUp ArrowDown"/);
+  assert.match(
+    markup,
+    /aria-keyshortcuts="Control\+Alt\+ArrowUp Control\+Alt\+ArrowDown"/,
+  );
   assert.match(markup, /\+ New subfolder/);
 });
 
@@ -88,6 +100,9 @@ test("folder load failures are recoverable and never look like an empty library"
   assert.match(markup, />Retry</);
   assert.doesNotMatch(markup, /No folders yet/);
   assert.match(markup, /aria-label="Create folder"[^>]*disabled/);
+  const tree = markup.match(/<nav[^>]*role="tree"[\s\S]*?<\/nav>/)?.[0];
+  assert.ok(tree);
+  assert.doesNotMatch(tree, /Folders could not be loaded|>Retry</);
 });
 
 test("entry leaves retain disclosure controls and selected ancestors reveal", () => {
@@ -107,8 +122,18 @@ test("entry leaves retain disclosure controls and selected ancestors reveal", ()
     }),
   );
 
-  assert.match(markup, /aria-label="Collapse Parent page"/);
+  assert.match(markup, /data-babel-tree-disclosure=""[^>]*title="Collapse Parent page"/);
   assert.match(markup, /data-babel-item-drag-source=""/);
-  assert.match(markup, /aria-label="Expand Leaf page"/);
+  assert.match(markup, /data-babel-tree-disclosure-spacer=""/);
+  assert.doesNotMatch(markup, /title="Expand Leaf page"/);
+  assert.match(markup, /data-babel-tree-inline-create=""/);
+  assert.match(markup, /data-babel-child-create=""/);
+  assert.doesNotMatch(markup, /role="group"/);
+  const parentTreeItem = markup.match(/<button[^>]*data-babel-navigation-id="10"[^>]*>/)?.[0];
+  const leafTreeItem = markup.match(/<button[^>]*data-babel-navigation-id="11"[^>]*>/)?.[0];
+  assert.ok(parentTreeItem);
+  assert.ok(leafTreeItem);
+  assert.match(parentTreeItem, /aria-expanded="true"/);
+  assert.doesNotMatch(leafTreeItem, /aria-expanded=/);
   assert.match(markup, /\+ New subnote/);
 });

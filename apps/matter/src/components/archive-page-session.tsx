@@ -7,6 +7,7 @@ import {
   usePageSessionLifecycle,
   usePageSessions,
 } from "@babel-apps/platform/pages/react";
+import { useCommandPaletteActions } from "@babel-apps/platform/shortcuts/react";
 
 import { ExerciseDetail } from "@/components/exercise-detail";
 import { KnowledgeDetail } from "@/components/knowledge-detail";
@@ -49,6 +50,8 @@ interface ArchivePageSessionProps {
   draft: ArchiveDraftSession | null;
   type: FolderType;
   items: ArchiveSummary[];
+  editRequested: boolean;
+  onEditRequestConsumed: () => void;
   searchFocus: ArchiveSearchFocus | null;
   onOpenEntity: (kind: LinkEntityKind, id: number, folderId?: number) => void;
   onOpenDraft: (
@@ -87,6 +90,8 @@ export function ArchivePageSession({
   draft,
   type,
   items,
+  editRequested,
+  onEditRequestConsumed,
   searchFocus,
   onOpenEntity,
   onOpenDraft,
@@ -95,7 +100,7 @@ export function ArchivePageSession({
   onShowList,
   onError,
 }: ArchivePageSessionProps) {
-  const { closePage, rekeyPage, setPageStatus, updatePage } = usePageSessions();
+  const { activeKey, closePage, rekeyPage, setPageStatus, updatePage } = usePageSessions();
   const [detail, setDetail] = useState<ArchiveDetail | null>(null);
   const [backlinks, setBacklinks] = useState<BacklinksDto>(emptyBacklinks);
   const [mode, setMode] = useState<ViewMode>(itemId === null ? "create" : "view");
@@ -207,16 +212,36 @@ export function ArchivePageSession({
     setMode("view");
   }
 
+  useEffect(() => {
+    if (!editRequested || itemId === null || loading || detail === null) return;
+    const frame = window.requestAnimationFrame(() => {
+      setMode("edit");
+      onEditRequestConsumed();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [detail, editRequested, itemId, loading, onEditRequestConsumed]);
+
   function retryLoading() {
     setLoading(true);
     setLoadError("");
     setReloadVersion((version) => version + 1);
   }
 
+  useCommandPaletteActions(`matter.archive-detail.${pageKey}`, activeKey === pageKey && Boolean(loadError) ? [
+    {
+      id: "archive.retry",
+      label: `Retry loading ${type === "knowledge" ? "note" : "exercise"}`,
+      keywords: ["reload", "error"],
+      group: archivePageKind(type),
+      available: !loading,
+      run: retryLoading,
+    },
+  ] : []);
+
   if (loadError) {
     return (
       <PageDeckPage pageKey={pageKey}>
-        <section className="detail-panel error-state" role="alert">
+        <section className="detail-panel error-state" data-babel-pane="detail" tabIndex={-1} role="alert">
           <span aria-hidden="true">!</span>
           <h2>Could not load this {type === "knowledge" ? "note" : "exercise"}</h2>
           <p>{loadError}</p>

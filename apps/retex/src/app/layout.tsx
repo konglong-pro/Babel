@@ -11,6 +11,7 @@ import { PageSessionProvider } from "@babel-apps/platform/pages/react";
 import { ShortcutProvider } from "@babel-apps/platform/shortcuts/react";
 
 import { AppHeader } from "@/components/app-header";
+import { GlobalQuickOpenSource } from "@/components/global-quick-open-source";
 import {
   RetexPageTabs,
   RetexWorkspaceProcessHost,
@@ -33,6 +34,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
             </a>
             <AppHeader />
             <RetexPageTabs />
+            <GlobalQuickOpenSource />
             <main id="main-content">
               <RetexWorkspaceProcessHost>{children}</RetexWorkspaceProcessHost>
             </main>

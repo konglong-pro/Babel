@@ -1,7 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { useListKeyboardNavigation } from "@babel-apps/platform/navigation/react";
+import { useCommandPaletteActions } from "@babel-apps/platform/shortcuts/react";
 
 import { getErrorMessage, searchArchive } from "@/lib/api-client";
 import { archiveSearchResultHref } from "@/lib/search-focus";
@@ -36,6 +39,7 @@ const SEARCH_FIELD_LABELS: Record<SearchField, string> = {
 };
 
 export function SearchResults({ query }: { query: string }) {
+  const router = useRouter();
   const [results, setResults] = useState<SearchResultsDto>(EMPTY_RESULTS);
   const [loading, setLoading] = useState(Boolean(query));
   const [loadingMore, setLoadingMore] = useState<"knowledge" | "exercise" | null>(null);
@@ -64,6 +68,56 @@ export function SearchResults({ query }: { query: string }) {
   }, [query]);
 
   const total = results.knowledgeTotal + results.exerciseTotal;
+  const canLoadMoreKnowledge = results.knowledge.length < results.knowledgeTotal;
+  const canLoadMoreExercises = results.exercises.length < results.exerciseTotal;
+  useCommandPaletteActions("retex.search", [
+    ...(canLoadMoreKnowledge ? [{
+      id: "search.loadMoreKnowledge",
+      label: "Load more knowledge search results",
+      keywords: ["next", "page", "results"],
+      group: "Search",
+      available: loadingMore === null,
+      run: () => loadMore("knowledge"),
+    }] : []),
+    ...(canLoadMoreExercises ? [{
+      id: "search.loadMoreExercises",
+      label: "Load more exercise search results",
+      keywords: ["next", "page", "results"],
+      group: "Search",
+      available: loadingMore === null,
+      run: () => loadMore("exercise"),
+    }] : []),
+  ]);
+  const knowledgeNavigation = useListKeyboardNavigation<number>({
+    items: results.knowledge.map((item) => ({
+      id: item.id,
+      label: item.match.title.map((part) => part.text).join(""),
+    })),
+    onActivate: (id) => {
+      const item = results.knowledge.find((candidate) => candidate.id === id);
+      if (item) router.push(archiveSearchResultHref("knowledge", {
+        folderId: item.folderId,
+        itemId: item.id,
+        searchFocus: { query, field: item.match.snippet.field },
+      }));
+    },
+    label: "Knowledge search results",
+  });
+  const exerciseNavigation = useListKeyboardNavigation<number>({
+    items: results.exercises.map((item) => ({
+      id: item.id,
+      label: item.match.title.map((part) => part.text).join(""),
+    })),
+    onActivate: (id) => {
+      const item = results.exercises.find((candidate) => candidate.id === id);
+      if (item) router.push(archiveSearchResultHref("exercise", {
+        folderId: item.folderId,
+        itemId: item.id,
+        searchFocus: { query, field: item.match.snippet.field },
+      }));
+    },
+    label: "Exercise search results",
+  });
 
   function loadMore(kind: "knowledge" | "exercise") {
     if (loadingMore !== null) return;
@@ -127,20 +181,23 @@ export function SearchResults({ query }: { query: string }) {
             <h2 id="knowledge-results-heading">Knowledge</h2>
             <span>{results.knowledgeTotal}</span>
           </div>
-          <ul className="search-result-list">
+          <ul className="search-result-list" {...knowledgeNavigation.listboxProps}>
             {results.knowledge.map((item) => (
-              <li key={item.id}>
-                <Link href={archiveSearchResultHref("knowledge", {
-                  folderId: item.folderId,
-                  itemId: item.id,
-                  searchFocus: { query, field: item.match.snippet.field },
-                })}>
+              <li key={item.id} role="presentation">
+                <Link
+                  {...knowledgeNavigation.getOptionProps(item.id)}
+                  href={archiveSearchResultHref("knowledge", {
+                    folderId: item.folderId,
+                    itemId: item.id,
+                    searchFocus: { query, field: item.match.snippet.field },
+                  })}
+                >
                   <SearchResultContent item={item} typeLabel="Knowledge" />
                 </Link>
               </li>
             ))}
           </ul>
-          {results.knowledge.length < results.knowledgeTotal ? (
+          {canLoadMoreKnowledge ? (
             <button
               type="button"
               className="primary-button"
@@ -157,20 +214,23 @@ export function SearchResults({ query }: { query: string }) {
             <h2 id="exercise-results-heading">Exercise</h2>
             <span>{results.exerciseTotal}</span>
           </div>
-          <ul className="search-result-list">
+          <ul className="search-result-list" {...exerciseNavigation.listboxProps}>
             {results.exercises.map((item) => (
-              <li key={item.id}>
-                <Link href={archiveSearchResultHref("exercise", {
-                  folderId: item.folderId,
-                  itemId: item.id,
-                  searchFocus: { query, field: item.match.snippet.field },
-                })}>
+              <li key={item.id} role="presentation">
+                <Link
+                  {...exerciseNavigation.getOptionProps(item.id)}
+                  href={archiveSearchResultHref("exercise", {
+                    folderId: item.folderId,
+                    itemId: item.id,
+                    searchFocus: { query, field: item.match.snippet.field },
+                  })}
+                >
                   <SearchResultContent item={item} typeLabel="Exercise" />
                 </Link>
               </li>
             ))}
           </ul>
-          {results.exercises.length < results.exerciseTotal ? (
+          {canLoadMoreExercises ? (
             <button
               type="button"
               className="primary-button"

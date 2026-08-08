@@ -34,9 +34,10 @@ or discard. The active workspace history guard uses
 `preserveOnHistoryNavigation: true`, so browser
 Back/Forward also hides and restores processes without closing them.
 
-Folders and subfolders can be reordered with their drag handle, or with ↑/↓
-while that handle is focused. Reordering is deliberately sibling-only: it
-changes the zero-based `position` within one parent and never changes hierarchy.
+Folders and subfolders can be reordered with their drag handle, or with
+`Ctrl+Alt+ArrowUp`/`Ctrl+Alt+ArrowDown` while that handle is focused. Reordering
+is deliberately sibling-only: it changes the zero-based `position` within one
+parent and never changes hierarchy.
 Use the existing **Move** action to change a folder's parent; moved and newly
 created folders append to the destination level.
 
@@ -59,6 +60,29 @@ transactions are reconciled during health checks and before later writes.
 Select a concrete folder to import a UTF-8 `.md` file as a new draft. Relative
 GFM image references can be matched to local image files before saving; remote
 HTTP(S) image links remain remote. Import never overwrites an existing note.
+
+## Keyboard navigation
+
+__APP_NAME__ follows Babel's Ready/Edit keyboard model. `Ctrl+F6` and
+`Ctrl+Shift+F6` cycle the visible folder tree, note tree, tab strip, and detail
+pane, skipping absent panes and remembering each pane's last focus. Hierarchical
+folders and notes expose `tree`/`treeitem`; flat search results expose `listbox`.
+Up/Down moves, Left/Right collapses or expands, Home/End/PageUp/PageDown moves
+through supported lists, and typed letters jump by title. `Enter` selects a
+folder or opens a note tab; `F2` renames a focused folder or opens a focused note
+directly in edit mode. The `tablist` uses Left/Right to move and Enter to
+activate.
+
+Reordering uses `Ctrl+Alt+ArrowUp` and `Ctrl+Alt+ArrowDown`. Escape gives the
+topmost dialog or overlay priority, then leaves edit mode for the reader and the
+reader for the note tree; dirty-edit confirmations still apply. `Ctrl+K`
+searches commands, registered actions, and titles, while `Ctrl+Alt+P` searches
+titles only. `Ctrl+Alt+H` opens keyboard help. Tab defaults are
+`Ctrl+Alt+ArrowRight`, `Ctrl+Alt+ArrowLeft`, and `Ctrl+Alt+W` for next, previous,
+and close. Schema v1/v2 bindings are preserved during migration; a conflicting
+new command remains `Unbound`. See the
+[root keyboard contract](../../README.md#launcher) for the complete schema-v3
+command table.
 
 Run schema generation or migration only for an explicit database task and only
 while __APP_NAME__ is stopped. Use the root `npm.cmd run data:backup` workflow for

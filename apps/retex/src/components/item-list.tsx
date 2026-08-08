@@ -5,6 +5,13 @@ import {
   useItemReorder,
   type ItemReorderController,
 } from "@babel-apps/platform/items/react";
+import {
+  useListKeyboardNavigation,
+  useTreeKeyboardNavigation,
+  type ListNavigationElementProps,
+  type TreeNavigationElementProps,
+} from "@babel-apps/platform/navigation/react";
+import { useCommandPaletteActions } from "@babel-apps/platform/shortcuts/react";
 
 import {
   type PageExpansionState,
@@ -25,6 +32,7 @@ interface ItemListProps {
   loading?: boolean;
   referencePanelOpen?: boolean;
   onSelect: (id: number) => void;
+  onEdit?: (id: number) => void;
   onReorder?: (id: number, position: number) => Promise<void> | void;
   onCreate: (parentId: number | null) => void;
   onImport?: (file: File) => Promise<void> | void;
@@ -39,6 +47,7 @@ interface KnowledgeBranchProps {
   onToggle: (id: number) => void;
   reorder: ItemReorderController;
   onCreate: (parentId: number) => void;
+  navigation: ReturnType<typeof useTreeKeyboardNavigation<number>>;
 }
 
 function KnowledgeBranch({
@@ -50,35 +59,43 @@ function KnowledgeBranch({
   onToggle,
   reorder,
   onCreate,
+  navigation,
 }: KnowledgeBranchProps) {
   const children = grouped.get(parentId) ?? [];
   if (children.length === 0) return null;
 
   return (
-    <ul>
+    <ul role="presentation">
       {children.map((item) => {
+        const hasChildren = (grouped.get(item.id)?.length ?? 0) > 0;
         const expanded = expandedIds.has(item.id);
         return (
-          <li key={item.id}>
+          <li key={item.id} role="presentation">
             <div
               className={`item-tree-row ${reorder.dropClassName(item.id)}`.trim()}
               {...reorder.rowProps(item.id)}
             >
-              <button
-                type="button"
-                className="item-disclosure"
-                aria-expanded={expanded}
-                aria-label={`${expanded ? "Collapse" : "Expand"} ${item.title}`}
-                onClick={() => onToggle(item.id)}
-              />
+              {hasChildren ? (
+                <span
+                  aria-hidden="true"
+                  className="item-disclosure"
+                  data-babel-tree-disclosure=""
+                  aria-expanded={expanded}
+                  title={`${expanded ? "Collapse" : "Expand"} ${item.title}`}
+                  onClick={() => onToggle(item.id)}
+                />
+              ) : (
+                <span aria-hidden="true" className="item-disclosure" data-babel-tree-disclosure-spacer="" style={{ visibility: "hidden" }} />
+              )}
               <ItemCard
                 item={item}
                 selected={selectedId === item.id}
                 onSelect={onSelect}
                 reorder={reorder}
+                keyboardProps={navigation.getTreeItemProps(item.id)}
               />
             </div>
-            {expanded ? (
+            {expanded && hasChildren ? (
               <div className="item-tree-children">
                 <KnowledgeBranch
                   parentId={item.id}
@@ -89,14 +106,17 @@ function KnowledgeBranch({
                   onToggle={onToggle}
                   reorder={reorder}
                   onCreate={onCreate}
+                  navigation={navigation}
                 />
-                <button
-                  type="button"
+                <span
+                  aria-hidden="true"
                   className="inline-tree-create"
+                  data-babel-tree-inline-create=""
+                  title={`New subnote under ${item.title}`}
                   onClick={() => onCreate(item.id)}
                 >
                   New subnote
-                </button>
+                </span>
               </div>
             ) : null}
           </li>
@@ -111,17 +131,20 @@ function ItemCard({
   selected,
   onSelect,
   reorder,
+  keyboardProps,
 }: {
   item: ArchiveSummary;
   selected: boolean;
   onSelect: (id: number) => void;
   reorder: ItemReorderController;
+  keyboardProps: TreeNavigationElementProps | ListNavigationElementProps;
 }) {
   return (
     <button
       type="button"
       className={selected ? "item-card selected" : "item-card"}
       {...reorder.selectionProps(item.id)}
+      {...keyboardProps}
       aria-current={selected ? "true" : undefined}
       onClick={() => onSelect(item.id)}
     >
@@ -140,6 +163,7 @@ export function ItemList({
   loading,
   referencePanelOpen = false,
   onSelect,
+  onEdit,
   onReorder,
   onCreate,
   onImport,
@@ -180,6 +204,76 @@ export function ItemList({
     return grouped;
   }, [knowledgeItems]);
 
+  const knowledgeNavigationItems = useMemo(() => {
+    const navigationItems: Array<{
+      id: number;
+      label: string;
+      parentId: number | null;
+      hasChildren: boolean;
+      expanded: boolean;
+      level: number;
+    }> = [];
+    const visit = (parentId: number | null, level: number) => {
+      for (const item of groupedKnowledge.get(parentId) ?? []) {
+        const hasChildren = (groupedKnowledge.get(item.id)?.length ?? 0) > 0;
+        const expanded = revealedState.expandedIds.has(item.id);
+        navigationItems.push({
+          id: item.id,
+          label: item.title,
+          parentId,
+          hasChildren,
+          expanded,
+          level,
+        });
+        if (expanded) visit(item.id, level + 1);
+      }
+    };
+    visit(null, 1);
+    return navigationItems;
+  }, [groupedKnowledge, revealedState.expandedIds]);
+
+  const treeNavigation = useTreeKeyboardNavigation<number>({
+    items: knowledgeNavigationItems,
+    selectedId: selectedId ?? undefined,
+    onActivate: onSelect,
+    onEdit: onEdit ?? onSelect,
+    onExpandedChange: (id) => toggleKnowledge(id),
+    label: "Knowledge page tree",
+  });
+  const listNavigation = useListKeyboardNavigation<number>({
+    items: type === "exercise" ? items.map((item) => ({ id: item.id, label: item.title })) : [],
+    selectedId: selectedId ?? undefined,
+    onActivate: onSelect,
+    onEdit: onEdit ?? onSelect,
+    label: "Exercise list",
+  });
+
+  useCommandPaletteActions(`retex.${type}.items`, [
+    {
+      id: "item.new",
+      label: type === "knowledge" ? "New knowledge note" : "New exercise",
+      group: "Content",
+      available: selectedFolderId !== null,
+      run: () => onCreate(null),
+    },
+    {
+      id: "item.newSubnote",
+      label: "New subnote",
+      group: "Content",
+      available: type === "knowledge" && selectedId !== null,
+      run: () => {
+        if (selectedId !== null) onCreate(selectedId);
+      },
+    },
+    {
+      id: "item.import",
+      label: "Import Markdown",
+      group: "Content",
+      available: type === "knowledge" && Boolean(onImport) && selectedFolderId !== null,
+      run: () => importInputRef.current?.click(),
+    },
+  ]);
+
   function toggleKnowledge(id: number) {
     setExpansionState((current) => {
       const revealed = revealPageSelection(current, selectedPath);
@@ -199,6 +293,8 @@ export function ItemList({
   return (
     <aside
       className="archive-panel item-panel"
+      data-babel-pane="items"
+      tabIndex={-1}
       aria-label={`${itemName} list`}
       aria-hidden={referencePanelOpen}
       inert={referencePanelOpen}
@@ -240,6 +336,19 @@ export function ItemList({
           >
             New
           </button>
+          {type === "knowledge" ? (
+            <button
+              type="button"
+              data-babel-child-create=""
+              disabled={selectedId === null}
+              title={selectedId === null ? "Select an item before creating a subnote" : undefined}
+              onClick={() => {
+                if (selectedId !== null) onCreate(selectedId);
+              }}
+            >
+              New subnote
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -255,7 +364,7 @@ export function ItemList({
       ) : null}
 
       {type === "knowledge" ? (
-        <nav className="item-tree" aria-label="Knowledge page tree">
+        <nav className="item-tree" {...treeNavigation.treeProps}>
           <KnowledgeBranch
             parentId={null}
             grouped={groupedKnowledge}
@@ -265,12 +374,13 @@ export function ItemList({
             onToggle={toggleKnowledge}
             reorder={reorder}
             onCreate={onCreate}
+            navigation={treeNavigation}
           />
         </nav>
       ) : (
-        <ul className="item-list">
+        <ul className="item-list" {...listNavigation.listboxProps}>
           {items.map((item) => (
-            <li key={item.id}>
+            <li key={item.id} role="presentation">
               <div
                 className={`item-list-row ${reorder.dropClassName(item.id)}`.trim()}
                 {...reorder.rowProps(item.id)}
@@ -280,6 +390,7 @@ export function ItemList({
                   selected={selectedId === item.id}
                   onSelect={onSelect}
                   reorder={reorder}
+                  keyboardProps={listNavigation.getOptionProps(item.id)}
                 />
               </div>
             </li>

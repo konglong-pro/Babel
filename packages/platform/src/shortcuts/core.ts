@@ -1,4 +1,4 @@
-export const SHORTCUT_SCHEMA_VERSION = 2 as const;
+export const SHORTCUT_SCHEMA_VERSION = 3 as const;
 
 export const SHORTCUT_COMMANDS = [
   "save",
@@ -10,6 +10,13 @@ export const SHORTCUT_COMMANDS = [
   "search",
   "delete",
   "commandPalette",
+  "focusNextPane",
+  "focusPreviousPane",
+  "nextTab",
+  "previousTab",
+  "closeTab",
+  "quickOpen",
+  "help",
 ] as const;
 
 export type ShortcutCommand = (typeof SHORTCUT_COMMANDS)[number];
@@ -56,6 +63,14 @@ export type ShortcutKey =
   | "Delete"
   | "Backspace"
   | "Space"
+  | "ArrowUp"
+  | "ArrowDown"
+  | "ArrowLeft"
+  | "ArrowRight"
+  | "Home"
+  | "End"
+  | "PageUp"
+  | "PageDown"
   | `F${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12}`;
 
 export interface ShortcutDefinition {
@@ -64,7 +79,9 @@ export interface ShortcutDefinition {
   readonly defaultBinding: string;
 }
 
-export type ShortcutBindings = Readonly<Record<ShortcutCommand, string>>;
+export type ShortcutBinding = string | null;
+
+export type ShortcutBindings = Readonly<Record<ShortcutCommand, ShortcutBinding>>;
 
 export interface ShortcutSettings {
   readonly schemaVersion: typeof SHORTCUT_SCHEMA_VERSION;
@@ -89,6 +106,7 @@ export interface ShortcutKeyboardEventLike {
   readonly keyCode?: number;
   readonly repeat?: boolean;
   readonly defaultPrevented?: boolean;
+  readonly getModifierState?: (keyArg: string) => boolean;
 }
 
 export class ShortcutValidationError extends Error {
@@ -112,13 +130,59 @@ export const SHORTCUT_DEFINITIONS: readonly ShortcutDefinition[] = Object.freeze
     label: "Command Palette",
     defaultBinding: "Ctrl+K",
   }),
+  Object.freeze({
+    command: "focusNextPane",
+    label: "Focus Next Pane",
+    defaultBinding: "Ctrl+F6",
+  }),
+  Object.freeze({
+    command: "focusPreviousPane",
+    label: "Focus Previous Pane",
+    defaultBinding: "Ctrl+Shift+F6",
+  }),
+  Object.freeze({
+    command: "nextTab",
+    label: "Next Tab",
+    defaultBinding: "Ctrl+Alt+ArrowRight",
+  }),
+  Object.freeze({
+    command: "previousTab",
+    label: "Previous Tab",
+    defaultBinding: "Ctrl+Alt+ArrowLeft",
+  }),
+  Object.freeze({
+    command: "closeTab",
+    label: "Close Tab",
+    defaultBinding: "Ctrl+Alt+W",
+  }),
+  Object.freeze({
+    command: "quickOpen",
+    label: "Quick Open",
+    defaultBinding: "Ctrl+Alt+P",
+  }),
+  Object.freeze({
+    command: "help",
+    label: "Keyboard Help",
+    defaultBinding: "Ctrl+Alt+H",
+  }),
 ]);
 
 const COMMAND_SET = new Set<string>(SHORTCUT_COMMANDS);
-const LEGACY_SHORTCUT_COMMANDS = [
+const VERSION_ONE_SHORTCUT_COMMANDS = [
   "save",
   "new",
   "edit",
+  "confirm",
+  "cancel",
+  "search",
+  "delete",
+  "commandPalette",
+] as const;
+const VERSION_TWO_SHORTCUT_COMMANDS = [
+  "save",
+  "new",
+  "edit",
+  "read",
   "confirm",
   "cancel",
   "search",
@@ -136,6 +200,18 @@ const NAMED_KEYS = new Map<string, ShortcutKey>([
   ["backspace", "Backspace"],
   ["back", "Backspace"],
   ["space", "Space"],
+  ["arrowup", "ArrowUp"],
+  ["up", "ArrowUp"],
+  ["arrowdown", "ArrowDown"],
+  ["down", "ArrowDown"],
+  ["arrowleft", "ArrowLeft"],
+  ["left", "ArrowLeft"],
+  ["arrowright", "ArrowRight"],
+  ["right", "ArrowRight"],
+  ["home", "Home"],
+  ["end", "End"],
+  ["pageup", "PageUp"],
+  ["pagedown", "PageDown"],
 ]);
 const EXACT_DANGEROUS_BINDINGS = new Set([
   "Alt+F4",
@@ -143,22 +219,30 @@ const EXACT_DANGEROUS_BINDINGS = new Set([
   "Alt+Space",
   "Ctrl+Escape",
   "Ctrl+Alt+Delete",
+  "Ctrl+Alt+ArrowUp",
+  "Ctrl+Alt+ArrowDown",
   "Ctrl+Shift+Escape",
   "Ctrl+W",
   "Ctrl+Shift+W",
   "Ctrl+T",
   "Ctrl+Shift+T",
   "Ctrl+L",
+  "F2",
   "F5",
   "Ctrl+F5",
+  "F6",
   "F11",
   "F12",
 ]);
+const LEGACY_FIXED_NAVIGATION_BINDINGS = new Set([
+  "Ctrl+Alt+ArrowUp",
+  "Ctrl+Alt+ArrowDown",
+]);
 
-function makeDefaultBindings(): Record<ShortcutCommand, string> {
+function makeDefaultBindings(): Record<ShortcutCommand, ShortcutBinding> {
   return Object.fromEntries(
     SHORTCUT_DEFINITIONS.map(({ command, defaultBinding }) => [command, defaultBinding]),
-  ) as Record<ShortcutCommand, string>;
+  ) as Record<ShortcutCommand, ShortcutBinding>;
 }
 
 export const DEFAULT_SHORTCUT_SETTINGS: ShortcutSettings = Object.freeze({
@@ -204,7 +288,10 @@ function normalizeKey(keyPart: string): ShortcutKey {
   throw new ShortcutValidationError(`Unsupported shortcut key: ${keyPart}.`);
 }
 
-export function parseShortcutBinding(value: string): ParsedShortcutBinding {
+function parseShortcutBindingInternal(
+  value: string,
+  allowLegacyFixedNavigationBindings = false,
+): ParsedShortcutBinding {
   if (typeof value !== "string" || value.trim() === "") {
     throw new ShortcutValidationError("Shortcut binding must be a non-empty string.");
   }
@@ -242,9 +329,15 @@ export function parseShortcutBinding(value: string): ParsedShortcutBinding {
 
   const key = normalizeKey(keyPart);
   const isBareEscape = key === "Escape" && modifierSet.size === 0;
-  if (!isBareEscape && !modifierSet.has("Ctrl") && !modifierSet.has("Alt")) {
+  const isBareFunctionKey = /^F([1-9]|1[0-2])$/.test(key) && modifierSet.size === 0;
+  if (
+    !isBareEscape &&
+    !isBareFunctionKey &&
+    !modifierSet.has("Ctrl") &&
+    !modifierSet.has("Alt")
+  ) {
     throw new ShortcutValidationError(
-      "Every shortcut except bare Escape must include Ctrl or Alt.",
+      "Every shortcut except bare Escape or a safe bare function key must include Ctrl or Alt.",
     );
   }
 
@@ -253,7 +346,13 @@ export function parseShortcutBinding(value: string): ParsedShortcutBinding {
     key,
   ].join("+");
 
-  if (EXACT_DANGEROUS_BINDINGS.has(binding)) {
+  if (
+    EXACT_DANGEROUS_BINDINGS.has(binding) &&
+    !(
+      allowLegacyFixedNavigationBindings &&
+      LEGACY_FIXED_NAVIGATION_BINDINGS.has(binding)
+    )
+  ) {
     throw new ShortcutValidationError(`Shortcut binding is reserved or unsafe: ${binding}.`);
   }
 
@@ -266,8 +365,20 @@ export function parseShortcutBinding(value: string): ParsedShortcutBinding {
   };
 }
 
+export function parseShortcutBinding(value: string): ParsedShortcutBinding {
+  return parseShortcutBindingInternal(value);
+}
+
 export function normalizeShortcutBinding(value: string): string {
   return parseShortcutBinding(value).binding;
+}
+
+function assertCommandBindingOwnership(command: ShortcutCommand, binding: string): void {
+  if (binding === "Escape" && command !== "cancel") {
+    throw new ShortcutValidationError(
+      `Shortcut binding Escape is reserved for cancel and fixed navigation behavior, not ${command}.`,
+    );
+  }
 }
 
 export function parseShortcutSettings(value: unknown): ShortcutSettings {
@@ -276,7 +387,11 @@ export function parseShortcutSettings(value: unknown): ShortcutSettings {
   }
   assertExactKeys(value, ["schemaVersion", "bindings"], "Shortcut settings");
 
-  if (value.schemaVersion !== 1 && value.schemaVersion !== SHORTCUT_SCHEMA_VERSION) {
+  if (
+    value.schemaVersion !== 1 &&
+    value.schemaVersion !== 2 &&
+    value.schemaVersion !== SHORTCUT_SCHEMA_VERSION
+  ) {
     throw new ShortcutValidationError(
       `Unsupported shortcut settings schema version: ${String(value.schemaVersion)}.`,
     );
@@ -284,22 +399,50 @@ export function parseShortcutSettings(value: unknown): ShortcutSettings {
   if (!isRecord(value.bindings)) {
     throw new ShortcutValidationError("Shortcut bindings must be an object.");
   }
-  const commands =
-    value.schemaVersion === 1 ? LEGACY_SHORTCUT_COMMANDS : SHORTCUT_COMMANDS;
-  assertExactKeys(value.bindings, commands, "Shortcut bindings");
+  const sourceCommands =
+    value.schemaVersion === 1
+      ? VERSION_ONE_SHORTCUT_COMMANDS
+      : value.schemaVersion === 2
+        ? VERSION_TWO_SHORTCUT_COMMANDS
+        : SHORTCUT_COMMANDS;
+  assertExactKeys(value.bindings, sourceCommands, "Shortcut bindings");
 
-  const normalizedBindings = {} as Record<ShortcutCommand, string>;
+  const sourceBindings = new Map<ShortcutCommand, ShortcutBinding>();
   const assignedBindings = new Map<string, ShortcutCommand>();
-  for (const command of SHORTCUT_COMMANDS) {
-    const rawBinding =
-      value.schemaVersion === 1 && command === "read"
-        ? DEFAULT_SHORTCUT_SETTINGS.bindings.read
-        : value.bindings[command];
+  for (const command of sourceCommands) {
+    const rawBinding = value.bindings[command];
+    if (rawBinding === null && value.schemaVersion === SHORTCUT_SCHEMA_VERSION) {
+      sourceBindings.set(command, null);
+      continue;
+    }
     if (typeof rawBinding !== "string") {
-      throw new ShortcutValidationError(`Shortcut binding for ${command} must be a string.`);
+      throw new ShortcutValidationError(
+        `Shortcut binding for ${command} must be a string${
+          value.schemaVersion === SHORTCUT_SCHEMA_VERSION ? " or null" : ""
+        }.`,
+      );
     }
 
-    const binding = normalizeShortcutBinding(rawBinding);
+    const binding = parseShortcutBindingInternal(
+      rawBinding,
+      value.schemaVersion !== SHORTCUT_SCHEMA_VERSION,
+    ).binding;
+    if (
+      value.schemaVersion !== SHORTCUT_SCHEMA_VERSION &&
+      LEGACY_FIXED_NAVIGATION_BINDINGS.has(binding)
+    ) {
+      sourceBindings.set(command, null);
+      continue;
+    }
+    if (
+      value.schemaVersion !== SHORTCUT_SCHEMA_VERSION &&
+      binding === "Escape" &&
+      command !== "cancel"
+    ) {
+      sourceBindings.set(command, null);
+      continue;
+    }
+    assertCommandBindingOwnership(command, binding);
     const previousCommand = assignedBindings.get(binding);
     if (previousCommand !== undefined) {
       throw new ShortcutValidationError(
@@ -307,7 +450,26 @@ export function parseShortcutSettings(value: unknown): ShortcutSettings {
       );
     }
     assignedBindings.set(binding, command);
-    normalizedBindings[command] = binding;
+    sourceBindings.set(command, binding);
+  }
+
+  const normalizedBindings = {} as Record<ShortcutCommand, ShortcutBinding>;
+  for (const command of SHORTCUT_COMMANDS) {
+    if (sourceBindings.has(command)) {
+      normalizedBindings[command] = sourceBindings.get(command) ?? null;
+      continue;
+    }
+
+    const defaultBinding = normalizeShortcutBinding(
+      SHORTCUT_DEFINITIONS.find((definition) => definition.command === command)!.defaultBinding,
+    );
+    if (assignedBindings.has(defaultBinding)) {
+      normalizedBindings[command] = null;
+      continue;
+    }
+    assertCommandBindingOwnership(command, defaultBinding);
+    assignedBindings.set(defaultBinding, command);
+    normalizedBindings[command] = defaultBinding;
   }
 
   return {
@@ -333,15 +495,17 @@ export function shouldIgnoreShortcutEvent(event: ShortcutKeyboardEventLike): boo
     event.repeat === true ||
     event.isComposing === true ||
     event.keyCode === 229 ||
+    event.getModifierState?.("AltGraph") === true ||
     event.metaKey === true
   );
 }
 
 export function matchesShortcutBinding(
   event: ShortcutKeyboardEventLike,
-  binding: string | ParsedShortcutBinding,
+  binding: string | ParsedShortcutBinding | null,
 ): boolean {
   if (shouldIgnoreShortcutEvent(event)) return false;
+  if (binding === null) return false;
 
   const parsed = typeof binding === "string" ? parseShortcutBinding(binding) : binding;
   return (

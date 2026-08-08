@@ -7,6 +7,7 @@ import {
   usePageSessionLifecycle,
   usePageSessions,
 } from "@babel-apps/platform/pages/react";
+import { useCommandPaletteActions } from "@babel-apps/platform/shortcuts/react";
 
 import { CanvasEditor } from "@/components/canvas-editor";
 import {
@@ -20,9 +21,12 @@ import type { CanvasDetailDto } from "@/lib/types";
 interface CanvasPageSessionProps {
   pageKey: string;
   canvasId: number;
+  renameRequested: boolean;
+  onRenameRequestConsumed: () => void;
   onSaved: (canvas: CanvasDetailDto) => void;
   onDeleted: (id: number) => void;
   onError: (message: string) => void;
+  onShowList: () => void;
 }
 
 export function savedCanvasPage(
@@ -40,11 +44,14 @@ export function savedCanvasPage(
 export function CanvasPageSession({
   pageKey,
   canvasId,
+  renameRequested,
+  onRenameRequestConsumed,
   onSaved,
   onDeleted,
   onError,
+  onShowList,
 }: CanvasPageSessionProps) {
-  const { closePage, setPageStatus, updatePage } = usePageSessions();
+  const { activeKey, closePage, setPageStatus, updatePage } = usePageSessions();
   const [canvas, setCanvas] = useState<CanvasDetailDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -96,7 +103,7 @@ export function CanvasPageSession({
     onSaved(nextCanvas);
   }, [onSaved]);
 
-  async function renameCanvas() {
+  const renameCanvas = useCallback(async () => {
     if (!canvas) return;
     const title = window.prompt("Canvas name", canvas.title)?.trim();
     if (!title || title === canvas.title) return;
@@ -107,7 +114,7 @@ export function CanvasPageSession({
     } catch (cause) {
       onError(getErrorMessage(cause));
     }
-  }
+  }, [canvas, onError, pageKey, reflectSaved, updatePage]);
 
   async function removeCanvas() {
     if (!canvas) return;
@@ -127,9 +134,50 @@ export function CanvasPageSession({
     setReloadVersion((version) => version + 1);
   }
 
+  useEffect(() => {
+    if (!renameRequested || canvas === null || loading) return;
+    const frame = window.requestAnimationFrame(() => {
+      onRenameRequestConsumed();
+      void renameCanvas();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [canvas, loading, onRenameRequestConsumed, renameCanvas, renameRequested]);
+
+  useCommandPaletteActions(`ruider.canvas-detail.${pageKey}`, activeKey === pageKey ? [
+    ...(canvas !== null && !loading ? [{
+      id: "ruider.canvas.rename",
+      label: "Rename canvas",
+      keywords: ["title", "edit", "canvas"],
+      group: "Canvas",
+      run: () => void renameCanvas(),
+    }] : []),
+    ...(canvas !== null && !loading ? [{
+      id: "ruider.canvas.delete",
+      label: "Delete canvas",
+      keywords: ["remove", "canvas"],
+      group: "Canvas",
+      run: () => void removeCanvas(),
+    }] : []),
+    ...(loadError && !loading ? [{
+      id: "ruider.canvas.retry",
+      label: "Retry loading canvas",
+      keywords: ["reload", "error", "canvas"],
+      group: "Canvas",
+      run: retryLoading,
+    }] : []),
+  ] : []);
+
   return (
     <PageDeckPage pageKey={pageKey}>
-      <div className="canvas-main">
+      <div className="canvas-main" data-babel-pane="detail" tabIndex={-1}>
+        <button
+          className="content-back"
+          data-babel-escape="list"
+          type="button"
+          onClick={onShowList}
+        >
+          <span aria-hidden="true">←</span> Canvases
+        </button>
         {loadError ? (
           <div className="canvas-alert" role="alert">
             <span>{loadError}</span>

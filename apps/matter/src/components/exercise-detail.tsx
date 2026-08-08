@@ -286,7 +286,7 @@ export function ExerciseDetail({
   }, [detailId, mode, searchFocusField, searchFocusQuery]);
 
   if (loading) {
-    return <section className="detail-panel panel-status">Loading exercise…</section>;
+    return <section className="detail-panel panel-status" data-babel-pane="detail" tabIndex={-1}>Loading exercise…</section>;
   }
 
   if (mode === "create" || mode === "edit") {
@@ -309,7 +309,7 @@ export function ExerciseDetail({
 
   if (!detail) {
     return (
-      <section className="detail-panel empty-state" aria-label="Exercise details">
+      <section className="detail-panel empty-state" data-babel-pane="detail" tabIndex={-1} aria-label="Exercise details">
         <span aria-hidden="true">∫</span>
         <h2>Archive the Problems Worth Keeping</h2>
         <p>Select an exercise on the left, or create a new Exercise inside a folder.</p>
@@ -318,7 +318,7 @@ export function ExerciseDetail({
   }
 
   return (
-    <article ref={detailRootRef} className="detail-panel document-view">
+    <article ref={detailRootRef} className="detail-panel document-view" data-babel-pane="detail" tabIndex={-1}>
       <header className="document-header">
         <div>
           <DetachedReaderWindow
@@ -708,7 +708,7 @@ function ExerciseForm({
   }
 
   return (
-    <section className="detail-panel form-view">
+    <section className="detail-panel form-view" data-babel-pane="detail" tabIndex={-1}>
       <form ref={formRef} onSubmit={submit} aria-busy={pending}>
         <fieldset className="form-controls" disabled={pending}>
         <header className="document-header">
@@ -764,6 +764,7 @@ function ExerciseForm({
           <label className="field">
             <span>Title</span>
             <input
+              autoFocus
               name="title"
               autoComplete="off"
               required

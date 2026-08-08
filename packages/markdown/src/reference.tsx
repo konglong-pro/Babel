@@ -144,6 +144,9 @@ export function MarkdownWritingGuidePanel({
       aria-modal="false"
       aria-labelledby={headingId}
       aria-describedby={descriptionId}
+      data-babel-focus-scope="overlay"
+      data-babel-pane="detail"
+      tabIndex={-1}
     >
       <ReferencePanelHeader
         eyebrow="Babel Markdown"
@@ -256,6 +259,9 @@ export function TypstReferencePanel({
       aria-modal="false"
       aria-labelledby={headingId}
       aria-describedby={descriptionId}
+      data-babel-focus-scope="overlay"
+      data-babel-pane="detail"
+      tabIndex={-1}
     >
       <ReferencePanelHeader
         eyebrow={isTypst
@@ -381,6 +387,7 @@ function ReferencePanelHeader({
         type="button"
         className="reference-board__close"
         aria-label={closeLabel}
+        data-babel-escape="overlay"
         onClick={onClose}
       >
         ×
@@ -589,7 +596,17 @@ function useReferencePanelBehavior(
       searchRef.current?.focus();
     });
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key !== "Escape" || event.isComposing) return;
+      if (
+        event.defaultPrevented ||
+        event.repeat ||
+        event.isComposing ||
+        event.keyCode === 229 ||
+        event.ctrlKey ||
+        event.altKey ||
+        event.shiftKey ||
+        event.metaKey ||
+        event.key !== "Escape"
+      ) return;
       if (document.querySelector("dialog[open]")) return;
       event.preventDefault();
       onClose();

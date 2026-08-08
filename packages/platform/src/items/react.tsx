@@ -74,8 +74,8 @@ export function useItemReorder({
     const unavailable = disabled || pending || !canMove.has(itemId);
     return {
       draggable: !unavailable,
-      "aria-keyshortcuts": "ArrowUp ArrowDown",
-      title: unavailable ? undefined : "Drag to reorder · use ↑/↓ with keyboard",
+      "aria-keyshortcuts": "Control+Alt+ArrowUp Control+Alt+ArrowDown",
+      title: unavailable ? undefined : "Drag to reorder · use Ctrl+Alt+↑/↓ with keyboard",
       "data-babel-item-drag-source": "",
       onDragStart(event: DragEvent<HTMLButtonElement>) {
         if (unavailable) {
@@ -88,6 +88,12 @@ export function useItemReorder({
       },
       onDragEnd: clearDrag,
       onKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+        if (
+          event.nativeEvent.isComposing ||
+          event.nativeEvent.getModifierState("AltGraph") ||
+          event.key === "Process"
+        ) return;
+        if (!event.ctrlKey || !event.altKey || event.metaKey || event.shiftKey) return;
         const direction = event.key === "ArrowUp"
           ? "up"
           : event.key === "ArrowDown"

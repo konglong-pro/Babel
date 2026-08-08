@@ -15,6 +15,8 @@ import {
   type FolderReorderController,
   useFolderReorder,
 } from "@babel-apps/platform/folders/react";
+import { useTreeKeyboardNavigation } from "@babel-apps/platform/navigation/react";
+import { useCommandPaletteActions } from "@babel-apps/platform/shortcuts/react";
 
 import {
   type FolderExpansionState,
@@ -49,6 +51,7 @@ interface FolderBranchProps {
   onToggle: (id: number) => void;
   onCreateChild: (id: number) => void;
   reorder: FolderReorderController;
+  navigation: ReturnType<typeof useTreeKeyboardNavigation<number | "all">>;
 }
 
 function FolderBranch({
@@ -60,32 +63,38 @@ function FolderBranch({
   onToggle,
   onCreateChild,
   reorder,
+  navigation,
 }: FolderBranchProps) {
   const children = grouped.get(parentId) ?? [];
   if (children.length === 0) return null;
 
   return (
-    <ul>
+    <ul role="presentation">
       {children.map((folder) => {
+        const hasChildren = (grouped.get(folder.id)?.length ?? 0) > 0;
         const expanded = expandedIds.has(folder.id);
 
         return (
-          <li key={folder.id}>
+          <li key={folder.id} role="presentation">
             <div
               className={`folder-node-row ${reorder.dropClassName(folder.id)}`.trim()}
               {...reorder.rowProps(folder.id)}
             >
-              <button
-                type="button"
-                className="folder-disclosure"
-                aria-expanded={expanded}
-                aria-label={`${expanded ? "Collapse" : "Expand"} ${folder.name}`}
-                onClick={() => onToggle(folder.id)}
-              />
+              {hasChildren ? (
+                <span
+                  aria-hidden="true"
+                  className="folder-disclosure"
+                  data-babel-folder-disclosure=""
+                  aria-expanded={expanded}
+                  title={`${expanded ? "Collapse" : "Expand"} ${folder.name}`}
+                  onClick={() => onToggle(folder.id)}
+                />
+              ) : <span aria-hidden="true" className="folder-disclosure-spacer" />}
               <button
                 type="button"
                 className={selectedId === folder.id ? "folder-node selected" : "folder-node"}
                 {...reorder.selectionProps(folder.id)}
+                {...navigation.getTreeItemProps(folder.id)}
                 aria-current={selectedId === folder.id ? "true" : undefined}
                 onClick={() => onSelect(folder.id)}
               >
@@ -104,14 +113,17 @@ function FolderBranch({
                   onToggle={onToggle}
                   onCreateChild={onCreateChild}
                   reorder={reorder}
+                  navigation={navigation}
                 />
-                <button
-                  type="button"
+                <span
+                  aria-hidden="true"
                   className="inline-tree-create"
+                  data-babel-tree-inline-create=""
+                  title={`New subfolder under ${folder.name}`}
                   onClick={() => onCreateChild(folder.id)}
                 >
                   New subfolder
-                </button>
+                </span>
               </div>
             ) : null}
           </li>
@@ -173,6 +185,7 @@ export function FolderPanel({
   const [name, setName] = useState("");
   const [targetId, setTargetId] = useState("");
   const [createParentId, setCreateParentId] = useState<number | null>(null);
+  const [dialogFolderId, setDialogFolderId] = useState<number | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [expansionState, setExpansionState] = useState<FolderExpansionState>(() => ({
@@ -216,6 +229,90 @@ export function FolderPanel({
   );
   const reorder = useFolderReorder({ folders, disabled: busy || pending, onReorder });
 
+  const navigationItems = useMemo(() => {
+    const items: Array<{
+      id: number | "all";
+      label: string;
+      parentId: number | "all" | null;
+      hasChildren: boolean;
+      expanded?: boolean;
+      level: number;
+    }> = [{ id: "all", label: "All Content", parentId: null, hasChildren: false, level: 1 }];
+    const visit = (parentId: number | null, level: number) => {
+      for (const folder of grouped.get(parentId) ?? []) {
+        const hasChildren = (grouped.get(folder.id)?.length ?? 0) > 0;
+        const expanded = visibleExpandedIds.has(folder.id);
+        items.push({
+          id: folder.id,
+          label: folder.name,
+          parentId,
+          hasChildren,
+          expanded,
+          level,
+        });
+        if (expanded) visit(folder.id, level + 1);
+      }
+    };
+    visit(null, 1);
+    return items;
+  }, [grouped, visibleExpandedIds]);
+
+  const navigation = useTreeKeyboardNavigation<number | "all">({
+    items: navigationItems,
+    selectedId: selectedId ?? "all",
+    onActivate: (id) => onSelect(id === "all" ? null : id),
+    onEdit: (id) => {
+      if (id !== "all") openDialog("rename", selectedId, id);
+    },
+    onExpandedChange: (id) => {
+      if (id !== "all") handleToggle(id);
+    },
+    label: `${type === "knowledge" ? "Knowledge" : "Exercise"} folder tree`,
+  });
+
+  useCommandPaletteActions(`matter.${type}.folders`, [
+    {
+      id: "folder.new",
+      label: selectedId === null ? "New folder" : "New subfolder",
+      group: "Folders",
+      available: !busy && !pending,
+      run: () => openDialog("create"),
+    },
+    {
+      id: "folder.rename",
+      label: "Rename selected folder",
+      group: "Folders",
+      available: selectedId !== null && !busy && !pending,
+      run: () => openDialog("rename"),
+    },
+    {
+      id: "folder.move",
+      label: "Move selected folder",
+      group: "Folders",
+      available: selectedId !== null && !busy && !pending,
+      run: () => openDialog("move"),
+    },
+    {
+      id: "folder.delete",
+      label: "Delete selected folder",
+      group: "Folders",
+      available: selectedId !== null && !busy && !pending,
+      run: () => openDialog("delete"),
+    },
+    {
+      id: "reference.markdown",
+      label: "Open Markdown Guide",
+      group: "Reference",
+      run: onOpenMarkdownReference,
+    },
+    {
+      id: "reference.typst",
+      label: "Open Formula Reference",
+      group: "Reference",
+      run: onOpenTypstReference,
+    },
+  ]);
+
   function handleToggle(folderId: number) {
     setExpansionState((current) => {
       const revealedState = revealFolderSelection(current, selectedPath);
@@ -226,12 +323,18 @@ export function FolderPanel({
     });
   }
 
-  function openDialog(mode: typeof dialogMode, parentId = selectedId) {
+  function openDialog(
+    mode: typeof dialogMode,
+    parentId: number | null = selectedId,
+    folderId: number | null = selectedId,
+  ) {
+    const dialogFolder = folderId === null ? undefined : folderMap.get(folderId);
     setDialogMode(mode);
     setError("");
+    setDialogFolderId(folderId);
     if (mode === "create") setCreateParentId(parentId);
-    setTargetId(selectedFolder?.parentId?.toString() ?? "");
-    setName(mode === "rename" ? selectedFolder?.name ?? "" : "");
+    setTargetId(dialogFolder?.parentId?.toString() ?? "");
+    setName(mode === "rename" ? dialogFolder?.name ?? "" : "");
     dialogRef.current?.showModal();
   }
 
@@ -242,12 +345,12 @@ export function FolderPanel({
     try {
       if (dialogMode === "create") {
         await onCreate(name.trim(), createParentId);
-      } else if (dialogMode === "rename" && selectedId !== null) {
-        await onRename(selectedId, name.trim());
-      } else if (dialogMode === "move" && selectedId !== null) {
-        await onMove(selectedId, targetId ? Number(targetId) : null);
-      } else if (dialogMode === "delete" && selectedId !== null) {
-        await onDelete(selectedId);
+      } else if (dialogMode === "rename" && dialogFolderId !== null) {
+        await onRename(dialogFolderId, name.trim());
+      } else if (dialogMode === "move" && dialogFolderId !== null) {
+        await onMove(dialogFolderId, targetId ? Number(targetId) : null);
+      } else if (dialogMode === "delete" && dialogFolderId !== null) {
+        await onDelete(dialogFolderId);
       }
       dialogRef.current?.close();
     } catch (caught) {
@@ -262,6 +365,8 @@ export function FolderPanel({
   return (
     <aside
       className="archive-panel folder-panel"
+      data-babel-pane="tree"
+      tabIndex={-1}
       aria-label={`${spaceName} folders`}
       aria-hidden={activeReferencePanel !== null}
       inert={activeReferencePanel !== null}
@@ -291,20 +396,22 @@ export function FolderPanel({
         </button>
       </div>
 
-      <nav className="folder-tree" aria-label={`${spaceName} folder tree`}>
+      {busy ? <p className="panel-status">Loading folders…</p> : null}
+      {!busy && folders.length === 0 ? (
+        <p className="panel-status">No folders yet. Create one to get started.</p>
+      ) : null}
+      <nav className="folder-tree" {...navigation.treeProps}>
         <button
           type="button"
           className={selectedId === null ? "folder-node root selected" : "folder-node root"}
+          {...navigation.getTreeItemProps("all")}
           aria-current={selectedId === null ? "true" : undefined}
           onClick={() => onSelect(null)}
         >
           <span aria-hidden="true">⌂</span>
           <span>All Content</span>
         </button>
-        {busy ? <p className="panel-status">Loading folders…</p> : null}
-        {!busy && folders.length === 0 ? (
-          <p className="panel-status">No folders yet. Create one to get started.</p>
-        ) : (
+        {folders.length > 0 ? (
           <FolderBranch
             parentId={null}
             grouped={grouped}
@@ -314,8 +421,9 @@ export function FolderPanel({
             onToggle={handleToggle}
             onCreateChild={(id) => openDialog("create", id)}
             reorder={reorder}
+            navigation={navigation}
           />
-        )}
+        ) : null}
       </nav>
 
       <ReferencePanelTriggers
@@ -378,7 +486,7 @@ export function FolderPanel({
             </p>
           ) : null}
           <div className="dialog-actions">
-            <button data-babel-command="cancel" type="button" onClick={() => dialogRef.current?.close()}>
+            <button data-babel-command="cancel" data-babel-escape="overlay" type="button" onClick={() => dialogRef.current?.close()}>
               Cancel
             </button>
             <button

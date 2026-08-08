@@ -10,6 +10,14 @@ import {
   useWorkspaceProcessActive,
   workspaceProcessRouteTargetShouldApply,
 } from "@babel-apps/platform/pages/react";
+import {
+  useListKeyboardNavigation,
+  usePaneFocus,
+} from "@babel-apps/platform/navigation/react";
+import {
+  useCommandPaletteActions,
+  useCommandPaletteItemSource,
+} from "@babel-apps/platform/shortcuts/react";
 
 import {
   CanvasPageSession,
@@ -53,8 +61,10 @@ export function CanvasWorkspace({
   const [newTitle, setNewTitle] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [pendingRenameCanvasId, setPendingRenameCanvasId] = useState<number | null>(null);
   const routeTargetTrackerRef = useRef(createWorkspaceProcessRouteTargetTracker());
   const openedRouteTargetRef = useRef<string | null>(null);
+  const { focusPane } = usePaneFocus();
 
   useEffect(() => {
     let active = true;
@@ -166,10 +176,20 @@ export function CanvasWorkspace({
           title: `Canvas ${id}`,
           href: `/canvases?canvas=${id}`,
         });
+    window.requestAnimationFrame(() => focusPane("detail"));
   }
 
-  async function submitCreate(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  function openCanvasForRename(id: number) {
+    setPendingRenameCanvasId(id);
+    openCanvas(id);
+  }
+
+  function showCanvasList() {
+    activatePage(null);
+    window.requestAnimationFrame(() => focusPane("items"));
+  }
+
+  async function createNewCanvas() {
     const title = newTitle.trim() || "Untitled canvas";
     try {
       setError(null);
@@ -177,9 +197,15 @@ export function CanvasWorkspace({
       setCanvases((items) => [created, ...items]);
       setNewTitle("");
       openPage(savedCanvasPage(created));
+      window.requestAnimationFrame(() => focusPane("detail"));
     } catch (cause) {
       setError(getErrorMessage(cause));
     }
+  }
+
+  function submitCreate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void createNewCanvas();
   }
 
   const reflectSummary = useCallback((canvas: CanvasDetailDto) => {
@@ -199,10 +225,41 @@ export function CanvasWorkspace({
     if (nextCanvas !== undefined) openPage(savedCanvasPage(nextCanvas));
   }
 
+  const canvasNavigation = useListKeyboardNavigation<number>({
+    items: canvases.map((canvas) => ({ id: canvas.id, label: canvas.title })),
+    selectedId,
+    onActivate: openCanvas,
+    onEdit: openCanvasForRename,
+    label: "Canvases",
+  });
+
+  useCommandPaletteItemSource({
+    id: "ruider.canvases",
+    label: "Canvases",
+    items: canvases.map((canvas) => ({
+      id: String(canvas.id),
+      dedupeKey: `ruider:canvas:${canvas.id}`,
+      label: canvas.title,
+      description: formatUpdatedAt(canvas.updatedAt),
+      open: () => openCanvas(canvas.id),
+      edit: () => openCanvasForRename(canvas.id),
+    })),
+  });
+
+  useCommandPaletteActions("ruider.canvases", processActive ? [
+    {
+      id: "ruider.canvases.new",
+      label: "New canvas",
+      keywords: ["create", "brainstorm", "canvas"],
+      group: "Canvas",
+      run: () => void createNewCanvas(),
+    },
+  ] : []);
+
   return (
     <section className="canvas-workspace" aria-label="Ruider canvases">
       {processActive ? <ActiveCanvasHistoryGuard /> : null}
-      <aside className="canvas-library">
+      <aside className="canvas-library" data-babel-pane="items" tabIndex={-1}>
         <div className="canvas-library__heading">
           <div>
             <span className="eyebrow">Brainstorm</span>
@@ -230,10 +287,11 @@ export function CanvasWorkspace({
             <span>Name one above and start throwing ideas around.</span>
           </div>
         ) : null}
-        <ul className="canvas-list">
+        <ul className="canvas-list" {...canvasNavigation.listboxProps}>
           {canvases.map((canvas) => (
-            <li key={canvas.id}>
+            <li key={canvas.id} role="presentation">
               <button
+                {...canvasNavigation.getOptionProps(canvas.id)}
                 className={canvas.id === selectedId ? "selected" : undefined}
                 type="button"
                 onClick={() => openCanvas(canvas.id)}
@@ -263,14 +321,19 @@ export function CanvasWorkspace({
                 key={page.key}
                 pageKey={page.key}
                 canvasId={canvasId}
+                renameRequested={pendingRenameCanvasId === canvasId}
+                onRenameRequestConsumed={() => {
+                  setPendingRenameCanvasId((current) => current === canvasId ? null : current);
+                }}
                 onSaved={reflectSummary}
                 onDeleted={removeSummary}
                 onError={setError}
+                onShowList={showCanvasList}
               />
             );
           })}
         {activePage === null && !loading ? (
-          <div className="canvas-main">
+          <div className="canvas-main" data-babel-pane="detail" tabIndex={-1}>
             <div className="canvas-welcome">
               <Image
                 className="canvas-welcome__mark"

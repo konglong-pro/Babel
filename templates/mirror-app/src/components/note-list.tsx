@@ -5,6 +5,8 @@ import {
   useItemReorder,
   type ItemReorderController,
 } from "@babel-apps/platform/items/react";
+import { useTreeKeyboardNavigation } from "@babel-apps/platform/navigation/react";
+import { useCommandPaletteActions } from "@babel-apps/platform/shortcuts/react";
 
 import {
   noteSelectionPath,
@@ -23,6 +25,7 @@ interface NoteListProps {
   loading?: boolean;
   referencePanelOpen?: boolean;
   onSelect: (id: number) => void;
+  onEdit: (id: number) => void;
   onReorder?: (id: number, position: number) => Promise<void> | void;
   onCreate: (parentId: number | null) => void;
   onImport: (file: File) => Promise<void> | void;
@@ -41,6 +44,7 @@ interface NoteBranchProps {
   onToggle: (id: number) => void;
   reorder: ItemReorderController;
   onCreate: (parentId: number) => void;
+  navigation: ReturnType<typeof useTreeKeyboardNavigation<number>>;
 }
 
 function relativePath(
@@ -71,31 +75,39 @@ function NoteBranch({
   onToggle,
   reorder,
   onCreate,
+  navigation,
 }: NoteBranchProps) {
   const children = grouped.get(parentId) ?? [];
   if (children.length === 0) return null;
 
   return (
-    <ul>
+    <ul role="presentation">
       {children.map((note) => {
+        const hasChildren = (grouped.get(note.id)?.length ?? 0) > 0;
         const expanded = expandedIds.has(note.id);
         return (
-          <li key={note.id}>
+          <li key={note.id} role="presentation">
             <div
               className={`note-node-row ${reorder.dropClassName(note.id)}`.trim()}
               {...reorder.rowProps(note.id)}
             >
-              <button
-                type="button"
-                className="note-disclosure"
-                aria-expanded={expanded}
-                aria-label={`${expanded ? "Collapse" : "Expand"} ${note.title}`}
-                onClick={() => onToggle(note.id)}
-              />
+              {hasChildren ? (
+                <span
+                  aria-hidden="true"
+                  className="note-disclosure"
+                  data-babel-tree-disclosure=""
+                  aria-expanded={expanded}
+                  title={`${expanded ? "Collapse" : "Expand"} ${note.title}`}
+                  onClick={() => onToggle(note.id)}
+                />
+              ) : (
+                <span aria-hidden="true" className="note-disclosure" data-babel-tree-disclosure-spacer="" style={{ visibility: "hidden" }} />
+              )}
               <button
                 type="button"
                 className={selectedNoteId === note.id ? "note-card selected" : "note-card"}
                 {...reorder.selectionProps(note.id)}
+                {...navigation.getTreeItemProps(note.id)}
                 aria-current={selectedNoteId === note.id ? "page" : undefined}
                 onClick={() => onSelect(note.id)}
               >
@@ -107,7 +119,7 @@ function NoteBranch({
                 <time dateTime={note.updatedAt}>Updated {formatDate(note.updatedAt)}</time>
               </button>
             </div>
-            {expanded ? (
+            {expanded && hasChildren ? (
               <div className="note-children">
                 <NoteBranch
                   parentId={note.id}
@@ -120,14 +132,17 @@ function NoteBranch({
                   onToggle={onToggle}
                   reorder={reorder}
                   onCreate={onCreate}
+                  navigation={navigation}
                 />
-                <button
-                  type="button"
+                <span
+                  aria-hidden="true"
                   className="tree-inline-create"
+                  data-babel-tree-inline-create=""
+                  title={`New subnote under ${note.title}`}
                   onClick={() => onCreate(note.id)}
                 >
                   + New subnote
-                </button>
+                </span>
               </div>
             ) : null}
           </li>
@@ -145,6 +160,7 @@ export function NoteList({
   loading,
   referencePanelOpen = false,
   onSelect,
+  onEdit,
   onReorder,
   onCreate,
   onImport,
@@ -185,6 +201,72 @@ export function NoteList({
   const revealedTreeState = revealNoteSelection(treeState, selectionPath);
   if (revealedTreeState !== treeState) setTreeState(revealedTreeState);
 
+  const navigationItems = useMemo(() => {
+    const items: Array<{
+      id: number;
+      label: string;
+      parentId: number | null;
+      hasChildren: boolean;
+      expanded: boolean;
+      level: number;
+    }> = [];
+    const visit = (parentId: number | null, level: number) => {
+      for (const note of grouped.get(parentId) ?? []) {
+        const hasChildren = (grouped.get(note.id)?.length ?? 0) > 0;
+        const expanded = revealedTreeState.expandedIds.has(note.id);
+        items.push({ id: note.id, label: note.title, parentId, hasChildren, expanded, level });
+        if (expanded) visit(note.id, level + 1);
+      }
+    };
+    visit(null, 1);
+    return items;
+  }, [grouped, revealedTreeState.expandedIds]);
+
+  const navigation = useTreeKeyboardNavigation<number>({
+    items: navigationItems,
+    selectedId: selectedNoteId ?? undefined,
+    onActivate: onSelect,
+    onEdit,
+    onExpandedChange: (id) => toggleNote(id),
+    label: "Page tree",
+  });
+
+  useCommandPaletteActions("__APP_ID__.notes", [
+    {
+      id: "note.new",
+      label: "New note",
+      keywords: ["create", "page"],
+      group: "Notes",
+      available: selectedFolderId !== null,
+      run: () => onCreate(null),
+    },
+    {
+      id: "note.newSubnote",
+      label: "New subnote",
+      keywords: ["create", "child", "page"],
+      group: "Notes",
+      available: selectedNoteId !== null,
+      run: () => {
+        if (selectedNoteId !== null) onCreate(selectedNoteId);
+      },
+    },
+    {
+      id: "note.import",
+      label: "Import Markdown",
+      keywords: ["file", "md"],
+      group: "Notes",
+      available: selectedFolderId !== null,
+      run: () => importInputRef.current?.click(),
+    },
+    {
+      id: "note.templates",
+      label: "Edit Templates",
+      keywords: ["template", "manage"],
+      group: "Notes",
+      run: onManageTemplates,
+    },
+  ]);
+
   function chooseMarkdown(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -204,6 +286,8 @@ export function NoteList({
   return (
     <aside
       className="workspace-panel note-panel"
+      data-babel-pane="items"
+      tabIndex={-1}
       aria-label="Notes list"
       aria-hidden={referencePanelOpen}
       inert={referencePanelOpen}
@@ -246,6 +330,17 @@ export function NoteList({
           >
             New
           </button>
+          <button
+            type="button"
+            data-babel-child-create=""
+            disabled={selectedNoteId === null}
+            title={selectedNoteId === null ? "Select a note before creating a subnote" : undefined}
+            onClick={() => {
+              if (selectedNoteId !== null) onCreate(selectedNoteId);
+            }}
+          >
+            New subnote
+          </button>
         </div>
       </div>
 
@@ -263,7 +358,7 @@ export function NoteList({
         </div>
       ) : null}
 
-      <nav className="note-tree" aria-label="Page tree">
+      <nav className="note-tree" {...navigation.treeProps}>
         <NoteBranch
           parentId={null}
           grouped={grouped}
@@ -275,6 +370,7 @@ export function NoteList({
           onToggle={toggleNote}
           reorder={reorder}
           onCreate={onCreate}
+          navigation={navigation}
         />
       </nav>
       <div className="note-panel-footer">

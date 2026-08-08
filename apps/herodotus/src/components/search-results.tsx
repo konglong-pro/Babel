@@ -1,7 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { useListKeyboardNavigation } from "@babel-apps/platform/navigation/react";
+import { useCommandPaletteActions } from "@babel-apps/platform/shortcuts/react";
 import { appendSearchFocus } from "@babel-apps/platform/search/focus";
 
 import { formatDate } from "@/components/shared";
@@ -41,6 +44,7 @@ function noteSearchHref(
 }
 
 export function SearchResults({ query }: { query: string }) {
+  const router = useRouter();
   const [results, setResults] = useState<SearchResultsDto>(EMPTY_RESULTS);
   const [loading, setLoading] = useState(Boolean(query));
   const [loadingMore, setLoadingMore] = useState(false);
@@ -67,6 +71,29 @@ export function SearchResults({ query }: { query: string }) {
 
   const total = results.total;
   const canLoadMore = results.notes.length < results.total;
+  useCommandPaletteActions("herodotus.search", canLoadMore ? [
+    {
+      id: "search.loadMore",
+      label: "Load more search results",
+      keywords: ["next", "page", "results"],
+      group: "Search",
+      available: !loadingMore,
+      run: loadMore,
+    },
+  ] : []);
+  const navigation = useListKeyboardNavigation<number>({
+    items: results.notes.map((note) => ({
+      id: note.id,
+      label: note.match.title.map((part) => part.text).join(""),
+    })),
+    onActivate: (id) => {
+      const note = results.notes.find((candidate) => candidate.id === id);
+      if (note) {
+        router.push(noteSearchHref(note.folderId, note.id, query, note.match.snippet.field));
+      }
+    },
+    label: "Search results",
+  });
 
   function loadMore() {
     if (loadingMore || !canLoadMore) return;
@@ -117,15 +144,18 @@ export function SearchResults({ query }: { query: string }) {
 
       {!loading && total > 0 ? (
         <>
-        <ul className="search-result-list" aria-label="Search results">
+        <ul className="search-result-list" {...navigation.listboxProps}>
           {results.notes.map((note) => (
-            <li key={note.id}>
-              <Link href={noteSearchHref(
-                note.folderId,
-                note.id,
-                query,
-                note.match.snippet.field,
-              )}>
+            <li key={note.id} role="presentation">
+              <Link
+                {...navigation.getOptionProps(note.id)}
+                href={noteSearchHref(
+                  note.folderId,
+                  note.id,
+                  query,
+                  note.match.snippet.field,
+                )}
+              >
                 <span className="eyebrow">Note</span>
                 <strong><HighlightedText parts={note.match.title} /></strong>
                 <span className="search-match-fields">

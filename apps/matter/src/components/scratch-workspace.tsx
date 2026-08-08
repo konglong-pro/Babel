@@ -145,7 +145,7 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
   if (loading) {
     return (
       <PageDeckPage pageKey={pageKey}>
-        <div className="standalone-status">Opening Scratch…</div>
+        <div className="standalone-status" data-babel-pane="detail" tabIndex={-1}>Opening Scratch…</div>
       </PageDeckPage>
     );
   }
@@ -153,7 +153,7 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
   if (error && !exercise) {
     return (
       <PageDeckPage pageKey={pageKey}>
-        <div className="standalone-status error-state" role="alert">
+        <div className="standalone-status error-state" data-babel-pane="detail" tabIndex={-1} role="alert">
           <h1>Couldn’t Open Scratch</h1>
           <p>{error}</p>
           <Link href="/exercise">Back to Exercise</Link>
@@ -167,10 +167,11 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
   return (
     <PageDeckPage pageKey={pageKey}>
       {processActive ? <ActiveScratchHistoryGuard /> : null}
-      <div className="scratch-page">
+      <div className="scratch-page" data-babel-pane="detail" tabIndex={-1}>
       <header className="scratch-header">
         <div>
           <Link
+            data-babel-escape="list"
             href={`/exercise?folder=${exercise.folderId}&item=${exercise.id}`}
             onClick={(event) => {
               if (

@@ -397,8 +397,8 @@ test("shared platform changes invalidate application builds", () => {
   );
 });
 
-test("the launcher edits the shared nine-command shortcut contract", () => {
-  assert.equal(shortcutDefaults.schemaVersion, 2);
+test("the launcher edits the shared schema v3 shortcut contract", () => {
+  assert.equal(shortcutDefaults.schemaVersion, 3);
   assert.deepEqual(
     shortcutDefaults.commands?.map(({ command, defaultBinding }) => [command, defaultBinding]),
     [
@@ -411,6 +411,13 @@ test("the launcher edits the shared nine-command shortcut contract", () => {
       ["search", "Ctrl+F"],
       ["delete", "Ctrl+Delete"],
       ["commandPalette", "Ctrl+K"],
+      ["focusNextPane", "Ctrl+F6"],
+      ["focusPreviousPane", "Ctrl+Shift+F6"],
+      ["nextTab", "Ctrl+Alt+ArrowRight"],
+      ["previousTab", "Ctrl+Alt+ArrowLeft"],
+      ["closeTab", "Ctrl+Alt+W"],
+      ["quickOpen", "Ctrl+Alt+P"],
+      ["help", "Ctrl+Alt+H"],
     ],
   );
 
@@ -433,6 +440,9 @@ test("the launcher edits the shared nine-command shortcut contract", () => {
   assert.match(guiSource, /Read-BabelLauncherHotkeySettings/i);
   assert.match(guiSource, /Write-BabelLauncherHotkeySettings/i);
   assert.match(guiSource, /reload open application pages/i);
+  assert.match(shortcutsXamlSource, /Text=["']Unbound["']/i);
+  assert.match(shortcutsXamlSource, /Backspace or Delete/i);
+  assert.match(guiSource, /isUnbindGesture/i);
 });
 
 test("the launcher owns one configurable global toggle hotkey", () => {
@@ -520,10 +530,35 @@ test("shortcut settings are normalized, validated, and replaced atomically", () 
   assert.match(shortcutsHelperSource, /ConvertTo-BabelShortcutBindingMap/i);
   assert.match(shortcutsHelperSource, /assigned to both/i, "duplicate bindings must be rejected");
   assert.match(shortcutsHelperSource, /must include Ctrl or Alt/i);
-  assert.match(shortcutsHelperSource, /Only Escape may be used without a modifier/i);
-  for (const reservedBinding of ["Alt+F4", "Ctrl+W", "Ctrl+T", "Ctrl+L", "Ctrl+Shift+T", "F5"]) {
+  assert.match(shortcutsHelperSource, /safe bare function key/i);
+  for (const reservedBinding of [
+    "Alt+F4",
+    "Ctrl+W",
+    "Ctrl+T",
+    "Ctrl+L",
+    "Ctrl+Shift+T",
+    "Ctrl+Alt+ArrowUp",
+    "Ctrl+Alt+ArrowDown",
+    "F2",
+    "F5",
+    "F6",
+  ]) {
     assert.match(shortcutsHelperSource, new RegExp(`"${reservedBinding.replaceAll("+", "\\+")}"`));
   }
+  for (const keyName of [
+    "ArrowUp",
+    "ArrowDown",
+    "ArrowLeft",
+    "ArrowRight",
+    "Home",
+    "End",
+    "PageUp",
+    "PageDown",
+  ]) {
+    assert.match(shortcutsHelperSource, new RegExp(`"${keyName}"`));
+  }
+  assert.match(shortcutsHelperSource, /schemaVersion\s*=\s*3[\s\S]{0,100}bindings/i);
+  assert.match(shortcutsHelperSource, /migratedBindings[\s\S]{0,900}\$null/i);
   assert.match(shortcutsHelperSource, /Write-Warning/i, "missing or invalid user settings must warn");
   assert.match(shortcutsHelperSource, /Text\.UTF8Encoding\(\$false\)/i, "settings must use UTF-8 without a BOM");
   assert.match(shortcutsHelperSource, /\[IO\.File\]::Replace\(/i, "an existing settings file must be replaced atomically");
@@ -553,7 +588,7 @@ $legacyDocument = [ordered]@{
         cancel = "Escape"
         search = "Ctrl+F"
         delete = "Ctrl+Delete"
-        commandPalette = "Ctrl+K"
+        commandPalette = "Ctrl+Alt+P"
     }
 }
 [IO.File]::WriteAllText(
@@ -565,15 +600,92 @@ $loaded = Read-BabelShortcutSettings -Definitions $definitions -Path $settingsPa
 if (
     $loaded.Source -ne "User" -or
     $loaded.Bindings["save"] -ne "Ctrl+Alt+S" -or
-    $loaded.Bindings["read"] -ne "Ctrl+R"
+    $loaded.Bindings["read"] -ne "Ctrl+R" -or
+    $loaded.Bindings["commandPalette"] -ne "Ctrl+Alt+P" -or
+    $null -ne $loaded.Bindings["quickOpen"]
 ) {
     throw "Legacy shortcut settings were not migrated without losing custom bindings."
 }
+$legacyEscapeSettingsPath = "$settingsPath.legacy-escape"
+$legacyEscapeDocument = [ordered]@{
+    schemaVersion = 1
+    bindings = [ordered]@{
+        save = "Escape"
+        new = "Ctrl+Alt+N"
+        edit = "Ctrl+Alt+E"
+        confirm = "Ctrl+Enter"
+        cancel = "Ctrl+Alt+C"
+        search = "Ctrl+F"
+        delete = "Ctrl+Delete"
+        commandPalette = "Ctrl+K"
+    }
+}
+[IO.File]::WriteAllText(
+    $legacyEscapeSettingsPath,
+    ($legacyEscapeDocument | ConvertTo-Json -Depth 4),
+    (New-Object Text.UTF8Encoding($false))
+)
+$legacyEscapeLoaded = Read-BabelShortcutSettings -Definitions $definitions -Path $legacyEscapeSettingsPath
+if (
+    $legacyEscapeLoaded.Source -ne "User" -or
+    $null -ne $legacyEscapeLoaded.Bindings["save"] -or
+    $legacyEscapeLoaded.Bindings["cancel"] -ne "Ctrl+Alt+C" -or
+    $legacyEscapeLoaded.Bindings["focusNextPane"] -ne "Ctrl+F6"
+) {
+    throw "A legacy non-cancel Escape owner invalidated more than its own binding."
+}
+[IO.File]::Delete($legacyEscapeSettingsPath)
+$legacyReorderSettingsPath = "$settingsPath.legacy-reorder"
+$legacyReorderDocument = [ordered]@{
+    schemaVersion = 2
+    bindings = [ordered]@{
+        save = "Ctrl+Alt+S"
+        new = "Ctrl+Alt+N"
+        edit = "Ctrl+Alt+E"
+        read = "Alt+Control+Down"
+        confirm = "Ctrl+Enter"
+        cancel = "Escape"
+        search = "Ctrl+F"
+        delete = "Ctrl+Delete"
+        commandPalette = "Ctrl+Alt+P"
+    }
+}
+[IO.File]::WriteAllText(
+    $legacyReorderSettingsPath,
+    ($legacyReorderDocument | ConvertTo-Json -Depth 4),
+    (New-Object Text.UTF8Encoding($false))
+)
+$legacyReorderLoaded = Read-BabelShortcutSettings -Definitions $definitions -Path $legacyReorderSettingsPath
+if (
+    $legacyReorderLoaded.Source -ne "User" -or
+    $null -ne $legacyReorderLoaded.Bindings["read"] -or
+    $legacyReorderLoaded.Bindings["save"] -ne "Ctrl+Alt+S" -or
+    $legacyReorderLoaded.Bindings["cancel"] -ne "Escape" -or
+    $legacyReorderLoaded.Bindings["focusNextPane"] -ne "Ctrl+F6"
+) {
+    throw "A legacy fixed-reorder owner invalidated more than its own binding."
+}
+[void](Write-BabelShortcutSettings -Definitions $definitions -Bindings $legacyReorderLoaded.Bindings -Path $legacyReorderSettingsPath)
+$legacyReorderRoundTrip = Get-Content -LiteralPath $legacyReorderSettingsPath -Raw | ConvertFrom-Json
+if (
+    [int]$legacyReorderRoundTrip.schemaVersion -ne 3 -or
+    $null -ne $legacyReorderRoundTrip.bindings.read -or
+    $legacyReorderRoundTrip.bindings.save -ne "Ctrl+Alt+S"
+) {
+    throw "The migrated fixed-reorder binding did not round-trip as schema v3 null."
+}
+[IO.File]::Delete($legacyReorderSettingsPath)
 [void](Write-BabelShortcutSettings -Definitions $definitions -Bindings $loaded.Bindings -Path $settingsPath)
 if ((ConvertTo-BabelShortcutBinding -Binding "Ctrl+R") -ne "Ctrl+R") {
     throw "Ctrl+R was not accepted as a Babel shortcut."
 }
-foreach ($forbiddenBinding in @("Ctrl", "A", "Shift+S", "Enter", "Ctrl+W", "F5")) {
+if ((ConvertTo-BabelShortcutBinding -Binding "Ctrl+Alt+Right") -ne "Ctrl+Alt+ArrowRight") {
+    throw "Arrow key aliases were not accepted as Babel shortcuts."
+}
+if ((ConvertTo-BabelShortcutBinding -Binding "F1") -ne "F1") {
+    throw "A safe bare function key was not accepted as a Babel shortcut."
+}
+foreach ($forbiddenBinding in @("Ctrl", "A", "Shift+S", "Enter", "Ctrl+W", "Ctrl+Alt+ArrowUp", "Ctrl+Alt+ArrowDown", "F2", "F5", "F6", "Shift+F6")) {
     $wasRejected = $false
     try {
         [void](ConvertTo-BabelShortcutBinding -Binding $forbiddenBinding)
@@ -612,14 +724,16 @@ if (
 ) {
     throw "Launcher hotkey registration values were not canonical or did not include MOD_NOREPEAT."
 }
-$launcherEscapeRejected = $false
-try {
-    [void](ConvertTo-BabelLauncherHotkeyRegistration -Binding "Escape")
-} catch {
-    $launcherEscapeRejected = $true
-}
-if (-not $launcherEscapeRejected) {
-    throw "The launcher accepted an unmodified system-wide Escape hotkey."
+foreach ($bareLauncherBinding in @("Escape", "F1")) {
+    $bareLauncherBindingRejected = $false
+    try {
+        [void](ConvertTo-BabelLauncherHotkeyRegistration -Binding $bareLauncherBinding)
+    } catch {
+        $bareLauncherBindingRejected = $true
+    }
+    if (-not $bareLauncherBindingRejected) {
+        throw "The launcher accepted unmodified system-wide hotkey '$bareLauncherBinding'."
+    }
 }
 [void](Write-BabelLauncherHotkeySettings -Binding "Ctrl+Alt+L" -Path $launcherSettingsPath)
 $loadedLauncherSettings = Read-BabelLauncherHotkeySettings -Path $launcherSettingsPath
@@ -668,11 +782,13 @@ Write-Output "Babel shortcut replacement test passed."
       );
       const savedSettings = JSON.parse(settingsBytes.toString("utf8")) as {
         schemaVersion?: number;
-        bindings?: Record<string, string>;
+        bindings?: Record<string, string | null>;
       };
-      assert.equal(savedSettings.schemaVersion, 2);
+      assert.equal(savedSettings.schemaVersion, 3);
       assert.equal(savedSettings.bindings?.save, "Ctrl+Alt+S");
       assert.equal(savedSettings.bindings?.read, "Ctrl+R");
+      assert.equal(savedSettings.bindings?.commandPalette, "Ctrl+Alt+P");
+      assert.equal(savedSettings.bindings?.quickOpen, null);
       assert.deepEqual(
         Object.keys(savedSettings.bindings ?? {}),
         shortcutDefaults.commands?.map(({ command }) => command),
@@ -796,7 +912,7 @@ test(
 
     assert.match(stdout, /Babel GUI smoke test passed/i);
     assert.match(stdout, /7 shortcut control\(s\)/i);
-    assert.match(stdout, /9 shortcut command\(s\)/i);
+    assert.match(stdout, /16 shortcut command\(s\)/i);
   },
 );
 

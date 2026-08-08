@@ -8,6 +8,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
@@ -120,6 +121,7 @@ export function PageSessionProvider({
   const [pendingNavigationKey, setPendingNavigationKey] = useState<string | null>(null);
   const [closePending, setClosePending] = useState(false);
   const [closeError, setCloseError] = useState("");
+  const closeDialogRef = useRef<HTMLDialogElement>(null);
   const lifecycleRef = useRef(new Map<string, PageSessionLifecycle>());
   const restoredRef = useRef(false);
   const skipInitialPersistenceRef = useRef(storageKey !== undefined);
@@ -154,6 +156,17 @@ export function PageSessionProvider({
       clearTimeout(pendingNavigationTimerRef.current);
     }
   }, []);
+
+  useEffect(() => {
+    if (pendingClose === null) return;
+    const dialog = closeDialogRef.current;
+    if (dialog === null || dialog.open) return;
+    try {
+      dialog.showModal();
+    } catch {
+      // A removed or already-open dialog will be reconciled by the next render.
+    }
+  }, [pendingClose]);
 
   useEffect(() => {
     if (restoredRef.current) return;
@@ -234,6 +247,7 @@ export function PageSessionProvider({
     if (page === undefined) return;
     if (!page.dirty && !page.pending) {
       closePage(key);
+      schedulePagePanelFocus();
       return;
     }
     setCloseError("");
@@ -276,6 +290,7 @@ export function PageSessionProvider({
       dispatch({ type: "close", key: pending.key });
     }
     setPendingClose(null);
+    schedulePagePanelFocus();
   }, [pendingClose, state.pages]);
 
   const saveAndClose = useCallback(async () => {
@@ -375,51 +390,55 @@ export function PageSessionProvider({
     <PageSessionsContext.Provider value={context}>
       {children}
       {pendingClose === null ? null : (
-        <div className="babel-page-close-backdrop" role="presentation">
-          <section
-            className="babel-page-close-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="babel-page-close-title"
-          >
-            <p className="babel-page-close-dialog__eyebrow">Unsaved changes</p>
-            <h2 id="babel-page-close-title">
-              {pendingClose.others
-                ? "Close the other open pages?"
-                : `Close ${pendingClosePage?.title ?? "this page"}?`}
-            </h2>
-            <p>
-              {pendingClose.others
-                ? "One or more other pages have changes that have not finished saving."
-                : "This page has changes that have not finished saving."}
-            </p>
-            {closeError ? <p className="babel-page-close-dialog__error" role="alert">{closeError}</p> : null}
-            <div className="babel-page-close-dialog__actions">
-              <button
-                type="button"
-                disabled={closePending}
-                onClick={() => setPendingClose(null)}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={closePending}
-                onClick={() => void discardAndClose()}
-              >
-                Discard
-              </button>
-              <button
-                className="babel-page-close-dialog__primary"
-                type="button"
-                disabled={closePending}
-                onClick={() => void saveAndClose()}
-              >
-                {closePending ? "Saving…" : "Save and close"}
-              </button>
-            </div>
-          </section>
-        </div>
+        <dialog
+          ref={closeDialogRef}
+          className="babel-page-close-dialog"
+          aria-modal="true"
+          aria-labelledby="babel-page-close-title"
+          onCancel={(event) => {
+            event.preventDefault();
+            if (!closePending) setPendingClose(null);
+          }}
+        >
+          <p className="babel-page-close-dialog__eyebrow">Unsaved changes</p>
+          <h2 id="babel-page-close-title">
+            {pendingClose.others
+              ? "Close the other open pages?"
+              : `Close ${pendingClosePage?.title ?? "this page"}?`}
+          </h2>
+          <p>
+            {pendingClose.others
+              ? "One or more other pages have changes that have not finished saving."
+              : "This page has changes that have not finished saving."}
+          </p>
+          {closeError ? <p className="babel-page-close-dialog__error" role="alert">{closeError}</p> : null}
+          <div className="babel-page-close-dialog__actions">
+            <button
+              data-babel-command="cancel"
+              type="button"
+              autoFocus
+              disabled={closePending}
+              onClick={() => setPendingClose(null)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={closePending}
+              onClick={() => void discardAndClose()}
+            >
+              Discard
+            </button>
+            <button
+              className="babel-page-close-dialog__primary"
+              type="button"
+              disabled={closePending}
+              onClick={() => void saveAndClose()}
+            >
+              {closePending ? "Saving…" : "Save and close"}
+            </button>
+          </div>
+        </dialog>
       )}
     </PageSessionsContext.Provider>
   );
@@ -859,11 +878,20 @@ export interface PageTabsProps {
   readonly onNavigate?: (href: string) => void;
 }
 
-export function PageTabs({
-  className = "",
-  label = "Open pages",
+export interface UsePageTabCommandsOptions {
+  readonly onNavigate?: (href: string) => void;
+}
+
+export interface PageTabCommandController {
+  activateTab(key: string): boolean;
+  nextTab(): boolean;
+  previousTab(): boolean;
+  closeTab(): boolean;
+}
+
+export function usePageTabCommands({
   onNavigate,
-}: PageTabsProps) {
+}: UsePageTabCommandsOptions = {}): PageTabCommandController {
   const {
     pages,
     activeKey,
@@ -871,20 +899,11 @@ export function PageTabs({
     beginPageNavigation,
     completePageNavigation,
     requestClosePage,
-    requestCloseOtherPages,
-    movePage,
   } = usePageSessions();
-  const dragKeyRef = useRef<string | null>(null);
-  if (pages.length === 0) return null;
 
-  const drop = (event: DragEvent<HTMLLIElement>, toIndex: number) => {
-    event.preventDefault();
-    const key = dragKeyRef.current;
-    dragKeyRef.current = null;
-    if (key !== null) movePage(key, toIndex);
-  };
-
-  const activate = (page: PageSessionDescriptor) => {
+  const activateTab = useCallback((key: string): boolean => {
+    const page = pages.find((candidate) => candidate.key === key);
+    if (page === undefined) return false;
     const target = new URL(page.href, window.location.origin);
     if (target.pathname !== window.location.pathname) {
       if (onNavigate !== undefined) beginPageNavigation(page.key);
@@ -900,19 +919,147 @@ export function PageTabs({
           throw error;
         }
       }
-      return;
+      return true;
     }
     activatePage(page.key);
+    return true;
+  }, [
+    activatePage,
+    beginPageNavigation,
+    completePageNavigation,
+    onNavigate,
+    pages,
+  ]);
+
+  const adjacentTab = useCallback((direction: 1 | -1): boolean => {
+    if (pages.length === 0) return false;
+    const activeIndex = pages.findIndex((page) => page.key === activeKey);
+    const nextIndex = activeIndex < 0
+      ? direction === 1 ? 0 : pages.length - 1
+      : (activeIndex + direction + pages.length) % pages.length;
+    const page = pages[nextIndex];
+    if (page === undefined || !activateTab(page.key)) return false;
+    schedulePagePanelFocus(page.key);
+    return true;
+  }, [activateTab, activeKey, pages]);
+
+  const closeTab = useCallback((): boolean => {
+    if (activeKey === null || !pages.some((page) => page.key === activeKey)) return false;
+    requestClosePage(activeKey);
+    return true;
+  }, [activeKey, pages, requestClosePage]);
+
+  return useMemo(() => ({
+    activateTab,
+    nextTab: () => adjacentTab(1),
+    previousTab: () => adjacentTab(-1),
+    closeTab,
+  }), [activateTab, adjacentTab, closeTab]);
+}
+
+function pageTabDomId(key: string): string {
+  return `babel-page-tab-${encodeURIComponent(key)}`;
+}
+
+function pagePanelDomId(key: string): string {
+  return `babel-page-panel-${encodeURIComponent(key)}`;
+}
+
+function schedulePagePanelFocus(pageKey?: string): void {
+  if (typeof window === "undefined") return;
+  window.requestAnimationFrame(() => {
+    const document = window.document;
+    if (document.querySelector("dialog[open], .babel-page-close-dialog") !== null) return;
+    const preferredPanel = pageKey === undefined
+      ? null
+      : document.getElementById(pagePanelDomId(pageKey));
+    const panel = preferredPanel?.matches(":not([hidden]):not([inert])") === true
+      ? preferredPanel
+      : document.querySelector<HTMLElement>(".babel-page-deck__page[data-active]");
+    const target = panel?.querySelector<HTMLElement>("[data-babel-pane='detail']") ?? panel;
+    if (
+      target === null ||
+      target.closest("[hidden], [inert], [aria-hidden='true']") !== null
+    ) return;
+    target.focus({ preventScroll: false });
+  });
+}
+
+export function pageTabRovingKey(
+  pages: readonly Pick<PageSessionDescriptor, "key">[],
+  activeKey: string | null,
+  storedFocusedKey: string | null,
+  tablistHasFocus: boolean,
+): string | null {
+  if (
+    tablistHasFocus &&
+    pages.some((page) => page.key === storedFocusedKey)
+  ) return storedFocusedKey;
+  if (pages.some((page) => page.key === activeKey)) return activeKey;
+  return pages[0]?.key ?? null;
+}
+
+export function PageTabs({
+  className = "",
+  label = "Open pages",
+  onNavigate,
+}: PageTabsProps) {
+  const {
+    pages,
+    activeKey,
+    requestClosePage,
+    requestCloseOtherPages,
+    movePage,
+  } = usePageSessions();
+  const tabCommands = usePageTabCommands({ onNavigate });
+  const dragKeyRef = useRef<string | null>(null);
+  const tabRefs = useRef(new Map<string, HTMLButtonElement>());
+  const [storedFocusedKey, setStoredFocusedKey] = useState<string | null>(
+    activeKey ?? pages[0]?.key ?? null,
+  );
+  const [tablistHasFocus, setTablistHasFocus] = useState(false);
+  const focusedKey = pageTabRovingKey(
+    pages,
+    activeKey,
+    storedFocusedKey,
+    tablistHasFocus,
+  );
+  if (pages.length === 0) return null;
+
+  const drop = (event: DragEvent<HTMLLIElement>, toIndex: number) => {
+    event.preventDefault();
+    const key = dragKeyRef.current;
+    dragKeyRef.current = null;
+    if (key !== null) movePage(key, toIndex);
+  };
+
+  const focusTab = (index: number) => {
+    const page = pages[(index + pages.length) % pages.length];
+    if (page === undefined) return;
+    setStoredFocusedKey(page.key);
+    tabRefs.current.get(page.key)?.focus();
   };
 
   return (
-    <nav className={`babel-page-tabs ${className}`.trim()} aria-label={label}>
-      <ul role="tablist">
+    <nav
+      className={`babel-page-tabs ${className}`.trim()}
+      aria-label={label}
+      data-babel-pane="tabs"
+      tabIndex={-1}
+      onFocusCapture={() => setTablistHasFocus(true)}
+      onBlurCapture={(event) => {
+        if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) {
+          setTablistHasFocus(false);
+        }
+      }}
+    >
+      <ul role="tablist" aria-orientation="horizontal">
         {pages.map((page, index) => {
           const active = page.key === activeKey;
           return (
             <li
               key={page.key}
+              role="presentation"
               draggable
               onDragStart={() => {
                 dragKeyRef.current = page.key;
@@ -921,12 +1068,47 @@ export function PageTabs({
               onDrop={(event) => drop(event, index)}
             >
               <button
+                ref={(element) => {
+                  if (element === null) tabRefs.current.delete(page.key);
+                  else tabRefs.current.set(page.key, element);
+                }}
+                id={pageTabDomId(page.key)}
                 className="babel-page-tab"
                 type="button"
                 role="tab"
                 aria-selected={active}
+                aria-controls={pagePanelDomId(page.key)}
+                aria-keyshortcuts="ArrowLeft ArrowRight Home End Enter Space"
+                tabIndex={focusedKey === page.key ? 0 : -1}
                 data-active={active ? "" : undefined}
-                onClick={() => activate(page)}
+                onFocus={() => setStoredFocusedKey(page.key)}
+                onKeyDown={(event) => {
+                  if (
+                    event.defaultPrevented ||
+                    event.nativeEvent.isComposing ||
+                    event.altKey ||
+                    event.ctrlKey ||
+                    event.metaKey ||
+                    event.shiftKey
+                  ) return;
+                  if (event.key === "ArrowLeft") {
+                    event.preventDefault();
+                    focusTab(index - 1);
+                  } else if (event.key === "ArrowRight") {
+                    event.preventDefault();
+                    focusTab(index + 1);
+                  } else if (event.key === "Home") {
+                    event.preventDefault();
+                    focusTab(0);
+                  } else if (event.key === "End") {
+                    event.preventDefault();
+                    focusTab(pages.length - 1);
+                  } else if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    tabCommands.activateTab(page.key);
+                  }
+                }}
+                onClick={() => tabCommands.activateTab(page.key)}
                 onDoubleClick={() => requestCloseOtherPages(page.key)}
               >
                 <span className="babel-page-tab__kind">{page.kind}</span>
@@ -936,19 +1118,44 @@ export function PageTabs({
                 ) : page.dirty ? (
                   <span className="babel-page-tab__status is-dirty" title="Unsaved changes" aria-label="Unsaved changes" />
                 ) : null}
-              </button>
-              <button
-                className="babel-page-tab__close"
-                type="button"
-                aria-label={`Close ${page.title}`}
-                onClick={() => requestClosePage(page.key)}
-              >
-                ×
+                <span
+                  className="babel-page-tab__close"
+                  aria-hidden="true"
+                  title={`Close ${page.title}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    requestClosePage(page.key);
+                  }}
+                  onDoubleClick={(event) => event.stopPropagation()}
+                >
+                  ×
+                </span>
               </button>
             </li>
           );
         })}
       </ul>
+      <button
+        hidden
+        type="button"
+        data-babel-command-adapter=""
+        data-babel-command="nextTab"
+        onClick={tabCommands.nextTab}
+      />
+      <button
+        hidden
+        type="button"
+        data-babel-command-adapter=""
+        data-babel-command="previousTab"
+        onClick={tabCommands.previousTab}
+      />
+      <button
+        hidden
+        type="button"
+        data-babel-command-adapter=""
+        data-babel-command="closeTab"
+        onClick={tabCommands.closeTab}
+      />
     </nav>
   );
 }
@@ -959,6 +1166,20 @@ export interface PageDeckProps {
   readonly className?: string;
 }
 
+export interface PageDeckPageContextValue {
+  readonly active: boolean;
+  readonly pageKey: string | null;
+}
+
+const PageDeckPageContext = createContext<PageDeckPageContextValue>({
+  active: true,
+  pageKey: null,
+});
+
+export function usePageDeckPageContext(): PageDeckPageContextValue {
+  return useContext(PageDeckPageContext);
+}
+
 export function PageDeckPage({
   children,
   pageKey,
@@ -966,16 +1187,54 @@ export function PageDeckPage({
 }: PageDeckProps) {
   const { activeKey } = usePageSessions();
   const active = activeKey === pageKey;
+  const pageRef = useRef<HTMLElement>(null);
+  const ownedFocusRef = useRef(false);
+
+  useEffect(() => {
+    const page = pageRef.current;
+    if (page === null) return;
+    const document = page.ownerDocument;
+    const trackFocus = (event: FocusEvent) => {
+      if (!(event.target instanceof Node)) return;
+      if (page.contains(event.target)) ownedFocusRef.current = true;
+      else if (event.target !== document.body) ownedFocusRef.current = false;
+    };
+    document.addEventListener("focusin", trackFocus, true);
+    return () => document.removeEventListener("focusin", trackFocus, true);
+  }, []);
+
+  useLayoutEffect(() => {
+    const page = pageRef.current;
+    if (!active) {
+      ownedFocusRef.current = false;
+      return;
+    }
+    if (page === null || !ownedFocusRef.current) return;
+    const document = page.ownerDocument;
+    const focused = document.activeElement;
+    if (focused instanceof Node && focused !== document.body && page.contains(focused)) return;
+    page.querySelector<HTMLElement>("[data-babel-pane='detail']")?.focus({
+      preventScroll: false,
+    });
+  });
+
   return (
     <section
+      ref={pageRef}
+      id={pagePanelDomId(pageKey)}
       className={`babel-page-deck__page ${className}`.trim()}
       data-page-key={pageKey}
       data-active={active ? "" : undefined}
+      role="tabpanel"
+      aria-labelledby={pageTabDomId(pageKey)}
+      tabIndex={0}
       hidden={!active}
       aria-hidden={!active}
       inert={!active}
     >
-      {children}
+      <PageDeckPageContext.Provider value={{ active, pageKey }}>
+        {children}
+      </PageDeckPageContext.Provider>
     </section>
   );
 }

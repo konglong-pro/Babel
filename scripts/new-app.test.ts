@@ -457,7 +457,8 @@ test("renders the repository mirror template as an independent app", async (t) =
   );
   assert.match(folderPanel, /aria-expanded=/);
   assert.match(folderPanel, /className="folder-disclosure"/);
-  assert.doesNotMatch(folderPanel, /folder-disclosure-spacer/);
+  assert.match(folderPanel, /folder-disclosure-spacer/);
+  assert.doesNotMatch(folderPanel, /role="group"/);
   assert.match(folderPanel, /New subfolder/);
   assert.match(folderPanel, /@babel-apps\/platform\/folders\/react/);
   assert.match(folderPanel, /useFolderReorder/);

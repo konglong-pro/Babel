@@ -119,16 +119,71 @@ npm.cmd run launcher:build
 
 `SHORTCUTS` configures both the launcher toggle and web application commands.
 The launcher binding is stored independently in
-`%LOCALAPPDATA%\Babel\launcher.json`; the nine web command overrides remain in
-`%LOCALAPPDATA%\Babel\shortcuts.json`. Both files are outside the public
-repository and the private notebook-data repository. A changed launcher binding
-is registered immediately; if Windows reports that the combination is already
-in use, Babel keeps the previous binding and settings. The web defaults are
-`Ctrl+S` (save),
-`Ctrl+Alt+N` (new), `Ctrl+Alt+E` (edit), `Ctrl+R` (read), `Ctrl+Enter`
-(confirm), `Escape` (cancel), `Ctrl+F` (search), `Ctrl+Delete` (delete), and
-`Ctrl+K` (command palette). Reload an open notebook page after saving changes
-in the launcher.
+`%LOCALAPPDATA%\Babel\launcher.json`; the 16 schema-v3 web command overrides
+remain in `%LOCALAPPDATA%\Babel\shortcuts.json`. Both files are outside the
+public repository and the private notebook-data repository. A changed launcher
+binding is registered immediately; if Windows reports that the combination is
+already in use, Babel keeps the previous binding and settings. Reload an open notebook
+page after saving web-command changes in the launcher.
+
+The schema-v3 web defaults are:
+
+| Command | Default binding | Purpose |
+| --- | --- | --- |
+| `save` | `Ctrl+S` | Save the active editor |
+| `new` | `Ctrl+Alt+N` | Create a document |
+| `edit` | `Ctrl+Alt+E` | Enter edit mode |
+| `read` | `Ctrl+R` | Return to read mode |
+| `confirm` | `Ctrl+Enter` | Confirm the active edit or dialog |
+| `cancel` | `Escape` | Coordinate the progressive Escape chain |
+| `search` | `Ctrl+F` | Search the current notebook |
+| `delete` | `Ctrl+Delete` | Request deletion through the existing confirmation flow |
+| `commandPalette` | `Ctrl+K` | Search commands, actions, and document titles |
+| `focusNextPane` | `Ctrl+F6` | Focus the next available pane |
+| `focusPreviousPane` | `Ctrl+Shift+F6` | Focus the previous available pane |
+| `nextTab` | `Ctrl+Alt+ArrowRight` | Activate the next tab cyclically |
+| `previousTab` | `Ctrl+Alt+ArrowLeft` | Activate the previous tab cyclically |
+| `closeTab` | `Ctrl+Alt+W` | Close the active tab through its dirty-state flow |
+| `quickOpen` | `Ctrl+Alt+P` | Open the palette directly in title-only mode |
+| `help` | `Ctrl+Alt+H` | Show the complete keyboard-help overlay |
+
+Each schema-v3 binding is either a shortcut string or `null`. Schema v1 and v2
+files remain readable. Migration preserves every existing user binding first,
+then adds each new default only when that combination is free. A conflicting
+new command becomes `null` rather than displacing the old binding; the launcher
+displays it as `Unbound`, where it can be reassigned or left unbound. Safe bare
+function keys are accepted, while the fixed `F2` key and browser or system keys
+such as bare `F5`, `F6`, `F11`, and `F12` remain reserved. Bare `Escape` cannot
+be assigned to an unrelated command. `Ctrl+Alt+ArrowUp` and
+`Ctrl+Alt+ArrowDown` are likewise reserved for structural reordering.
+
+Web notebooks use a Ready/Edit keyboard model. Focused folder and document
+trees expose `tree`/`treeitem` semantics with a roving tab stop. Up/Down moves
+through visible nodes, Left/Right collapses or expands, Enter selects or opens,
+F2 renames a folder or opens a document directly in edit mode, and typed letters
+jump by title. Document trees also support Home, End, PageUp, and PageDown.
+Flat search and palette results use `listbox` semantics with Up/Down,
+Home/End/PageUp/PageDown, Enter, and type-ahead. The tab strip exposes
+`tablist`/`tab` semantics: Left/Right moves its roving focus and Enter activates
+the focused tab.
+
+`Ctrl+F6` and `Ctrl+Shift+F6` cycle the available folder tree, document tree,
+tab strip, and detail pane, skipping hidden or absent panes and remembering the
+last focused control in each. Bare `F6` remains available to the browser.
+Keyboard reordering uses `Ctrl+Alt+ArrowUp` and `Ctrl+Alt+ArrowDown`, rather
+than unmodified arrow keys; visible hints and `aria-keyshortcuts` expose the new
+combination.
+
+Escape unwinds one level at a time. The topmost dialog, command palette, or help
+overlay gets first refusal; otherwise Escape leaves the editor for its read
+view, then leaves the read view for the document tree. Existing dirty-edit and
+discard confirmations still apply. `Ctrl+K` searches registered commands,
+explicit semantic actions, and document or entry titles in one list, while
+`Ctrl+Alt+P` restricts results to titles. Applications explicitly register
+stable actions such as Import, Edit Templates, and New subnote. This semantic
+coverage does not expose structural or transient controls such as disclosure
+arrows, Back, Dismiss, or dialog Cancel, and dangerous actions continue through
+their existing confirmation dialogs.
 
 The command-line launcher remains available for scripts and recovery work:
 

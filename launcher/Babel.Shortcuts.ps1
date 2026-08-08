@@ -148,6 +148,18 @@ function ConvertTo-BabelShortcutBinding {
                 "BACKSPACE" { $keyName = "Backspace" }
                 "BACK" { $keyName = "Backspace" }
                 "SPACE" { $keyName = "Space" }
+                "ARROWUP" { $keyName = "ArrowUp" }
+                "UP" { $keyName = "ArrowUp" }
+                "ARROWDOWN" { $keyName = "ArrowDown" }
+                "DOWN" { $keyName = "ArrowDown" }
+                "ARROWLEFT" { $keyName = "ArrowLeft" }
+                "LEFT" { $keyName = "ArrowLeft" }
+                "ARROWRIGHT" { $keyName = "ArrowRight" }
+                "RIGHT" { $keyName = "ArrowRight" }
+                "HOME" { $keyName = "Home" }
+                "END" { $keyName = "End" }
+                "PAGEUP" { $keyName = "PageUp" }
+                "PAGEDOWN" { $keyName = "PageDown" }
                 default {
                     throw "Shortcut '$Binding' uses unsupported key '$token'."
                 }
@@ -177,6 +189,8 @@ function ConvertTo-BabelShortcutBinding {
         "Alt+Escape",
         "Alt+Space",
         "Ctrl+Alt+Delete",
+        "Ctrl+Alt+ArrowUp",
+        "Ctrl+Alt+ArrowDown",
         "Ctrl+Escape",
         "Ctrl+Shift+Escape",
         "Ctrl+W",
@@ -184,16 +198,24 @@ function ConvertTo-BabelShortcutBinding {
         "Ctrl+T",
         "Ctrl+Shift+T",
         "Ctrl+L",
+        "F2",
         "F5",
         "Ctrl+F5",
+        "F6",
         "F11",
         "F12"
     )
     if ($reservedBindings -contains $canonicalBinding) {
         throw "Shortcut '$canonicalBinding' is reserved by Windows or the browser."
     }
-    if (-not $hasCtrl -and -not $hasAlt -and $canonicalBinding -ne "Escape") {
-        throw "Shortcut '$canonicalBinding' must include Ctrl or Alt. Only Escape may be used without a modifier."
+    $isBareFunctionKey = -not $hasCtrl -and -not $hasAlt -and -not $hasShift -and $keyName -match "^F([1-9]|1[0-2])$"
+    if (
+        -not $hasCtrl -and
+        -not $hasAlt -and
+        $canonicalBinding -ne "Escape" -and
+        -not $isBareFunctionKey
+    ) {
+        throw "Shortcut '$canonicalBinding' must include Ctrl or Alt. Only Escape or a safe bare function key may omit them."
     }
 
     return $canonicalBinding
@@ -206,18 +228,27 @@ function ConvertTo-BabelLauncherHotkeyRegistration {
     )
 
     $canonicalBinding = ConvertTo-BabelShortcutBinding -Binding $Binding
-    if ($canonicalBinding -eq "Escape") {
-        throw "Launcher hotkey '$canonicalBinding' must include Ctrl or Alt."
-    }
     $modifiers = [uint32]0x4000
     $keyName = $null
+    $hasLauncherModifier = $false
     foreach ($token in @($canonicalBinding -split "\+")) {
         switch ($token) {
-            "Ctrl" { $modifiers = $modifiers -bor [uint32]0x0002; continue }
-            "Alt" { $modifiers = $modifiers -bor [uint32]0x0001; continue }
+            "Ctrl" {
+                $hasLauncherModifier = $true
+                $modifiers = $modifiers -bor [uint32]0x0002
+                continue
+            }
+            "Alt" {
+                $hasLauncherModifier = $true
+                $modifiers = $modifiers -bor [uint32]0x0001
+                continue
+            }
             "Shift" { $modifiers = $modifiers -bor [uint32]0x0004; continue }
             default { $keyName = $token }
         }
+    }
+    if (-not $hasLauncherModifier) {
+        throw "Launcher hotkey '$canonicalBinding' must include Ctrl or Alt."
     }
 
     $virtualKey = 0
@@ -234,6 +265,14 @@ function ConvertTo-BabelLauncherHotkeyRegistration {
             "Delete" { $virtualKey = 0x2E }
             "Backspace" { $virtualKey = 0x08 }
             "Space" { $virtualKey = 0x20 }
+            "ArrowLeft" { $virtualKey = 0x25 }
+            "ArrowUp" { $virtualKey = 0x26 }
+            "ArrowRight" { $virtualKey = 0x27 }
+            "ArrowDown" { $virtualKey = 0x28 }
+            "Home" { $virtualKey = 0x24 }
+            "End" { $virtualKey = 0x23 }
+            "PageUp" { $virtualKey = 0x21 }
+            "PageDown" { $virtualKey = 0x22 }
             default { throw "Launcher hotkey '$canonicalBinding' has an unsupported key '$keyName'." }
         }
     }
@@ -242,6 +281,20 @@ function ConvertTo-BabelLauncherHotkeyRegistration {
         Binding = $canonicalBinding
         Modifiers = [uint32]$modifiers
         VirtualKey = [uint32]$virtualKey
+    }
+}
+
+function Assert-BabelShortcutCommandBindingOwnership {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CommandId,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Binding
+    )
+
+    if ($Binding -eq "Escape" -and $CommandId -ne "cancel") {
+        throw "Shortcut 'Escape' is reserved for cancel and fixed navigation behavior, not '$CommandId'."
     }
 }
 
@@ -266,7 +319,17 @@ function ConvertTo-BabelShortcutBindingMap {
             throw "Shortcut settings are missing binding '$id'."
         }
 
-        $canonicalBinding = ConvertTo-BabelShortcutBinding -Binding ([string]$Bindings[$id])
+        $rawBinding = $Bindings[$id]
+        if ($null -eq $rawBinding) {
+            $canonicalBindings[$id] = $null
+            continue
+        }
+        if (-not ($rawBinding -is [string])) {
+            throw "Shortcut setting '$id' must be a string or null."
+        }
+
+        $canonicalBinding = ConvertTo-BabelShortcutBinding -Binding ([string]$rawBinding)
+        Assert-BabelShortcutCommandBindingOwnership -CommandId $id -Binding $canonicalBinding
         $bindingKey = $canonicalBinding.ToUpperInvariant()
         if ($usedBindings.ContainsKey($bindingKey)) {
             throw "Shortcut '$canonicalBinding' is assigned to both '$($usedBindings[$bindingKey])' and '$id'."
@@ -309,7 +372,7 @@ function Get-BabelShortcutDefinitions {
     if (-not (Test-BabelShortcutProperty -InputObject $document -Name "schemaVersion")) {
         throw "Shortcut defaults are missing schemaVersion."
     }
-    if (-not ($document.schemaVersion -is [int]) -or [int]$document.schemaVersion -ne 2) {
+    if (-not ($document.schemaVersion -is [int]) -or [int]$document.schemaVersion -ne 3) {
         throw "Unsupported shortcut defaults schemaVersion '$($document.schemaVersion)'."
     }
     if (-not (Test-BabelShortcutProperty -InputObject $document -Name "commands")) {
@@ -380,6 +443,36 @@ function Get-BabelDefaultShortcutBindings {
     return $bindings
 }
 
+function Test-BabelLegacyFixedNavigationBinding {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Binding
+    )
+
+    $tokens = @(
+        $Binding.Split("+") | ForEach-Object {
+            $token = $_.Trim().ToLowerInvariant()
+            switch ($token) {
+                "control" { "ctrl" }
+                "up" { "arrowup" }
+                "down" { "arrowdown" }
+                default { $token }
+            }
+        }
+    )
+    if ($tokens.Count -ne 3 -or @($tokens | Select-Object -Unique).Count -ne 3) {
+        return $false
+    }
+    return (
+        $tokens -contains "ctrl" -and
+        $tokens -contains "alt" -and
+        (
+            $tokens -contains "arrowup" -or
+            $tokens -contains "arrowdown"
+        )
+    )
+}
+
 function Read-BabelShortcutSettings {
     param(
         [Parameter(Mandatory = $true)]
@@ -412,7 +505,8 @@ function Read-BabelShortcutSettings {
             -not ($document.schemaVersion -is [int]) -or
             (
                 [int]$document.schemaVersion -ne 1 -and
-                [int]$document.schemaVersion -ne 2
+                [int]$document.schemaVersion -ne 2 -and
+                [int]$document.schemaVersion -ne 3
             )
         ) {
             throw "Unsupported shortcut settings schemaVersion '$($document.schemaVersion)'."
@@ -435,10 +529,21 @@ function Read-BabelShortcutSettings {
             "delete",
             "commandPalette"
         )
-        $expectedCommandIds = if ([int]$document.schemaVersion -eq 1) {
-            $legacyCommandIds
-        } else {
-            $currentCommandIds
+        $versionTwoCommandIds = @(
+            "save",
+            "new",
+            "edit",
+            "read",
+            "confirm",
+            "cancel",
+            "search",
+            "delete",
+            "commandPalette"
+        )
+        $expectedCommandIds = switch ([int]$document.schemaVersion) {
+            1 { $legacyCommandIds }
+            2 { $versionTwoCommandIds }
+            default { $currentCommandIds }
         }
         Assert-BabelShortcutExactProperties `
             -InputObject $document.bindings `
@@ -447,13 +552,66 @@ function Read-BabelShortcutSettings {
 
         $bindings = [ordered]@{}
         foreach ($property in @($document.bindings.PSObject.Properties)) {
+            if (
+                $null -eq $property.Value -and
+                [int]$document.schemaVersion -eq 3
+            ) {
+                $bindings[[string]$property.Name] = $null
+                continue
+            }
             if (-not ($property.Value -is [string])) {
-                throw "Shortcut setting '$($property.Name)' must be a string."
+                $expectedType = if ([int]$document.schemaVersion -eq 3) { "a string or null" } else { "a string" }
+                throw "Shortcut setting '$($property.Name)' must be $expectedType."
             }
             $bindings[[string]$property.Name] = [string]$property.Value
         }
-        if ([int]$document.schemaVersion -eq 1) {
-            $bindings["read"] = [string]$defaults["read"]
+
+        if ([int]$document.schemaVersion -lt 3) {
+            $usedBindings = @{}
+            $legacyCanonicalBindings = [ordered]@{}
+            foreach ($commandId in $expectedCommandIds) {
+                $rawLegacyBinding = [string]$bindings[$commandId]
+                if (Test-BabelLegacyFixedNavigationBinding -Binding $rawLegacyBinding) {
+                    $legacyCanonicalBindings[$commandId] = $null
+                    continue
+                }
+                $canonicalBinding = ConvertTo-BabelShortcutBinding -Binding $rawLegacyBinding
+                if (
+                    $canonicalBinding -eq "Escape" -and
+                    $commandId -ne "cancel"
+                ) {
+                    $legacyCanonicalBindings[$commandId] = $null
+                    continue
+                }
+                Assert-BabelShortcutCommandBindingOwnership `
+                    -CommandId $commandId `
+                    -Binding $canonicalBinding
+                $bindingKey = $canonicalBinding.ToUpperInvariant()
+                if ($usedBindings.ContainsKey($bindingKey)) {
+                    throw "Shortcut '$canonicalBinding' is assigned to both '$($usedBindings[$bindingKey])' and '$commandId'."
+                }
+                $usedBindings[$bindingKey] = $commandId
+                $legacyCanonicalBindings[$commandId] = $canonicalBinding
+            }
+
+            $migratedBindings = [ordered]@{}
+            foreach ($definition in @($Definitions)) {
+                $commandId = [string]$definition.Id
+                if ($legacyCanonicalBindings.Contains($commandId)) {
+                    $migratedBindings[$commandId] = $legacyCanonicalBindings[$commandId]
+                    continue
+                }
+
+                $defaultBinding = [string]$defaults[$commandId]
+                $bindingKey = $defaultBinding.ToUpperInvariant()
+                if ($usedBindings.ContainsKey($bindingKey)) {
+                    $migratedBindings[$commandId] = $null
+                    continue
+                }
+                $usedBindings[$bindingKey] = $commandId
+                $migratedBindings[$commandId] = $defaultBinding
+            }
+            $bindings = $migratedBindings
         }
         $canonicalBindings = ConvertTo-BabelShortcutBindingMap `
             -Definitions $Definitions `
@@ -499,7 +657,7 @@ function Write-BabelShortcutSettings {
     }
 
     $document = [ordered]@{
-        schemaVersion = 2
+        schemaVersion = 3
         bindings = $canonicalBindings
     }
     $json = $document | ConvertTo-Json -Depth 4

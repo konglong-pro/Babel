@@ -11,6 +11,7 @@ import { PageSessionProvider, PageTabs } from "@babel-apps/platform/pages/react"
 import { ShortcutProvider } from "@babel-apps/platform/shortcuts/react";
 
 import { AppHeader } from "@/components/app-header";
+import { GlobalQuickOpenSource } from "@/components/global-quick-open-source";
 
 export const metadata: Metadata = {
   title: {
@@ -29,6 +30,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
             <a className="skip-link" href="#main-content">Skip to main content</a>
             <AppHeader />
             <PageTabs />
+            <GlobalQuickOpenSource />
             <main id="main-content">{children}</main>
           </PageSessionProvider>
         </ShortcutProvider>

@@ -1,8 +1,14 @@
 "use client";
 
 import {
+  useListKeyboardNavigation,
+  usePaneFocus,
+} from "@babel-apps/platform/navigation/react";
+import { useCommandPaletteActions } from "@babel-apps/platform/shortcuts/react";
+import {
   type FormEvent,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -37,9 +43,61 @@ export function NoteTemplateList({
   onClose,
   onBack,
 }: NoteTemplateListProps) {
+  const { focusPane } = usePaneFocus();
+  const navigationItems = useMemo(
+    () => templates.map((template) => ({ id: template.id, label: template.name })),
+    [templates],
+  );
+
+  function activateTemplate(id: number) {
+    if (id === selectedId) {
+      focusPane("detail");
+      return;
+    }
+    onSelect(id);
+    window.requestAnimationFrame(() => focusPane("detail"));
+  }
+
+  function createTemplate() {
+    onCreate();
+    window.requestAnimationFrame(() => focusPane("detail"));
+  }
+
+  function finishTemplateEditing() {
+    onClose();
+    window.requestAnimationFrame(() => focusPane("items"));
+  }
+
+  const navigation = useListKeyboardNavigation<number>({
+    items: navigationItems,
+    selectedId,
+    onActivate: activateTemplate,
+    onEdit: activateTemplate,
+    label: "Template list",
+  });
+
+  useCommandPaletteActions("templates", [
+    {
+      id: "template.new",
+      label: "New template",
+      keywords: ["create"],
+      group: "Templates",
+      run: createTemplate,
+    },
+    {
+      id: "template.done",
+      label: "Done editing templates",
+      keywords: ["back", "notes"],
+      group: "Templates",
+      run: finishTemplateEditing,
+    },
+  ]);
+
   return (
     <aside
       className="workspace-panel note-panel template-list-panel"
+      data-babel-pane="items"
+      tabIndex={-1}
       aria-label="Note templates"
       aria-hidden={referencePanelOpen}
       inert={referencePanelOpen}
@@ -53,7 +111,7 @@ export function NoteTemplateList({
           <h2>Templates</h2>
           <p>{templates.length} {templates.length === 1 ? "template" : "templates"}</p>
         </div>
-        <button className="primary-button" type="button" onClick={onCreate}>
+        <button className="primary-button" type="button" onClick={createTemplate}>
           New
         </button>
       </div>
@@ -67,12 +125,13 @@ export function NoteTemplateList({
         </div>
       ) : null}
 
-      <nav className="template-list" aria-label="Template list">
-        <ul>
+      <nav className="template-list" {...navigation.listboxProps}>
+        <ul role="presentation">
           {templates.map((template) => (
-            <li key={template.id}>
+            <li key={template.id} role="presentation">
               <button
                 type="button"
+                {...navigation.getOptionProps(template.id)}
                 className={selectedId === template.id ? "template-card selected" : "template-card"}
                 aria-current={selectedId === template.id ? "page" : undefined}
                 onClick={() => onSelect(template.id)}
@@ -88,7 +147,7 @@ export function NoteTemplateList({
       </nav>
 
       <div className="note-panel-footer">
-        <button type="button" onClick={onClose}>Back to Notes</button>
+        <button type="button" onClick={finishTemplateEditing}>Back to Notes</button>
       </div>
     </aside>
   );
@@ -125,7 +184,12 @@ export function NoteTemplateEditor({
 }: NoteTemplateEditorProps) {
   if (!template && !creating) {
     return (
-      <section className="detail-panel empty-state" aria-label="Template editor">
+      <section
+        className="detail-panel empty-state"
+        data-babel-pane="detail"
+        tabIndex={-1}
+        aria-label="Template editor"
+      >
         <button className="content-back" type="button" onClick={onBack}>
           <span aria-hidden="true">←</span> Templates
         </button>
@@ -252,7 +316,12 @@ function NoteTemplateForm({
       : "";
 
   return (
-    <section className="detail-panel form-view template-editor">
+    <section
+      className="detail-panel form-view template-editor"
+      data-babel-pane="detail"
+      tabIndex={-1}
+      aria-label="Template editor"
+    >
       <button className="content-back" type="button" disabled={pending} onClick={onBack}>
         <span aria-hidden="true">←</span> Templates
       </button>

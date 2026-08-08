@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -8,12 +9,22 @@ import {
   PageDeckPage,
   PageSessionProvider,
   PageTabs,
+  pageTabRovingKey,
+  usePageDeckPageContext,
   WorkspaceProcessHost,
   workspaceProcessActivationKey,
   workspaceProcessPageKey,
   workspaceProcessRouteTargetShouldApply,
   workspaceProcessShouldRemainCached,
 } from "@babel-apps/platform/pages/react";
+
+function PageContextProbe() {
+  const page = usePageDeckPageContext();
+  return createElement("span", {
+    "data-context-active": String(page.active),
+    "data-context-page": page.pageKey,
+  });
+}
 
 test("page tabs and kept-alive panels expose the active session accessibly", () => {
   const markup = renderToStaticMarkup(
@@ -33,16 +44,56 @@ test("page tabs and kept-alive panels expose the active session accessibly", () 
         initialActiveKey: "note:2",
       },
       createElement(PageTabs),
-      createElement(PageDeckPage, { pageKey: "note:1" }, "First content"),
-      createElement(PageDeckPage, { pageKey: "note:2" }, "Second content"),
+      createElement(PageDeckPage, { pageKey: "note:1" }, createElement(PageContextProbe)),
+      createElement(PageDeckPage, { pageKey: "note:2" }, createElement(PageContextProbe)),
     ),
   );
 
   assert.match(markup, /role="tablist"/);
+  assert.match(markup, /data-babel-pane="tabs"/);
+  assert.match(markup, /role="tab"[^>]*aria-controls="babel-page-panel-note%3A2"/);
+  assert.match(markup, /aria-keyshortcuts="ArrowLeft ArrowRight Home End Enter Space"/);
+  assert.match(markup, /role="tab"[^>]*aria-selected="true"[^>]*tabindex="0"[^>]*>[\s\S]*Second/);
   assert.match(markup, /aria-selected="true"[^>]*>[\s\S]*Second/);
   assert.match(markup, /aria-label="Unsaved changes"/);
   assert.match(markup, /data-page-key="note:1"[^>]*hidden=""/);
   assert.match(markup, /data-page-key="note:2"[^>]*data-active=""/);
+  assert.match(markup, /role="tabpanel"[^>]*aria-labelledby="babel-page-tab-note%3A2"/);
+  assert.match(markup, /data-context-active="false" data-context-page="note:1"/);
+  assert.match(markup, /data-context-active="true" data-context-page="note:2"/);
+  assert.match(markup, /data-babel-command="nextTab"/);
+  assert.match(markup, /data-babel-command="previousTab"/);
+  assert.match(markup, /data-babel-command="closeTab"/);
+  assert.match(markup, /class="babel-page-tab__close"[^>]*aria-hidden="true"/);
+  assert.doesNotMatch(markup, /<button[^>]*class="babel-page-tab__close"/);
+});
+
+test("page tab roving focus follows external activation outside the tablist", () => {
+  const pages = [{ key: "note:1" }, { key: "note:2" }];
+
+  assert.equal(pageTabRovingKey(pages, "note:2", "note:1", false), "note:2");
+  assert.equal(pageTabRovingKey(pages, "note:2", "note:1", true), "note:1");
+  assert.equal(pageTabRovingKey(pages, "note:2", "missing", true), "note:2");
+});
+
+test("page commands and async page content preserve a concrete detail focus target", () => {
+  const source = readFileSync(new URL("../src/pages/react.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /schedulePagePanelFocus\(page\.key\)/);
+  assert.match(source, /closePage\(key\);\s*schedulePagePanelFocus\(\);/);
+  assert.match(source, /setPendingClose\(null\);\s*schedulePagePanelFocus\(\);/);
+  assert.match(source, /const ownedFocusRef = useRef\(false\)/);
+  assert.match(source, /page\.querySelector<HTMLElement>\("\[data-babel-pane='detail'\]"\)\?\.focus/);
+});
+
+test("dirty page close confirmation uses the native modal cancel contract", () => {
+  const source = readFileSync(new URL("../src/pages/react.tsx", import.meta.url), "utf8");
+
+  assert.match(source, /closeDialogRef\.current/);
+  assert.match(source, /dialog\.showModal\(\)/);
+  assert.match(source, /<dialog[\s\S]*?className="babel-page-close-dialog"/);
+  assert.match(source, /data-babel-command="cancel"/);
+  assert.match(source, /onCancel=\{\(event\) => \{/);
 });
 
 test("workspace processes match scoped pages and legacy page kinds", () => {

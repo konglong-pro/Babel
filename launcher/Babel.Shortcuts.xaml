@@ -116,7 +116,7 @@
             Foreground="#5E5952"
             FontSize="12"
             TextWrapping="Wrap"
-            Text="Select a shortcut field, then press the complete key combination. The launcher hotkey is system-wide; application commands apply inside Babel notebooks." />
+            Text="Select a shortcut field, then press the complete key combination. Press Backspace or Delete without modifiers to leave an application command unbound. The launcher hotkey is system-wide; application commands apply inside Babel notebooks." />
 
         <Border
             Grid.Row="2"
@@ -199,20 +199,42 @@
                     <DataGridTemplateColumn Header="SHORTCUT" Width="250">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
-                                <TextBox
-                                    x:Name="ShortcutCaptureBox"
-                                    Tag="{Binding Id}"
-                                    Text="{Binding Shortcut}"
-                                    IsReadOnly="True"
-                                    Cursor="Hand"
-                                    Padding="9,5"
-                                    Background="#FBF8EF"
-                                    BorderBrush="#1D1B18"
-                                    BorderThickness="1"
-                                    FontFamily="Consolas"
-                                    FontWeight="Bold"
-                                    AutomationProperties.Name="{Binding Label, StringFormat={}{0} shortcut}"
-                                    AutomationProperties.HelpText="Focus this field and press a complete shortcut" />
+                                <Grid>
+                                    <TextBox
+                                        x:Name="ShortcutCaptureBox"
+                                        Tag="{Binding Id}"
+                                        Text="{Binding Shortcut}"
+                                        IsReadOnly="True"
+                                        Cursor="Hand"
+                                        Padding="9,5"
+                                        Background="#FBF8EF"
+                                        BorderBrush="#1D1B18"
+                                        BorderThickness="1"
+                                        FontFamily="Consolas"
+                                        FontWeight="Bold"
+                                        AutomationProperties.Name="{Binding Label, StringFormat={}{0} shortcut}"
+                                        AutomationProperties.HelpText="Focus this field and press a complete shortcut, or press Backspace or Delete to leave it unbound" />
+                                    <TextBlock
+                                        Margin="10,0,0,0"
+                                        VerticalAlignment="Center"
+                                        Foreground="#777068"
+                                        FontFamily="Consolas"
+                                        FontStyle="Italic"
+                                        FontWeight="SemiBold"
+                                        IsHitTestVisible="False"
+                                        Text="Unbound">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Shortcut}" Value="">
+                                                        <Setter Property="Visibility" Value="Visible" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </Grid>
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>

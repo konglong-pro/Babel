@@ -13,6 +13,15 @@ const requiredAdapterCommands = [
   "search",
   "delete",
 ] as const;
+const requiredNavigationCommands = [
+  "focusNextPane",
+  "focusPreviousPane",
+  "nextTab",
+  "previousTab",
+  "closeTab",
+  "quickOpen",
+  "help",
+] as const;
 
 interface RegistryDocument {
   readonly apps: ReadonlyArray<{
@@ -35,11 +44,55 @@ async function readSourceTree(directory: string): Promise<string> {
 }
 
 test("every registered app and the mirror template expose the global shortcut seam", async () => {
-  const [registrySource, sharedReaderSource] = await Promise.all([
+  const [
+    registrySource,
+    sharedReaderSource,
+    defaultsSource,
+    shortcutRuntimeSource,
+    navigationSource,
+    pagesSource,
+  ] = await Promise.all([
     readFile(path.join(root, "babel.apps.json"), "utf8"),
     readFile(path.join(root, "packages", "markdown", "src", "react.tsx"), "utf8"),
+    readFile(path.join(root, "packages", "platform", "shortcuts.defaults.json"), "utf8"),
+    readFile(path.join(root, "packages", "platform", "src", "shortcuts", "react.tsx"), "utf8"),
+    readFile(path.join(root, "packages", "platform", "src", "navigation", "react.tsx"), "utf8"),
+    readFile(path.join(root, "packages", "platform", "src", "pages", "react.tsx"), "utf8"),
   ]);
   const registry = JSON.parse(registrySource) as RegistryDocument;
+  const defaults = JSON.parse(defaultsSource) as {
+    readonly schemaVersion: number;
+    readonly commands: ReadonlyArray<{ readonly command: string }>;
+  };
+  assert.equal(defaults.schemaVersion, 3, "keyboard navigation commands require schema v3");
+  const configuredCommands = new Set(defaults.commands.map(({ command }) => command));
+  for (const command of requiredNavigationCommands) {
+    assert.ok(
+      configuredCommands.has(command),
+      `shortcut defaults are missing the ${command} navigation command`,
+    );
+  }
+  for (const command of ["quickOpen", "help"] as const) {
+    assert.match(
+      shortcutRuntimeSource,
+      new RegExp(`command === ["']${command}["']`),
+      `${command} must have an executable shortcut runtime branch`,
+    );
+  }
+  for (const command of ["focusNextPane", "focusPreviousPane"] as const) {
+    assert.match(
+      navigationSource,
+      new RegExp(`hidden[\\s\\S]*?data-babel-command-adapter=["']["'][\\s\\S]*?data-babel-command=["']${command}["']`),
+      `${command} must expose a hidden pane-focus command adapter`,
+    );
+  }
+  for (const command of ["nextTab", "previousTab", "closeTab"] as const) {
+    assert.match(
+      pagesSource,
+      new RegExp(`hidden[\\s\\S]*?data-babel-command-adapter=["']["'][\\s\\S]*?data-babel-command=["']${command}["']`),
+      `${command} must expose a hidden page-tab command adapter`,
+    );
+  }
   assert.ok(
     sharedReaderSource.includes('data-babel-command="read"'),
     "the shared detached reader button must expose the read shortcut adapter",

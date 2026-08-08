@@ -5,6 +5,8 @@ import {
   useItemReorder,
   type ItemReorderController,
 } from "@babel-apps/platform/items/react";
+import { useTreeKeyboardNavigation } from "@babel-apps/platform/navigation/react";
+import { useCommandPaletteActions } from "@babel-apps/platform/shortcuts/react";
 
 import {
   type EntryExpansionState,
@@ -27,6 +29,7 @@ interface EntryListProps {
   loadingMore?: boolean;
   referencePanelOpen?: boolean;
   onSelect: (id: number) => void;
+  onEdit?: (id: number) => void;
   onReorder?: (id: number, position: number) => Promise<void> | void;
   onLoadMore: () => Promise<void>;
   onImport?: (file: File) => Promise<void> | void;
@@ -64,6 +67,7 @@ interface EntryBranchProps {
   onToggle: (id: number) => void;
   onCreateChild: (parentId: number) => void;
   reorder: ItemReorderController;
+  navigation: ReturnType<typeof useTreeKeyboardNavigation<number>>;
 }
 
 function EntryBranch({
@@ -77,31 +81,39 @@ function EntryBranch({
   onToggle,
   onCreateChild,
   reorder,
+  navigation,
 }: EntryBranchProps) {
   const children = grouped.get(parentId) ?? [];
   if (children.length === 0) return null;
 
   return (
-    <ul>
+    <ul role="presentation">
       {children.map((entry) => {
+        const hasChildren = (grouped.get(entry.id)?.length ?? 0) > 0;
         const expanded = expandedIds.has(entry.id);
         return (
-          <li key={entry.id}>
+          <li key={entry.id} role="presentation">
             <div
               className={`entry-node-row ${reorder.dropClassName(entry.id)}`.trim()}
               {...reorder.rowProps(entry.id)}
             >
-              <button
-                type="button"
-                className="entry-disclosure"
-                aria-expanded={expanded}
-                aria-label={`${expanded ? "Collapse" : "Expand"} ${entry.title}`}
-                onClick={() => onToggle(entry.id)}
-              />
+              {hasChildren ? (
+                <span
+                  aria-hidden="true"
+                  className="entry-disclosure"
+                  data-babel-tree-disclosure=""
+                  aria-expanded={expanded}
+                  title={`${expanded ? "Collapse" : "Expand"} ${entry.title}`}
+                  onClick={() => onToggle(entry.id)}
+                />
+              ) : (
+                <span aria-hidden="true" className="entry-disclosure" data-babel-tree-disclosure-spacer="" style={{ visibility: "hidden" }} />
+              )}
               <button
                 type="button"
                 className={selectedEntryId === entry.id ? "entry-card selected" : "entry-card"}
                 {...reorder.selectionProps(entry.id)}
+                {...navigation.getTreeItemProps(entry.id)}
                 aria-current={selectedEntryId === entry.id ? "page" : undefined}
                 onClick={() => onSelect(entry.id)}
               >
@@ -114,7 +126,7 @@ function EntryBranch({
                 <time dateTime={entry.updatedAt}>Updated {formatDate(entry.updatedAt)}</time>
               </button>
             </div>
-            {expanded ? (
+            {expanded && hasChildren ? (
               <div className="entry-children">
                 <EntryBranch
                   parentId={entry.id}
@@ -127,14 +139,17 @@ function EntryBranch({
                   onToggle={onToggle}
                   onCreateChild={onCreateChild}
                   reorder={reorder}
+                  navigation={navigation}
                 />
-                <button
-                  type="button"
+                <span
+                  aria-hidden="true"
                   className="entry-inline-create"
+                  data-babel-tree-inline-create=""
+                  title={`New subnote under ${entry.title}`}
                   onClick={() => onCreateChild(entry.id)}
                 >
                   + New subnote
-                </button>
+                </span>
               </div>
             ) : null}
           </li>
@@ -155,6 +170,7 @@ export function EntryList({
   loadingMore,
   referencePanelOpen = false,
   onSelect,
+  onEdit,
   onReorder,
   onLoadMore,
   onImport,
@@ -200,6 +216,69 @@ export function EntryList({
     return result;
   }, [entries]);
 
+  const navigationItems = useMemo(() => {
+    const items: Array<{
+      id: number;
+      label: string;
+      parentId: number | null;
+      hasChildren: boolean;
+      expanded: boolean;
+      level: number;
+    }> = [];
+    const visit = (parentId: number | null, level: number) => {
+      for (const entry of grouped.get(parentId) ?? []) {
+        const hasChildren = (grouped.get(entry.id)?.length ?? 0) > 0;
+        const expanded = visibleExpandedIds.has(entry.id);
+        items.push({ id: entry.id, label: entry.title, parentId, hasChildren, expanded, level });
+        if (expanded) visit(entry.id, level + 1);
+      }
+    };
+    visit(null, 1);
+    return items;
+  }, [grouped, visibleExpandedIds]);
+
+  const navigation = useTreeKeyboardNavigation<number>({
+    items: navigationItems,
+    selectedId: selectedEntryId ?? undefined,
+    onActivate: onSelect,
+    onEdit: onEdit ?? onSelect,
+    onExpandedChange: (id) => handleToggle(id),
+    label: "Entry page tree",
+  });
+
+  useCommandPaletteActions(`neum.${kind}.entries`, [
+    {
+      id: "entry.new",
+      label: `New ${unitLabel.toLocaleLowerCase()} entry`,
+      group: "Entries",
+      available: selectedFolderId !== null,
+      run: onCreate,
+    },
+    {
+      id: "entry.newSubnote",
+      label: "New subnote",
+      group: "Entries",
+      available: selectedEntryId !== null,
+      run: () => {
+        if (selectedEntryId !== null) onCreateChild(selectedEntryId);
+      },
+    },
+    {
+      id: "entry.import",
+      label: "Import Markdown",
+      group: "Entries",
+      available: kind === "knowledge" && Boolean(onImport) && selectedFolderId !== null,
+      run: () => importInputRef.current?.click(),
+    },
+    ...(entries.length < total ? [{
+      id: "entry.loadMore",
+      label: "Load more entries",
+      group: "Entries",
+      available: !loadingMore,
+      run: () => void onLoadMore(),
+    }] : []),
+  ]);
+
   function handleToggle(entryId: number) {
     setExpansionState((current) => {
       const revealed = revealEntrySelection(current, selectionPath);
@@ -219,6 +298,8 @@ export function EntryList({
   return (
     <aside
       className="workspace-panel entry-panel"
+      data-babel-pane="items"
+      tabIndex={-1}
       aria-label={`${unitLabel} entries`}
       aria-hidden={referencePanelOpen}
       inert={referencePanelOpen}
@@ -265,6 +346,17 @@ export function EntryList({
           >
             New
           </button>
+          <button
+            type="button"
+            data-babel-child-create=""
+            disabled={selectedEntryId === null}
+            title={selectedEntryId === null ? "Select an entry before creating a subnote" : undefined}
+            onClick={() => {
+              if (selectedEntryId !== null) onCreateChild(selectedEntryId);
+            }}
+          >
+            New subnote
+          </button>
         </div>
       </div>
 
@@ -288,7 +380,7 @@ export function EntryList({
         </div>
       ) : null}
 
-      <nav className="entry-tree" aria-label="Entry page tree">
+      <nav className="entry-tree" {...navigation.treeProps}>
         <EntryBranch
           parentId={null}
           grouped={grouped}
@@ -300,6 +392,7 @@ export function EntryList({
           onToggle={handleToggle}
           onCreateChild={onCreateChild}
           reorder={reorder}
+          navigation={navigation}
         />
       </nav>
       {entries.length < total ? (

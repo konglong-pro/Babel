@@ -290,7 +290,7 @@ export function NoteDetail({
   }, [detailId, mode, searchFocusField, searchFocusQuery]);
 
   if (loading) {
-    return <section className="detail-panel panel-status detail-loading">Loading note…</section>;
+    return <section className="detail-panel panel-status detail-loading" data-babel-pane="detail" tabIndex={-1}>Loading note…</section>;
   }
 
   if (mode === "create" || mode === "edit") {
@@ -319,8 +319,8 @@ export function NoteDetail({
 
   if (!detail) {
     return (
-      <section className="detail-panel empty-state" aria-label="Note details">
-        <button className="content-back" type="button" onClick={onBack}>
+      <section className="detail-panel empty-state" data-babel-pane="detail" tabIndex={-1} aria-label="Note details">
+        <button className="content-back" data-babel-escape="list" type="button" onClick={onBack}>
           <span aria-hidden="true">←</span> Notes
         </button>
         <span className="empty-monogram" aria-hidden="true">L</span>
@@ -331,8 +331,8 @@ export function NoteDetail({
   }
 
   return (
-    <article ref={detailRootRef} className="detail-panel document-view">
-      <button className="content-back" type="button" onClick={onBack}>
+    <article ref={detailRootRef} className="detail-panel document-view" data-babel-pane="detail" tabIndex={-1}>
+      <button className="content-back" data-babel-escape="list" type="button" onClick={onBack}>
         <span aria-hidden="true">←</span> Notes
       </button>
       <header className="document-header">
@@ -768,7 +768,7 @@ function NoteForm({
   );
 
   return (
-    <section className="detail-panel form-view">
+    <section className="detail-panel form-view" data-babel-pane="detail" tabIndex={-1}>
       <form ref={formRef} onSubmit={submit}>
         <header className="document-header form-header">
           <div>
@@ -839,6 +839,7 @@ function NoteForm({
           <label className="field title-field">
             <span>Title</span>
             <input
+              autoFocus
               name="title"
               autoComplete="off"
               required

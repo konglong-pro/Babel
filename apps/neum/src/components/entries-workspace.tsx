@@ -14,6 +14,8 @@ import {
   useWorkspaceProcessActive,
   workspaceProcessRouteTargetShouldApply,
 } from "@babel-apps/platform/pages/react";
+import { usePaneFocus } from "@babel-apps/platform/navigation/react";
+import { useCommandPaletteItemSource } from "@babel-apps/platform/shortcuts/react";
 
 import {
   BEFORE_NAVIGATE_EVENT,
@@ -81,9 +83,11 @@ export function EntriesWorkspace({
   const router = useRouter();
   const processActive = useWorkspaceProcessActive();
   const { pages, activeKey, activatePage, closePage, openPage } = usePageSessions();
+  const { focusPane } = usePaneFocus();
   const pageKind = entryUnitLabel(kind);
   const [folders, setFolders] = useState<FolderDto[]>([]);
   const [entries, setEntries] = useState<EntrySummaryDto[]>([]);
+  const [quickOpenEntries, setQuickOpenEntries] = useState<EntrySummaryDto[]>([]);
   const [entryTotal, setEntryTotal] = useState(0);
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(initialFolderId);
   const [stage, setStage] = useState<ResponsiveStage>(
@@ -95,11 +99,13 @@ export function EntriesWorkspace({
   const [entryPageLoading, setEntryPageLoading] = useState(false);
   const [error, setError] = useState("");
   const [drafts, setDrafts] = useState<Record<string, EntryDraftSession>>({});
+  const [pendingEditPageKey, setPendingEditPageKey] = useState<string | null>(null);
   const [activeReferencePanel, setActiveReferencePanel] = useState<ReferencePanelKind | null>(null);
   const referenceTriggerRef = useRef<HTMLElement | null>(null);
   const openedRouteTargetRef = useRef<string | null>(null);
   const routeTargetTrackerRef = useRef(createWorkspaceProcessRouteTargetTracker());
   const indexRequestRef = useRef(0);
+  const quickOpenRequestRef = useRef(0);
   const loadedFolderRef = useRef<number | null | undefined>(undefined);
 
   const refreshEntries = useCallback(async (folderId: number | null) => {
@@ -130,6 +136,25 @@ export function EntriesWorkspace({
     }
   }, []);
 
+  const refreshQuickOpenEntries = useCallback(async () => {
+    const requestId = ++quickOpenRequestRef.current;
+    const page = await listEntries({
+      kind,
+      completeTree: true,
+      limit: PAGE_LIMIT,
+    });
+    if (requestId !== quickOpenRequestRef.current) return;
+    setQuickOpenEntries(page.items);
+  }, [kind]);
+
+  useEffect(() => {
+    if (!processActive) return;
+    void refreshQuickOpenEntries().catch((caught) => setError(getErrorMessage(caught)));
+    return () => {
+      quickOpenRequestRef.current += 1;
+    };
+  }, [processActive, refreshQuickOpenEntries]);
+
   useEffect(() => {
     const refreshHiddenWorkspace = () => {
       if (processActive) return;
@@ -159,6 +184,13 @@ export function EntriesWorkspace({
     setEntries(pageResult.value.items);
     setEntryTotal(pageResult.value.total);
   }, [kind, refreshFolders]);
+
+  const refreshWorkspaceIndex = useCallback(async (folderId: number | null) => {
+    await Promise.all([
+      refreshIndex(folderId),
+      refreshQuickOpenEntries(),
+    ]);
+  }, [refreshIndex, refreshQuickOpenEntries]);
 
   useEffect(() => {
     if (!workspaceProcessRouteTargetShouldApply(
@@ -324,6 +356,7 @@ export function EntriesWorkspace({
     if (loadedFolderRef.current !== folderId) {
       void refreshEntries(folderId).catch((caught) => setError(getErrorMessage(caught)));
     }
+    window.requestAnimationFrame(() => focusPane("items"));
   }
 
   function openEntry(
@@ -345,6 +378,7 @@ export function EntriesWorkspace({
         href,
       });
       router.push(href);
+      window.requestAnimationFrame(() => focusPane("detail"));
       return;
     }
     const entry = entries.find((candidate) => candidate.id === id);
@@ -366,6 +400,14 @@ export function EntriesWorkspace({
       void refreshEntries(null).catch((caught) => setError(getErrorMessage(caught)));
     }
     setStage("entry");
+    window.requestAnimationFrame(() => focusPane("detail"));
+  }
+
+  function openEntryForEdit(id: number) {
+    const entry = entries.find((candidate) => candidate.id === id)
+      ?? quickOpenEntries.find((candidate) => candidate.id === id);
+    setPendingEditPageKey(entry ? savedEntryPage(entry).key : `entry:${id}`);
+    openEntry(id, entry?.kind ?? kind, entry?.folderId);
   }
 
   function openDraft(input: Omit<EntryDraftSession, "title"> & { title?: string }) {
@@ -506,6 +548,20 @@ export function EntriesWorkspace({
     window.requestAnimationFrame(() => referenceTriggerRef.current?.focus());
   }
 
+  useCommandPaletteItemSource({
+    id: `neum.${kind}.entries`,
+    label: `${pageKind} entries`,
+    items: quickOpenEntries.map((entry) => ({
+      id: String(entry.id),
+      dedupeKey: `neum:${entry.kind}:${entry.id}`,
+      label: entry.title,
+      description: folderMap.get(entry.folderId)?.name ?? entryUnitLabel(entry.kind),
+      keywords: entry.tags,
+      open: () => openEntry(entry.id, entry.kind, entry.folderId),
+      edit: () => openEntryForEdit(entry.id),
+    })),
+  });
+
   return (
     <div className={`entries-workspace stage-${visibleStage}${hasUnsavedPages ? " has-unsaved" : ""}`}>
       {processActive ? <ActiveWorkspaceHistoryGuard /> : null}
@@ -546,6 +602,7 @@ export function EntriesWorkspace({
         loadingMore={entryPageLoading}
         referencePanelOpen={activeReferencePanel !== null}
         onSelect={(id) => openEntry(id, kind)}
+        onEdit={openEntryForEdit}
         onReorder={handleReorderEntry}
         onLoadMore={loadMoreEntries}
         onImport={kind === "knowledge" ? handleImportMarkdown : undefined}
@@ -574,16 +631,20 @@ export function EntriesWorkspace({
                 folders={folders}
                 entries={entries}
                 searchFocus={entryId === initialEntryId ? initialSearchFocus : null}
+                editRequested={pendingEditPageKey === page.key}
+                onEditRequestConsumed={() => {
+                  setPendingEditPageKey((current) => current === page.key ? null : current);
+                }}
                 onOpenEntry={openEntry}
                 onOpenDraft={openDraft}
-                onRefreshIndex={refreshIndex}
+                onRefreshIndex={refreshWorkspaceIndex}
                 onShowList={() => showList()}
                 onError={setError}
               />
             );
           })}
         {activePage === null ? (
-          <section className="detail-panel empty-state" aria-label="Entry details">
+          <section className="detail-panel empty-state" data-babel-pane="detail" tabIndex={-1} aria-label="Entry details">
             <button className="content-back" type="button" onClick={() => showList()}>
               <span aria-hidden="true">←</span> Entries
             </button>

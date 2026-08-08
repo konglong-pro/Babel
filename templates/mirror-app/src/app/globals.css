@@ -1,3 +1,5 @@
+@import "@babel-apps/platform/navigation.css";
+
 :root {
   color-scheme: light;
   --paper: #f5efe4;

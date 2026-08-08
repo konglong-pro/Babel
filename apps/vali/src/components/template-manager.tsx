@@ -2,8 +2,14 @@
 
 import { OutlinePanel } from "@babel-apps/markdown/react";
 import {
+  useListKeyboardNavigation,
+  usePaneFocus,
+} from "@babel-apps/platform/navigation/react";
+import { useCommandPaletteActions } from "@babel-apps/platform/shortcuts/react";
+import {
   type FormEvent,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -20,6 +26,7 @@ import { documentSaveLimitError } from "@/lib/note-limits";
 import type { NoteTemplateDto } from "@/lib/types";
 
 const TEMPLATE_HEADING_ID_PREFIX = "vali-template-heading-";
+const CREATING_TEMPLATE_ID = -1;
 
 interface TemplateListProps {
   templates: NoteTemplateDto[];
@@ -44,9 +51,61 @@ export function TemplateList({
   onExit,
   onBack,
 }: TemplateListProps) {
+  const { focusPane } = usePaneFocus();
+  const navigationItems = useMemo(() => [
+    ...(creating ? [{ id: CREATING_TEMPLATE_ID, label: "Untitled template" }] : []),
+    ...templates.map((template) => ({ id: template.id, label: template.name })),
+  ], [creating, templates]);
+
+  function activateTemplate(id: number) {
+    if (id === CREATING_TEMPLATE_ID || (!creating && id === selectedId)) {
+      focusPane("detail");
+      return;
+    }
+    onSelect(id);
+    window.requestAnimationFrame(() => focusPane("detail"));
+  }
+
+  function createTemplate() {
+    onCreate();
+    window.requestAnimationFrame(() => focusPane("detail"));
+  }
+
+  function finishTemplateEditing() {
+    onExit();
+    window.requestAnimationFrame(() => focusPane("items"));
+  }
+
+  const navigation = useListKeyboardNavigation<number>({
+    items: navigationItems,
+    selectedId: creating ? CREATING_TEMPLATE_ID : selectedId,
+    onActivate: activateTemplate,
+    onEdit: activateTemplate,
+    label: "Template list",
+  });
+
+  useCommandPaletteActions("templates", [
+    {
+      id: "template.new",
+      label: "New template",
+      keywords: ["create"],
+      group: "Templates",
+      run: createTemplate,
+    },
+    {
+      id: "template.done",
+      label: "Done editing templates",
+      keywords: ["back", "notes"],
+      group: "Templates",
+      run: finishTemplateEditing,
+    },
+  ]);
+
   return (
     <aside
       className="workspace-panel note-panel template-list-panel"
+      data-babel-pane="items"
+      tabIndex={-1}
       aria-label="Note templates"
       aria-hidden={referencePanelOpen}
       inert={referencePanelOpen}
@@ -61,8 +120,8 @@ export function TemplateList({
           <p>{templates.length} {templates.length === 1 ? "template" : "templates"}</p>
         </div>
         <div className="content-list-actions template-list-actions">
-          <button type="button" onClick={onExit}>Done</button>
-          <button className="primary-button" type="button" onClick={onCreate}>
+          <button type="button" onClick={finishTemplateEditing}>Done</button>
+          <button className="primary-button" type="button" onClick={createTemplate}>
             New
           </button>
         </div>
@@ -77,17 +136,24 @@ export function TemplateList({
         </div>
       ) : null}
 
-      <nav className="template-list" aria-label="Template list">
+      <nav className="template-list" {...navigation.listboxProps}>
         {creating ? (
-          <div className="template-card selected" aria-current="page">
+          <button
+            type="button"
+            className="template-card selected"
+            {...navigation.getOptionProps(CREATING_TEMPLATE_ID)}
+            aria-current="page"
+            onClick={() => focusPane("detail")}
+          >
             <strong>Untitled template</strong>
             <span>Not saved</span>
-          </div>
+          </button>
         ) : null}
         {templates.map((template) => (
           <button
             key={template.id}
             type="button"
+            {...navigation.getOptionProps(template.id)}
             className={selectedId === template.id && !creating
               ? "template-card selected"
               : "template-card"}
@@ -128,7 +194,12 @@ export function TemplateEditor({
 }: TemplateEditorProps) {
   if (!template && !creating) {
     return (
-      <section className="detail-panel empty-state template-editor-empty" aria-label="Template editor">
+      <section
+        className="detail-panel empty-state template-editor-empty"
+        data-babel-pane="detail"
+        tabIndex={-1}
+        aria-label="Template editor"
+      >
         <button className="content-back" type="button" onClick={onBack}>
           <span aria-hidden="true">←</span> Templates
         </button>
@@ -247,7 +318,12 @@ function TemplateForm({
   }
 
   return (
-    <section className="detail-panel form-view template-editor-panel">
+    <section
+      className="detail-panel form-view template-editor-panel"
+      data-babel-pane="detail"
+      tabIndex={-1}
+      aria-label="Template editor"
+    >
       <form ref={formRef} onSubmit={submit}>
         <button className="content-back" type="button" disabled={pending} onClick={onBack}>
           <span aria-hidden="true">←</span> Templates

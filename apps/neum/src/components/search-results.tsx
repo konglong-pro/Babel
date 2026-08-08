@@ -1,7 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { useListKeyboardNavigation } from "@babel-apps/platform/navigation/react";
+import { useCommandPaletteActions } from "@babel-apps/platform/shortcuts/react";
 
 import { entryKindLabel, formatDate } from "@/components/shared";
 import { getErrorMessage, searchEntries } from "@/lib/api-client";
@@ -23,12 +26,46 @@ const SEARCH_FIELD_LABELS: Record<EntrySearchField, string> = {
 };
 const SEARCH_PAGE_LIMIT = 50;
 
+function entrySearchHref(entry: EntrySearchResultDto, query: string): string {
+  return entryWorkspaceHref(entry.kind, {
+    folderId: entry.folderId,
+    entryId: entry.id,
+    searchFocus: {
+      query,
+      field: entry.match.snippet.field,
+    },
+  });
+}
+
 export function SearchResults({ query }: { query: string }) {
+  const router = useRouter();
   const [items, setItems] = useState<EntrySearchResultDto[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(Boolean(query));
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
+  const canLoadMore = items.length < total;
+  useCommandPaletteActions("neum.search", canLoadMore ? [
+    {
+      id: "search.loadMore",
+      label: "Load more search results",
+      keywords: ["next", "page", "results"],
+      group: "Search",
+      available: !loadingMore,
+      run: loadMore,
+    },
+  ] : []);
+  const navigation = useListKeyboardNavigation<number>({
+    items: items.map((entry) => ({
+      id: entry.id,
+      label: entry.match.title.map((part) => part.text).join(""),
+    })),
+    onActivate: (id) => {
+      const entry = items.find((candidate) => candidate.id === id);
+      if (entry) router.push(entrySearchHref(entry, query));
+    },
+    label: "Search results",
+  });
 
   useEffect(() => {
     if (!query) return;
@@ -52,7 +89,7 @@ export function SearchResults({ query }: { query: string }) {
   }, [query]);
 
   function loadMore() {
-    if (loadingMore || items.length >= total) return;
+    if (loadingMore || !canLoadMore) return;
     setLoadingMore(true);
     setError("");
     searchEntries({
@@ -97,17 +134,13 @@ export function SearchResults({ query }: { query: string }) {
       ) : null}
 
       {!loading && items.length > 0 ? (
-        <ul className="search-result-list" aria-label="Search results">
+        <ul className="search-result-list" {...navigation.listboxProps}>
           {items.map((entry) => (
-            <li key={entry.id}>
-              <Link href={entryWorkspaceHref(entry.kind, {
-                folderId: entry.folderId,
-                entryId: entry.id,
-                searchFocus: {
-                  query,
-                  field: entry.match.snippet.field,
-                },
-              })}>
+            <li key={entry.id} role="presentation">
+              <Link
+                {...navigation.getOptionProps(entry.id)}
+                href={entrySearchHref(entry, query)}
+              >
                 <span className="eyebrow">{entryKindLabel(entry.kind)}</span>
                 <strong><HighlightedText parts={entry.match.title} /></strong>
                 <span className="search-match-fields">
@@ -123,7 +156,7 @@ export function SearchResults({ query }: { query: string }) {
           ))}
         </ul>
       ) : null}
-      {items.length < total ? (
+      {canLoadMore ? (
         <button
           type="button"
           className="primary-button"

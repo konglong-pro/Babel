@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "commands": [
     {
       "command": "save",
@@ -45,6 +45,41 @@
       "command": "commandPalette",
       "label": "Command Palette",
       "defaultBinding": "Ctrl+K"
+    },
+    {
+      "command": "focusNextPane",
+      "label": "Focus Next Pane",
+      "defaultBinding": "Ctrl+F6"
+    },
+    {
+      "command": "focusPreviousPane",
+      "label": "Focus Previous Pane",
+      "defaultBinding": "Ctrl+Shift+F6"
+    },
+    {
+      "command": "nextTab",
+      "label": "Next Tab",
+      "defaultBinding": "Ctrl+Alt+ArrowRight"
+    },
+    {
+      "command": "previousTab",
+      "label": "Previous Tab",
+      "defaultBinding": "Ctrl+Alt+ArrowLeft"
+    },
+    {
+      "command": "closeTab",
+      "label": "Close Tab",
+      "defaultBinding": "Ctrl+Alt+W"
+    },
+    {
+      "command": "quickOpen",
+      "label": "Quick Open",
+      "defaultBinding": "Ctrl+Alt+P"
+    },
+    {
+      "command": "help",
+      "label": "Keyboard Help",
+      "defaultBinding": "Ctrl+Alt+H"
     }
   ]
 }

@@ -326,12 +326,19 @@ $expectedShortcutCommands = @(
     "cancel",
     "search",
     "delete",
-    "commandPalette"
+    "commandPalette",
+    "focusNextPane",
+    "focusPreviousPane",
+    "nextTab",
+    "previousTab",
+    "closeTab",
+    "quickOpen",
+    "help"
 )
 $shortcutDefinitions = @(Get-BabelShortcutDefinitions -Path $shortcutDefaultsPath)
 $actualShortcutCommands = @($shortcutDefinitions | ForEach-Object { [string]$_.Id })
 if (($actualShortcutCommands -join "|") -cne ($expectedShortcutCommands -join "|")) {
-    throw "Shortcut defaults must define the nine commands in their registered order."
+    throw "Shortcut defaults must define the schema v3 commands in their registered order."
 }
 $shortcutDefaultBindings = Get-BabelDefaultShortcutBindings -Definitions $shortcutDefinitions
 
@@ -697,6 +704,14 @@ function Get-WpfShortcutKeyName {
         ([Windows.Input.Key]::Delete) { return "Delete" }
         ([Windows.Input.Key]::Back) { return "Backspace" }
         ([Windows.Input.Key]::Space) { return "Space" }
+        ([Windows.Input.Key]::Left) { return "ArrowLeft" }
+        ([Windows.Input.Key]::Up) { return "ArrowUp" }
+        ([Windows.Input.Key]::Right) { return "ArrowRight" }
+        ([Windows.Input.Key]::Down) { return "ArrowDown" }
+        ([Windows.Input.Key]::Home) { return "Home" }
+        ([Windows.Input.Key]::End) { return "End" }
+        ([Windows.Input.Key]::PageUp) { return "PageUp" }
+        ([Windows.Input.Key]::PageDown) { return "PageDown" }
         default { throw "Key '$keyText' is not supported for Babel shortcuts." }
     }
 }
@@ -826,11 +841,36 @@ function Show-BabelShortcutSettings {
 
         $dialogState = Get-BabelShortcutDialogState -Sender $sender
         try {
+            $pressedKey = $eventArgs.Key
+            if ($pressedKey -eq [Windows.Input.Key]::System) {
+                $pressedKey = $eventArgs.SystemKey
+            }
+            $pressedModifiers = $eventArgs.KeyboardDevice.Modifiers
+            $isUnbindGesture = (
+                $focusedElement.Name -eq "ShortcutCaptureBox" -and
+                $pressedModifiers -eq [Windows.Input.ModifierKeys]::None -and
+                @([Windows.Input.Key]::Back, [Windows.Input.Key]::Delete) -contains $pressedKey
+            )
+            if ($isUnbindGesture) {
+                $commandId = [string]$focusedElement.Tag
+                $escapedCommandId = $commandId.Replace("'", "''")
+                $currentRows = @($dialogState.Table.Select("Id = '$escapedCommandId'"))
+                if ($currentRows.Count -ne 1) {
+                    throw "Could not find shortcut command '$commandId'."
+                }
+                $currentRows[0].Shortcut = ""
+                $dialogState.Controls.ShortcutGrid.Items.Refresh()
+                $dialogState.Controls.ShortcutErrorText.Text = ""
+                $dialogState.Controls.ShortcutStatusText.Text = "Command left unbound. Choose Save to apply the complete set."
+                return
+            }
+
             $canonicalBinding = ConvertFrom-WpfShortcutKeyEvent -EventArgs $eventArgs
             if ($focusedElement.Name -eq "LauncherHotkeyBox") {
                 [void](ConvertTo-BabelLauncherHotkeyRegistration -Binding $canonicalBinding)
                 foreach ($otherRow in $dialogState.Table.Rows) {
                     if (
+                        -not [string]::IsNullOrWhiteSpace([string]$otherRow.Shortcut) -and
                         [string]::Equals(
                             [string]$otherRow.Shortcut,
                             $canonicalBinding,
@@ -844,6 +884,9 @@ function Show-BabelShortcutSettings {
                 $dialogState.Controls.LauncherHotkeyBox.Text = $canonicalBinding
             } else {
                 $commandId = [string]$focusedElement.Tag
+                Assert-BabelShortcutCommandBindingOwnership `
+                    -CommandId $commandId `
+                    -Binding $canonicalBinding
                 if (
                     [string]::Equals(
                         [string]$dialogState.LauncherBinding,
@@ -856,6 +899,7 @@ function Show-BabelShortcutSettings {
                 foreach ($otherRow in $dialogState.Table.Rows) {
                     if (
                         [string]$otherRow.Id -ne $commandId -and
+                        -not [string]::IsNullOrWhiteSpace([string]$otherRow.Shortcut) -and
                         [string]::Equals(
                             [string]$otherRow.Shortcut,
                             $canonicalBinding,
@@ -912,12 +956,17 @@ function Show-BabelShortcutSettings {
         try {
             $bindings = [ordered]@{}
             foreach ($row in $dialogState.Table.Rows) {
-                $bindings[[string]$row.Id] = [string]$row.Shortcut
+                if ([string]::IsNullOrWhiteSpace([string]$row.Shortcut)) {
+                    $bindings[[string]$row.Id] = $null
+                } else {
+                    $bindings[[string]$row.Id] = [string]$row.Shortcut
+                }
             }
             $launcherRegistration = ConvertTo-BabelLauncherHotkeyRegistration `
                 -Binding ([string]$dialogState.LauncherBinding)
             foreach ($row in $dialogState.Table.Rows) {
                 if (
+                    -not [string]::IsNullOrWhiteSpace([string]$row.Shortcut) -and
                     [string]::Equals(
                         [string]$row.Shortcut,
                         [string]$launcherRegistration.Binding,

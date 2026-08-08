@@ -1,3 +1,5 @@
+@import "@babel-apps/platform/navigation.css";
+
 :root {
   color-scheme: light;
   --lavender: #cba6f7;
