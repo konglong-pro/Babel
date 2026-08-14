@@ -20,6 +20,14 @@
   .reflection-workspace,
   .canvas-workspace,
   .scratch-workspace
+),
+.babel-page-tabs + main > .babel-workspace-process > :is(
+  .notes-workspace,
+  .entries-workspace,
+  .archive-workspace,
+  .reflection-workspace,
+  .canvas-workspace,
+  .scratch-workspace
 ) {
   height: calc(
     100dvh - var(--header-height, 52px) - var(--babel-page-tabs-height, 48px)

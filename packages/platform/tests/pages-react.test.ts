@@ -26,6 +26,15 @@ function PageContextProbe() {
   });
 }
 
+test("page tabs reserve viewport height through mounted process wrappers", () => {
+  const styles = readFileSync(new URL("../src/pages/pages.css", import.meta.url), "utf8");
+
+  assert.match(
+    styles,
+    /\.babel-page-tabs \+ main > \.babel-workspace-process > :is\([\s\S]*?\.entries-workspace[\s\S]*?\) \{[\s\S]*?100dvh - var\(--header-height, 52px\) - var\(--babel-page-tabs-height, 48px\)/,
+  );
+});
+
 test("page tabs and kept-alive panels expose the active session accessibly", () => {
   const markup = renderToStaticMarkup(
     createElement(
