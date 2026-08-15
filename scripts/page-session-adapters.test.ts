@@ -97,6 +97,19 @@ async function pageAdapterTargets(): Promise<readonly PageAdapterTarget[]> {
   ]);
 }
 
+async function readWorkspaceImplementation(
+  workspace: string,
+  relativePath: string,
+): Promise<string> {
+  const source = await readFile(path.join(workspace, relativePath), "utf8");
+  if (!source.includes("@babel-apps/platform/canvas/workspace")) return source;
+  const sharedCanvasWorkspace = await readFile(
+    path.join(root, "packages", "platform", "src", "canvas", "workspace.tsx"),
+    "utf8",
+  );
+  return `${source}\n${sharedCanvasWorkspace}`;
+}
+
 function propertyName(property: ts.ObjectLiteralElementLike): string | null {
   if (ts.isSpreadAssignment(property) || property.name === undefined) return null;
   return ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)
@@ -178,7 +191,7 @@ test("every registered app and the mirror template mount the shared page-session
     }
 
     for (const relativePath of target.workspaces) {
-      const source = await readFile(path.join(workspace, relativePath), "utf8");
+      const source = await readWorkspaceImplementation(workspace, relativePath);
       assert.ok(
         source.includes("usePageSessionHistoryGuard"),
         `${target.id} workspace ${relativePath} must protect unsaved pages on browser Back`,
@@ -244,7 +257,7 @@ test("multi-workspace apps and the mirror template keep processes mounted across
     }
 
     for (const relativePath of target.workspaces) {
-      const source = await readFile(path.join(workspace, relativePath), "utf8");
+      const source = await readWorkspaceImplementation(workspace, relativePath);
       assert.match(
         source,
         /useWorkspaceProcessActive/,

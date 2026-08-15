@@ -30,6 +30,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
   return (
     <SharedMarkdownEditor
       {...props}
+      enableCanvasEmbeds
       fetchScope="neum:entries"
       fetchTitles={listEntryTitles}
       hintText="Write Markdown with GFM, [[entry links]], and Typst math: $x$ inline or $ x $ on its own line."

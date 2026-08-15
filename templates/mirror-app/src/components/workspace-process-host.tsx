@@ -6,6 +6,7 @@ import { NextPageTabs } from "@babel-apps/platform/pages/next";
 import { WorkspaceProcessHost } from "@babel-apps/platform/pages/react";
 import { searchFocusFromParams, type SearchFocus } from "@babel-apps/platform/search/focus";
 
+import { CanvasWorkspace } from "@/components/canvas-workspace";
 import { NotesWorkspace } from "@/components/notes-workspace";
 import type { NoteSearchField } from "@/lib/types";
 import {
@@ -66,7 +67,15 @@ function AppWorkspaceProcessRuntime({ children }: { children: ReactNode }) {
       activeProcess={activeProcess?.key ?? null}
       processes={APP_WORKSPACE_PROCESSES.map((process) => ({
         ...process,
-        content: (
+        content: process.key === "canvases" ? (
+          <CanvasWorkspace
+            initialCanvasId={activeProcess?.key === "canvases"
+              ? positiveInteger(searchParams.get("canvas"))
+              : null}
+            routeTargetKey={activeProcess?.key === "canvases" ? routeTarget.key : ""}
+            creationRequestKey={activeProcess?.key === "canvases" ? searchParams.get("new") : null}
+          />
+        ) : (
           <NotesWorkspace
             initialFolderId={routeTarget.folderId}
             initialNoteId={routeTarget.noteId}

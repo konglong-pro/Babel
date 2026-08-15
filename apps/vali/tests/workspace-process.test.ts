@@ -13,6 +13,13 @@ import {
 
 const pages = [
   {
+    key: "canvas:4",
+    kind: "Canvas",
+    title: "C1",
+    href: "/canvases?canvas=4",
+    scope: "canvases",
+  },
+  {
     key: "note:1",
     kind: "Note",
     title: "N1",
@@ -35,17 +42,24 @@ const pages = [
   },
 ];
 
-test("Vali recognizes Notes and Reflection workspace destinations", () => {
+test("Vali recognizes Canvas, Notes, and Reflection workspace destinations", () => {
+  assert.equal(valiWorkspaceProcess("/canvases"), "canvases");
   assert.equal(valiWorkspaceProcess("/notes"), "notes");
   assert.equal(valiWorkspaceProcess("/notes/"), "notes");
   assert.equal(valiWorkspaceProcess("/reflection"), "reflection");
   assert.equal(valiWorkspaceProcess("/search"), null);
   assert.equal(isValiWorkspaceDestination("/notes?folder=3&note=8"), true);
   assert.equal(isValiWorkspaceDestination("/reflection?date=2040-01-02"), true);
+  assert.equal(isValiWorkspaceDestination("/canvases?canvas=4"), true);
   assert.equal(isValiWorkspaceDestination("/search?q=needle"), false);
 });
 
 test("each Vali workspace restores its remembered page independently", () => {
+  assert.equal(workspaceProcessPageKey(
+    pages,
+    valiWorkspaceRegistration("canvases"),
+    null,
+  ), "canvas:4");
   assert.equal(workspaceProcessPageKey(
     pages,
     valiWorkspaceRegistration("notes"),

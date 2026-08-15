@@ -198,6 +198,10 @@ test("renders the repository mirror template as an independent app", async (t) =
     path.join(generatedRoot, "src", "components", "notes-workspace.tsx"),
     "utf8",
   );
+  const generatedCanvasWorkspace = await readFile(
+    path.join(generatedRoot, "src", "components", "canvas-workspace.tsx"),
+    "utf8",
+  );
   const generatedNoteSession = await readFile(
     path.join(generatedRoot, "src", "components", "note-page-session.tsx"),
     "utf8",
@@ -210,9 +214,14 @@ test("renders the repository mirror template as an independent app", async (t) =
   assert.match(generatedProcessHost, /@babel-apps\/platform\/pages\/next/);
   assert.match(generatedProcessHost, /WorkspaceProcessHost/);
   assert.match(generatedProcessHost, /<NotesWorkspace/);
+  assert.match(generatedProcessHost, /<CanvasWorkspace/);
   assert.match(generatedProcessRegistry, /key:\s*"notes"/);
   assert.match(generatedProcessRegistry, /pathname:\s*"\/notes"/);
   assert.match(generatedProcessRegistry, /scope:\s*"notes"/);
+  assert.match(generatedProcessRegistry, /key:\s*"canvases"/);
+  assert.match(generatedProcessRegistry, /pathname:\s*"\/canvases"/);
+  assert.match(generatedProcessRegistry, /scope:\s*"canvases"/);
+  assert.match(generatedCanvasWorkspace, /SharedCanvasWorkspace/);
   assert.match(generatedNotesWorkspace, /useWorkspaceProcessActive/);
   assert.match(generatedNotesWorkspace, /isAppWorkspaceDestination/);
   assert.match(
@@ -234,6 +243,7 @@ test("renders the repository mirror template as an independent app", async (t) =
     generatedLayout,
     generatedProcessHost,
     generatedProcessRegistry,
+    generatedCanvasWorkspace,
   ]) {
     assert.doesNotMatch(source, /__APP_/);
   }
@@ -258,6 +268,44 @@ test("renders the repository mirror template as an independent app", async (t) =
   await access(path.join(generatedRoot, "src", "lib", "editor-save-mode.ts"));
   await access(path.join(generatedRoot, "tests", "editor-save-mode.test.ts"));
   await access(path.join(generatedRoot, "src", "lib", "storage", "recovery.ts"));
+  await access(path.join(generatedRoot, "src", "app", "canvases", "page.tsx"));
+  await access(path.join(generatedRoot, "src", "app", "api", "canvases", "route.ts"));
+  await access(path.join(generatedRoot, "src", "app", "api", "canvases", "[id]", "route.ts"));
+  await access(path.join(generatedRoot, "src", "lib", "repositories", "canvases.ts"));
+  const generatedFolderImportServer = await readFile(
+    path.join(generatedRoot, "src", "lib", "markdown-folder-import.server.ts"),
+    "utf8",
+  );
+  const generatedFolderImportRoute = await readFile(
+    path.join(
+      generatedRoot,
+      "src",
+      "app",
+      "api",
+      "imports",
+      "markdown-folder",
+      "sessions",
+      "[sessionId]",
+      "route.ts",
+    ),
+    "utf8",
+  );
+  const generatedFolderImportRepository = await readFile(
+    path.join(generatedRoot, "src", "lib", "repositories", "markdown-folder-import.ts"),
+    "utf8",
+  );
+  assert.match(generatedLayout, /@babel-apps\/platform\/imports\.css/);
+  assert.match(generatedNotesWorkspace, /MarkdownFolderImportDialog/);
+  assert.match(generatedFolderImportServer, /MIRROR_NOTES_UPLOAD_DIRECTORY/);
+  assert.match(generatedFolderImportRoute, /commitMarkdownFolderSession/);
+  assert.match(generatedFolderImportRepository, /importMarkdownFolderBatch/);
+  for (const source of [
+    generatedFolderImportServer,
+    generatedFolderImportRoute,
+    generatedFolderImportRepository,
+  ]) {
+    assert.doesNotMatch(source, /__APP_/);
+  }
   const generatedBackfill = await readFile(
     path.join(generatedRoot, "scripts", "backfill-links.ts"),
     "utf8",
@@ -272,6 +320,7 @@ test("renders the repository mirror template as an independent app", async (t) =
     readinessSource,
     /note:\s*\["parent_id", "position"\]/,
   );
+  assert.match(readinessSource, /canvas:\s*\["title", "scene", "updated_at"\]/);
   assert.match(readinessSource, /folder:\s*\["position"\]/);
   assert.match(
     readinessSource,
@@ -342,14 +391,21 @@ test("renders the repository mirror template as an independent app", async (t) =
   assert.match(notePositionMigration, /PARTITION\s+BY[\s\S]*?folder_id[\s\S]*?parent_id/i);
   assert.match(notePositionMigration, /note_scope_position_idx/);
   assert.doesNotMatch(notePositionMigration, /__APP_/);
+  const canvasMigration = await readFile(
+    path.join(generatedRoot, "drizzle", "0005_massive_azazel.sql"),
+    "utf8",
+  );
+  assert.match(canvasMigration, /CREATE TABLE `canvas`/);
+  assert.match(canvasMigration, /CREATE INDEX `canvas_updated_idx`/);
+  assert.match(canvasMigration, /canvas_title_not_blank/);
 
   const generatedJournal = await readJson<{
     entries: Array<{ tag: string; when: number }>;
   }>(path.join(generatedRoot, "drizzle", "meta", "_journal.json"));
   const latestJournalEntry = generatedJournal.entries.at(-1);
   assert.ok(latestJournalEntry, "generated journal must contain migrations");
-  assert.equal(latestJournalEntry.tag, "0004_mirror-notes_note_position");
-  assert.equal(latestJournalEntry.when, 1_785_924_064_088);
+  assert.equal(latestJournalEntry.tag, "0005_massive_azazel");
+  assert.equal(latestJournalEntry.when, 1_786_724_117_932);
   const expectedMigrationMatch = readinessSource.match(
     /expectedMigration:\s*([\d_]+)/,
   );
@@ -359,19 +415,23 @@ test("renders the repository mirror template as an independent app", async (t) =
     latestJournalEntry.when,
   );
 
-  const [previousSnapshot, folderPositionSnapshot, notePositionSnapshot] = await Promise.all([
+  const [previousSnapshot, folderPositionSnapshot, notePositionSnapshot, canvasSnapshot] = await Promise.all([
     readJson<{ id: string }>(
       path.join(generatedRoot, "drizzle", "meta", "0002_snapshot.json"),
     ),
     readJson<{ id: string; prevId: string }>(
       path.join(generatedRoot, "drizzle", "meta", "0003_snapshot.json"),
     ),
-    readJson<{ prevId: string }>(
+    readJson<{ id: string; prevId: string }>(
       path.join(generatedRoot, "drizzle", "meta", "0004_snapshot.json"),
+    ),
+    readJson<{ prevId: string }>(
+      path.join(generatedRoot, "drizzle", "meta", "0005_snapshot.json"),
     ),
   ]);
   assert.equal(folderPositionSnapshot.prevId, previousSnapshot.id);
   assert.equal(notePositionSnapshot.prevId, folderPositionSnapshot.id);
+  assert.equal(canvasSnapshot.prevId, notePositionSnapshot.id);
 
   const markdownEditor = await readFile(
     path.join(generatedRoot, "src", "components", "markdown-editor.tsx"),
@@ -386,6 +446,7 @@ test("renders the repository mirror template as an independent app", async (t) =
   assert.match(markdownEditor, /type StagedImage/);
   assert.match(markdownEditor, /fetchScope="mirror-notes:notes"/);
   assert.match(markdownEditor, /uploadScheme="mirror-notes-upload"/);
+  assert.match(markdownEditor, /enableCanvasEmbeds/);
   assert.doesNotMatch(markdownEditor, /emptyPreviewText=|preview will appear/i);
   assert.doesNotMatch(
     markdownEditor,
@@ -483,6 +544,7 @@ test("renders the repository mirror template as an independent app", async (t) =
   assert.match(noteList, /\.selectionProps\(/);
   assert.doesNotMatch(noteList, /reader-trigger-slot|babel-detached-reader-trigger-target/);
   assert.match(noteList, /Edit Templates/);
+  assert.match(noteList, /<NewContentMenu/);
   await access(
     path.join(generatedRoot, "src", "components", "note-template-manager.tsx"),
   );

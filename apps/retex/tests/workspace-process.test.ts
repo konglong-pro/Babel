@@ -16,6 +16,13 @@ import {
 
 const pages = [
   {
+    key: "canvas:4",
+    kind: "Canvas",
+    title: "C1",
+    href: "/canvases?canvas=4",
+    scope: "canvases",
+  },
+  {
     key: "knowledge:1",
     kind: "Knowledge",
     title: "K1",
@@ -45,7 +52,8 @@ const pages = [
   },
 ];
 
-test("ReTex recognizes archive and dynamic Scratch workspace processes", () => {
+test("ReTex recognizes Canvas, archive, and dynamic Scratch workspace processes", () => {
+  assert.equal(retexWorkspaceProcess("/canvases"), "canvases");
   assert.equal(retexWorkspaceProcess("/knowledge"), "knowledge");
   assert.equal(retexWorkspaceProcess("/exercise/"), "exercise");
   assert.equal(retexWorkspaceProcess("/exercise/27/scratch"), "scratch:27");
@@ -54,10 +62,16 @@ test("ReTex recognizes archive and dynamic Scratch workspace processes", () => {
   assert.equal(scratchExerciseId("scratch:27"), 27);
   assert.equal(scratchExerciseId("exercise"), null);
   assert.equal(isRetexWorkspaceDestination("/exercise/27/scratch?mode=edit"), true);
+  assert.equal(isRetexWorkspaceDestination("/canvases?canvas=4"), true);
   assert.equal(isRetexWorkspaceDestination("/search?q=lemma"), false);
 });
 
 test("each ReTex process restores its remembered page independently", () => {
+  assert.equal(workspaceProcessPageKey(
+    pages,
+    retexWorkspaceRegistration("canvases"),
+    null,
+  ), "canvas:4");
   assert.equal(workspaceProcessPageKey(
     pages,
     retexWorkspaceRegistration("knowledge"),

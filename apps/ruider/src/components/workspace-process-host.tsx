@@ -68,6 +68,7 @@ function RuiderWorkspaceProcessRuntime({ children }: { children: ReactNode }) {
               ? positiveInteger(searchParams.get("canvas"))
               : null}
             routeTargetKey={activeProcess === "canvases" ? routeTargetKey : ""}
+            creationRequestKey={activeProcess === "canvases" ? searchParams.get("new") : null}
           />
         ) : (
           <NotesWorkspace

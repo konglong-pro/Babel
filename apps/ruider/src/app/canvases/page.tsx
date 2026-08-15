@@ -19,5 +19,15 @@ function numberParam(value: string | string[] | undefined): number | null {
 
 export default async function CanvasesPage({ searchParams }: CanvasesPageProps) {
   const params = await searchParams;
-  return <CanvasWorkspace initialCanvasId={numberParam(params.canvas)} />;
+  const newRequest = Array.isArray(params.new) ? params.new[0] : params.new;
+  return (
+    <CanvasWorkspace
+      initialCanvasId={numberParam(params.canvas)}
+      routeTargetKey={new URLSearchParams(Object.entries(params).flatMap(([key, value]) => {
+        const values = Array.isArray(value) ? value : value === undefined ? [] : [value];
+        return values.map((item) => [key, item]);
+      })).toString()}
+      creationRequestKey={newRequest ?? null}
+    />
+  );
 }

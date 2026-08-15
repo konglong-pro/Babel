@@ -16,6 +16,13 @@ import {
 
 const pages = [
   {
+    key: "canvas:4",
+    kind: "Canvas",
+    title: "C1",
+    href: "/canvases?canvas=4",
+    scope: "canvases",
+  },
+  {
     key: "knowledge:1",
     kind: "Knowledge",
     title: "K1",
@@ -45,7 +52,8 @@ const pages = [
   },
 ];
 
-test("Matter recognizes archive and dynamic Scratch workspace processes", () => {
+test("Matter recognizes Canvas, archive, and dynamic Scratch workspace processes", () => {
+  assert.equal(matterWorkspaceProcess("/canvases"), "canvases");
   assert.equal(matterWorkspaceProcess("/knowledge"), "knowledge");
   assert.equal(matterWorkspaceProcess("/exercise/"), "exercise");
   assert.equal(matterWorkspaceProcess("/exercise/27/scratch"), "scratch:27");
@@ -54,10 +62,16 @@ test("Matter recognizes archive and dynamic Scratch workspace processes", () => 
   assert.equal(scratchExerciseId("scratch:27"), 27);
   assert.equal(scratchExerciseId("exercise"), null);
   assert.equal(isMatterWorkspaceDestination("/exercise/27/scratch?mode=edit"), true);
+  assert.equal(isMatterWorkspaceDestination("/canvases?canvas=4"), true);
   assert.equal(isMatterWorkspaceDestination("/search?q=gravity"), false);
 });
 
 test("each Matter process restores its remembered page independently", () => {
+  assert.equal(workspaceProcessPageKey(
+    pages,
+    matterWorkspaceRegistration("canvases"),
+    null,
+  ), "canvas:4");
   assert.equal(workspaceProcessPageKey(
     pages,
     matterWorkspaceRegistration("knowledge"),

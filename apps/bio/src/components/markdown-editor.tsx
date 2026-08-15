@@ -31,6 +31,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
   return (
     <SharedMarkdownEditor
       {...props}
+      enableCanvasEmbeds
       fetchScope="bio:notes"
       fetchTitles={listNoteTitles}
       hintText="Write Markdown with GFM, [[note links]], and Typst math: $x$ inline or $ x $ on its own line."

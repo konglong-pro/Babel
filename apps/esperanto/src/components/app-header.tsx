@@ -28,6 +28,11 @@ export function AppHeader() {
     if (!navigationAllowed("/notes")) event.preventDefault();
   }
 
+  function visitCanvas(event: MouseEvent<HTMLAnchorElement>) {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    if (!navigationAllowed("/canvases")) event.preventDefault();
+  }
+
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const value = query.trim();
@@ -66,6 +71,11 @@ export function AppHeader() {
           <small>language notebook</small>
         </span>
       </Link>
+
+      <nav className="app-nav" aria-label="Primary navigation">
+        <Link href="/notes" onClick={visitHome}>Notes</Link>
+        <Link href="/canvases" onClick={visitCanvas}>Canvases</Link>
+      </nav>
 
       <form className="global-search" role="search" onSubmit={submitSearch}>
         <label className="sr-only" htmlFor="global-search-input">

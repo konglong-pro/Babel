@@ -1,6 +1,9 @@
 "use client";
 
 import { type ChangeEvent, useMemo, useRef, useState } from "react";
+import { NewContentMenu } from "@babel-apps/platform/canvas/react";
+
+import { BEFORE_NAVIGATE_EVENT } from "@/components/app-header";
 import {
   useItemReorder,
   type ItemReorderController,
@@ -36,6 +39,7 @@ interface ItemListProps {
   onReorder?: (id: number, position: number) => Promise<void> | void;
   onCreate: (parentId: number | null) => void;
   onImport?: (file: File) => Promise<void> | void;
+  onImportFolder?: (files: File[]) => Promise<void> | void;
 }
 
 interface KnowledgeBranchProps {
@@ -167,8 +171,11 @@ export function ItemList({
   onReorder,
   onCreate,
   onImport,
+  onImportFolder,
 }: ItemListProps) {
   const importInputRef = useRef<HTMLInputElement>(null);
+  const folderImportInputRef = useRef<HTMLInputElement>(null);
+  const importMenuRef = useRef<HTMLDetailsElement>(null);
   const itemName = type === "knowledge" ? "Knowledge Notes" : "Exercises";
   const reorder = useItemReorder({
     items: items.map((item) => ({
@@ -267,10 +274,17 @@ export function ItemList({
     },
     {
       id: "item.import",
-      label: "Import Markdown",
+      label: "Import Markdown file",
       group: "Content",
       available: type === "knowledge" && Boolean(onImport) && selectedFolderId !== null,
       run: () => importInputRef.current?.click(),
+    },
+    {
+      id: "item.importFolder",
+      label: "Import Markdown folder",
+      group: "Content",
+      available: type === "knowledge" && Boolean(onImportFolder) && selectedFolderId !== null,
+      run: () => folderImportInputRef.current?.click(),
     },
   ]);
 
@@ -288,6 +302,13 @@ export function ItemList({
     const file = event.target.files?.[0];
     event.target.value = "";
     if (file) void onImport?.(file);
+  }
+
+  function chooseMarkdownFolder(event: ChangeEvent<HTMLInputElement>) {
+    const files = [...(event.target.files ?? [])];
+    event.target.value = "";
+    if (importMenuRef.current) importMenuRef.current.open = false;
+    if (files.length > 0) void onImportFolder?.(files);
   }
 
   return (
@@ -315,27 +336,60 @@ export function ItemList({
                 tabIndex={-1}
                 onChange={chooseMarkdown}
               />
-              <button
-                type="button"
-                className="small"
-                disabled={selectedFolderId === null}
-                title={selectedFolderId === null ? "Select a folder first" : undefined}
-                onClick={() => importInputRef.current?.click()}
-              >
-                Import
-              </button>
+              <input
+                ref={(node) => {
+                  folderImportInputRef.current = node;
+                  node?.setAttribute("webkitdirectory", "");
+                  node?.setAttribute("directory", "");
+                }}
+                className="sr-only"
+                type="file"
+                accept=".md,text/markdown,image/png,image/jpeg,image/webp,image/gif"
+                multiple
+                tabIndex={-1}
+                onChange={chooseMarkdownFolder}
+              />
+              <details ref={importMenuRef} className="babel-import-menu">
+                <summary
+                  aria-disabled={selectedFolderId === null}
+                  title={selectedFolderId === null ? "Select a folder first" : undefined}
+                  onClick={(event) => {
+                    if (selectedFolderId === null) event.preventDefault();
+                  }}
+                >
+                  Import
+                </summary>
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (importMenuRef.current) importMenuRef.current.open = false;
+                      importInputRef.current?.click();
+                    }}
+                  >
+                    Import Markdown file
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (importMenuRef.current) importMenuRef.current.open = false;
+                      folderImportInputRef.current?.click();
+                    }}
+                  >
+                    Import Markdown folder
+                  </button>
+                </div>
+              </details>
             </>
           ) : null}
-          <button
-            type="button"
-            data-babel-command="new"
+          <NewContentMenu
+            beforeNavigateEvent={BEFORE_NAVIGATE_EVENT}
+            contentLabel={type === "knowledge" ? "New knowledge note" : "New exercise"}
+            contentAvailable={selectedFolderId !== null}
             className="primary-button small"
-            disabled={selectedFolderId === null}
-            title={selectedFolderId === null ? "Select a folder first" : undefined}
-            onClick={() => onCreate(null)}
-          >
-            New
-          </button>
+            unavailableTitle="Select a folder first"
+            onCreateContent={() => onCreate(null)}
+          />
           {type === "knowledge" ? (
             <button
               type="button"

@@ -2,12 +2,40 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  extractCanvasEmbeds,
   extractWikilinks,
   maskCodeRegions,
   maskFencedCodeRegions,
   normalizeTitleKey,
+  preprocessCanvasEmbeds,
   preprocessWikilinks,
 } from "@babel-apps/markdown/core";
+
+test("canvas embeds use stable ids and stay inert inside code", () => {
+  const markdown = [
+    "![[canvas:42|Opening map]]",
+    "`![[canvas:7|inline code]]`",
+    "```md",
+    "![[canvas:8|fenced code]]",
+    "```",
+    String.raw`\![[canvas:9|escaped]]`,
+  ].join("\n");
+
+  assert.deepEqual(extractCanvasEmbeds(markdown), [
+    { canvasId: 42, label: "Opening map" },
+  ]);
+  assert.equal(
+    preprocessCanvasEmbeds(markdown),
+    markdown.replace("![[canvas:42|Opening map]]", "![Opening map](babel-canvas://42)"),
+  );
+});
+
+test("canvas embeds reject invalid ids and provide a fallback label", () => {
+  assert.deepEqual(extractCanvasEmbeds("![[canvas:0]] ![[canvas:01]] ![[canvas:3]]"), [
+    { canvasId: 3, label: null },
+  ]);
+  assert.equal(preprocessCanvasEmbeds("![[canvas:3]]"), "![Canvas 3](babel-canvas://3)");
+});
 
 test("normalizes title keys deterministically", () => {
   assert.equal(normalizeTitleKey("  Mixed\tCASE\r\n标题  "), "mixed case 标题");

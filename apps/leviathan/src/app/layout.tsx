@@ -2,9 +2,11 @@ import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 
 import "@babel-apps/markdown/reference.css";
+import "@babel-apps/platform/canvas.css";
 import "@babel-apps/platform/pages.css";
 import "@babel-apps/platform/search.css";
 import "@babel-apps/platform/shortcuts.css";
+import "@babel-apps/platform/imports.css";
 import "./globals.css";
 
 import { PageSessionProvider, PageTabs } from "@babel-apps/platform/pages/react";

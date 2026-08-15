@@ -50,6 +50,13 @@
       "when": 1785924043706,
       "tag": "0006_uneven_butterfly",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1786724107954,
+      "tag": "0007_new_pepper_potts",
+      "breakpoints": true
     }
   ]
 }

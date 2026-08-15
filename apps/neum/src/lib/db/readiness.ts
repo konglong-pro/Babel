@@ -5,7 +5,7 @@ import type BetterSqlite3 from "better-sqlite3";
 import { resolveDatabasePath } from "@babel-apps/platform/db/client";
 import { assertLiveDatabaseMigrationsCurrent } from "@babel-apps/platform/db/readiness";
 
-export const NEUM_SCHEMA_MIGRATION_TIMESTAMP = 1_785_924_020_413;
+export const NEUM_SCHEMA_MIGRATION_TIMESTAMP = 1_786_724_112_675;
 
 const databasePathOptions = {
   envVar: "NEUM_DATABASE_PATH",
@@ -17,6 +17,7 @@ export const appDatabaseReadinessOptions = {
   packageName: "@babel-apps/neum",
   expectedMigration: NEUM_SCHEMA_MIGRATION_TIMESTAMP,
   requiredColumns: {
+    canvas: ["title", "scene", "updated_at"],
     folder: ["position"],
     entry: ["parent_id", "position"],
     entry_link: ["source_entry_id", "target_title_key", "target_entry_id"],
@@ -50,6 +51,7 @@ export function assertAppDatabaseReady(databasePath = resolveAppDatabasePath()):
 }
 
 const requiredTables = {
+  canvas: ["id", "title", "scene", "created_at", "updated_at"],
   folder: [
     "id",
     "parent_id",
@@ -96,6 +98,11 @@ const requiredTables = {
 } as const;
 
 const requiredIndexes = {
+  canvas_updated_idx: {
+    table: "canvas",
+    columns: ["updated_at"],
+    unique: false,
+  },
   entry_parent_idx: { table: "entry", columns: ["parent_id"], unique: false },
   entry_folder_idx: { table: "entry", columns: ["folder_id"], unique: false },
   entry_kind_idx: { table: "entry", columns: ["kind"], unique: false },
@@ -191,6 +198,7 @@ const requiredForeignKeys = [
 ] as const;
 
 const requiredChecks = {
+  canvas: ["canvas_title_not_blank"],
   entry: [
     "entry_title_not_blank",
     "entry_version_positive",

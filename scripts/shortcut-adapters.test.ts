@@ -51,6 +51,7 @@ test("every registered app and the mirror template expose the global shortcut se
     shortcutRuntimeSource,
     navigationSource,
     pagesSource,
+    canvasSource,
   ] = await Promise.all([
     readFile(path.join(root, "babel.apps.json"), "utf8"),
     readFile(path.join(root, "packages", "markdown", "src", "react.tsx"), "utf8"),
@@ -58,6 +59,7 @@ test("every registered app and the mirror template expose the global shortcut se
     readFile(path.join(root, "packages", "platform", "src", "shortcuts", "react.tsx"), "utf8"),
     readFile(path.join(root, "packages", "platform", "src", "navigation", "react.tsx"), "utf8"),
     readFile(path.join(root, "packages", "platform", "src", "pages", "react.tsx"), "utf8"),
+    readFile(path.join(root, "packages", "platform", "src", "canvas", "react.tsx"), "utf8"),
   ]);
   const registry = JSON.parse(registrySource) as RegistryDocument;
   const defaults = JSON.parse(defaultsSource) as {
@@ -132,8 +134,11 @@ test("every registered app and the mirror template expose the global shortcut se
     );
 
     for (const command of requiredAdapterCommands) {
+      const usesSharedNewMenu = command === "new" &&
+        applicationSource.includes("<NewContentMenu") &&
+        canvasSource.includes('data-babel-command="new"');
       assert.ok(
-        applicationSource.includes(`data-babel-command="${command}"`),
+        applicationSource.includes(`data-babel-command="${command}"`) || usesSharedNewMenu,
         `${target.id} is missing the ${command} shortcut adapter`,
       );
     }

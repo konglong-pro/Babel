@@ -32,11 +32,18 @@ import ReactMarkdown, {
 } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { KatexFormula } from "@babel-apps/katex/react";
+import { CanvasPreview } from "@babel-apps/platform/canvas/react";
+import {
+  parseCanvasScene,
+  type CanvasDetail,
+  type CanvasSummary,
+} from "@babel-apps/platform/canvas/core";
 import { TypstFormula } from "@babel-apps/typst/react";
 
 import { findAutocompleteQuery, type AutocompleteQuery } from "./autocomplete";
 import {
   extractWikilinks,
+  preprocessCanvasEmbeds,
   preprocessWikilinks,
   type Wikilink,
 } from "./core";
@@ -116,6 +123,10 @@ export function MarkdownRenderer({
       : null;
   }, [remarkFeatures, renderedContent]);
   const contentWithoutFormulaSyntax = preparedFormulaMath?.content ?? renderedContent;
+  const contentWithCanvasEmbeds = useMemo(
+    () => preprocessCanvasEmbeds(contentWithoutFormulaSyntax),
+    [contentWithoutFormulaSyntax],
+  );
 
   const headingIds = useMemo(() => {
     const outline = extractOutline(renderedContent);
@@ -128,17 +139,17 @@ export function MarkdownRenderer({
 
   const targetsByKey = useMemo(() => {
     const nextTargets = new Map<string, ResolvedWikilink | null>();
-    for (const wikilink of extractWikilinks(contentWithoutFormulaSyntax)) {
+    for (const wikilink of extractWikilinks(contentWithCanvasEmbeds)) {
       if (!nextTargets.has(wikilink.titleKey)) {
         nextTargets.set(wikilink.titleKey, resolveWikilink?.(wikilink.titleKey) ?? null);
       }
     }
     return nextTargets;
-  }, [contentWithoutFormulaSyntax, resolveWikilink]);
+  }, [contentWithCanvasEmbeds, resolveWikilink]);
 
   const { preprocessedContent, wikilinksByOffset } = useMemo(() => {
     const nextWikilinksByOffset = new Map<number, Wikilink>();
-    const nextContent = preprocessWikilinks(contentWithoutFormulaSyntax, {
+    const nextContent = preprocessWikilinks(contentWithCanvasEmbeds, {
       targetKind: ({ titleKey }) => targetsByKey.get(titleKey)?.kind ?? defaultWikilinkKind,
       onWikilink: (wikilink, occurrence) => {
         nextWikilinksByOffset.set(occurrence.start, wikilink);
@@ -148,7 +159,7 @@ export function MarkdownRenderer({
       preprocessedContent: nextContent,
       wikilinksByOffset: nextWikilinksByOffset,
     };
-  }, [contentWithoutFormulaSyntax, defaultWikilinkKind, targetsByKey]);
+  }, [contentWithCanvasEmbeds, defaultWikilinkKind, targetsByKey]);
 
   const components = useMemo<Components>(() => {
     const nextComponents: Components = {
@@ -217,21 +228,17 @@ export function MarkdownRenderer({
       },
     };
 
-    if (uploadScheme !== undefined) {
-      nextComponents.img = ({ alt, node, src, ...props }) => {
-        void node;
-        if (typeof src === "string" && src.startsWith(`${uploadScheme}://`)) {
-          return (
-            <span className="markdown-image-pending">
-              Image awaiting file: {alt?.trim() || "Untitled image"}
-            </span>
-          );
-        }
-        // Markdown images may be local, remote, or unsaved blob URLs with unknown dimensions.
-        // eslint-disable-next-line @next/next/no-img-element
-        return <img {...props} src={src} alt={alt ?? ""} loading="lazy" />;
-      };
-    }
+    nextComponents.img = ({ alt, node, src, ...props }) => {
+      void node;
+      const canvasId = typeof src === "string" ? parseCanvasEmbedSource(src) : null;
+      if (canvasId !== null) return <CanvasEmbedCard canvasId={canvasId} fallbackLabel={alt ?? ""} />;
+      if (typeof src === "string" && uploadScheme !== undefined && src.startsWith(`${uploadScheme}://`)) {
+        return <span className="markdown-image-pending">Image awaiting file: {alt?.trim() || "Untitled image"}</span>;
+      }
+      // Markdown images may be local, remote, or unsaved blob URLs with unknown dimensions.
+      // eslint-disable-next-line @next/next/no-img-element
+      return <img {...props} src={src} alt={alt ?? ""} loading="lazy" />;
+    };
     if (preparedFormulaMath !== null) {
       const componentsWithFormula = nextComponents as Components & Record<string, unknown>;
       componentsWithFormula["babel-formula"] = ({ formulaIndex }: { formulaIndex?: number | string }) => {
@@ -271,11 +278,11 @@ export function MarkdownRenderer({
 
   const useGfm = remarkFeatures.includes("gfm");
   const urlTransform = useMemo<UrlTransform>(() => {
-    if (uploadScheme === undefined) return wikilinkUrlTransform;
+    if (uploadScheme === undefined) return internalMarkdownUrlTransform;
     const placeholderPrefix = `${uploadScheme}://`;
     return (value, key, node) => {
       if (key === "src" && value.startsWith(placeholderPrefix)) return value;
-      return wikilinkUrlTransform(value, key, node);
+      return internalMarkdownUrlTransform(value, key, node);
     };
   }, [uploadScheme]);
 
@@ -1100,6 +1107,8 @@ export interface MarkdownEditorProps {
   remarkFeatures?: readonly RemarkFeature[];
   fetchTitles?: FetchWikilinkTitles | null;
   fetchScope?: string | number;
+  /** Allows choosing an app-local canvas and inserting a stable-id embed. */
+  enableCanvasEmbeds?: boolean;
   /** @deprecated The editor no longer renders a preview. Retained for source compatibility. */
   defaultWikilinkKind?: string;
   /** @deprecated The editor no longer renders a preview. Retained for source compatibility. */
@@ -1131,6 +1140,7 @@ export function MarkdownEditor({
   onImageError,
   fetchTitles,
   fetchScope,
+  enableCanvasEmbeds = false,
   toolbarExtras,
   footerExtras,
   hintText = "Write Markdown with tables, task lists, links, images, and [[note links]].",
@@ -1144,6 +1154,10 @@ export function MarkdownEditor({
   const fallbackTextareaRef = useRef<HTMLTextAreaElement>(null);
   const textareaRef = suppliedTextareaRef ?? fallbackTextareaRef;
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [canvasPickerOpen, setCanvasPickerOpen] = useState(false);
+  const [canvasPickerLoading, setCanvasPickerLoading] = useState(false);
+  const [canvasPickerError, setCanvasPickerError] = useState("");
+  const [canvasChoices, setCanvasChoices] = useState<CanvasSummary[] | null>(null);
   const autocomplete = useWikilinkAutocomplete(textareaRef, fetchTitles, { fetchScope });
   const closeAutocomplete = autocomplete.close;
   const canStageImages = uploadScheme !== undefined && onStageImage !== undefined;
@@ -1273,6 +1287,48 @@ export function MarkdownEditor({
     ));
   }
 
+  async function openCanvasPicker() {
+    if (disabled) return;
+    if (canvasPickerOpen) {
+      setCanvasPickerOpen(false);
+      return;
+    }
+    setCanvasPickerOpen(true);
+    if (canvasPickerLoading) return;
+    setCanvasPickerLoading(true);
+    setCanvasPickerError("");
+    try {
+      const response = await fetch("/api/canvases");
+      if (!response.ok) throw new Error("Could not load canvases");
+      setCanvasChoices(await response.json() as CanvasSummary[]);
+    } catch (cause) {
+      setCanvasPickerError(cause instanceof Error ? cause.message : "Could not load canvases");
+    } finally {
+      setCanvasPickerLoading(false);
+    }
+  }
+
+  function insertCanvas(canvas: CanvasSummary) {
+    const textarea = textareaRef.current;
+    if (textarea === null || disabled) return;
+    const label = canvas.title.replace(/[|\]\r\n]/gu, " ").trim() || `Canvas ${canvas.id}`;
+    const embed = `![[canvas:${canvas.id}|${label}]]`;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const before = textarea.value.slice(0, start);
+    const after = textarea.value.slice(end);
+    const leadingBreak = before.length > 0 && !before.endsWith("\n") ? "\n\n" : "";
+    const trailingBreak = after.length > 0 && !after.startsWith("\n") ? "\n\n" : "";
+    const insertion = `${leadingBreak}${embed}${trailingBreak}`;
+    const cursor = start + insertion.length;
+    commit({
+      text: `${before}${insertion}${after}`,
+      selectionStart: cursor,
+      selectionEnd: cursor,
+    });
+    setCanvasPickerOpen(false);
+  }
+
   return (
     <section className="editor-field">
       <div className="field-heading">
@@ -1326,6 +1382,39 @@ export function MarkdownEditor({
               >
                 Add image
               </button>
+            </>
+          ) : null}
+          {enableCanvasEmbeds ? (
+            <>
+              <button
+                type="button"
+                disabled={disabled}
+                aria-expanded={canvasPickerOpen}
+                aria-haspopup="dialog"
+                onClick={() => void openCanvasPicker()}
+              >
+                Embed canvas
+              </button>
+              {canvasPickerOpen && !disabled ? (
+                <div className="canvas-embed-picker" role="dialog" aria-label="Choose a canvas to embed">
+                  <strong>Embed a live canvas preview</strong>
+                  {canvasPickerLoading ? <span role="status">Loading canvases…</span> : null}
+                  {canvasPickerError ? <span role="alert">{canvasPickerError}</span> : null}
+                  {!canvasPickerLoading && canvasChoices?.length === 0 ? (
+                    <span>No canvases yet. Create one from New first.</span>
+                  ) : null}
+                  {canvasChoices && canvasChoices.length > 0 ? (
+                    <ul className="canvas-embed-picker__list">
+                      {canvasChoices.map((canvas) => (
+                        <li key={canvas.id}>
+                          <button type="button" onClick={() => insertCanvas(canvas)}>{canvas.title}</button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  <button type="button" onClick={() => setCanvasPickerOpen(false)}>Cancel</button>
+                </div>
+              ) : null}
             </>
           ) : null}
           {toolbarExtras}
@@ -1597,13 +1686,80 @@ function focusTextarea(
   else view.requestAnimationFrame(focus);
 }
 
-const wikilinkUrlTransform: UrlTransform = (value, key) => {
+const internalMarkdownUrlTransform: UrlTransform = (value, key) => {
   if (value.startsWith("blob:")) return value;
+  if (value.startsWith("babel-canvas:")) {
+    return key === "src" && parseCanvasEmbedSource(value) !== null ? value : undefined;
+  }
   if (value.startsWith("babel-note:")) {
     return key === "href" && parseWikilinkHref(value) !== null ? value : undefined;
   }
   return defaultUrlTransform(value);
 };
+
+function parseCanvasEmbedSource(value: string | undefined): number | null {
+  const match = /^babel-canvas:\/\/([1-9]\d*)$/u.exec(value ?? "");
+  if (match === null) return null;
+  const id = Number(match[1]);
+  return Number.isSafeInteger(id) ? id : null;
+}
+
+function CanvasEmbedCard({ canvasId, fallbackLabel }: { canvasId: number; fallbackLabel: string }) {
+  const [canvas, setCanvas] = useState<CanvasDetail | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    let controller: AbortController | null = null;
+    const load = async () => {
+      controller?.abort();
+      controller = new AbortController();
+      try {
+        const response = await fetch(`/api/canvases/${canvasId}`, { signal: controller.signal });
+        if (!response.ok) throw new Error(response.status === 404 ? "Canvas unavailable" : "Could not load canvas");
+        const payload = await response.json() as CanvasDetail;
+        const nextCanvas = { ...payload, scene: parseCanvasScene(payload.scene) };
+        if (active) {
+          setCanvas((current) =>
+            current?.id === nextCanvas.id && current.updatedAt === nextCanvas.updatedAt
+              ? current
+              : nextCanvas,
+          );
+          setError("");
+        }
+      } catch (cause) {
+        if (active && !(cause instanceof DOMException && cause.name === "AbortError")) {
+          setCanvas(null);
+          setError(cause instanceof Error ? cause.message : "Could not load canvas");
+        }
+      }
+    };
+    void load();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void load();
+    }, 2_000);
+    return () => {
+      active = false;
+      controller?.abort();
+      window.clearInterval(timer);
+    };
+  }, [canvasId]);
+
+  const title = canvas?.title ?? (fallbackLabel.trim() || `Canvas ${canvasId}`);
+  return (
+    <span className="canvas-embed" data-canvas-id={canvasId} role="group" aria-label={`${title} canvas embed`}>
+      <span className="canvas-embed__heading">
+        <strong>{title}</strong>
+        <a href={`/canvases?canvas=${canvasId}`}>Open canvas</a>
+      </span>
+      {canvas ? <CanvasPreview scene={canvas.scene} label={`${title} canvas preview`} /> : (
+        <span className="canvas-preview-stage canvas-preview-status" role={error ? "alert" : "status"}>
+          {error || "Loading canvas…"}
+        </span>
+      )}
+    </span>
+  );
+}
 
 function parseWikilinkHref(href: string | undefined): { titleKey: string; kind?: string } | null {
   const prefix = "babel-note://";

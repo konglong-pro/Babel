@@ -5,6 +5,7 @@ import { Suspense, type ReactNode, useMemo } from "react";
 import { NextPageTabs } from "@babel-apps/platform/pages/next";
 import { WorkspaceProcessHost } from "@babel-apps/platform/pages/react";
 
+import { CanvasWorkspace } from "@/components/canvas-workspace";
 import { EntriesWorkspace } from "@/components/entries-workspace";
 import { entrySearchFocusFromParams, type EntrySearchFocus } from "@/lib/search-focus";
 import {
@@ -67,7 +68,15 @@ function NeumWorkspaceProcessRuntime({ children }: { children: ReactNode }) {
           : EMPTY_ROUTE_TARGET;
         return {
           ...process,
-          content: (
+          content: process.key === "canvases" ? (
+            <CanvasWorkspace
+              initialCanvasId={activeProcess?.key === "canvases"
+                ? positiveInteger(searchParams.get("canvas"))
+                : null}
+              routeTargetKey={activeProcess?.key === "canvases" ? routeTarget.key : ""}
+              creationRequestKey={activeProcess?.key === "canvases" ? searchParams.get("new") : null}
+            />
+          ) : (
             <EntriesWorkspace
               kind={process.key}
               initialFolderId={target.folderId}

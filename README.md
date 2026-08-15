@@ -56,6 +56,37 @@ Discard, and Cancel, and clean saved tabs are restored for the browser session.
 The page-session substrate lives in `packages/platform/`; each application owns
 its document loading, editor state, save behavior, routes, and conflict rules.
 
+## Import Markdown folders
+
+The **Import** menu keeps the single-file draft flow and adds **Import Markdown
+folder**. Folder import recursively discovers strict UTF-8 `.md` files, then
+opens a metadata-only review window before anything is written. The selected
+root directory is not created in the notebook; its subdirectories map to nested
+destination folders. Each row can change its Title, Folder, Parent page, and
+Tags. Source files are never renamed or modified.
+
+Titles must be unique across the application's complete document namespace
+after NFC normalization, whitespace trimming/collapsing, and case folding. A
+conflicting title must be changed in the review window; Babel does not silently append a suffix. Existing sibling
+folders are reused only when the match is unambiguous. Parent pages may target
+an existing document or another reviewed document in the same destination
+folder, and cyclic parent relationships are rejected.
+
+Only referenced local PNG, JPEG, WebP, and GIF files inside the selected root
+are imported. Remote images remain remote. Relative Markdown document links and
+unambiguous wikilinks are rewritten to reviewed final titles; ambiguous
+wikilinks can be assigned explicitly or preserved unchanged. The client
+preflights the whole batch, uploads files sequentially to a temporary session,
+and the server revalidates and commits the database and managed images as one
+operation. Cancelled, failed, and expired sessions are cleaned up.
+
+A folder batch accepts at most 1,000 Markdown files, 250 MiB of Markdown, and
+1 GiB of referenced images. Each document keeps the normal 10 MiB Markdown,
+50-image, 10 MiB-per-image, and 100 MiB document-plus-images limits. The six
+mirror Notes workspaces and Vali Notes import notes; Neum imports Knowledge
+entries only; ReTex and Matter import Knowledge items only. On success the
+workspace refreshes, reports a summary, and opens the first imported document.
+
 ## Add a mirror application
 
 From the Babel root, pass a safe ASCII display name:

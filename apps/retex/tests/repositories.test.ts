@@ -457,3 +457,71 @@ test("search ranks exact titles before newer body matches within each group", ()
   assert.equal(results.knowledge[0]?.id, exactKnowledge.id);
   assert.equal(results.exercises[0]?.id, exactExercise.id);
 });
+
+test("Markdown folder imports are atomic and reserve exercise titles", () => {
+  const baseFolder = repositories.createFolder({
+    type: "knowledge",
+    name: "Markdown import base",
+  });
+  const exerciseFolder = repositories.createFolder({
+    type: "exercise",
+    name: "Markdown import title scope",
+  });
+  repositories.createExercise({
+    folderId: exerciseFolder.id,
+    title: "Reserved exercise title",
+    problemMd: "Existing exercise",
+  });
+
+  assert.throws(
+    () => repositories.importMarkdownFolderBatch(baseFolder.id, [{
+      sourcePath: "collision.md",
+      title: " reserved   EXERCISE title ",
+      folder: { kind: "mapped", path: "Collision branch" },
+      parent: null,
+      tags: [],
+      linkDecisions: {},
+      contentMd: "Should not be inserted",
+      images: [],
+      imagePaths: [],
+    }]),
+    (error: unknown) =>
+      error instanceof repositories.RepositoryError && error.code === "CONFLICT",
+  );
+  assert.equal(
+    repositories.listFolders("knowledge").some((folder) =>
+      folder.parentId === baseFolder.id && folder.name === "Collision branch"),
+    false,
+  );
+
+  const records = [
+    {
+      sourcePath: "batch/child.md",
+      title: "ReTex imported child",
+      folder: { kind: "mapped", path: "Batch" } as const,
+      parent: { kind: "batch", sourcePath: "batch/parent.md" } as const,
+      tags: [],
+      linkDecisions: {},
+      contentMd: "Child body",
+      images: [],
+      imagePaths: [],
+    },
+    {
+      sourcePath: "batch/parent.md",
+      title: "ReTex imported parent",
+      folder: { kind: "mapped", path: "Batch" } as const,
+      parent: null,
+      tags: [],
+      linkDecisions: {},
+      contentMd: "Parent body",
+      images: [],
+      imagePaths: [],
+    },
+  ] satisfies readonly RepositoryModule.PersistedMarkdownFolderRecord[];
+  const result = repositories.importMarkdownFolderBatch(baseFolder.id, records);
+  assert.equal(result.createdFolderCount, 1);
+  assert.equal(
+    repositories.getKnowledge(result.imported[0].id)?.parentId,
+    result.imported[1].id,
+  );
+});

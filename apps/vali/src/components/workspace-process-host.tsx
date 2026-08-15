@@ -8,6 +8,7 @@ import {
   type WorkspaceProcessDefinition,
 } from "@babel-apps/platform/pages/react";
 
+import { CanvasWorkspace } from "@/components/canvas-workspace";
 import { NotesWorkspace } from "@/components/notes-workspace";
 import { ReflectionWorkspace } from "@/components/reflection-workspace";
 import { valiSearchFocusFromParams, type ValiSearchFocus } from "@/lib/search-focus";
@@ -94,7 +95,20 @@ function ValiWorkspaceProcessRuntime({ children }: { children: ReactNode }) {
     [activeProcess, routeKey, routeParams, searchParams],
   );
   const processes: WorkspaceProcessDefinition[] = VALI_WORKSPACE_PROCESSES.map(
-    (process) => process === "notes"
+    (process) => process === "canvases"
+      ? {
+          ...valiWorkspaceRegistration(process),
+          content: (
+            <CanvasWorkspace
+              initialCanvasId={activeProcess === "canvases"
+                ? positiveInteger(searchParams.get("canvas"))
+                : null}
+              routeTargetKey={activeProcess === "canvases" ? routeKey : ""}
+              creationRequestKey={activeProcess === "canvases" ? searchParams.get("new") : null}
+            />
+          ),
+        }
+      : process === "notes"
       ? {
           ...valiWorkspaceRegistration(process),
           content: (

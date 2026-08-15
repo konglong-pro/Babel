@@ -19,6 +19,7 @@ import {
   useCommandPaletteActions,
   useCommandPaletteItemSource,
 } from "@babel-apps/platform/shortcuts/react";
+import { MarkdownFolderImportDialog } from "@babel-apps/platform/imports/react";
 
 import {
   ArchivePageSession,
@@ -109,6 +110,9 @@ export function ArchiveWorkspace({
   const [indexLoading, setIndexLoading] = useState(true);
   const [error, setError] = useState("");
   const [navigationError, setNavigationError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [folderImportFiles, setFolderImportFiles] = useState<File[] | null>(null);
+  const [importTitleUniverse, setImportTitleUniverse] = useState<string[]>([]);
   const [drafts, setDrafts] = useState<Record<string, ArchiveDraftSession>>({});
   const [pendingEditPageKey, setPendingEditPageKey] = useState<string | null>(null);
   const [wikilinkCreation, setWikilinkCreation] = useState<WikilinkCreationRequest | null>(null);
@@ -121,12 +125,14 @@ export function ArchiveWorkspace({
   const routeTargetTrackerRef = useRef(createWorkspaceProcessRouteTargetTracker());
 
   const loadIndex = useCallback(async () => {
-    const [nextFolders, nextItems] = await Promise.all([
+    const [nextFolders, nextItems, otherItems] = await Promise.all([
       listFolders(type),
       type === "knowledge" ? listKnowledge() : listExercises(),
+      type === "knowledge" ? listExercises() : Promise.resolve([]),
     ]);
     setFolders(nextFolders);
     setItems(nextItems);
+    setImportTitleUniverse([...nextItems, ...otherItems].map(({ title }) => title));
   }, [type]);
 
   useEffect(() => {
@@ -493,6 +499,11 @@ export function ArchiveWorkspace({
     <>
       {processActive ? <ActiveArchiveHistoryGuard /> : null}
       {navigationError ? <p className="form-error" role="alert">{navigationError}</p> : null}
+      {notice ? (
+        <p className="panel-status" role="status">
+          {notice} <button type="button" onClick={() => setNotice("")}>Dismiss</button>
+        </p>
+      ) : null}
       <div className={`archive-workspace${hasUnsavedPages ? " has-unsaved" : ""}`}>
         <FolderPanel
           type={type}
@@ -521,6 +532,7 @@ export function ArchiveWorkspace({
           onReorder={handleReorderItem}
           onCreate={beginCreate}
           onImport={type === "knowledge" ? handleImportMarkdown : undefined}
+          onImportFolder={type === "knowledge" ? (files) => setFolderImportFiles(files) : undefined}
         />
 
         {error ? (
@@ -580,6 +592,29 @@ export function ArchiveWorkspace({
         ) : null}
         {activeReferencePanel === "typst" ? (
           <TypstReferencePanel onClose={closeReferencePanel} />
+        ) : null}
+        {type === "knowledge" && folderImportFiles && visibleFolderId !== null ? (
+          <MarkdownFolderImportDialog
+            files={folderImportFiles}
+            folders={folders}
+            existingTitles={importTitleUniverse}
+            parentItems={(items as KnowledgeSummaryDto[]).map(
+              ({ id, folderId, title }) => ({ id, folderId, title }),
+            )}
+            baseFolderId={visibleFolderId}
+            itemLabel="knowledge note"
+            onCancel={() => setFolderImportFiles(null)}
+            onComplete={async (result) => {
+              setFolderImportFiles(null);
+              await loadIndex();
+              const first = result.imported[0];
+              setNotice(
+                `Imported ${result.imported.length} knowledge ${result.imported.length === 1 ? "note" : "notes"}` +
+                `${result.createdFolderCount ? ` and created ${result.createdFolderCount} ${result.createdFolderCount === 1 ? "folder" : "folders"}` : ""}.`,
+              );
+              if (first) openItem(first.id, first.folderId);
+            }}
+          />
         ) : null}
       </div>
 

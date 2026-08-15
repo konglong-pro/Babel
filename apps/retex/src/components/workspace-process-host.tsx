@@ -9,6 +9,7 @@ import {
 } from "@babel-apps/platform/pages/react";
 
 import { ArchiveWorkspace } from "@/components/archive-workspace";
+import { CanvasWorkspace } from "@/components/canvas-workspace";
 import { ScratchWorkspace } from "@/components/scratch-workspace";
 import {
   archiveSearchFocusFromParams,
@@ -85,6 +86,18 @@ function RetexWorkspaceProcessRuntime({ children }: { children: ReactNode }) {
         />
       ),
     };
+  });
+  processes.push({
+    ...retexWorkspaceRegistration("canvases"),
+    content: (
+      <CanvasWorkspace
+        initialCanvasId={activeProcess === "canvases"
+          ? positiveInteger(searchParams.get("canvas"))
+          : null}
+        routeTargetKey={activeProcess === "canvases" ? searchParams.toString() : ""}
+        creationRequestKey={activeProcess === "canvases" ? searchParams.get("new") : null}
+      />
+    ),
   });
   const exerciseId = activeProcess === null ? null : scratchExerciseId(activeProcess);
   if (exerciseId !== null && activeProcess !== null) {

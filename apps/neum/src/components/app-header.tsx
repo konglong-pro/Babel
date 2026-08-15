@@ -104,6 +104,14 @@ export function AppHeader() {
             </Link>
           );
         })}
+        <Link
+          href="/canvases"
+          className={pathname === "/canvases" ? "active" : undefined}
+          aria-current={pathname === "/canvases" ? "page" : undefined}
+          onClick={(event) => visit(event, "/canvases")}
+        >
+          Canvases
+        </Link>
       </nav>
 
       <form className="global-search" role="search" onSubmit={submitSearch}>

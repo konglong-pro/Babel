@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@babel-apps/katex": "0.1.0",
+    "@babel-apps/platform": "0.1.0",
     "@babel-apps/typst": "0.1.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

@@ -18,8 +18,9 @@ const databasePathOptions = {
 export const appDatabaseReadinessOptions = {
   appName: "KLsche",
   packageName: "@babel-apps/klsche",
-  expectedMigration: 1_785_924_043_747,
+  expectedMigration: 1_786_724_109_099,
   requiredColumns: {
+    canvas: ["title", "scene", "updated_at"],
     folder: ["position"],
     note: ["parent_id", "position"],
     note_link: ["source_note_id", "target_title_key", "target_note_id"],

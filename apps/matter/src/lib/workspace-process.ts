@@ -2,7 +2,7 @@ import type { WorkspaceProcessPageMatcher } from "@babel-apps/platform/pages/rea
 
 import type { FolderType } from "@/lib/types";
 
-export type MatterWorkspaceProcess = FolderType | `scratch:${number}`;
+export type MatterWorkspaceProcess = "canvases" | FolderType | `scratch:${number}`;
 
 export const MATTER_ARCHIVE_PROCESSES: readonly FolderType[] = [
   "knowledge",
@@ -17,6 +17,7 @@ export function matterWorkspaceProcess(pathname: string): MatterWorkspaceProcess
     (candidate) => normalizedPathname === `/${candidate}`,
   );
   if (archiveProcess !== undefined) return archiveProcess;
+  if (normalizedPathname === "/canvases") return "canvases";
 
   const scratchMatch = /^\/exercise\/(\d+)\/scratch$/.exec(normalizedPathname);
   if (scratchMatch === null) return null;
@@ -29,6 +30,9 @@ export function matterWorkspaceProcess(pathname: string): MatterWorkspaceProcess
 export function matterWorkspaceRegistration(
   process: MatterWorkspaceProcess,
 ): WorkspaceProcessPageMatcher & { readonly key: MatterWorkspaceProcess } {
+  if (process === "canvases") {
+    return { key: process, scope: process, legacyPageKinds: ["Canvas"] };
+  }
   if (process === "knowledge") {
     return { key: process, scope: process, legacyPageKinds: ["Knowledge"] };
   }

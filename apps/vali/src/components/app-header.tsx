@@ -74,6 +74,14 @@ export function AppHeader() {
         >
           Reflection
         </Link>
+        <Link
+          className={pathname.startsWith("/canvases") ? "active" : undefined}
+          aria-current={pathname.startsWith("/canvases") ? "page" : undefined}
+          href="/canvases"
+          onClick={(event) => visitSection("/canvases", event)}
+        >
+          Canvases
+        </Link>
       </nav>
 
       <form className="global-search" role="search" onSubmit={submitSearch}>

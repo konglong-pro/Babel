@@ -23,8 +23,16 @@ separate reader window for saved or live content; knowledge entries show Markdow
 their notes and exact code. Bottom-left English **Markdown Guide** and **Typst
 Reference** panels span the folder and entry columns.
 Deleting an entry is permanent and cannot be undone.
-Knowledge folders can import UTF-8 `.md` files and match referenced local images
-by filename; the Code unit intentionally has no Markdown-file import action.
+Knowledge can open one strict UTF-8 `.md` file as a draft or recursively review
+a Markdown folder before importing it; Code exposes neither import action.
+Folder import maps subdirectories without creating the selected root container
+and lets every file change its Title, Folder, Parent page, and Tags. Titles must
+be unique across both Knowledge and Code after NFC normalization, whitespace
+normalization, and case folding; conflicts are fixed manually without renaming source files. Only
+referenced local images inside the selected root are staged. Link targets follow
+reviewed titles, and the server revalidates and commits the full batch as one
+operation. Batches allow 1,000 Markdown files, 250 MiB of Markdown, and 1 GiB of
+images while preserving the per-entry limits below.
 Markdown notes and code are each limited to 10 MiB. A save may add at most 50
 PNG, JPEG, WebP, or GIF images (10 MiB each), with a 100 MiB logical-save limit
 and a 160 MiB multipart wire limit. Images are committed only when the entry

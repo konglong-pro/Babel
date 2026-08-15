@@ -113,6 +113,18 @@ test("renders an unresolved managed image as a placeholder without an empty sour
   assert.doesNotMatch(html, /src=""/u);
 });
 
+test("renders canvas embeds as live-preview placeholders with stable links", () => {
+  const html = renderToStaticMarkup(createElement(MarkdownRenderer, {
+    content: "![[canvas:42|Opening map]]",
+  }));
+
+  assert.match(html, /class="canvas-embed"/u);
+  assert.match(html, /data-canvas-id="42"/u);
+  assert.match(html, />Opening map</u);
+  assert.match(html, /href="\/canvases\?canvas=42"/u);
+  assert.match(html, /Loading canvas/u);
+});
+
 test("configures GFM by default and native Typst math only when requested", () => {
   const gfmHtml = renderToStaticMarkup(createElement(MarkdownRenderer, {
     content: "| A |\n| - |\n| B |",

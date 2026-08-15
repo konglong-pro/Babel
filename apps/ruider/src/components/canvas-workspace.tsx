@@ -41,6 +41,7 @@ import {
 interface CanvasWorkspaceProps {
   initialCanvasId: number | null;
   routeTargetKey?: string;
+  creationRequestKey?: string | null;
 }
 
 const CANVASES_PROCESS = ruiderWorkspaceRegistration("canvases");
@@ -54,6 +55,7 @@ function canvasIdFromKey(pageKey: string | null): number | null {
 export function CanvasWorkspace({
   initialCanvasId,
   routeTargetKey = "initial",
+  creationRequestKey = null,
 }: CanvasWorkspaceProps) {
   const processActive = useWorkspaceProcessActive();
   const { pages, activeKey, activatePage, closePage, openPage } = usePageSessions();
@@ -64,6 +66,7 @@ export function CanvasWorkspace({
   const [pendingRenameCanvasId, setPendingRenameCanvasId] = useState<number | null>(null);
   const routeTargetTrackerRef = useRef(createWorkspaceProcessRouteTargetTracker());
   const openedRouteTargetRef = useRef<string | null>(null);
+  const handledCreationRequestRef = useRef<string | null>(null);
   const { focusPane } = usePaneFocus();
 
   useEffect(() => {
@@ -189,8 +192,8 @@ export function CanvasWorkspace({
     window.requestAnimationFrame(() => focusPane("items"));
   }
 
-  async function createNewCanvas() {
-    const title = newTitle.trim() || "Untitled canvas";
+  const createNewCanvas = useCallback(async (requestedTitle?: string) => {
+    const title = requestedTitle?.trim() || newTitle.trim() || "Untitled canvas";
     try {
       setError(null);
       const created = await createCanvas(title);
@@ -201,7 +204,20 @@ export function CanvasWorkspace({
     } catch (cause) {
       setError(getErrorMessage(cause));
     }
-  }
+  }, [focusPane, newTitle, openPage]);
+
+  useEffect(() => {
+    if (!processActive || loading || creationRequestKey === null ||
+      handledCreationRequestRef.current === creationRequestKey) return;
+    handledCreationRequestRef.current = creationRequestKey;
+    const title = window.prompt("Canvas name", "Untitled canvas");
+    if (title === null) {
+      window.history.replaceState(window.history.state, "", "/canvases");
+      return;
+    }
+    const timer = window.setTimeout(() => void createNewCanvas(title), 0);
+    return () => window.clearTimeout(timer);
+  }, [createNewCanvas, creationRequestKey, loading, processActive]);
 
   function submitCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

@@ -50,6 +50,13 @@
       "when": 1785924038414,
       "tag": "0006_true_supreme_intelligence",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1786724106854,
+      "tag": "0007_wealthy_golden_guardian",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,11 @@
 import path from "node:path";
 
 import {
+  parseCanvasScene,
+  type CanvasScene,
+} from "@babel-apps/platform/canvas/core";
+
+import {
   ENTRY_IMAGE_DIRECTORY,
   ENTRY_IMAGE_MAX_BYTES as MANAGED_ENTRY_IMAGE_MAX_BYTES,
   managedImagePathsInMarkdown,
@@ -10,12 +15,14 @@ import { identityKey } from "../identity";
 import { SnapshotError } from "./errors";
 import {
   NEUM_LEGACY_SNAPSHOT_SCHEMA_VERSION,
+  NEUM_ENTRY_POSITION_SNAPSHOT_SCHEMA_VERSION,
   NEUM_FOLDER_POSITION_SNAPSHOT_SCHEMA_VERSION,
   NEUM_PREVIOUS_SNAPSHOT_SCHEMA_VERSION,
   NEUM_SNAPSHOT_APP_ID,
   NEUM_SNAPSHOT_SCHEMA_VERSION,
   snapshotImageContentTypes,
   type NeumSnapshotManifest,
+  type SnapshotCanvas,
   type SnapshotEntry,
   type SnapshotEntryImageReference,
   type SnapshotEntryKind,
@@ -51,26 +58,13 @@ export function parseSnapshotManifest(source: string): NeumSnapshotManifest {
 
 export function validateSnapshotManifest(value: unknown): NeumSnapshotManifest {
   const manifest = record(value, "manifest");
-  exactKeys(
-    manifest,
-    [
-      "appId",
-      "schemaVersion",
-      "exportedAt",
-      "folders",
-      "entries",
-      "tags",
-      "trash",
-      "images",
-    ],
-    "manifest",
-  );
   if (manifest.appId !== NEUM_SNAPSHOT_APP_ID) {
     invalid(`manifest.appId must be ${JSON.stringify(NEUM_SNAPSHOT_APP_ID)}.`);
   }
   const sourceSchemaVersion = manifest.schemaVersion;
   if (
     sourceSchemaVersion !== NEUM_SNAPSHOT_SCHEMA_VERSION &&
+    sourceSchemaVersion !== NEUM_ENTRY_POSITION_SNAPSHOT_SCHEMA_VERSION &&
     sourceSchemaVersion !== NEUM_PREVIOUS_SNAPSHOT_SCHEMA_VERSION &&
     sourceSchemaVersion !== NEUM_FOLDER_POSITION_SNAPSHOT_SCHEMA_VERSION &&
     sourceSchemaVersion !== NEUM_LEGACY_SNAPSHOT_SCHEMA_VERSION
@@ -79,11 +73,32 @@ export function validateSnapshotManifest(value: unknown): NeumSnapshotManifest {
       `manifest.schemaVersion must be between ${NEUM_LEGACY_SNAPSHOT_SCHEMA_VERSION} and ${NEUM_SNAPSHOT_SCHEMA_VERSION}.`,
     );
   }
+  exactKeys(
+    manifest,
+    [
+      "appId",
+      "schemaVersion",
+      "exportedAt",
+      ...(sourceSchemaVersion >= NEUM_SNAPSHOT_SCHEMA_VERSION ? ["canvases"] : []),
+      "folders",
+      "entries",
+      "tags",
+      "trash",
+      "images",
+    ],
+    "manifest",
+  );
 
   const parsed: NeumSnapshotManifest = {
     appId: NEUM_SNAPSHOT_APP_ID,
     schemaVersion: NEUM_SNAPSHOT_SCHEMA_VERSION,
     exportedAt: timestamp(manifest.exportedAt, "manifest.exportedAt"),
+    canvases:
+      sourceSchemaVersion >= NEUM_SNAPSHOT_SCHEMA_VERSION
+        ? array(manifest.canvases, "manifest.canvases").map((item, index) =>
+            canvas(item, `manifest.canvases[${index}]`),
+          )
+        : [],
     folders: array(manifest.folders, "manifest.folders").map((item, index) =>
       folder(item, `manifest.folders[${index}]`, sourceSchemaVersion),
     ),
@@ -100,11 +115,33 @@ export function validateSnapshotManifest(value: unknown): NeumSnapshotManifest {
       image(item, `manifest.images[${index}]`),
     ),
   };
-  if (sourceSchemaVersion < NEUM_SNAPSHOT_SCHEMA_VERSION) {
+  if (sourceSchemaVersion < NEUM_ENTRY_POSITION_SNAPSHOT_SCHEMA_VERSION) {
     parsed.entries = legacyEntryPositions(parsed.entries);
   }
   validateRelationships(parsed);
   return parsed;
+}
+
+function canvas(value: unknown, label: string): SnapshotCanvas {
+  const item = record(value, label);
+  exactKeys(item, ["id", "title", "scene", "createdAt", "updatedAt"], label);
+  let scene: CanvasScene;
+  try {
+    scene = parseCanvasScene(item.scene);
+  } catch (error) {
+    invalid(
+      `${label}.scene is invalid: ${
+        error instanceof Error ? error.message : "unknown canvas scene error"
+      }`,
+    );
+  }
+  return {
+    id: positiveInteger(item.id, `${label}.id`),
+    title: nonBlankString(item.title, `${label}.title`),
+    scene,
+    createdAt: timestamp(item.createdAt, `${label}.createdAt`),
+    updatedAt: timestamp(item.updatedAt, `${label}.updatedAt`),
+  };
 }
 
 export function normalizeSnapshotImagePath(imagePath: string): string {
@@ -404,6 +441,7 @@ function image(value: unknown, label: string): SnapshotImage {
 }
 
 function validateRelationships(manifest: NeumSnapshotManifest): void {
+  noDuplicates(manifest.canvases.map(({ id }) => id), "canvas IDs");
   noDuplicates(manifest.folders.map(({ id }) => id), "folder IDs");
   noDuplicates(manifest.entries.map(({ id }) => id), "entry IDs");
   noDuplicates(manifest.tags.map(({ id }) => id), "tag IDs");

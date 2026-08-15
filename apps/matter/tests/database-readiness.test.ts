@@ -12,7 +12,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { assertAppDatabaseReady } from "@/lib/db/readiness";
 import { GET as getHealth } from "@/app/api/health/route";
 
-const latestMigration = 1_785_924_021_972;
+const latestMigration = 1_786_724_111_580;
 const migrationsFolder = path.resolve(process.cwd(), "drizzle");
 
 test("folder position migration backfills each type and parent by legacy name order", () => {
@@ -150,6 +150,13 @@ function createLatestLookingDatabase(
           target_id integer
         );
       ` : ""}
+      CREATE TABLE canvas (
+        id integer PRIMARY KEY,
+        title text NOT NULL,
+        scene text NOT NULL,
+        created_at text NOT NULL,
+        updated_at text NOT NULL
+      );
       CREATE TABLE __drizzle_migrations (
         id integer PRIMARY KEY AUTOINCREMENT,
         hash text NOT NULL,

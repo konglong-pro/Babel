@@ -57,7 +57,9 @@ test("complete database and image snapshots round-trip without semantic loss", a
       exportedAt: created,
     });
     assert.equal(exported.manifest.appId, "neum");
-    assert.equal(exported.manifest.schemaVersion, 4);
+    assert.equal(exported.manifest.schemaVersion, 5);
+    assert.equal(exported.manifest.canvases[0].title, "System map");
+    assert.equal(exported.manifest.canvases[0].scene.elements[0]?.type, "card");
     assert.deepEqual(exported.manifest.folders.map(({ position }) => position), [1, 0]);
     assert.equal(exported.manifest.entries[1].parentId, 11);
     assert.equal(exported.manifest.entries[1].code, "root: [still, editable");
@@ -119,6 +121,24 @@ test("complete database and image snapshots round-trip without semantic loss", a
       .run(7, created, updated);
     assert.ok(Number(nextEntry.lastInsertRowid) > 99);
     target.prepare('DELETE FROM entry WHERE id = ?').run(nextEntry.lastInsertRowid);
+
+    const nextCanvas = target
+      .prepare(
+        `INSERT INTO canvas (title, scene, created_at, updated_at)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .run(
+        "After restore",
+        JSON.stringify({
+          version: 1,
+          elements: [],
+          viewport: { x: 0, y: 0, zoom: 1 },
+        }),
+        created,
+        updated,
+      );
+    assert.ok(Number(nextCanvas.lastInsertRowid) > 31);
+    target.prepare('DELETE FROM canvas WHERE id = ?').run(nextCanvas.lastInsertRowid);
 
     const reexported = await exportNeumSnapshot({
       sqlite: target,
@@ -216,7 +236,8 @@ test("legacy version 1 snapshots import existing entries as root pages", () => {
   };
 
   const parsed = validateSnapshotManifest(manifest);
-  assert.equal(parsed.schemaVersion, 4);
+  assert.equal(parsed.schemaVersion, 5);
+  assert.deepEqual(parsed.canvases, []);
   assert.equal(parsed.entries[0].parentId, null);
   assert.equal(parsed.folders[0].position, 0);
 });
@@ -234,7 +255,8 @@ test("version 2 snapshots import folders with their legacy order", () => {
     trash: [],
     images: [],
   });
-  assert.equal(parsed.schemaVersion, 4);
+  assert.equal(parsed.schemaVersion, 5);
+  assert.deepEqual(parsed.canvases, []);
   assert.equal(parsed.folders[0].position, 0);
 });
 
@@ -260,7 +282,35 @@ test("version 3 snapshots recover the former updated-time entry order", () => {
     ],
     tags: [], trash: [], images: [],
   });
-  assert.equal(parsed.schemaVersion, 4);
+  assert.equal(parsed.schemaVersion, 5);
+  assert.deepEqual(parsed.canvases, []);
+  assert.deepEqual(parsed.entries.map(({ id, position }) => [id, position]), [[1, 1], [2, 0]]);
+});
+
+test("version 4 snapshots preserve explicit entry positions and default canvases", () => {
+  const parsed = validateSnapshotManifest({
+    appId: "neum",
+    schemaVersion: 4,
+    exportedAt: created,
+    folders: [
+      { id: 1, parentId: null, name: "Inbox", position: 0, createdAt: created, updatedAt: created },
+    ],
+    entries: [
+      {
+        id: 1, parentId: null, folderId: 1, kind: "knowledge", title: "Pinned second",
+        notesMd: "", code: null, language: null, filename: null, version: 1, position: 1,
+        createdAt: created, updatedAt: updated, tagIds: [], images: [],
+      },
+      {
+        id: 2, parentId: null, folderId: 1, kind: "knowledge", title: "Pinned first",
+        notesMd: "", code: null, language: null, filename: null, version: 1, position: 0,
+        createdAt: created, updatedAt: created, tagIds: [], images: [],
+      },
+    ],
+    tags: [], trash: [], images: [],
+  });
+  assert.equal(parsed.schemaVersion, 5);
+  assert.deepEqual(parsed.canvases, []);
   assert.deepEqual(parsed.entries.map(({ id, position }) => [id, position]), [[1, 1], [2, 0]]);
 });
 
@@ -346,6 +396,7 @@ test("late database failure rolls back rows and removes staged images", async ()
       [{ id: 1, name: "Inbox" }],
     );
     for (const table of [
+      "canvas",
       "entry",
       "entry_link",
       "tag",
@@ -433,6 +484,15 @@ async function writeImages(uploadDirectory: string): Promise<void> {
 function createSchema(sqlite: BetterSqlite3.Database): void {
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(`
+    CREATE TABLE canvas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      scene TEXT NOT NULL DEFAULT '{"version":1,"elements":[],"viewport":{"x":0,"y":0,"zoom":1}}',
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      CONSTRAINT canvas_title_not_blank CHECK(length(trim(title)) > 0)
+    );
+    CREATE INDEX canvas_updated_idx ON canvas(updated_at);
     CREATE TABLE folder (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       parent_id INTEGER REFERENCES folder(id) ON DELETE RESTRICT,
@@ -576,6 +636,31 @@ function createSchema(sqlite: BetterSqlite3.Database): void {
 
 function seedRichSource(sqlite: BetterSqlite3.Database): void {
   sqlite.exec('DELETE FROM "folder"');
+  sqlite
+    .prepare(
+      'INSERT INTO "canvas" ("id", "title", "scene", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?)',
+    )
+    .run(
+      31,
+      "System map",
+      JSON.stringify({
+        version: 1,
+        elements: [
+          {
+            id: "card-1",
+            type: "card",
+            x: 40,
+            y: 60,
+            width: 240,
+            height: 140,
+            text: "Snapshot canvas",
+          },
+        ],
+        viewport: { x: 12, y: 18, zoom: 1.25 },
+      }),
+      created,
+      updated,
+    );
   const insertFolder = sqlite.prepare(
     'INSERT INTO "folder" ("id", "parent_id", "name", "name_key", "position", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?, ?, ?)',
   );

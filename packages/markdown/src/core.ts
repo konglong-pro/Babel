@@ -4,6 +4,11 @@ export interface Wikilink {
   alias: string | null;
 }
 
+export interface CanvasEmbed {
+  canvasId: number;
+  label: string | null;
+}
+
 export interface PreprocessWikilinksOptions {
   targetKind?: string | ((wikilink: Wikilink) => string | null | undefined);
   /** Reports the rewritten output span for occurrence-aware renderers. */
@@ -14,6 +19,11 @@ export interface PreprocessWikilinksOptions {
 }
 
 interface WikilinkMatch extends Wikilink {
+  start: number;
+  end: number;
+}
+
+interface CanvasEmbedMatch extends CanvasEmbed {
   start: number;
   end: number;
 }
@@ -79,6 +89,24 @@ export function extractWikilinks(markdown: string): Wikilink[] {
     titleKey,
     alias,
   }));
+}
+
+export function extractCanvasEmbeds(markdown: string): CanvasEmbed[] {
+  return findCanvasEmbeds(markdown).map(({ canvasId, label }) => ({ canvasId, label }));
+}
+
+export function preprocessCanvasEmbeds(markdown: string): string {
+  const matches = findCanvasEmbeds(markdown);
+  if (matches.length === 0) return markdown;
+  let output = "";
+  let cursor = 0;
+  for (const match of matches) {
+    output += markdown.slice(cursor, match.start);
+    const label = escapeMarkdownLabel(match.label?.trim() || `Canvas ${match.canvasId}`);
+    output += `![${label}](babel-canvas://${match.canvasId})`;
+    cursor = match.end;
+  }
+  return output + markdown.slice(cursor);
 }
 
 export function preprocessWikilinks(
@@ -584,6 +612,28 @@ function markInlineCodeSegment(
     mask.fill(1, opening.start, runs[closingIndex].end);
     runIndex = closingIndex + 1;
   }
+}
+
+function findCanvasEmbeds(markdown: string): CanvasEmbedMatch[] {
+  const codeMask = maskCodeRegions(markdown);
+  const pattern = /!\[\[canvas:([1-9]\d*)(?:\|([^\r\n]*?))?\]\]/giu;
+  const matches: CanvasEmbedMatch[] = [];
+  for (const match of markdown.matchAll(pattern)) {
+    const start = match.index;
+    const end = start + match[0].length;
+    if (isEscaped(markdown, start)) continue;
+    let masked = false;
+    for (let index = start; index < end; index += 1) {
+      if (codeMask[index]) {
+        masked = true;
+        break;
+      }
+    }
+    const canvasId = Number(match[1]);
+    if (masked || !Number.isSafeInteger(canvasId) || canvasId <= 0) continue;
+    matches.push({ canvasId, label: match[2] ?? null, start, end });
+  }
+  return matches;
 }
 
 function findWikilinks(markdown: string): WikilinkMatch[] {

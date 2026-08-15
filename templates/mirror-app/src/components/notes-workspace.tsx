@@ -15,6 +15,7 @@ import {
 } from "@babel-apps/platform/pages/react";
 import { usePaneFocus } from "@babel-apps/platform/navigation/react";
 import { useCommandPaletteItemSource } from "@babel-apps/platform/shortcuts/react";
+import { MarkdownFolderImportDialog } from "@babel-apps/platform/imports/react";
 import { scopedPageKey } from "@babel-apps/platform/pages/core";
 import type { SearchFocus } from "@babel-apps/platform/search/focus";
 
@@ -119,6 +120,8 @@ export function NotesWorkspace({
   );
   const [indexLoading, setIndexLoading] = useState(true);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [folderImportFiles, setFolderImportFiles] = useState<File[] | null>(null);
   const [drafts, setDrafts] = useState<Record<string, NoteDraftSession>>({});
   const [pendingEditPageKey, setPendingEditPageKey] = useState<string | null>(null);
   const [managingTemplates, setManagingTemplates] = useState(false);
@@ -518,6 +521,12 @@ export function NotesWorkspace({
           <button type="button" onClick={() => setError("")}>Dismiss</button>
         </div>
       ) : null}
+      {notice ? (
+        <div className="workspace-alert" role="status">
+          <span>{notice}</span>
+          <button type="button" onClick={() => setNotice("")}>Dismiss</button>
+        </div>
+      ) : null}
 
       <FolderPanel
         folders={folders}
@@ -557,6 +566,7 @@ export function NotesWorkspace({
           onEdit={openNoteForEdit}
           onReorder={handleReorderNote}
           onImport={handleImportMarkdown}
+          onImportFolder={(files) => setFolderImportFiles(files)}
           onManageTemplates={beginManagingTemplates}
           onCreate={(parentId) => {
             const targetFolderId = parentId === null
@@ -659,6 +669,27 @@ export function NotesWorkspace({
       ) : null}
       {activeReferencePanel === "typst" ? (
         <TypstReferencePanel onClose={closeReferencePanel} />
+      ) : null}
+      {folderImportFiles && visibleFolderId !== null ? (
+        <MarkdownFolderImportDialog
+          files={folderImportFiles}
+          folders={folders}
+          existingTitles={notes.map(({ title }) => title)}
+          parentItems={notes.map(({ id, folderId, title }) => ({ id, folderId, title }))}
+          baseFolderId={visibleFolderId}
+          itemLabel="note"
+          onCancel={() => setFolderImportFiles(null)}
+          onComplete={async (result) => {
+            setFolderImportFiles(null);
+            await refreshIndex();
+            const first = result.imported[0];
+            setNotice(
+              `Imported ${result.imported.length} ${result.imported.length === 1 ? "note" : "notes"}` +
+              `${result.createdFolderCount ? ` and created ${result.createdFolderCount} ${result.createdFolderCount === 1 ? "folder" : "folders"}` : ""}.`,
+            );
+            if (first) openNote(first.id, first.folderId);
+          }}
+        />
       ) : null}
     </div>
   );

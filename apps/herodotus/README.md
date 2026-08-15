@@ -33,9 +33,16 @@ images, and 100 MiB of Markdown plus new images in total; multipart transport is
 limited to 160 MiB. Image mutations are serialized, and interrupted transactions
 are reconciled during health checks and before later writes.
 
-Select a concrete folder to import a UTF-8 `.md` file as a new draft. Relative
-GFM image references can be matched to local image files before saving; remote
-HTTP(S) image links remain remote. Import never overwrites an existing note.
+The **Import** menu can open one UTF-8 `.md` file as a draft or recursively
+review a Markdown folder before importing it. Folder import maps subdirectories
+without creating the selected root container and lets every file change its
+Title, Folder, Parent page, and Tags. App-wide titles are NFC-normalized,
+whitespace-normalized, and case-insensitive; conflicts must be resolved
+manually. Source files are never renamed or changed.
+Only referenced local images inside the selected root are staged. Link targets
+follow reviewed titles, and the server revalidates and commits the full batch as
+one operation. Batches allow 1,000 Markdown files, 250 MiB of Markdown, and
+1 GiB of images while preserving the per-note limits above.
 
 ## Keyboard navigation
 

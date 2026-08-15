@@ -365,7 +365,7 @@ export function NoteDetail({
           </p>
         </div>
         <div className="document-actions">
-          <button data-babel-command="new" data-babel-priority="10" type="button" onClick={onCreateSubnote}>New subnote</button>
+          <button data-babel-child-create="" type="button" onClick={onCreateSubnote}>New subnote</button>
           <button
             data-babel-command="edit"
             type="button"

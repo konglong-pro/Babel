@@ -16,6 +16,7 @@ import {
 } from "@babel-apps/platform/pages/react";
 import { usePaneFocus } from "@babel-apps/platform/navigation/react";
 import { useCommandPaletteItemSource } from "@babel-apps/platform/shortcuts/react";
+import { MarkdownFolderImportDialog } from "@babel-apps/platform/imports/react";
 
 import {
   BEFORE_NAVIGATE_EVENT,
@@ -98,6 +99,10 @@ export function EntriesWorkspace({
   const [folderLoadError, setFolderLoadError] = useState("");
   const [entryPageLoading, setEntryPageLoading] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [folderImportFiles, setFolderImportFiles] = useState<File[] | null>(null);
+  const [folderImportTitles, setFolderImportTitles] = useState<string[]>([]);
+  const [folderImportParents, setFolderImportParents] = useState<EntrySummaryDto[]>([]);
   const [drafts, setDrafts] = useState<Record<string, EntryDraftSession>>({});
   const [pendingEditPageKey, setPendingEditPageKey] = useState<string | null>(null);
   const [activeReferencePanel, setActiveReferencePanel] = useState<ReferencePanelKind | null>(null);
@@ -518,6 +523,36 @@ export function EntriesWorkspace({
     }
   }
 
+  async function beginMarkdownFolderImport(files: File[]) {
+    setNotice("Loading the complete title and parent index for folder import…");
+    try {
+      const allEntries = new Map<string, EntrySummaryDto>();
+      for (const importKind of ["knowledge", "snippet"] as const) {
+        let offset = 0;
+        let total = 0;
+        do {
+          const page = await listEntries({
+            kind: importKind,
+            completeTree: true,
+            limit: PAGE_LIMIT,
+            offset,
+          });
+          page.items.forEach((entry) => allEntries.set(`${entry.kind}:${entry.id}`, entry));
+          total = page.total;
+          offset += page.limit;
+        } while (offset < total);
+      }
+      const all = [...allEntries.values()];
+      setFolderImportTitles(all.map(({ title }) => title));
+      setFolderImportParents(all.filter(({ kind: entryKind }) => entryKind === "knowledge"));
+      setFolderImportFiles(files);
+      setNotice("");
+    } catch (caught) {
+      setNotice("");
+      setError(getErrorMessage(caught));
+    }
+  }
+
   function beginCreateEntry(parentId: number | null) {
     const parent = parentId === null
       ? undefined
@@ -571,6 +606,12 @@ export function EntriesWorkspace({
           <button type="button" onClick={() => setError("")}>Dismiss</button>
         </div>
       ) : null}
+      {notice ? (
+        <div className="workspace-alert" role="status">
+          <span>{notice}</span>
+          <button type="button" onClick={() => setNotice("")}>Dismiss</button>
+        </div>
+      ) : null}
 
       <FolderPanel
         folders={folders}
@@ -606,6 +647,7 @@ export function EntriesWorkspace({
         onReorder={handleReorderEntry}
         onLoadMore={loadMoreEntries}
         onImport={kind === "knowledge" ? handleImportMarkdown : undefined}
+        onImportFolder={kind === "knowledge" ? beginMarkdownFolderImport : undefined}
         onCreate={() => beginCreateEntry(null)}
         onCreateChild={beginCreateEntry}
         onBack={() => {
@@ -660,6 +702,28 @@ export function EntriesWorkspace({
       ) : null}
       {activeReferencePanel === "typst" ? (
         <TypstReferencePanel onClose={closeReferencePanel} />
+      ) : null}
+      {kind === "knowledge" && folderImportFiles && visibleFolderId !== null ? (
+        <MarkdownFolderImportDialog
+          files={folderImportFiles}
+          folders={folders}
+          existingTitles={folderImportTitles}
+          parentItems={folderImportParents
+            .map(({ id, folderId, title }) => ({ id, folderId, title }))}
+          baseFolderId={visibleFolderId}
+          itemLabel="knowledge entry"
+          onCancel={() => setFolderImportFiles(null)}
+          onComplete={async (result) => {
+            setFolderImportFiles(null);
+            await refreshWorkspaceIndex(visibleFolderId);
+            const first = result.imported[0];
+            setNotice(
+              `Imported ${result.imported.length} knowledge ${result.imported.length === 1 ? "entry" : "entries"}` +
+              `${result.createdFolderCount ? ` and created ${result.createdFolderCount} ${result.createdFolderCount === 1 ? "folder" : "folders"}` : ""}.`,
+            );
+            if (first) openEntry(first.id, "knowledge", first.folderId);
+          }}
+        />
       ) : null}
     </div>
   );

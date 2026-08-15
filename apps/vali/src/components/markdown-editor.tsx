@@ -31,6 +31,7 @@ export function MarkdownEditor(props: MarkdownEditorProps) {
   return (
     <SharedMarkdownEditor
       {...props}
+      enableCanvasEmbeds
       fetchScope="vali:documents"
       fetchTitles={listNoteTitles}
       hintText="Write Markdown with GFM, [[document links]], and Typst math: $x$ inline or $ x $ on its own line."

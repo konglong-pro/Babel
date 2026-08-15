@@ -43,6 +43,20 @@ export const folders = sqliteTable(
   ],
 );
 
+export const canvases = sqliteTable(
+  "canvas",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    title: text("title").notNull(),
+    scene: text("scene").notNull().default('{"version":1,"elements":[],"viewport":{"x":0,"y":0,"zoom":1}}'),
+    ...timestamps,
+  },
+  (table) => [
+    index("canvas_updated_idx").on(table.updatedAt),
+    check("canvas_title_not_blank", sql`length(trim(${table.title})) > 0`),
+  ],
+);
+
 export const knowledgeNotes = sqliteTable(
   "knowledge_note",
   {

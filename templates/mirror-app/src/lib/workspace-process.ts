@@ -1,16 +1,24 @@
 export interface AppWorkspaceProcess {
-  readonly key: "notes";
-  readonly pathname: "/notes";
-  readonly scope: "notes";
-  readonly legacyPageKinds: readonly ["Note"];
+  readonly key: "canvases" | "notes";
+  readonly pathname: "/canvases" | "/notes";
+  readonly scope: "canvases" | "notes";
+  readonly legacyPageKinds: readonly ["Canvas"] | readonly ["Note"];
 }
 
-export const APP_WORKSPACE_PROCESSES: readonly AppWorkspaceProcess[] = [{
-  key: "notes",
-  pathname: "/notes",
-  scope: "notes",
-  legacyPageKinds: ["Note"],
-}];
+export const APP_WORKSPACE_PROCESSES: readonly AppWorkspaceProcess[] = [
+  {
+    key: "canvases",
+    pathname: "/canvases",
+    scope: "canvases",
+    legacyPageKinds: ["Canvas"],
+  },
+  {
+    key: "notes",
+    pathname: "/notes",
+    scope: "notes",
+    legacyPageKinds: ["Note"],
+  },
+];
 
 export function appWorkspaceProcess(pathname: string): AppWorkspaceProcess | null {
   const normalizedPathname = pathname.endsWith("/") && pathname !== "/"

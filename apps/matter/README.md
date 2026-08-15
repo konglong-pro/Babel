@@ -32,9 +32,18 @@ generation or migration only for an explicit database task and only while
 Matter is stopped. Use the root `npm.cmd run data:backup` workflow for normal
 backups; never commit notebook data to the public Babel repository.
 
-Knowledge can import UTF-8 `.md` files and match referenced local PNG, JPEG,
-WebP, or GIF files before saving. Exercise problems, answers, and solutions use
-the same Markdown editor and managed-image workflow. **Read**, placed above the
+Knowledge can open one strict UTF-8 `.md` file as a draft or recursively review
+a Markdown folder before importing it; Exercises expose neither import action.
+Folder import maps subdirectories without creating the selected root container
+and lets every file change its Title, Folder, Parent page, and Tags. Titles must
+be unique across Knowledge and Exercises after NFC normalization, whitespace
+normalization, and case folding; conflicts are fixed manually without renaming source files. Only
+referenced local images inside the selected root are staged. Link targets follow
+reviewed titles, and the server revalidates and commits the full batch as one
+operation. Batches allow 1,000 Markdown files, 250 MiB of Markdown, and 1 GiB of
+images while preserving the per-item limits below. Exercise problems, answers,
+and solutions use the same Markdown editor and managed-image workflow. **Read**,
+placed above the
 active content heading, opens a separate reader window for saved or live
 Knowledge, whole Exercises, and Scratch work. The bottom-left English **Markdown Guide** and
 **Formula Reference** open across the two navigation columns without covering the

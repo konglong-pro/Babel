@@ -310,7 +310,7 @@ export function KnowledgeDetail({
           <p className="document-meta">Updated {formatDate(detail.updatedAt)}</p>
         </div>
         <div className="document-actions">
-          <button data-babel-command="new" data-babel-priority="10" type="button" onClick={onCreateChild}>
+          <button data-babel-child-create="" type="button" onClick={onCreateChild}>
             New subnote
           </button>
           <button

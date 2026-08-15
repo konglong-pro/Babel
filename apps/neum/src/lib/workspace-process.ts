@@ -2,13 +2,19 @@ import { entryUnitLabel, entryUnitPath, type EntryUnitPath } from "@/lib/entry-r
 import type { EntryKind } from "@/lib/types";
 
 export interface NeumWorkspaceProcess {
-  readonly key: EntryKind;
-  readonly pathname: EntryUnitPath;
-  readonly scope: EntryKind;
+  readonly key: EntryKind | "canvases";
+  readonly pathname: EntryUnitPath | "/canvases";
+  readonly scope: EntryKind | "canvases";
   readonly legacyPageKinds: readonly string[];
 }
 
 export const NEUM_WORKSPACE_PROCESSES: readonly NeumWorkspaceProcess[] = [
+  {
+    key: "canvases",
+    pathname: "/canvases",
+    scope: "canvases",
+    legacyPageKinds: ["Canvas"],
+  },
   {
     key: "knowledge",
     pathname: entryUnitPath("knowledge"),
@@ -28,7 +34,8 @@ export function neumWorkspaceProcess(pathname: string): NeumWorkspaceProcess | n
 }
 
 export function neumWorkspaceProcessKind(pathname: string): EntryKind | null {
-  return neumWorkspaceProcess(pathname)?.key ?? null;
+  const process = neumWorkspaceProcess(pathname)?.key;
+  return process === "knowledge" || process === "snippet" ? process : null;
 }
 
 export function isNeumWorkspaceDestination(destination: string): boolean {

@@ -1,5 +1,10 @@
 import type BetterSqlite3 from "better-sqlite3";
 
+import {
+  decodeCanvasScene,
+  encodeCanvasScene,
+} from "@babel-apps/platform/canvas/core";
+
 import { assertCurrentNeumSchema } from "../db/readiness";
 import { identityKey } from "../identity";
 import { rebuildAllEntryLinksInTransaction } from "../repositories/links";
@@ -7,6 +12,7 @@ import { SnapshotError } from "./errors";
 import type {
   NeumDatabaseSnapshot,
   NeumSnapshotManifest,
+  SnapshotCanvas,
   SnapshotEntry,
   SnapshotEntryImageReference,
   SnapshotEntryKind,
@@ -21,6 +27,14 @@ interface FolderRow {
   parentId: number | null;
   name: string;
   position: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface CanvasRow {
+  id: number;
+  title: string;
+  scene: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -67,6 +81,7 @@ interface TrashRow {
 }
 
 const domainTables = [
+  "canvas",
   "entry",
   "entry_link",
   "tag",
@@ -122,14 +137,14 @@ export function assertPristineNeumTarget(sqlite: BetterSqlite3.Database): void {
         sqlite
           .prepare(
             `SELECT "name", "seq" FROM "sqlite_sequence"
-             WHERE "name" IN ('folder', 'entry', 'entry_link', 'tag', 'entry_image', 'trash_entry')`,
+             WHERE "name" IN ('canvas', 'folder', 'entry', 'entry_link', 'tag', 'entry_image', 'trash_entry')`,
           )
           .all() as Array<{ name: string; seq: number }>
       ).map(({ name, seq }) => [name, seq]),
     );
     const hasPristineSequences =
       domainSequences.get("folder") === 1 &&
-      ["entry", "entry_link", "tag", "entry_image", "trash_entry"].every(
+      ["canvas", "entry", "entry_link", "tag", "entry_image", "trash_entry"].every(
         (name) => (domainSequences.get(name) ?? 0) === 0,
       );
     if (!hasPristineInbox || hasDomainRows || !hasPristineSequences) {
@@ -158,6 +173,19 @@ export function restoreNeumDatabaseSnapshotRows(
 ): void {
   assertPristineNeumTarget(sqlite);
   sqlite.prepare('DELETE FROM "folder" WHERE "id" = 1').run();
+
+  const insertCanvas = sqlite.prepare(
+    'INSERT INTO "canvas" ("id", "title", "scene", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?)',
+  );
+  for (const item of manifest.canvases) {
+    insertCanvas.run(
+      item.id,
+      item.title,
+      encodeCanvasScene(item.scene),
+      item.createdAt,
+      item.updatedAt,
+    );
+  }
 
   const insertFolder = sqlite.prepare(
     'INSERT INTO "folder" ("id", "parent_id", "name", "name_key", "position", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -249,6 +277,21 @@ function reserveEntryIds(
 }
 
 function readRows(sqlite: BetterSqlite3.Database): NeumDatabaseSnapshot {
+  const canvases = (
+    sqlite
+      .prepare(
+        'SELECT "id", "title", "scene", "created_at" AS "createdAt", "updated_at" AS "updatedAt" FROM "canvas" ORDER BY "id"',
+      )
+      .all() as CanvasRow[]
+  ).map(
+    (item): SnapshotCanvas => ({
+      id: item.id,
+      title: item.title,
+      scene: decodeCanvasScene(item.scene),
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+    }),
+  );
   const folders = sqlite
     .prepare(
       'SELECT "id", "parent_id" AS "parentId", "name", "position", "created_at" AS "createdAt", "updated_at" AS "updatedAt" FROM "folder" ORDER BY "id"',
@@ -302,6 +345,7 @@ function readRows(sqlite: BetterSqlite3.Database): NeumDatabaseSnapshot {
   }));
 
   return {
+    canvases,
     folders: folders as SnapshotFolder[],
     entries,
     tags: tags as SnapshotTag[],

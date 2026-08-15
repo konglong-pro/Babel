@@ -16,6 +16,7 @@ import type * as SearchRoute from "@/app/api/search/route";
 import type * as UploadRoute from "@/app/api/uploads/notes/[filename]/route";
 import type * as DatabaseModule from "@/lib/db/client";
 import type * as HttpRequestModule from "@/lib/http/request";
+import type * as MarkdownFolderImportServerModule from "@/lib/markdown-folder-import.server";
 import type * as RepositoryModule from "@/lib/repositories";
 import type * as StorageModule from "@/lib/storage";
 import type { NoteImageUpload } from "@/lib/storage";
@@ -24,6 +25,7 @@ let temporaryRoot = "";
 let uploadDirectory = "";
 let database: typeof DatabaseModule;
 let httpRequest: typeof HttpRequestModule;
+let markdownFolderImportServer: typeof MarkdownFolderImportServerModule;
 let repositories: typeof RepositoryModule;
 let storage: typeof StorageModule;
 let folderCollectionRoute: typeof FolderCollectionRoute;
@@ -45,6 +47,7 @@ before(async () => {
   [
     repositories,
     httpRequest,
+    markdownFolderImportServer,
     storage,
     folderCollectionRoute,
     folderItemRoute,
@@ -58,6 +61,7 @@ before(async () => {
     await Promise.all([
       import("@/lib/repositories"),
       import("@/lib/http/request"),
+      import("@/lib/markdown-folder-import.server"),
       import("@/lib/storage"),
       import("@/app/api/folders/route"),
       import("@/app/api/folders/[id]/route"),
@@ -118,6 +122,125 @@ test("Bio backend integration", async (t) => {
         (error: unknown) =>
           error instanceof repositories.RepositoryError && error.code === "NOT_EMPTY",
       );
+    });
+
+    await t.test("Markdown folder imports preserve batch parents and roll back cycles", () => {
+      const baseFolder = repositories.createFolder({ name: "Markdown import base" });
+      const records = [
+        {
+          sourcePath: "batch/child.md",
+          title: "Markdown import child",
+          folder: { kind: "mapped", path: "Batch" } as const,
+          parent: { kind: "batch", sourcePath: "batch/parent.md" } as const,
+          tags: [],
+          linkDecisions: {},
+          contentMd: "Child body",
+          images: [],
+          imagePaths: [],
+        },
+        {
+          sourcePath: "batch/parent.md",
+          title: "Markdown import parent",
+          folder: { kind: "mapped", path: "Batch" } as const,
+          parent: null,
+          tags: [],
+          linkDecisions: {},
+          contentMd: "Parent body",
+          images: [],
+          imagePaths: [],
+        },
+      ] satisfies readonly RepositoryModule.PersistedMarkdownFolderRecord[];
+
+      const result = repositories.importMarkdownFolderBatch(baseFolder.id, records);
+      assert.equal(result.createdFolderCount, 1);
+      const importedParent = repositories.getNote(result.imported[1].id);
+      const importedChild = repositories.getNote(result.imported[0].id);
+      assert.equal(importedChild?.parentId, importedParent?.id);
+      assert.equal(importedChild?.folderId, importedParent?.folderId);
+
+      const cyclicRecords = [
+        {
+          sourcePath: "rollback/a.md",
+          title: "Markdown rollback A",
+          folder: { kind: "mapped", path: "Rollback branch" } as const,
+          parent: { kind: "batch", sourcePath: "rollback/b.md" } as const,
+          tags: [],
+          linkDecisions: {},
+          contentMd: "A",
+          images: [],
+          imagePaths: [],
+        },
+        {
+          sourcePath: "rollback/b.md",
+          title: "Markdown rollback B",
+          folder: { kind: "mapped", path: "Rollback branch" } as const,
+          parent: { kind: "batch", sourcePath: "rollback/a.md" } as const,
+          tags: [],
+          linkDecisions: {},
+          contentMd: "B",
+          images: [],
+          imagePaths: [],
+        },
+      ] satisfies readonly RepositoryModule.PersistedMarkdownFolderRecord[];
+      assert.throws(
+        () => repositories.importMarkdownFolderBatch(baseFolder.id, cyclicRecords),
+        (error: unknown) =>
+          error instanceof repositories.RepositoryError && error.code === "CONFLICT",
+      );
+      assert.equal(
+        repositories.listFolders().some((folder) =>
+          folder.parentId === baseFolder.id && folder.name === "Rollback branch"),
+        false,
+      );
+      assert.equal(
+        repositories.listMarkdownFolderImportTitles().includes("Markdown rollback A"),
+        false,
+      );
+    });
+
+    await t.test("Markdown folder sessions commit through server revalidation and clean staging", async () => {
+      const baseFolder = repositories.createFolder({ name: "Markdown session base" });
+      const source = Buffer.from("Server-validated folder import body", "utf8");
+      const session = await markdownFolderImportServer.createMarkdownFolderSession();
+      await markdownFolderImportServer.uploadMarkdownFolderSessionFile(
+        session.id,
+        "server/note.md",
+        "markdown",
+        {
+          name: "note.md",
+          size: source.byteLength,
+          type: "text/markdown",
+          async arrayBuffer() {
+            return Uint8Array.from(source).buffer;
+          },
+        },
+      );
+      const result = await markdownFolderImportServer.commitMarkdownFolderSession(
+        session.id,
+        {
+          baseFolderId: baseFolder.id,
+          records: [{
+            sourcePath: "server/note.md",
+            title: "Server validated folder import",
+            folder: { kind: "mapped", path: "" },
+            parent: null,
+            tags: [],
+            linkDecisions: {},
+          }],
+        },
+      );
+
+      assert.equal(result.imported.length, 1);
+      assert.equal(
+        repositories.getNote(result.imported[0].id)?.contentMd,
+        "Server-validated folder import body",
+      );
+      assert.equal(
+        (await readdir(path.join(uploadDirectory, ".folder-imports"))).includes(session.id),
+        false,
+      );
+      assert.ok(repositories.deleteNote(result.imported[0].id, []));
+      assert.equal(repositories.deleteFolder(baseFolder.id), true);
     });
 
     await t.test("folders persist contiguous root and nested sibling order", async () => {

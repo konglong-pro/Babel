@@ -43,6 +43,13 @@
       "when": 1785924020413,
       "tag": "0005_fine_dark_beast",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1786724112675,
+      "tag": "0006_narrow_power_pack",
+      "breakpoints": true
     }
   ]
 }

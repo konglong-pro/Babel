@@ -25,9 +25,16 @@ across the two navigation columns. The middle-column **Edit Templates** control
 manages Vali-local static Markdown templates that can be copied into a new
 note. PNG, JPEG,
 WebP, and GIF images up to 10 MB can be selected or pasted; images are committed
-to storage only when the document is saved. Notes can also import a strict UTF-8
-`.md` file and match its safe relative image references by filename. Reflection
-does not expose Markdown-file import.
+to storage only when the document is saved. Notes can open one strict UTF-8
+`.md` file as a draft or recursively review a Markdown folder before importing
+it; Reflection exposes neither import action. Folder import maps subdirectories
+without creating the selected root container and lets every file change its
+Title, Folder, Parent page, and Tags. Titles must be unique across Notes and
+Reflection after NFC normalization, whitespace normalization, and case folding;
+conflicts are fixed manually without renaming source files. Only referenced local images inside the selected root are
+staged. Link targets follow reviewed titles, and the server revalidates and
+commits the full batch as one operation. Batches allow 1,000 Markdown files,
+250 MiB of Markdown, and 1 GiB of images while preserving the per-note limits.
 
 Notes and Reflection share the same save limits: Markdown is capped at 10 MiB,
 one save can add at most 50 images, Markdown plus referenced new images is capped

@@ -18,8 +18,9 @@ const databasePathOptions = {
 export const appDatabaseReadinessOptions = {
   appName: "__APP_NAME__",
   packageName: "@babel-apps/__APP_ID__",
-  expectedMigration: 1_785_924_064_088,
+  expectedMigration: 1_786_724_117_932,
   requiredColumns: {
+    canvas: ["title", "scene", "updated_at"],
     folder: ["position"],
     note: ["parent_id", "position"],
     note_link: ["source_note_id", "target_title_key", "target_note_id"],

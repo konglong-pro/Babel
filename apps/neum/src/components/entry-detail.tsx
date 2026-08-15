@@ -398,8 +398,7 @@ export function EntryDetail({
         </div>
         <div className="document-actions">
           <button
-            data-babel-command="new"
-            data-babel-priority="10"
+            data-babel-child-create=""
             type="button"
             onClick={onCreateSubnote}
           >

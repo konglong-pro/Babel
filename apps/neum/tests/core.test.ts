@@ -62,6 +62,7 @@ test("Neum core persistence", async (t) => {
       .pluck()
       .all();
     assert.deepEqual(tables, [
+      "canvas",
       "entry",
       "entry_image",
       "entry_link",
@@ -203,6 +204,113 @@ test("Neum core persistence", async (t) => {
     assert.ok(repository.deleteEntry(second.id, second.version));
     assert.ok(repository.deleteEntry(snippet.id, snippet.version));
     assert.equal(repository.deleteFolder(folder.id), true);
+  });
+
+  await t.test("Markdown folder imports are atomic and reserve snippet titles", () => {
+    const baseFolder = repository.createFolder({ name: "Markdown import base" });
+    const reservedSnippet = repository.createEntry({
+      folderId: baseFolder.id,
+      kind: "snippet",
+      title: "Reserved snippet title",
+      code: "return true;",
+      language: "javascript",
+    });
+
+    assert.throws(
+      () => repository.importMarkdownFolderBatch(baseFolder.id, [{
+        sourcePath: "collision.md",
+        title: " reserved   SNIPPET title ",
+        folder: { kind: "mapped", path: "Collision branch" },
+        parent: null,
+        tags: [],
+        linkDecisions: {},
+        contentMd: "Should not be inserted",
+        images: [],
+        imagePaths: [],
+      }]),
+      repositoryConflict("CONFLICT"),
+    );
+    assert.equal(
+      repository.listFolders().some((folder) =>
+        folder.parentId === baseFolder.id && folder.name === "Collision branch"),
+      false,
+    );
+
+    const records = [
+      {
+        sourcePath: "batch/child.md",
+        title: "Neum imported child",
+        folder: { kind: "mapped", path: "Batch" } as const,
+        parent: { kind: "batch", sourcePath: "batch/parent.md" } as const,
+        tags: [],
+        linkDecisions: {},
+        contentMd: "Child body",
+        images: [],
+        imagePaths: [],
+      },
+      {
+        sourcePath: "batch/parent.md",
+        title: "Neum imported parent",
+        folder: { kind: "mapped", path: "Batch" } as const,
+        parent: null,
+        tags: [],
+        linkDecisions: {},
+        contentMd: "Parent body",
+        images: [],
+        imagePaths: [],
+      },
+    ] satisfies readonly RepositoryModule.PersistedMarkdownFolderRecord[];
+    const result = repository.importMarkdownFolderBatch(baseFolder.id, records);
+    assert.equal(result.createdFolderCount, 1);
+    assert.equal(repository.getEntry(result.imported[0].id)?.kind, "knowledge");
+    assert.equal(
+      repository.getEntry(result.imported[0].id)?.parentId,
+      result.imported[1].id,
+    );
+
+    const cyclicRecords = [
+      {
+        sourcePath: "rollback/a.md",
+        title: "Neum rollback A",
+        folder: { kind: "mapped", path: "Rollback branch" } as const,
+        parent: { kind: "batch", sourcePath: "rollback/b.md" } as const,
+        tags: [],
+        linkDecisions: {},
+        contentMd: "A",
+        images: [],
+        imagePaths: [],
+      },
+      {
+        sourcePath: "rollback/b.md",
+        title: "Neum rollback B",
+        folder: { kind: "mapped", path: "Rollback branch" } as const,
+        parent: { kind: "batch", sourcePath: "rollback/a.md" } as const,
+        tags: [],
+        linkDecisions: {},
+        contentMd: "B",
+        images: [],
+        imagePaths: [],
+      },
+    ] satisfies readonly RepositoryModule.PersistedMarkdownFolderRecord[];
+    assert.throws(
+      () => repository.importMarkdownFolderBatch(baseFolder.id, cyclicRecords),
+      repositoryConflict("CONFLICT"),
+    );
+    assert.equal(
+      repository.listFolders().some((folder) =>
+        folder.parentId === baseFolder.id && folder.name === "Rollback branch"),
+      false,
+    );
+
+    const importedChild = repository.getEntry(result.imported[0].id);
+    const importedParent = repository.getEntry(result.imported[1].id);
+    assert.ok(importedChild);
+    assert.ok(importedParent);
+    assert.ok(repository.deleteEntry(importedChild.id, importedChild.version));
+    assert.ok(repository.deleteEntry(importedParent.id, importedParent.version));
+    assert.ok(repository.deleteEntry(reservedSnippet.id, reservedSnippet.version));
+    assert.equal(repository.deleteFolder(result.imported[0].folderId), true);
+    assert.equal(repository.deleteFolder(baseFolder.id), true);
   });
 
   await t.test("entries preserve raw code, relational tags, filters, and versions", () => {

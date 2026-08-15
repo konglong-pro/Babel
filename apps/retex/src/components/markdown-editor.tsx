@@ -35,6 +35,7 @@ export function MarkdownEditor({
   return (
     <SharedMarkdownEditor
       {...props}
+      enableCanvasEmbeds
       fetchScope="retex:notes"
       fetchTitles={enableWikilinkAutocomplete ? listNoteTitles : null}
       hintText={hint}
