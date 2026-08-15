@@ -199,9 +199,9 @@ a {
   top: 0;
   z-index: 30;
   display: grid;
-  grid-template-columns: minmax(230px, 1fr) minmax(320px, 560px);
+  grid-template-columns: minmax(220px, 1fr) auto minmax(260px, 520px);
   align-items: center;
-  gap: 1.5rem;
+  gap: clamp(0.75rem, 2vw, 1.5rem);
   height: var(--header-height);
   border-bottom: 2px solid var(--accent-strong);
   background: rgb(1 22 39 / 96%);
@@ -211,11 +211,50 @@ a {
 
 .brand {
   display: inline-flex;
+  min-width: 0;
   width: fit-content;
   align-items: center;
   gap: 0.75rem;
   color: var(--cream);
   text-decoration: none;
+}
+
+.app-nav {
+  display: flex;
+  align-items: center;
+  justify-self: end;
+  gap: 0;
+  border: 2px solid var(--accent-strong);
+  background: var(--night-soft);
+  padding: 2px;
+}
+
+.app-nav a {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  color: var(--ink-soft);
+  padding: 0.3rem 0.64rem;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.app-nav a + a {
+  border-left: 2px solid var(--accent-strong);
+}
+
+.app-nav a:hover {
+  background: var(--blue-soft);
+  color: var(--cream);
+}
+
+.app-nav a[aria-current="page"] {
+  background: var(--accent-strong);
+  color: var(--cream);
 }
 
 .brand-mark {
@@ -250,6 +289,7 @@ a {
 
 .global-search {
   display: grid;
+  min-width: 0;
   grid-template-columns: minmax(0, 1fr) auto;
   overflow: hidden;
   border: 2px solid var(--accent-strong);
@@ -1681,9 +1721,10 @@ a {
   }
 
   .app-header {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) auto;
     grid-template-rows: 44px 46px;
-    gap: 0;
+    column-gap: 0.65rem;
+    row-gap: 0;
     height: var(--header-height);
     padding: 0.35rem max(0.72rem, env(safe-area-inset-right)) 0.55rem max(0.72rem, env(safe-area-inset-left));
   }
@@ -1695,6 +1736,26 @@ a {
 
   .brand strong {
     font-size: 1.25rem;
+  }
+
+  .brand small {
+    display: none;
+  }
+
+  .app-nav {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .app-nav a {
+    min-height: 30px;
+    padding-inline: 0.48rem;
+    font-size: 0.66rem;
+  }
+
+  .global-search {
+    grid-column: 1 / -1;
+    grid-row: 2;
   }
 
   .notes-workspace {

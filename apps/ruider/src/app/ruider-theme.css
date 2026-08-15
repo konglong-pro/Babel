@@ -100,10 +100,6 @@ button:hover:not(:disabled) {
   transform: rotate(-4deg);
 }
 
-.app-header__identity {
-  gap: clamp(1rem, 3vw, 2.8rem);
-}
-
 .brand {
   gap: 0.65rem;
   color: #ffffff;
@@ -145,11 +141,16 @@ button:hover:not(:disabled) {
 }
 
 .app-nav {
-  gap: 0.4rem;
+  gap: 0;
+  border: 2px solid #050505;
+  border-radius: 0;
+  background: #ffffff;
+  box-shadow: var(--shadow-small);
+  padding: 2px;
 }
 
 .app-nav a {
-  border: 2px solid transparent;
+  border: 0;
   border-radius: 0;
   color: #050505;
   font-size: 0.78rem;
@@ -159,10 +160,15 @@ button:hover:not(:disabled) {
   text-transform: uppercase;
 }
 
-.app-nav a:hover {
-  border-color: #050505;
-  background: #ffffff;
-  color: #050505;
+.app-nav a + a {
+  border-left: 2px solid #050505;
+}
+
+.app-nav a:hover,
+.app-nav a[aria-current="page"] {
+  background: #050505;
+  color: #ffffff;
+  box-shadow: none;
 }
 
 .header-scribble {
@@ -807,7 +813,8 @@ ellipse.canvas-element.selected {
 
 @media (max-width: 1120px) {
   .app-header {
-    grid-template-columns: minmax(390px, 1fr) minmax(260px, 420px);
+    grid-template-columns: minmax(250px, 1fr) auto minmax(240px, 420px);
+    gap: clamp(0.65rem, 1.5vw, 1rem);
   }
 
   .header-scribble {
@@ -821,9 +828,10 @@ ellipse.canvas-element.selected {
   }
 
   .app-header {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) auto;
     grid-template-rows: 56px 48px;
-    gap: 0;
+    column-gap: 0.45rem;
+    row-gap: 0;
     height: var(--header-height);
   }
 
@@ -909,10 +917,6 @@ ellipse.canvas-element.selected {
 @media (max-width: 420px) {
   .brand-copy {
     display: none;
-  }
-
-  .app-header__identity {
-    gap: 0.45rem;
   }
 
   .app-nav {

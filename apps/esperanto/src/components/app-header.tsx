@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { type FormEvent, type MouseEvent, useState } from "react";
 import { openSearchWindow } from "@babel-apps/platform/search/window";
 
@@ -20,6 +21,7 @@ function navigationAllowed(destination: string): boolean {
 }
 
 export function AppHeader() {
+  const pathname = usePathname();
   const [query, setQuery] = useState("");
   const [searchWindowError, setSearchWindowError] = useState("");
 
@@ -73,8 +75,20 @@ export function AppHeader() {
       </Link>
 
       <nav className="app-nav" aria-label="Primary navigation">
-        <Link href="/notes" onClick={visitHome}>Notes</Link>
-        <Link href="/canvases" onClick={visitCanvas}>Canvases</Link>
+        <Link
+          href="/notes"
+          aria-current={pathname.startsWith("/notes") ? "page" : undefined}
+          onClick={visitHome}
+        >
+          Notes
+        </Link>
+        <Link
+          href="/canvases"
+          aria-current={pathname.startsWith("/canvases") ? "page" : undefined}
+          onClick={visitCanvas}
+        >
+          Canvases
+        </Link>
       </nav>
 
       <form className="global-search" role="search" onSubmit={submitSearch}>

@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { type FormEvent, type MouseEvent, useState } from "react";
 import { openSearchWindow } from "@babel-apps/platform/search/window";
 
@@ -21,6 +22,7 @@ function navigationAllowed(destination: string): boolean {
 }
 
 export function AppHeader() {
+  const pathname = usePathname();
   const [query, setQuery] = useState("");
   const [searchWindowError, setSearchWindowError] = useState("");
 
@@ -47,24 +49,34 @@ export function AppHeader() {
 
   return (
     <header className="app-header">
-      <div className="app-header__identity">
-        <Link className="brand" href="/canvases" aria-label="Ruider canvases home" onClick={(event) => visit(event, "/canvases")}>
-          <Image className="brand-logo" src="/icon.svg" alt="" width={38} height={38} priority />
-          <span className="brand-copy">
-            <strong>Ruider</strong>
-            <span>Make a mess. Find the thread.</span>
-          </span>
-        </Link>
-        <nav className="app-nav" aria-label="Primary navigation">
-          <Link href="/canvases" onClick={(event) => visit(event, "/canvases")}>Canvases</Link>
-          <Link href="/notes" onClick={(event) => visit(event, "/notes")}>Notes</Link>
-        </nav>
-      </div>
+      <Link className="brand" href="/canvases" aria-label="Ruider canvases home" onClick={(event) => visit(event, "/canvases")}>
+        <Image className="brand-logo" src="/icon.svg" alt="" width={38} height={38} priority />
+        <span className="brand-copy">
+          <strong>Ruider</strong>
+          <span>Make a mess. Find the thread.</span>
+        </span>
+        <svg className="header-scribble" viewBox="0 0 92 34" aria-hidden="true">
+          <path d="M2 24c13-23 24 14 38-5s24 16 34-6c3-7 5-9 8-11" />
+          <path d="m77 7 5-5 2 8" />
+        </svg>
+      </Link>
 
-      <svg className="header-scribble" viewBox="0 0 92 34" aria-hidden="true">
-        <path d="M2 24c13-23 24 14 38-5s24 16 34-6c3-7 5-9 8-11" />
-        <path d="m77 7 5-5 2 8" />
-      </svg>
+      <nav className="app-nav" aria-label="Primary navigation">
+        <Link
+          href="/canvases"
+          aria-current={pathname.startsWith("/canvases") ? "page" : undefined}
+          onClick={(event) => visit(event, "/canvases")}
+        >
+          Canvases
+        </Link>
+        <Link
+          href="/notes"
+          aria-current={pathname.startsWith("/notes") ? "page" : undefined}
+          onClick={(event) => visit(event, "/notes")}
+        >
+          Notes
+        </Link>
+      </nav>
 
       <form className="global-search" role="search" onSubmit={submitSearch}>
         <label className="sr-only" htmlFor="global-search-input">
