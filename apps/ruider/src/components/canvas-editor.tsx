@@ -1,11 +1,11 @@
 "use client";
 
+import { useCanvasAutosave } from "@babel-apps/platform/canvas/autosave";
+
 import {
   type KeyboardEvent,
   type PointerEvent,
   type WheelEvent,
-  useCallback,
-  useEffect,
   useRef,
   useState,
 } from "react";
@@ -31,6 +31,7 @@ interface CanvasEditorProps {
     state: "saved" | "pending" | "saving" | "error",
   ) => void;
   onRegisterSave?: (action: (() => void) | null) => void;
+  onRegisterDiscard?: (action: (() => Promise<void>) | null) => void;
 }
 
 type Interaction =
@@ -60,82 +61,25 @@ export function CanvasEditor({
   onSaved,
   onSaveStateChange,
   onRegisterSave,
+  onRegisterDiscard,
 }: CanvasEditorProps) {
   const [scene, setScene] = useState<CanvasScene>(canvas.scene);
   const [tool, setTool] = useState<CanvasTool>("select");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [history, setHistory] = useState<CanvasScene[]>([]);
   const [future, setFuture] = useState<CanvasScene[]>([]);
-  const [saveState, setSaveState] = useState<"saved" | "pending" | "saving" | "error">("saved");
-  const [saveError, setSaveError] = useState<string | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const interactionRef = useRef<Interaction | null>(null);
-  const sceneRef = useRef(scene);
-  const lastSavedRef = useRef(JSON.stringify(canvas.scene));
-  const saveChainRef = useRef<Promise<void>>(Promise.resolve());
-
-  const queueSave = useCallback((
-    nextScene: CanvasScene,
-    reportState = true,
-  ): Promise<void> => {
-    const snapshot = JSON.stringify(nextScene);
-    if (snapshot === lastSavedRef.current) return saveChainRef.current;
-    if (reportState) {
-      setSaveState("saving");
-      setSaveError(null);
-    }
-    saveChainRef.current = saveChainRef.current
-      .catch(() => undefined)
-      .then(async () => {
-        const updated = await updateCanvas(canvas.id, { scene: nextScene });
-        lastSavedRef.current = snapshot;
-        onSaved(updated);
-      })
-      .then(
-        () => {
-          if (reportState) {
-            setSaveState(JSON.stringify(sceneRef.current) === snapshot ? "saved" : "pending");
-          }
-        },
-        (cause: unknown) => {
-          if (reportState) {
-            setSaveState("error");
-            setSaveError(getErrorMessage(cause));
-          }
-        },
-      );
-    return saveChainRef.current;
-  }, [canvas.id, onSaved]);
-
-  useEffect(() => {
-    sceneRef.current = scene;
-    const snapshot = JSON.stringify(scene);
-    if (snapshot === lastSavedRef.current) return;
-    setSaveState("pending");
-    const timer = window.setTimeout(() => {
-      void queueSave(scene);
-    }, 500);
-    return () => window.clearTimeout(timer);
-  }, [queueSave, scene]);
-
-  useEffect(() => {
-    return () => {
-      const latestScene = sceneRef.current;
-      if (JSON.stringify(latestScene) === lastSavedRef.current) return;
-      void queueSave(latestScene, false);
-    };
-  }, [queueSave]);
-
-  useEffect(() => {
-    onSaveStateChange?.(saveState);
-  }, [onSaveStateChange, saveState]);
-
-  useEffect(() => {
-    onRegisterSave?.(() => {
-      void queueSave(sceneRef.current);
-    });
-    return () => onRegisterSave?.(null);
-  }, [onRegisterSave, queueSave]);
+  const { saveState, saveError } = useCanvasAutosave({
+    canvas,
+    scene,
+    updateCanvas,
+    errorMessage: getErrorMessage,
+    onSaved,
+    onSaveStateChange,
+    onRegisterSave,
+    onRegisterDiscard,
+  });
 
   function commit(next: CanvasScene) {
     setHistory((items) => [...items.slice(-49), scene]);

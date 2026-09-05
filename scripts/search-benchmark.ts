@@ -7,10 +7,12 @@ const smokeMode =
   process.argv.includes("--smoke");
 
 export const SEARCH_BENCHMARK_PROFILE = smokeMode
-  ? "search-smoke-v1"
-  : "search-10k-16k-v1";
+  ? "search-smoke-v2"
+  : "search-10k-16k-v2";
 export const SEARCH_BENCHMARK_RANKING_QUERY = "BABEL_SEARCH_RANKING_2037";
 export const SEARCH_BENCHMARK_FANOUT_QUERY = "BABEL_SEARCH_BODY_FANOUT";
+export const SEARCH_BENCHMARK_SHORT_QUERY = "Qz";
+export const SEARCH_BENCHMARK_CJK_QUERY = "知识";
 export const SEARCH_BENCHMARK_RECORDS = smokeMode ? 100 : 10_000;
 export const SEARCH_BENCHMARK_BODY_BYTES = smokeMode ? 1_024 : 16 * 1_024;
 export const SEARCH_BENCHMARK_WARMUPS = smokeMode ? 1 : 2;
@@ -25,12 +27,12 @@ export interface BenchmarkSearchResult {
 }
 
 export interface SearchBenchmarkScenario {
-  id: "ranking-sparse-8" | "body-fanout-50";
+  id: "ranking-sparse-8" | "body-fanout-50" | "short-ascii-fanout-50" | "cjk-fanout-50";
   query: string;
   expectedTotal: number;
   limitScope?: "global" | "per-stream";
   orderScope?: "global-ranked-page" | "grouped-streams";
-  run: () => BenchmarkSearchResult;
+  run: (query: string) => BenchmarkSearchResult;
 }
 
 export interface SearchBenchmarkConfig {
@@ -43,7 +45,15 @@ export interface SearchBenchmarkConfig {
 export async function runSearchBenchmark(
   config: SearchBenchmarkConfig,
 ): Promise<void> {
-  const scenarios = config.scenarios.map((scenario) =>
+  const expandedScenarios = [...config.scenarios];
+  const fanout = config.scenarios.find(({ id }) => id === "body-fanout-50");
+  if (fanout !== undefined) {
+    expandedScenarios.push(
+      { ...fanout, id: "short-ascii-fanout-50", query: SEARCH_BENCHMARK_SHORT_QUERY },
+      { ...fanout, id: "cjk-fanout-50", query: SEARCH_BENCHMARK_CJK_QUERY },
+    );
+  }
+  const scenarios = expandedScenarios.map((scenario) =>
     measureScenario(scenario)
   );
   const report = {
@@ -93,7 +103,13 @@ export function fixedSearchBody(
     : position === "end"
       ? remaining
       : Math.floor(remaining / 2);
-  return `${"x".repeat(before)}${query}${"x".repeat(remaining - before)}`;
+  const padding = (bytes: number) => {
+    if (query !== SEARCH_BENCHMARK_FANOUT_QUERY) return "x".repeat(bytes);
+    const repeated = `${SEARCH_BENCHMARK_SHORT_QUERY}${SEARCH_BENCHMARK_CJK_QUERY}`;
+    const repeatedBytes = Buffer.byteLength(repeated, "utf8");
+    return repeated.repeat(Math.floor(bytes / repeatedBytes)) + "x".repeat(bytes % repeatedBytes);
+  };
+  return `${padding(before)}${query}${padding(remaining - before)}`;
 }
 
 export function benchmarkDate(index: number, startYear = 2050): string {
@@ -115,7 +131,7 @@ export function restoreEnvironment(
 function measureScenario(scenario: SearchBenchmarkScenario) {
   let referenceKeys: readonly string[] | undefined;
   for (let index = 0; index < SEARCH_BENCHMARK_WARMUPS; index += 1) {
-    const result = scenario.run();
+    const result = scenario.run(scenario.query);
     assertScenarioResult(scenario, result);
     referenceKeys = assertStableOrder(scenario, referenceKeys, result.keys);
   }
@@ -125,7 +141,7 @@ function measureScenario(scenario: SearchBenchmarkScenario) {
   let correctness: BenchmarkSearchResult | undefined;
   for (let index = 0; index < SEARCH_BENCHMARK_RUNS; index += 1) {
     const startedAt = performance.now();
-    const result = scenario.run();
+    const result = scenario.run(scenario.query);
     samples.push(Number((performance.now() - startedAt).toFixed(3)));
     assertScenarioResult(scenario, result);
     referenceKeys = assertStableOrder(scenario, referenceKeys, result.keys);
@@ -137,6 +153,12 @@ function measureScenario(scenario: SearchBenchmarkScenario) {
   const median = orderedSamples.length % 2 === 0
     ? (orderedSamples[middle - 1]! + orderedSamples[middle]!) / 2
     : orderedSamples[middle]!;
+
+  // Generous regression guard for varied CI hardware, not an interactive latency target.
+  const medianMsMax = smokeMode ? 1_000 : 5_000;
+  if (median > medianMsMax) {
+    throw new Error(`${scenario.id} median ${median.toFixed(3)} ms exceeds ${medianMsMax} ms.`);
+  }
 
   return {
     id: scenario.id,
@@ -162,7 +184,7 @@ function measureScenario(scenario: SearchBenchmarkScenario) {
       rssDeltaBytes: rssAfter - rssBefore,
     },
     thresholds: {
-      medianMsMax: null,
+      medianMsMax,
       rssDeltaBytesMax: null,
     },
   };

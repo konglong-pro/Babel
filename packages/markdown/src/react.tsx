@@ -33,9 +33,9 @@ import ReactMarkdown, {
 import remarkGfm from "remark-gfm";
 import { KatexFormula } from "@babel-apps/katex/react";
 import { CanvasPreview } from "@babel-apps/platform/canvas/react";
+import { usePageDeckPageContext, useWorkspaceProcessActive } from "@babel-apps/platform/pages/react";
+import { subscribeCanvasEmbed, type CanvasEmbedSnapshot } from "./canvas-embeds";
 import {
-  parseCanvasScene,
-  type CanvasDetail,
   type CanvasSummary,
 } from "@babel-apps/platform/canvas/core";
 import { TypstFormula } from "@babel-apps/typst/react";
@@ -1709,49 +1709,22 @@ function parseCanvasEmbedSource(value: string | undefined): number | null {
 }
 
 function CanvasEmbedCard({ canvasId, fallbackLabel }: { canvasId: number; fallbackLabel: string }) {
-  const [canvas, setCanvas] = useState<CanvasDetail | null>(null);
-  const [error, setError] = useState("");
+  const [{ canvas, error }, setSnapshot] = useState<CanvasEmbedSnapshot>({ canvas: null, error: "" });
+  const hostRef = useRef<HTMLSpanElement>(null);
+  const { active } = usePageDeckPageContext();
+  const processActive = useWorkspaceProcessActive();
 
   useEffect(() => {
-    let active = true;
-    let controller: AbortController | null = null;
-    const load = async () => {
-      controller?.abort();
-      controller = new AbortController();
-      try {
-        const response = await fetch(`/api/canvases/${canvasId}`, { signal: controller.signal });
-        if (!response.ok) throw new Error(response.status === 404 ? "Canvas unavailable" : "Could not load canvas");
-        const payload = await response.json() as CanvasDetail;
-        const nextCanvas = { ...payload, scene: parseCanvasScene(payload.scene) };
-        if (active) {
-          setCanvas((current) =>
-            current?.id === nextCanvas.id && current.updatedAt === nextCanvas.updatedAt
-              ? current
-              : nextCanvas,
-          );
-          setError("");
-        }
-      } catch (cause) {
-        if (active && !(cause instanceof DOMException && cause.name === "AbortError")) {
-          setCanvas(null);
-          setError(cause instanceof Error ? cause.message : "Could not load canvas");
-        }
-      }
-    };
-    void load();
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void load();
-    }, 2_000);
-    return () => {
-      active = false;
-      controller?.abort();
-      window.clearInterval(timer);
-    };
-  }, [canvasId]);
+    const ownerDocument = hostRef.current?.ownerDocument;
+    if (ownerDocument === undefined) return;
+    // A detached reader remains visible independently of its source tab.
+    if (ownerDocument === document && (!active || !processActive)) return;
+    return subscribeCanvasEmbed(canvasId, ownerDocument, setSnapshot);
+  }, [active, canvasId, processActive]);
 
   const title = canvas?.title ?? (fallbackLabel.trim() || `Canvas ${canvasId}`);
   return (
-    <span className="canvas-embed" data-canvas-id={canvasId} role="group" aria-label={`${title} canvas embed`}>
+    <span ref={hostRef} className="canvas-embed" data-canvas-id={canvasId} role="group" aria-label={`${title} canvas embed`}>
       <span className="canvas-embed__heading">
         <strong>{title}</strong>
         <a href={`/canvases?canvas=${canvasId}`}>Open canvas</a>

@@ -684,7 +684,7 @@ function NoteForm({
             <h1>{detail ? detail.title : importDraft?.title ?? "Capture what you learned"}</h1>
           </div>
           <div className="document-actions">
-            <button data-babel-command="cancel" type="button" onClick={onCancel}>Cancel</button>
+            <button data-babel-command="cancel" type="button" disabled={pending} onClick={onCancel}>Cancel</button>
             <button
               data-babel-command="save"
               className="primary-button"
@@ -708,6 +708,7 @@ function NoteForm({
               autoFocus
               name="title"
               autoComplete="off"
+              disabled={pending}
               required
               maxLength={240}
               value={title}
@@ -720,6 +721,7 @@ function NoteForm({
             <select
               name="folderId"
               required
+              disabled={pending}
               value={folderId ?? ""}
               onChange={(event) => {
                 setFolderId(event.target.value ? Number(event.target.value) : null);
@@ -736,6 +738,7 @@ function NoteForm({
             <span>Parent page</span>
             <select
               name="parentId"
+              disabled={pending}
               value={parentId ?? ""}
               onChange={(event) => setParentId(event.target.value ? Number(event.target.value) : null)}
             >
@@ -766,6 +769,7 @@ function NoteForm({
             <input
               name="tags"
               autoComplete="off"
+              disabled={pending}
               value={tags}
               placeholder="phrasal verbs, travel, review"
               onChange={(event) => setTags(event.target.value)}

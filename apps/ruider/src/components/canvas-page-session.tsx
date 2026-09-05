@@ -60,6 +60,7 @@ export function CanvasPageSession({
     "saved" | "pending" | "saving" | "error"
   >("saved");
   const saveActionRef = useRef<(() => void) | null>(null);
+  const discardActionRef = useRef<(() => Promise<void>) | null>(null);
 
   const dirty = saveState === "pending" || saveState === "error";
   const pending = saveState === "saving";
@@ -74,7 +75,7 @@ export function CanvasPageSession({
       saveActionRef.current?.();
       return false;
     },
-    discard: () => setSaveState("saved"),
+    discard: () => discardActionRef.current?.(),
   });
 
   useEffect(() => {
@@ -204,6 +205,7 @@ export function CanvasPageSession({
               canvas={canvas}
               onSaved={reflectSaved}
               onSaveStateChange={setSaveState}
+              onRegisterDiscard={(action) => { discardActionRef.current = action; }}
               onRegisterSave={(action) => {
                 saveActionRef.current = action;
               }}

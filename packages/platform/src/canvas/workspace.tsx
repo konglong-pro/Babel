@@ -290,13 +290,14 @@ function CanvasPageSession({ api, process, pageKey, canvasId, renameRequested, o
   const [reloadVersion, setReloadVersion] = useState(0);
   const [saveState, setSaveState] = useState<"saved" | "pending" | "saving" | "error">("saved");
   const saveActionRef = useRef<(() => void) | null>(null);
+  const discardActionRef = useRef<(() => Promise<void>) | null>(null);
   const dirty = saveState === "pending" || saveState === "error";
   const pending = saveState === "saving";
 
   useEffect(() => setPageStatus(pageKey, { dirty, pending }), [dirty, pageKey, pending, setPageStatus]);
   usePageSessionLifecycle(pageKey, {
     save: () => { if (!dirty && !pending) return true; saveActionRef.current?.(); return false; },
-    discard: () => setSaveState("saved"),
+    discard: () => discardActionRef.current?.(),
   });
 
   useEffect(() => {
@@ -351,6 +352,7 @@ function CanvasPageSession({ api, process, pageKey, canvasId, renameRequested, o
         <button className="danger-ghost" type="button" onClick={() => void removeCanvas()}>Delete</button></div></div>
       <CanvasEditor key={canvas.id} canvas={canvas} updateCanvas={(id, input) => api.update(id, input)}
         errorMessage={api.errorMessage} onSaved={reflectSaved} onSaveStateChange={setSaveState}
+        onRegisterDiscard={(action) => { discardActionRef.current = action; }}
         onRegisterSave={(action) => { saveActionRef.current = action; }} /></> : null}
   </div></PageDeckPage>;
 }

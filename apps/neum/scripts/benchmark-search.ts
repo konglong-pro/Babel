@@ -65,8 +65,8 @@ try {
       id,
       query,
       expectedTotal,
-      run() {
-        const result = repositories.searchEntries(query, {
+      run(searchQuery: string) {
+        const result = repositories.searchEntries(searchQuery, {
           limit: SEARCH_BENCHMARK_PAGE_LIMIT,
           offset: 0,
         });

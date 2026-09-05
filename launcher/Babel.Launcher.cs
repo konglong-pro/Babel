@@ -91,7 +91,10 @@ internal static class Program
 
     private static Runspace CreateStaRunspace()
     {
-        Runspace runspace = RunspaceFactory.CreateRunspace();
+        InitialSessionState sessionState = InitialSessionState.CreateDefault();
+        // Match the PowerShell entrypoints without changing machine or user policy.
+        sessionState.ExecutionPolicy = Microsoft.PowerShell.ExecutionPolicy.Bypass;
+        Runspace runspace = RunspaceFactory.CreateRunspace(sessionState);
         runspace.ApartmentState = ApartmentState.STA;
         runspace.ThreadOptions = PSThreadOptions.UseNewThread;
         runspace.Open();

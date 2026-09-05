@@ -53,8 +53,8 @@ try {
         id: "ranking-sparse-8",
         query: RANKING_QUERY,
         expectedTotal: 8,
-        run: () => {
-          const result = repositories.searchDocuments(RANKING_QUERY, {
+        run: (query: string) => {
+          const result = repositories.searchDocuments(query, {
             limit: SEARCH_BENCHMARK_PAGE_LIMIT,
             offset: 0,
           });
@@ -70,8 +70,8 @@ try {
         id: "body-fanout-50",
         query: FANOUT_QUERY,
         expectedTotal: 50,
-        run: () => {
-          const result = repositories.searchDocuments(FANOUT_QUERY, {
+        run: (query: string) => {
+          const result = repositories.searchDocuments(query, {
             limit: SEARCH_BENCHMARK_PAGE_LIMIT,
             offset: 0,
           });

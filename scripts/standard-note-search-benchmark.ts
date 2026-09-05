@@ -75,8 +75,8 @@ export async function runStandardNoteSearchBenchmark(
           id: "ranking-sparse-8",
           query: rankingQuery,
           expectedTotal: 8,
-          run: () => toBenchmarkResult(
-            repositories.searchNotes(rankingQuery, {
+          run: (query: string) => toBenchmarkResult(
+            repositories.searchNotes(query, {
               limit: SEARCH_BENCHMARK_PAGE_LIMIT,
               offset: 0,
             }),
@@ -86,8 +86,8 @@ export async function runStandardNoteSearchBenchmark(
           id: "body-fanout-50",
           query: fanoutQuery,
           expectedTotal: 50,
-          run: () => toBenchmarkResult(
-            repositories.searchNotes(fanoutQuery, {
+          run: (query: string) => toBenchmarkResult(
+            repositories.searchNotes(query, {
               limit: SEARCH_BENCHMARK_PAGE_LIMIT,
               offset: 0,
             }),

@@ -27,13 +27,15 @@ export function literalTextPosition(value: string, query: string): number {
 export function countLiteralOccurrences(value: string, query: string): number {
   if (!query) return 0;
 
+  const foldedValue = asciiFold(value);
+  const foldedQuery = asciiFold(query);
   let count = 0;
   let cursor = 0;
-  let match = literalIndexOf(value, query, cursor);
+  let match = foldedValue.indexOf(foldedQuery, cursor);
   while (match >= 0) {
     count += 1;
     cursor = match + query.length;
-    match = literalIndexOf(value, query, cursor);
+    match = foldedValue.indexOf(foldedQuery, cursor);
   }
   return count;
 }
@@ -116,14 +118,16 @@ export function createCodeSnippet(
 export function highlightLiteral(value: string, query: string): SearchTextPart[] {
   if (!query) return [{ text: value, highlighted: false }];
 
+  const foldedValue = asciiFold(value);
+  const foldedQuery = asciiFold(query);
   const parts: SearchTextPart[] = [];
   let cursor = 0;
-  let match = literalIndexOf(value, query, cursor);
+  let match = foldedValue.indexOf(foldedQuery, cursor);
   while (match >= 0) {
     if (match > cursor) parts.push({ text: value.slice(cursor, match), highlighted: false });
     parts.push({ text: value.slice(match, match + query.length), highlighted: true });
     cursor = match + query.length;
-    match = literalIndexOf(value, query, cursor);
+    match = foldedValue.indexOf(foldedQuery, cursor);
   }
   if (cursor < value.length || parts.length === 0) {
     parts.push({ text: value.slice(cursor), highlighted: false });

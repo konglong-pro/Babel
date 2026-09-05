@@ -104,7 +104,7 @@ test("Babel.exe is a reproducible STA PowerShell host", () => {
   assert.match(nativeLauncherSource, /\[STAThread\]/);
   assert.match(nativeLauncherSource, /"Babel\.Gui\.ps1"/);
   assert.match(nativeLauncherSource, /Directory\.SetCurrentDirectory\(repositoryRoot\)/);
-  assert.match(nativeLauncherSource, /RunspaceFactory\.CreateRunspace\(\)/);
+  assert.match(nativeLauncherSource, /RunspaceFactory\.CreateRunspace\(sessionState\)/);
   assert.match(nativeLauncherSource, /ApartmentState\s*=\s*ApartmentState\.STA/);
   assert.match(nativeLauncherSource, /PSThreadOptions\.UseNewThread/);
   assert.match(nativeLauncherSource, /--encoded-command/);
@@ -863,6 +863,7 @@ test(
   async () => {
     await execFileAsync(nativeLauncherPath, ["-SmokeTest"], {
       cwd: os.tmpdir(),
+      env: { ...process.env, PSExecutionPolicyPreference: "Restricted" },
       encoding: "utf8",
       timeout: 30_000,
       windowsHide: true,

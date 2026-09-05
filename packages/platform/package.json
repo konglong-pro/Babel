@@ -6,6 +6,7 @@
   "exports": {
     "./build/next": "./src/build/next.ts",
     "./canvas/core": "./src/canvas/core.ts",
+    "./canvas/autosave": "./src/canvas/autosave.ts",
     "./canvas/client": "./src/canvas/client.ts",
     "./canvas/react": "./src/canvas/react.tsx",
     "./canvas/server": "./src/canvas/server.ts",

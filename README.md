@@ -23,7 +23,7 @@ port in the registry's 3000-3999 range.
 
 ## Install and verify
 
-Use Node.js 22.13 or newer, but lower than Node.js 23.
+Use Node.js 24.0 or newer, but lower than Node.js 25.
 
 ```powershell
 npm.cmd install
@@ -33,6 +33,12 @@ npm.cmd run check
 
 The full check validates the registry, tests the root scripts, then runs every
 workspace's declared check.
+
+`npm.cmd run benchmark:search:smoke` checks every application's and the template's
+search results, including dense ASCII and CJK short queries. It also guards the
+8 KiB occurrence-counting/highlighting case against quadratic regressions.
+`npm.cmd run benchmark:search:all` uses 10,000 records per application. The timing
+limits are generous CI regression guards, not interactive latency targets.
 
 For development, run one application at a time:
 
@@ -55,6 +61,12 @@ Tabs can be reordered by dragging. Closing a dirty or saving page offers Save,
 Discard, and Cancel, and clean saved tabs are restored for the browser session.
 The page-session substrate lives in `packages/platform/`; each application owns
 its document loading, editor state, save behavior, routes, and conflict rules.
+
+Canvases autosave after a 500 ms editing pause. Discard cancels unsent saves and
+waits for an already-running save before closing; closing never submits another
+copy of the discarded edit. It does not undo earlier completed autosaves.
+Embedded canvases share refresh requests, and inactive pages stop refreshing
+unless their content remains visible in a detached reader.
 
 ## Import Markdown folders
 

@@ -71,8 +71,8 @@ try {
       expectedTotal,
       limitScope: "per-stream" as const,
       orderScope: "grouped-streams" as const,
-      run() {
-        const result = repositories.searchArchive(query, {
+      run(searchQuery: string) {
+        const result = repositories.searchArchive(searchQuery, {
           limit: SEARCH_BENCHMARK_PAGE_LIMIT,
         });
         return {
