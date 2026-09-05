@@ -414,6 +414,28 @@ export function linkFromPastedUrl(
   };
 }
 
+export function editFromMarkdownPaste(
+  text: string,
+  selectionStart: number,
+  selectionEnd: number,
+  pastedText: string,
+): TextEditResult | null {
+  if (!validSelection(text, selectionStart, selectionEnd) || pastedText === "") {
+    return null;
+  }
+
+  const linked = linkFromPastedUrl(text, selectionStart, selectionEnd, pastedText);
+  if (linked !== null) return linked;
+
+  const insertion = pastedText.replace(/\r\n?/g, "\n");
+  const nextSelection = selectionStart + insertion.length;
+  return {
+    text: text.slice(0, selectionStart) + insertion + text.slice(selectionEnd),
+    selectionStart: nextSelection,
+    selectionEnd: nextSelection,
+  };
+}
+
 export function toggleTaskCheckbox(text: string, line: number): TextEditResult | null {
   if (!Number.isInteger(line) || line < 1) return null;
   const lines = sourceLines(text);

@@ -125,6 +125,21 @@ test("renders canvas embeds as live-preview placeholders with stable links", () 
   assert.match(html, /Loading canvas/u);
 });
 
+test("renders fenced code with an explicit preformatted whitespace invariant", () => {
+  const html = renderToStaticMarkup(createElement(MarkdownRenderer, {
+    content: [
+      "```scss",
+      "KEYWORD(int)",
+      "",
+      "IDENTIFIER(x)",
+      "```",
+    ].join("\n"),
+  }));
+
+  assert.match(html, /<pre style="white-space:pre"><code class="language-scss">/u);
+  assert.match(html, /KEYWORD\(int\)\n\nIDENTIFIER\(x\)\n<\/code><\/pre>/u);
+});
+
 test("configures GFM by default and native Typst math only when requested", () => {
   const gfmHtml = renderToStaticMarkup(createElement(MarkdownRenderer, {
     content: "| A |\n| - |\n| B |",
@@ -195,6 +210,42 @@ test("renders double dollars and bracket delimiters as LaTeX display formulas", 
   assert.equal((html.match(/data-katex-display="block"/gu) ?? []).length, 2);
   assert.equal((html.match(/class="katex-display"/gu) ?? []).length, 2);
   assert.doesNotMatch(html, /aria-busy="true"/u);
+});
+
+test("renders explicit LaTeX delimiters emitted by Markdown copy adapters", () => {
+  const html = renderToStaticMarkup(createElement(MarkdownRenderer, {
+    content: [
+      String.raw`The series is \(\tan x \approx x + \frac{x^3}{3} + \cdots\).`,
+      "",
+      String.raw`\[`,
+      String.raw`\left.\frac{d}{dx}\tan x\right|_{x=0} = 1,`,
+      String.raw`\left.\frac{d}{dx}x^3\right|_{x=0} = 0.`,
+      String.raw`\]`,
+    ].join("\n"),
+    remarkFeatures: ["formula-math"],
+  }));
+
+  assert.equal((html.match(/data-formula-engine="latex"/gu) ?? []).length, 2);
+  assert.equal((html.match(/data-katex-display="inline"/gu) ?? []).length, 1);
+  assert.equal((html.match(/data-katex-display="block"/gu) ?? []).length, 1);
+  assert.doesNotMatch(html, /data-katex-error="true"/u);
+});
+
+test("renders multiline copied TeX expansions as a KaTeX block", () => {
+  const html = renderToStaticMarkup(createElement(MarkdownRenderer, {
+    content: [
+      String.raw`\[`,
+      String.raw`\sin x`,
+      String.raw`\underbrace{x}_{\text{main term}}`,
+      String.raw`\underbrace{\frac{x^3}{6}}_{\text{correction}}`,
+      String.raw`\]`,
+    ].join("\n"),
+    remarkFeatures: ["formula-math"],
+  }));
+
+  assert.equal((html.match(/data-katex-display="block"/gu) ?? []).length, 1);
+  assert.match(html, /<munder>/u);
+  assert.doesNotMatch(html, /data-katex-error="true"/u);
 });
 
 test("does not allow internal note schemes in image sources or malformed links", () => {

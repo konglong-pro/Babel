@@ -122,6 +122,71 @@ test("supports multiline LaTeX display formulas", () => {
   assert.match(prepared.occurrences[0]?.source ?? "", /begin\{aligned\}/u);
 });
 
+test("preserves explicit LaTeX copied from rendered math DOMs", () => {
+  const markdown = [
+    String.raw`The series is \(\tan x \approx x + \frac{x^3}{3} + \cdots\).`,
+    "",
+    String.raw`\[`,
+    String.raw`\left.\frac{d}{dx}\tan x\right|_{x=0} = 1,`,
+    String.raw`\left.\frac{d}{dx}x^3\right|_{x=0} = 0.`,
+    String.raw`\]`,
+  ].join("\n");
+  const prepared = prepareFormulaMath(markdown);
+
+  assert.deepEqual(
+    prepared.occurrences.map(({ engine, source, display }) => ({
+      engine,
+      source,
+      display,
+    })),
+    [
+      {
+        engine: "latex",
+        source: String.raw`\tan x \approx x + \frac{x^3}{3} + \cdots`,
+        display: "inline",
+      },
+      {
+        engine: "latex",
+        source: [
+          String.raw`\left.\frac{d}{dx}\tan x\right|_{x=0} = 1,`,
+          String.raw`\left.\frac{d}{dx}x^3\right|_{x=0} = 0.`,
+        ].join("\n"),
+        display: "block",
+      },
+    ],
+  );
+});
+
+test("renders multiline copied TeX only with block delimiters", () => {
+  const markdown = [
+    String.raw`\[`,
+    String.raw`\sin x`,
+    String.raw`\underbrace{x}_{\text{main term}}`,
+    String.raw`\underbrace{\frac{x^3}{6}}_{\text{correction}}`,
+    String.raw`\]`,
+  ].join("\n");
+  const prepared = prepareFormulaMath(markdown);
+
+  assert.deepEqual(
+    prepared.occurrences.map(({ engine, source, display }) => ({
+      engine,
+      source,
+      display,
+    })),
+    [
+      {
+        engine: "latex",
+        source: [
+          String.raw`\sin x`,
+          String.raw`\underbrace{x}_{\text{main term}}`,
+          String.raw`\underbrace{\frac{x^3}{6}}_{\text{correction}}`,
+        ].join("\n"),
+        display: "block",
+      },
+    ],
+  );
+});
+
 test("preserves source line positions when replacing multiline formulas", () => {
   for (const newline of ["\n", "\r\n"]) {
     const markdown = [

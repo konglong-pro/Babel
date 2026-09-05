@@ -5,6 +5,7 @@ import {
   continueFenceOnEnter,
   continueListOnEnter,
   editFromMarkdownKey,
+  editFromMarkdownPaste,
   indentListItem,
   linkFromPastedUrl,
   minimalTextReplacement,
@@ -179,6 +180,25 @@ test("turns a pasted HTTP URL into a link only with selected text", () => {
   });
   assert.equal(linkFromPastedUrl("visit", 0, 5, "javascript:alert(1)"), null);
   assert.equal(linkFromPastedUrl("visit", 2, 2, "https://example.com"), null);
+});
+
+test("inserts pasted Markdown without losing fenced-code line breaks", () => {
+  const pasted = [
+    "```scss",
+    "KEYWORD(int)",
+    "",
+    "IDENTIFIER(x)",
+    "",
+    "OPERATOR(=)",
+    "```",
+  ].join("\r\n");
+  const expected = pasted.replace(/\r\n/gu, "\n");
+
+  assert.deepEqual(editFromMarkdownPaste("replace", 0, 7, pasted), {
+    text: expected,
+    selectionStart: expected.length,
+    selectionEnd: expected.length,
+  });
 });
 
 test("opens and exits an empty fenced block", () => {

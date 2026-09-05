@@ -49,7 +49,7 @@ import {
 } from "./core";
 import {
   editFromMarkdownKey,
-  linkFromPastedUrl,
+  editFromMarkdownPaste,
   minimalTextReplacement,
   toggleTaskListSelection,
   wrapInlineSelection,
@@ -172,8 +172,12 @@ export function MarkdownRenderer({
       p: ({ node, ...props }) => (
         <p {...props} {...searchFocusAttributes(node, focusSourceLine)} />
       ),
-      pre: ({ node, ...props }) => (
-        <pre {...props} {...searchFocusAttributes(node, focusSourceLine)} />
+      pre: ({ node, style, ...props }) => (
+        <pre
+          {...props}
+          style={{ ...style, whiteSpace: "pre" }}
+          {...searchFocusAttributes(node, focusSourceLine)}
+        />
       ),
       blockquote: ({ node, ...props }) => (
         <blockquote {...props} {...searchFocusAttributes(node, focusSourceLine)} />
@@ -1226,7 +1230,7 @@ export function MarkdownEditor({
 
     const textarea = textareaRef.current;
     if (textarea === null) return;
-    const edit = linkFromPastedUrl(
+    const edit = editFromMarkdownPaste(
       textarea.value,
       textarea.selectionStart,
       textarea.selectionEnd,
