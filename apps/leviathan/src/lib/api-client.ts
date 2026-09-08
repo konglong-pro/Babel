@@ -158,6 +158,12 @@ export function updateNote(
   });
 }
 
+export function moveNote(id: number, folderId: number): Promise<NoteDetailDto> {
+  const formData = new FormData();
+  formData.set("payload", JSON.stringify({ folderId }));
+  return request(`/api/notes/${id}`, { method: "PATCH", body: formData });
+}
+
 export function reorderNote(id: number, position: number): Promise<NoteDetailDto> {
   const formData = new FormData();
   formData.set("payload", JSON.stringify({ position }));

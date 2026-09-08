@@ -42,6 +42,7 @@ interface NotePageSessionProps {
   notes: NoteSummaryDto[];
   templates: NoteTemplateDto[];
   editRequested: boolean;
+  moving?: boolean;
   onEditRequestConsumed: () => void;
   searchFocus: ValiSearchFocus | null;
   onOpenNote: (id: number, folderId?: number) => void;
@@ -72,6 +73,7 @@ export function NotePageSession({
   notes,
   templates,
   editRequested,
+  moving = false,
   onEditRequestConsumed,
   searchFocus,
   onOpenNote,
@@ -242,7 +244,7 @@ export function NotePageSession({
         templates={templates}
         searchFocus={searchFocus}
         backlinks={backlinks}
-        loading={loading}
+        loading={loading || moving}
         onEdit={() => setMode("edit")}
         onCreateSubnote={() => {
           if (!detail) return;

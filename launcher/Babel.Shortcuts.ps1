@@ -372,7 +372,7 @@ function Get-BabelShortcutDefinitions {
     if (-not (Test-BabelShortcutProperty -InputObject $document -Name "schemaVersion")) {
         throw "Shortcut defaults are missing schemaVersion."
     }
-    if (-not ($document.schemaVersion -is [int]) -or [int]$document.schemaVersion -ne 3) {
+    if (-not ($document.schemaVersion -is [int] -or $document.schemaVersion -is [long]) -or [long]$document.schemaVersion -ne 3) {
         throw "Unsupported shortcut defaults schemaVersion '$($document.schemaVersion)'."
     }
     if (-not (Test-BabelShortcutProperty -InputObject $document -Name "commands")) {
@@ -502,11 +502,11 @@ function Read-BabelShortcutSettings {
             throw "Shortcut settings are missing schemaVersion."
         }
         if (
-            -not ($document.schemaVersion -is [int]) -or
+            -not ($document.schemaVersion -is [int] -or $document.schemaVersion -is [long]) -or
             (
-                [int]$document.schemaVersion -ne 1 -and
-                [int]$document.schemaVersion -ne 2 -and
-                [int]$document.schemaVersion -ne 3
+                [long]$document.schemaVersion -ne 1 -and
+                [long]$document.schemaVersion -ne 2 -and
+                [long]$document.schemaVersion -ne 3
             )
         ) {
             throw "Unsupported shortcut settings schemaVersion '$($document.schemaVersion)'."
@@ -540,7 +540,7 @@ function Read-BabelShortcutSettings {
             "delete",
             "commandPalette"
         )
-        $expectedCommandIds = switch ([int]$document.schemaVersion) {
+        $expectedCommandIds = switch ([long]$document.schemaVersion) {
             1 { $legacyCommandIds }
             2 { $versionTwoCommandIds }
             default { $currentCommandIds }
@@ -554,19 +554,19 @@ function Read-BabelShortcutSettings {
         foreach ($property in @($document.bindings.PSObject.Properties)) {
             if (
                 $null -eq $property.Value -and
-                [int]$document.schemaVersion -eq 3
+                [long]$document.schemaVersion -eq 3
             ) {
                 $bindings[[string]$property.Name] = $null
                 continue
             }
             if (-not ($property.Value -is [string])) {
-                $expectedType = if ([int]$document.schemaVersion -eq 3) { "a string or null" } else { "a string" }
+                $expectedType = if ([long]$document.schemaVersion -eq 3) { "a string or null" } else { "a string" }
                 throw "Shortcut setting '$($property.Name)' must be $expectedType."
             }
             $bindings[[string]$property.Name] = [string]$property.Value
         }
 
-        if ([int]$document.schemaVersion -lt 3) {
+        if ([long]$document.schemaVersion -lt 3) {
             $usedBindings = @{}
             $legacyCanonicalBindings = [ordered]@{}
             foreach ($commandId in $expectedCommandIds) {
@@ -709,7 +709,7 @@ function Read-BabelLauncherHotkeySettings {
             -InputObject $document `
             -Names @("schemaVersion", "toggleLauncher") `
             -Description "Launcher hotkey settings"
-        if (-not ($document.schemaVersion -is [int]) -or [int]$document.schemaVersion -ne 1) {
+        if (-not ($document.schemaVersion -is [int] -or $document.schemaVersion -is [long]) -or [long]$document.schemaVersion -ne 1) {
             throw "Unsupported launcher hotkey schemaVersion '$($document.schemaVersion)'."
         }
         if (-not ($document.toggleLauncher -is [string])) {

@@ -1,5 +1,8 @@
 "use client";
 
+import { FolderMoveProvider } from "@babel-apps/platform/folders/move-react";
+import { entrySubtreeIds } from "@/components/entry-tree-state";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -35,6 +38,7 @@ import {
   getErrorMessage,
   listEntries,
   reorderEntry,
+  moveEntry,
   listFolders,
   updateFolder,
 } from "@/lib/api-client";
@@ -83,7 +87,7 @@ export function EntriesWorkspace({
 }: EntriesWorkspaceProps) {
   const router = useRouter();
   const processActive = useWorkspaceProcessActive();
-  const { pages, activeKey, activatePage, closePage, openPage } = usePageSessions();
+  const { pages, activeKey, activatePage, closePage, openPage, updatePage } = usePageSessions();
   const { focusPane } = usePaneFocus();
   const pageKind = entryUnitLabel(kind);
   const [folders, setFolders] = useState<FolderDto[]>([]);
@@ -104,6 +108,8 @@ export function EntriesWorkspace({
   const [folderImportTitles, setFolderImportTitles] = useState<string[]>([]);
   const [folderImportParents, setFolderImportParents] = useState<EntrySummaryDto[]>([]);
   const [drafts, setDrafts] = useState<Record<string, EntryDraftSession>>({});
+  const [movingItemIds, setMovingItemIds] = useState<ReadonlySet<number>>(new Set());
+  const [moveRevisions, setMoveRevisions] = useState<Record<number, number>>({});
   const [pendingEditPageKey, setPendingEditPageKey] = useState<string | null>(null);
   const [activeReferencePanel, setActiveReferencePanel] = useState<ReferencePanelKind | null>(null);
   const referenceTriggerRef = useRef<HTMLElement | null>(null);
@@ -491,6 +497,39 @@ export function EntriesWorkspace({
     }
   }
 
+  async function handleMoveEntry(id: number, folderId: number) {
+    const entry = entries.find((candidate) => candidate.id === id && candidate.kind === kind);
+    if (!entry || !folders.some((folder) => folder.id === folderId)) {
+      throw new Error("This entry or destination folder is no longer available. Refresh and try again.");
+    }
+    if (entry.folderId === folderId) return;
+    const affectedIds = entrySubtreeIds(entries, id);
+    const blocked = pages.some((page) => {
+      const savedId = savedEntryId(page.key);
+      if (savedId !== null && affectedIds.has(savedId) && (page.dirty || page.pending)) return true;
+      const draft = drafts[page.key];
+      return draft?.parentId !== null && draft?.parentId !== undefined && affectedIds.has(draft.parentId);
+    });
+    if (blocked) throw new Error("Save or close open drafts in this note and its child notes before moving it.");
+    setMovingItemIds(affectedIds);
+    try {
+      await moveEntry(id, entry.version, folderId);
+      for (const page of pages) {
+        const savedId = savedEntryId(page.key);
+        if (savedId === null || !affectedIds.has(savedId)) continue;
+        updatePage(page.key, { href: entryWorkspaceHref(kind, { folderId, entryId: savedId }) });
+      }
+      setMoveRevisions((current) => {
+        const next = { ...current };
+        for (const affectedId of affectedIds) next[affectedId] = (next[affectedId] ?? 0) + 1;
+        return next;
+      });
+      await refreshWorkspaceIndex(selectedEntryId !== null && affectedIds.has(selectedEntryId) ? folderId : visibleFolderId);
+    } finally {
+      setMovingItemIds(new Set());
+    }
+  }
+
   async function handleReorderEntry(id: number, position: number) {
     const entry = entries.find((candidate) => candidate.id === id);
     if (!entry) return;
@@ -598,6 +637,13 @@ export function EntriesWorkspace({
   });
 
   return (
+    <FolderMoveProvider
+      scope={`neum:${kind}`}
+      items={entries}
+      folderIds={folders.map(({ id }) => id)}
+      disabled={indexLoading || folderLoading || movingItemIds.size > 0}
+      onMove={handleMoveEntry}
+    >
     <div className={`entries-workspace stage-${visibleStage}${hasUnsavedPages ? " has-unsaved" : ""}`}>
       {processActive ? <ActiveWorkspaceHistoryGuard /> : null}
       {error ? (
@@ -665,7 +711,8 @@ export function EntriesWorkspace({
             if (entryId === null && draft === null) return null;
             return (
               <EntryPageSession
-                key={page.key}
+                key={`${page.key}:${entryId === null ? 0 : moveRevisions[entryId] ?? 0}`}
+                moving={entryId !== null && movingItemIds.has(entryId)}
                 pageKey={page.key}
                 entryId={entryId}
                 draft={draft}
@@ -726,6 +773,7 @@ export function EntriesWorkspace({
         />
       ) : null}
     </div>
+    </FolderMoveProvider>
   );
 }
 

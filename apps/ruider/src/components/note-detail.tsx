@@ -1,5 +1,7 @@
 "use client";
 
+import { FolderPicker } from "@babel-apps/platform/folders/picker";
+
 import type { Wikilink } from "@babel-apps/markdown/core";
 import {
   DetachedEditorWindow,
@@ -495,10 +497,6 @@ function NoteForm({
 
   const folderMap = useMemo(() => new Map(folders.map((folder) => [folder.id, folder])), [folders]);
   const readerTriggerId = `ruider-note-${detail?.id ?? draftKey}-reader-trigger`;
-  const folderOptions = useMemo(
-    () => folders.map((folder) => ({ id: folder.id, label: folderPathLabel(folder.id, folderMap) })),
-    [folderMap, folders],
-  );
   const unavailableParentIds = useMemo(
     () => detail === null ? new Set<number>() : noteSubtreeIds(detail.id, notes),
     [detail, notes],
@@ -848,26 +846,21 @@ function NoteForm({
               }}
             />
           </label>
-          <label className="field">
+          <div className="field">
             <span>Folder</span>
-            <select
+            <FolderPicker
               name="folderId"
+              label="Folder"
+              folders={folders}
               required
               disabled={pending}
-              value={folderId ?? ""}
-              onChange={(event) => {
-                if (!pendingRef.current) {
-                  setFolderId(event.target.value ? Number(event.target.value) : null);
-                  setParentId(null);
-                }
+              value={folderId}
+              onChange={(nextFolderId) => {
+                setFolderId(nextFolderId);
+                setParentId(null);
               }}
-            >
-              <option value="" disabled>Select a folder</option>
-              {folderOptions.map((folder) => (
-                <option key={folder.id} value={folder.id}>{folder.label}</option>
-              ))}
-            </select>
-          </label>
+            />
+          </div>
           <label className="field">
             <span>Parent page</span>
             <select

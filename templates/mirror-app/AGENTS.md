@@ -27,4 +27,12 @@ transaction. Folder creation and the explicit Move action append to the target
 parent. Preserve deterministic migration backfills and the
 `folder_parent_position_idx` index when evolving the schema.
 
+Use `@babel-apps/platform/folders/picker` and `@babel-apps/platform/folders.css`
+for searchable, expandable folder fields. Pass the server-ordered folders to
+preserve sidebar sibling order. Wrap the note workspace in
+`FolderMoveProvider` from `@babel-apps/platform/folders/move-react`; the shared
+item and folder reorder hooks handle drag sources and folder drop targets.
+Keep moves as location-only PATCH requests, block dirty/pending subtree pages
+and child drafts, and refresh affected clean page sessions after success.
+
 The root `AGENTS.md` owns shared commands and public/private data discipline.

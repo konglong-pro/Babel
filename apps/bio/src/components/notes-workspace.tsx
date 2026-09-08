@@ -1,5 +1,7 @@
 "use client";
 
+import { FolderMoveProvider } from "@babel-apps/platform/folders/move-react";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   MarkdownWritingGuidePanel,
@@ -39,6 +41,7 @@ import {
   listFolders,
   listNotes,
   reorderNote,
+  moveNote,
   listNoteTemplates,
   updateNoteTemplate,
   updateFolder,
@@ -63,7 +66,7 @@ interface NotesWorkspaceProps {
   initialSearchFocus?: SearchFocus<NoteSearchField> | null;
 }
 
-function subtreeIds(rootId: number, folders: readonly FolderDto[]): Set<number> {
+function subtreeIds(rootId: number, folders: readonly Pick<FolderDto, "id" | "parentId">[]): Set<number> {
   const grouped = new Map<number | null, number[]>();
   for (const folder of folders) {
     const children = grouped.get(folder.parentId) ?? [];
@@ -99,7 +102,7 @@ export function NotesWorkspace({
   initialNoteId = null,
   initialSearchFocus = null,
 }: NotesWorkspaceProps) {
-  const { pages, activeKey, activatePage, closePage, openPage } = usePageSessions();
+  const { pages, activeKey, activatePage, closePage, openPage, updatePage } = usePageSessions();
   const { focusPane } = usePaneFocus();
   const [folders, setFolders] = useState<FolderDto[]>([]);
   const [notes, setNotes] = useState<NoteSummaryDto[]>([]);
@@ -113,6 +116,8 @@ export function NotesWorkspace({
   const [notice, setNotice] = useState("");
   const [folderImportFiles, setFolderImportFiles] = useState<File[] | null>(null);
   const [drafts, setDrafts] = useState<Record<string, NoteDraftSession>>({});
+  const [movingItemIds, setMovingItemIds] = useState<ReadonlySet<number>>(new Set());
+  const [moveRevisions, setMoveRevisions] = useState<Record<number, number>>({});
   const [pendingEditPageKey, setPendingEditPageKey] = useState<string | null>(null);
   const [managingTemplates, setManagingTemplates] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
@@ -352,6 +357,39 @@ export function NotesWorkspace({
     }
   }
 
+  async function handleMoveNote(id: number, folderId: number) {
+    const note = notes.find((candidate) => candidate.id === id);
+    if (!note || !folders.some((folder) => folder.id === folderId)) {
+      throw new Error("This note or destination folder is no longer available. Refresh and try again.");
+    }
+    if (note.folderId === folderId) return;
+    const affectedIds = subtreeIds(id, notes);
+    const blocked = pages.some((page) => {
+      const savedId = savedNoteId(page.key);
+      if (savedId !== null && affectedIds.has(savedId) && (page.dirty || page.pending)) return true;
+      const draft = drafts[page.key];
+      return draft?.parentId !== null && draft?.parentId !== undefined && affectedIds.has(draft.parentId);
+    });
+    if (blocked) throw new Error("Save or close open drafts in this note and its child notes before moving it.");
+    setMovingItemIds(affectedIds);
+    try {
+      await moveNote(id, folderId);
+      for (const page of pages) {
+        const savedId = savedNoteId(page.key);
+        if (savedId === null || !affectedIds.has(savedId)) continue;
+        updatePage(page.key, { href: savedNotePage({ id: savedId, folderId, title: page.title }).href });
+      }
+      setMoveRevisions((current) => {
+        const next = { ...current };
+        for (const affectedId of affectedIds) next[affectedId] = (next[affectedId] ?? 0) + 1;
+        return next;
+      });
+      await refreshIndex();
+    } finally {
+      setMovingItemIds(new Set());
+    }
+  }
+
   async function handleReorderNote(id: number, position: number) {
     try {
       await reorderNote(id, position);
@@ -479,6 +517,13 @@ export function NotesWorkspace({
     })),
   });
   return (
+    <FolderMoveProvider
+      scope="bio:notes"
+      items={notes}
+      folderIds={folders.map(({ id }) => id)}
+      disabled={indexLoading || movingItemIds.size > 0}
+      onMove={handleMoveNote}
+    >
     <div
       className={`notes-workspace stage-${visibleStage}${hasUnsavedPages || templateDirty ? " has-unsaved" : ""}${showingTemplates ? " managing-templates" : ""}`}
     >
@@ -598,7 +643,8 @@ export function NotesWorkspace({
               if (noteId === null && draft === null) return null;
               return (
                 <NotePageSession
-                  key={page.key}
+                  key={`${page.key}:${noteId === null ? 0 : moveRevisions[noteId] ?? 0}`}
+                  moving={noteId !== null && movingItemIds.has(noteId)}
                   pageKey={page.key}
                   noteId={noteId}
                   draft={draft}
@@ -659,5 +705,6 @@ export function NotesWorkspace({
         />
       ) : null}
     </div>
+    </FolderMoveProvider>
   );
 }

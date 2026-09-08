@@ -51,7 +51,7 @@ jobs:
       - name: Install locked dependencies
         run: npm ci --no-audit --no-fund
       - name: Prepare disposable registered app data
-        shell: powershell
+        shell: pwsh
         run: |
           $registry = Get-Content -Raw .\babel.apps.json | ConvertFrom-Json
           foreach ($app in $registry.apps) {
@@ -92,13 +92,13 @@ jobs:
             }
           }
       - name: Verify every registered application
-        shell: powershell
+        shell: pwsh
         run: >
-          powershell.exe -NoProfile -ExecutionPolicy Bypass
+          pwsh.exe -NoProfile -ExecutionPolicy Bypass
           -File .\launcher\Babel.ps1
           -Selection All -NoBrowser -VerifyAndExit
       - name: Smoke-test the WPF launcher
-        shell: powershell
+        shell: pwsh
         run: >
-          powershell.exe -NoProfile -STA -ExecutionPolicy Bypass
+          pwsh.exe -NoProfile -STA -ExecutionPolicy Bypass
           -File .\launcher\Babel.Gui.ps1 -SmokeTest

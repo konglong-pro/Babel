@@ -16,6 +16,7 @@ import {
   type ItemDropPlacement,
   type OrderedItem,
 } from "./reorder";
+import { useFolderMove } from "../folders/move-react";
 
 export interface ItemReorderController {
   dropClassName: (itemId: number) => string;
@@ -38,6 +39,7 @@ export function useItemReorder({
   disabled = false,
   onReorder,
 }: UseItemReorderOptions): ItemReorderController {
+  const folderMove = useFolderMove();
   const [draggedId, setDraggedId] = useState<number | null>(null);
   const [dropTarget, setDropTarget] = useState<{
     id: number;
@@ -60,30 +62,35 @@ export function useItemReorder({
   const clearDrag = useCallback(() => {
     setDraggedId(null);
     setDropTarget(null);
-  }, []);
+    folderMove?.clearDrag();
+  }, [folderMove]);
 
   const runReorder = useCallback((itemId: number, position: number) => {
-    if (disabled || pending) return;
+    if (disabled || pending || folderMove?.busy) return;
     setPending(true);
     void Promise.resolve(onReorder(itemId, position))
       .catch(() => undefined)
       .finally(() => setPending(false));
-  }, [disabled, onReorder, pending]);
+  }, [disabled, folderMove, onReorder, pending]);
 
   const selectionProps = useCallback((itemId: number): ItemReorderSelectionProps => {
-    const unavailable = disabled || pending || !canMove.has(itemId);
+    const unavailable = disabled || pending || folderMove?.busy || !canMove.has(itemId);
+    const canMoveToFolder = folderMove?.canDrag(itemId) ?? false;
     return {
-      draggable: !unavailable,
+      draggable: !unavailable || canMoveToFolder,
       "aria-keyshortcuts": "Control+Alt+ArrowUp Control+Alt+ArrowDown",
-      title: unavailable ? undefined : "Drag to reorder · use Ctrl+Alt+↑/↓ with keyboard",
+      title: canMoveToFolder
+        ? "Drag to a folder to move · drag between siblings to reorder"
+        : unavailable ? undefined : "Drag to reorder · use Ctrl+Alt+↑/↓ with keyboard",
       "data-babel-item-drag-source": "",
       onDragStart(event: DragEvent<HTMLButtonElement>) {
-        if (unavailable) {
+        if (unavailable && !canMoveToFolder) {
           event.preventDefault();
           return;
         }
         event.dataTransfer.effectAllowed = "move";
         event.dataTransfer.setData("text/plain", String(itemId));
+        if (canMoveToFolder) folderMove?.startDrag(itemId, event);
         setDraggedId(itemId);
       },
       onDragEnd: clearDrag,
@@ -106,11 +113,11 @@ export function useItemReorder({
         runReorder(itemId, position);
       },
     };
-  }, [canMove, clearDrag, disabled, items, pending, runReorder]);
+  }, [canMove, clearDrag, disabled, folderMove, items, pending, runReorder]);
 
   const rowProps = useCallback((itemId: number): HTMLAttributes<HTMLDivElement> => ({
     onDragOver(event: DragEvent<HTMLDivElement>) {
-      if (draggedId === null || disabled || pending) return;
+      if (draggedId === null || disabled || pending || folderMove?.busy) return;
       const bounds = event.currentTarget.getBoundingClientRect();
       const placement: ItemDropPlacement = event.clientY < bounds.top + bounds.height / 2
         ? "before"
@@ -138,7 +145,7 @@ export function useItemReorder({
       event.preventDefault();
       runReorder(draggedId, position);
     },
-  }), [clearDrag, disabled, draggedId, dropTarget, items, pending, runReorder]);
+  }), [clearDrag, disabled, draggedId, dropTarget, folderMove, items, pending, runReorder]);
 
   const dropClassName = useCallback((itemId: number) => {
     if (dropTarget?.id !== itemId) return "";

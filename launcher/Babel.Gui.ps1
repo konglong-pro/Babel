@@ -30,11 +30,11 @@ if ($testModeCount -gt 1) {
     throw "GUI smoke-test modes cannot be used together."
 }
 
-if ($PSVersionTable.PSEdition -ne "Desktop" -or $PSVersionTable.PSVersion.Major -ne 5) {
-    throw "Babel GUI requires Windows PowerShell 5.1."
+if ($PSVersionTable.PSEdition -ne "Core" -or $PSVersionTable.PSVersion.Major -lt 7) {
+    throw "Babel GUI requires PowerShell 7 or newer."
 }
 if ([Threading.Thread]::CurrentThread.ApartmentState -ne [Threading.ApartmentState]::STA) {
-    throw "Babel GUI requires an STA thread. Start it with powershell.exe -STA -File launcher\Babel.Gui.ps1."
+    throw "Babel GUI requires an STA thread. Start it with pwsh.exe -STA -File launcher\Babel.Gui.ps1."
 }
 
 Add-Type -AssemblyName PresentationFramework
@@ -2086,7 +2086,7 @@ function Start-BabelWorker {
     }
 
     # Keep each native stream in a pollable temporary file. The native host
-    # reads BabelLauncherExitCode after this runspace finishes.
+    # propagates the PowerShell 7 process exit code.
     $workerCommand += " 2> " + (ConvertTo-PowerShellLiteral -Value $stdErrLogPath) +
         " 3>&1 4>&1 5>&1 6>&1 1> " + (ConvertTo-PowerShellLiteral -Value $stdOutLogPath) +
         '; if ($null -eq $global:BabelLauncherExitCode) { $global:BabelLauncherExitCode = [int]$LASTEXITCODE }'

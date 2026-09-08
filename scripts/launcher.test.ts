@@ -104,9 +104,9 @@ test("Babel.exe is a reproducible STA PowerShell host", () => {
   assert.match(nativeLauncherSource, /\[STAThread\]/);
   assert.match(nativeLauncherSource, /"Babel\.Gui\.ps1"/);
   assert.match(nativeLauncherSource, /Directory\.SetCurrentDirectory\(repositoryRoot\)/);
-  assert.match(nativeLauncherSource, /RunspaceFactory\.CreateRunspace\(sessionState\)/);
-  assert.match(nativeLauncherSource, /ApartmentState\s*=\s*ApartmentState\.STA/);
-  assert.match(nativeLauncherSource, /PSThreadOptions\.UseNewThread/);
+  assert.match(nativeLauncherSource, /"pwsh\.exe"/);
+  assert.match(nativeLauncherSource, /-STA/);
+  assert.match(nativeLauncherSource, /CreateNoWindow\s*=\s*true/);
   assert.match(nativeLauncherSource, /--encoded-command/);
   assert.doesNotMatch(nativeLauncherSource, /XamlReader/);
   assert.match(nativeLauncherBuildSource, /v4\.0\.30319/i);
@@ -115,7 +115,7 @@ test("Babel.exe is a reproducible STA PowerShell host", () => {
   assert.match(nativeLauncherBuildSource, /\/noconfig/i);
   assert.match(nativeLauncherBuildSource, /\/nostdlib\+/i);
   assert.match(nativeLauncherBuildSource, /\/win32icon:/i);
-  assert.match(nativeLauncherBuildSource, /System\.Management\.Automation\.dll/i);
+  assert.doesNotMatch(nativeLauncherBuildSource, /System\.Management\.Automation/i);
   assert.match(nativeLauncherBuildSource, /Babel\.Launcher\.cs/i);
 });
 
@@ -127,7 +127,7 @@ test(
     const outputPath = path.join(temporaryRoot, "Babel.exe");
     try {
       await execFileAsync(
-        "powershell.exe",
+        "pwsh.exe",
         [
           "-NoLogo",
           "-NoProfile",
@@ -748,7 +748,7 @@ Write-Output "Babel shortcut replacement test passed."
 
     try {
       const { stdout } = await execFileAsync(
-        "powershell.exe",
+        "pwsh.exe",
         [
           "-NoLogo",
           "-NoProfile",
@@ -893,11 +893,11 @@ test(
 );
 
 test(
-  "the shortcut editor passes a read-only Windows PowerShell smoke test",
+  "the shortcut editor passes a read-only PowerShell 7 smoke test",
   { skip: process.platform !== "win32" },
   async () => {
     const { stdout } = await execFileAsync(
-      "powershell.exe",
+      "pwsh.exe",
       [
         "-NoLogo",
         "-NoProfile",
@@ -918,11 +918,11 @@ test(
 );
 
 test(
-  "the notebook state machine passes a real Windows PowerShell smoke test",
+  "the notebook state machine passes a real PowerShell 7 smoke test",
   { skip: process.platform !== "win32" },
   async () => {
     const { stdout } = await execFileAsync(
-      "powershell.exe",
+      "pwsh.exe",
       [
         "-NoLogo",
         "-NoProfile",
@@ -947,11 +947,11 @@ test(
 );
 
 test(
-  "the aggregate and independent worker lifecycle passes a real Windows PowerShell smoke test",
+  "the aggregate and independent worker lifecycle passes a real PowerShell 7 smoke test",
   { skip: process.platform !== "win32" },
   async () => {
     const { stdout } = await execFileAsync(
-      "powershell.exe",
+      "pwsh.exe",
       [
         "-NoLogo",
         "-NoProfile",
@@ -980,11 +980,11 @@ test(
 );
 
 test(
-  "the tray lifecycle passes a real Windows PowerShell smoke test",
+  "the tray lifecycle passes a real PowerShell 7 smoke test",
   { skip: process.platform !== "win32" },
   async () => {
     const { stdout } = await execFileAsync(
-      "powershell.exe",
+      "pwsh.exe",
       [
         "-NoLogo",
         "-NoProfile",
@@ -1003,11 +1003,11 @@ test(
 );
 
 test(
-  "the global hotkey toggle passes a real Windows PowerShell smoke test",
+  "the global hotkey toggle passes a real PowerShell 7 smoke test",
   { skip: process.platform !== "win32" },
   async () => {
     const { stdout } = await execFileAsync(
-      "powershell.exe",
+      "pwsh.exe",
       [
         "-NoLogo",
         "-NoProfile",
@@ -1058,3 +1058,21 @@ test("the launcher resolves a Node executable compatible with the root engine", 
     `Node resolution must satisfy the root engine range ${requiredNodeRange}`,
   );
 });
+
+
+test(
+  "the native launcher uses PowerShell 7 and propagates worker exit codes",
+  { skip: process.platform !== "win32" },
+  async () => {
+    const invoke = (command: string) => execFileAsync(
+      nativeLauncherPath,
+      ["--encoded-command", Buffer.from(command, "utf16le").toString("base64")],
+      { cwd: root, timeout: 30_000, windowsHide: true },
+    );
+    await invoke("if ($PSVersionTable.PSEdition -ne 'Core' -or $PSVersionTable.PSVersion.Major -lt 7) { throw 'PowerShell 7 required' }");
+    await assert.rejects(
+      invoke("$global:BabelLauncherExitCode = 23"),
+      (error: unknown) => (error as { code?: unknown }).code === 23,
+    );
+  },
+);

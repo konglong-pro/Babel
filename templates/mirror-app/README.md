@@ -41,6 +41,11 @@ parent and never changes hierarchy.
 Use the existing **Move** action to change a folder's parent; moved and newly
 created folders append to the destination level.
 
+The **Folder** field supports name/path search and an expandable tree matching
+the sidebar order. Drag a note onto a sidebar folder to move it with its child
+pages, or between sibling notes to reorder. Moves preserve note contents and
+images; save or close dirty subtree pages and child drafts before moving.
+
 Editing an existing note opens a focused **Content + Outline** window aligned
 to the note-detail column. The main edit page continues to manage the title,
 folder, parent page, tags, Save, and Cancel; new-note drafts remain inline.

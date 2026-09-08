@@ -45,6 +45,7 @@ interface EntryPageSessionProps {
   folders: FolderDto[];
   entries: EntrySummaryDto[];
   editRequested: boolean;
+  moving?: boolean;
   onEditRequestConsumed: () => void;
   searchFocus: EntrySearchFocus | null;
   onOpenEntry: (
@@ -82,6 +83,7 @@ export function EntryPageSession({
   folders,
   entries,
   editRequested,
+  moving = false,
   onEditRequestConsumed,
   searchFocus,
   onOpenEntry,
@@ -267,7 +269,7 @@ export function EntryPageSession({
         entries={entries}
         searchFocus={searchFocus}
         backlinks={backlinks}
-        loading={loading}
+        loading={loading || moving}
         onEdit={() => setMode("edit")}
         onCreateSubnote={() => {
           if (!detail) return;

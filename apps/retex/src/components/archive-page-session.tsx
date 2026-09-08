@@ -51,6 +51,7 @@ interface ArchivePageSessionProps {
   type: FolderType;
   items: ArchiveSummary[];
   editRequested: boolean;
+  moving?: boolean;
   onEditRequestConsumed: () => void;
   searchFocus: ArchiveSearchFocus | null;
   onOpenEntity: (kind: LinkEntityKind, id: number, folderId?: number) => void;
@@ -91,6 +92,7 @@ export function ArchivePageSession({
   type,
   items,
   editRequested,
+  moving = false,
   onEditRequestConsumed,
   searchFocus,
   onOpenEntity,
@@ -264,7 +266,7 @@ export function ArchivePageSession({
           searchFocus={searchFocus}
           createParentId={mode === "create" ? draft?.parentId ?? null : null}
           backlinks={backlinks}
-          loading={loading}
+          loading={loading || moving}
           onEdit={() => setMode("edit")}
           onCreateChild={() => {
             if (!detail) return;
@@ -294,7 +296,7 @@ export function ArchivePageSession({
           folderId={detail?.folderId ?? draft?.folderId ?? null}
           backlinks={backlinks}
           searchFocus={searchFocus}
-          loading={loading}
+          loading={loading || moving}
           onEdit={() => setMode("edit")}
           onCancel={cancelEditing}
           onSaved={handleSaved}

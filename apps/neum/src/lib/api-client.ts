@@ -247,6 +247,16 @@ export function updateEntry(
   });
 }
 
+export function moveEntry(
+  id: number,
+  expectedVersion: number,
+  folderId: number,
+): Promise<EntryDetailDto> {
+  const formData = new FormData();
+  formData.set("payload", JSON.stringify({ expectedVersion, folderId, parentId: null }));
+  return request(`/api/entries/${id}`, { method: "PATCH", body: formData });
+}
+
 export function reorderEntry(
   id: number,
   expectedVersion: number,

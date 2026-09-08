@@ -14,13 +14,16 @@ with the application package. Run `npm.cmd run registry:check` after editing it.
 
 ## Commands
 
+Use PowerShell 7 (`pwsh.exe`) for all Windows commands and scripts. Do not
+fall back to Windows PowerShell 5.1; report a missing PowerShell 7 installation.
+
 - Install: `npm.cmd install`
 - Enable hooks: `npm.cmd run git:setup`
 - Full gate: `npm.cmd run check`
 - App gate: `npm.cmd run check -w @babel-apps/<id>`
 - Data backup: stop all apps, then `npm.cmd run data:backup`
-- Launcher verification: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launcher\Babel.ps1 -Selection All -NoBrowser -VerifyAndExit`
-- WPF smoke test: `powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File .\launcher\Babel.Gui.ps1 -SmokeTest`
+- Launcher verification: `pwsh.exe -NoProfile -ExecutionPolicy Bypass -File .\launcher\Babel.ps1 -Selection All -NoBrowser -VerifyAndExit`
+- WPF smoke test: `pwsh.exe -NoProfile -STA -ExecutionPolicy Bypass -File .\launcher\Babel.Gui.ps1 -SmokeTest`
 
 ## Public/private data discipline
 

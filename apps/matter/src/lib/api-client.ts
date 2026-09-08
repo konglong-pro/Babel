@@ -156,6 +156,13 @@ export function updateKnowledge(
   });
 }
 
+export function moveKnowledge(id: number, folderId: number): Promise<KnowledgeDetailDto> {
+  return request(`/api/knowledge/${id}`, {
+    method: "PATCH",
+    ...jsonBody({ folderId, parentId: null }),
+  });
+}
+
 export function reorderKnowledge(id: number, position: number): Promise<KnowledgeDetailDto> {
   return request(`/api/knowledge/${id}`, {
     method: "PATCH",
@@ -208,6 +215,13 @@ export function updateExercise(
   return request(`/api/exercises/${id}`, {
     method: "PATCH",
     ...markdownMutationBody(input, stagedImages),
+  });
+}
+
+export function moveExercise(id: number, folderId: number): Promise<ExerciseDetailDto> {
+  return request(`/api/exercises/${id}`, {
+    method: "PATCH",
+    ...jsonBody({ folderId }),
   });
 }
 

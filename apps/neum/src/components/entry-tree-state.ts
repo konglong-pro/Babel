@@ -68,3 +68,22 @@ export function toggleEntryExpansion(
   else next.add(entryId);
   return next;
 }
+
+export function entrySubtreeIds(items: readonly EntryTreeItem[], rootId: number): ReadonlySet<number> {
+  const children = new Map<number, number[]>();
+  for (const item of items) {
+    if (item.parentId === null) continue;
+    const siblings = children.get(item.parentId) ?? [];
+    siblings.push(item.id);
+    children.set(item.parentId, siblings);
+  }
+  const ids = new Set<number>();
+  const pending = [rootId];
+  while (pending.length > 0) {
+    const id = pending.pop()!;
+    if (ids.has(id)) continue;
+    ids.add(id);
+    pending.push(...(children.get(id) ?? []));
+  }
+  return ids;
+}

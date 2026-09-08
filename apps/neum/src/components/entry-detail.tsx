@@ -1,5 +1,7 @@
 "use client";
 
+import { FolderPicker } from "@babel-apps/platform/folders/picker";
+
 import type { Wikilink } from "@babel-apps/markdown/core";
 import {
   DetachedEditorWindow,
@@ -558,10 +560,6 @@ function EntryForm({
     [folders],
   );
   const readerTriggerId = `neum-${kind}-${detail?.id ?? draftKey}-reader-trigger`;
-  const folderOptions = useMemo(
-    () => folders.map((folder) => ({ id: folder.id, label: folderPathLabel(folder.id, folderMap) })),
-    [folderMap, folders],
-  );
   const entryMap = useMemo(
     () => new Map(entries.map((entry) => [entry.id, entry])),
     [entries],
@@ -844,14 +842,16 @@ function EntryForm({
               onChange={(event) => setTitle(event.target.value)}
             />
           </label>
-          <label className="field">
+          <div className="field">
             <span>Folder</span>
-            <select
+            <FolderPicker
+              folders={folders}
               name="folderId"
+              label="Folder"
               required
-              value={folderId ?? ""}
-              onChange={(event) => {
-                const nextFolderId = event.target.value ? Number(event.target.value) : null;
+              disabled={pending}
+              value={folderId}
+              onChange={(nextFolderId) => {
                 setFolderId(nextFolderId);
                 setParentId((current) =>
                   current !== null && entryMap.get(current)?.folderId === nextFolderId
@@ -859,13 +859,8 @@ function EntryForm({
                     : null,
                 );
               }}
-            >
-              <option value="" disabled>Select a folder</option>
-              {folderOptions.map((folder) => (
-                <option key={folder.id} value={folder.id}>{folder.label}</option>
-              ))}
-            </select>
-          </label>
+            />
+          </div>
           <label className="field">
             <span>Parent page</span>
             <select

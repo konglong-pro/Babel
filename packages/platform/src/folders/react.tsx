@@ -16,6 +16,7 @@ import {
   type FolderDropPlacement,
   type OrderedFolder,
 } from "./reorder";
+import { useFolderMove } from "./move-react";
 
 export interface FolderReorderController {
   dropClassName: (folderId: number) => string;
@@ -38,6 +39,7 @@ export function useFolderReorder({
   disabled = false,
   onReorder,
 }: UseFolderReorderOptions): FolderReorderController {
+  const itemMove = useFolderMove();
   const [draggedId, setDraggedId] = useState<number | null>(null);
   const [dropTarget, setDropTarget] = useState<{
     id: number;
@@ -83,6 +85,7 @@ export function useFolderReorder({
           return;
         }
         event.dataTransfer.effectAllowed = "move";
+        itemMove?.clearDrag();
         event.dataTransfer.setData("text/plain", String(folderId));
         setDraggedId(folderId);
       },
@@ -106,10 +109,14 @@ export function useFolderReorder({
         runReorder(folderId, position);
       },
     };
-  }, [canMove, clearDrag, disabled, folders, pending, runReorder]);
+  }, [canMove, clearDrag, disabled, folders, itemMove, pending, runReorder]);
 
   const rowProps = useCallback((folderId: number): HTMLAttributes<HTMLDivElement> => ({
     onDragOver(event: DragEvent<HTMLDivElement>) {
+      if (itemMove?.active) {
+        if (!disabled && !pending) itemMove.dragOver(folderId, event);
+        return;
+      }
       if (draggedId === null || disabled || pending) return;
       const bounds = event.currentTarget.getBoundingClientRect();
       const placement: FolderDropPlacement = event.clientY < bounds.top + bounds.height / 2
@@ -125,9 +132,14 @@ export function useFolderReorder({
     },
     onDragLeave(event: DragEvent<HTMLDivElement>) {
       if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+      itemMove?.dragLeave(folderId);
       setDropTarget((current) => current?.id === folderId ? null : current);
     },
     onDrop(event: DragEvent<HTMLDivElement>) {
+      if (itemMove?.active) {
+        if (!disabled && !pending) itemMove.drop(folderId, event);
+        return;
+      }
       if (draggedId === null) return;
       const placement = dropTarget?.id === folderId ? dropTarget.placement : null;
       const position = placement === null
@@ -138,12 +150,13 @@ export function useFolderReorder({
       event.preventDefault();
       runReorder(draggedId, position);
     },
-  }), [clearDrag, disabled, draggedId, dropTarget, folders, pending, runReorder]);
+  }), [clearDrag, disabled, draggedId, dropTarget, folders, itemMove, pending, runReorder]);
 
   const dropClassName = useCallback((folderId: number) => {
+    if (itemMove?.targetId === folderId) return "folder-item-drop-target";
     if (dropTarget?.id !== folderId) return "";
     return `folder-drop-${dropTarget.placement}`;
-  }, [dropTarget]);
+  }, [dropTarget, itemMove]);
 
   return { dropClassName, selectionProps, rowProps };
 }

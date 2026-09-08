@@ -1,5 +1,10 @@
 "use client";
 
+import { FolderMoveProvider } from "@babel-apps/platform/folders/move-react";
+import { pageSubtreeIds } from "@/components/page-tree-state";
+
+import { FolderPicker } from "@babel-apps/platform/folders/picker";
+
 import { useRouter } from "next/navigation";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -42,6 +47,8 @@ import {
   listFolders,
   listKnowledge,
   reorderExercise,
+  moveExercise,
+  moveKnowledge,
   reorderKnowledge,
   updateFolder,
 } from "@/lib/api-client";
@@ -101,7 +108,7 @@ export function ArchiveWorkspace({
 }: ArchiveWorkspaceProps) {
   const router = useRouter();
   const processActive = useWorkspaceProcessActive();
-  const { pages, activeKey, activatePage, closePage, openPage } = usePageSessions();
+  const { pages, activeKey, activatePage, closePage, openPage, updatePage } = usePageSessions();
   const { focusPane } = usePaneFocus();
   const pageKind = archivePageKind(type);
   const [folders, setFolders] = useState<FolderDto[]>([]);
@@ -114,6 +121,8 @@ export function ArchiveWorkspace({
   const [folderImportFiles, setFolderImportFiles] = useState<File[] | null>(null);
   const [importTitleUniverse, setImportTitleUniverse] = useState<string[]>([]);
   const [drafts, setDrafts] = useState<Record<string, ArchiveDraftSession>>({});
+  const [movingItemIds, setMovingItemIds] = useState<ReadonlySet<number>>(new Set());
+  const [moveRevisions, setMoveRevisions] = useState<Record<number, number>>({});
   const [pendingEditPageKey, setPendingEditPageKey] = useState<string | null>(null);
   const [wikilinkCreation, setWikilinkCreation] = useState<WikilinkCreationRequest | null>(null);
   const [knowledgeFolders, setKnowledgeFolders] = useState<FolderDto[]>([]);
@@ -359,6 +368,42 @@ export function ArchiveWorkspace({
     }
   }
 
+  async function handleMoveItem(id: number, folderId: number) {
+    const item = items.find((candidate) => candidate.id === id);
+    if (!item || !folders.some((folder) => folder.id === folderId && folder.type === type)) {
+      throw new Error("This item or destination folder is no longer available. Refresh and try again.");
+    }
+    if (item.folderId === folderId) return;
+    const affectedIds = type === "knowledge"
+      ? pageSubtreeIds(items as KnowledgeSummaryDto[], id)
+      : new Set([id]);
+    const blocked = pages.some((page) => {
+      const savedId = savedItemId(page.key, type);
+      if (savedId !== null && affectedIds.has(savedId) && (page.dirty || page.pending)) return true;
+      const draft = drafts[page.key];
+      return draft?.parentId !== null && draft?.parentId !== undefined && affectedIds.has(draft.parentId);
+    });
+    if (blocked) throw new Error("Save or close open drafts in this note and its child notes before moving it.");
+    setMovingItemIds(affectedIds);
+    try {
+      if (type === "knowledge") await moveKnowledge(id, folderId);
+      else await moveExercise(id, folderId);
+      for (const page of pages) {
+        const savedId = savedItemId(page.key, type);
+        if (savedId === null || !affectedIds.has(savedId)) continue;
+        updatePage(page.key, { href: entityLocation(type, savedId, folderId) });
+      }
+      setMoveRevisions((current) => {
+        const next = { ...current };
+        for (const affectedId of affectedIds) next[affectedId] = (next[affectedId] ?? 0) + 1;
+        return next;
+      });
+      await loadIndex();
+    } finally {
+      setMovingItemIds(new Set());
+    }
+  }
+
   async function handleReorderItem(id: number, position: number) {
     try {
       if (type === "knowledge") await reorderKnowledge(id, position);
@@ -496,7 +541,13 @@ export function ArchiveWorkspace({
   );
 
   return (
-    <>
+    <FolderMoveProvider
+      scope={`retex:${type}`}
+      items={items}
+      folderIds={folders.filter((folder) => folder.type === type).map(({ id }) => id)}
+      disabled={indexLoading || movingItemIds.size > 0}
+      onMove={handleMoveItem}
+    >
       {processActive ? <ActiveArchiveHistoryGuard /> : null}
       {navigationError ? <p className="form-error" role="alert">{navigationError}</p> : null}
       {notice ? (
@@ -557,7 +608,8 @@ export function ArchiveWorkspace({
                 if (itemId === null && draft === null) return null;
                 return (
                   <ArchivePageSession
-                    key={page.key}
+                    key={`${page.key}:${itemId === null ? 0 : moveRevisions[itemId] ?? 0}`}
+                    moving={itemId !== null && movingItemIds.has(itemId)}
                     pageKey={page.key}
                     itemId={itemId}
                     draft={draft}
@@ -628,7 +680,7 @@ export function ArchiveWorkspace({
           onCreate={createKnowledgeNote}
         />
       )}
-    </>
+    </FolderMoveProvider>
   );
 }
 
@@ -658,12 +710,6 @@ function KnowledgeFolderDialog({
   const [folderId, setFolderId] = useState<number | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
-  const folderOptions = useMemo(() => {
-    const folderMap = new Map(folders.map((folder) => [folder.id, folder]));
-    return folders
-      .map((folder) => ({ id: folder.id, label: folderPath(folder, folderMap) }))
-      .sort((a, b) => a.label.localeCompare(b.label, "en-US"));
-  }, [folders]);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -704,27 +750,25 @@ function KnowledgeFolderDialog({
           Choose where to create “{request.title}”. The new note will open after creation.
         </p>
         {loading ? <p className="muted">Loading Knowledge folders…</p> : null}
-        {!loading && !loadError && folderOptions.length === 0 ? (
+        {!loading && !loadError && folders.length === 0 ? (
           <p className="form-error" role="alert">
             No Knowledge folder exists. Cancel and create a Knowledge folder first.
           </p>
         ) : null}
         {loadError ? <p className="form-error" role="alert">{loadError}</p> : null}
-        {folderOptions.length > 0 ? (
-          <label className="field">
+        {folders.length > 0 ? (
+          <div className="field">
             <span>Knowledge folder</span>
-            <select
+            <FolderPicker
+              folders={folders}
               name="knowledgeFolderId"
+              label="Knowledge folder"
               required
-              value={folderId ?? ""}
-              onChange={(event) => setFolderId(event.target.value ? Number(event.target.value) : null)}
-            >
-              <option value="" disabled>Choose a folder</option>
-              {folderOptions.map((folder) => (
-                <option key={folder.id} value={folder.id}>{folder.label}</option>
-              ))}
-            </select>
-          </label>
+              value={folderId}
+              disabled={pending || loading}
+              onChange={setFolderId}
+            />
+          </div>
         ) : null}
         {error ? <p className="form-error" role="alert">{error}</p> : null}
         <div className="dialog-actions">
@@ -740,7 +784,7 @@ function KnowledgeFolderDialog({
             data-babel-command="confirm"
             className="primary-button"
             type="submit"
-            disabled={pending || loading || Boolean(loadError) || folderOptions.length === 0}
+            disabled={pending || loading || Boolean(loadError) || folders.length === 0}
           >
             {pending ? "Creating…" : "Create and Open"}
           </button>
@@ -748,18 +792,4 @@ function KnowledgeFolderDialog({
       </form>
     </dialog>
   );
-}
-
-function folderPath(folder: FolderDto, folders: ReadonlyMap<number, FolderDto>): string {
-  const names = [folder.name];
-  const seen = new Set([folder.id]);
-  let parentId = folder.parentId;
-  while (parentId !== null && !seen.has(parentId)) {
-    const parent = folders.get(parentId);
-    if (!parent) break;
-    names.unshift(parent.name);
-    seen.add(parent.id);
-    parentId = parent.parentId;
-  }
-  return names.join(" / ");
 }

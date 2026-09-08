@@ -1,5 +1,7 @@
 "use client";
 
+import { FolderPicker } from "@babel-apps/platform/folders/picker";
+
 import { type FormEvent, useId, useMemo, useRef, useState } from "react";
 import {
   ReferencePanelTriggers,
@@ -12,7 +14,6 @@ import {
 import { useTreeKeyboardNavigation } from "@babel-apps/platform/navigation/react";
 import { useCommandPaletteActions } from "@babel-apps/platform/shortcuts/react";
 
-import { folderPathLabel } from "@/components/shared";
 import {
   type FolderExpansionState,
   folderSelectionPath,
@@ -198,15 +199,10 @@ export function FolderPanel({
   const folderMap = useMemo(() => new Map(folders.map((folder) => [folder.id, folder])), [folders]);
   const selectedFolder = selectedId === null ? undefined : folderMap.get(selectedId);
   const unavailableTargets = useMemo(
-    () => (selectedId === null ? new Set<number>() : descendantIds(selectedId, grouped)),
-    [grouped, selectedId],
-  );
-  const moveTargets = useMemo(
-    () =>
-      folders
-        .filter((folder) => folder.id !== selectedId && !unavailableTargets.has(folder.id))
-        .map((folder) => ({ id: folder.id, path: folderPathLabel(folder.id, folderMap) })),
-    [folderMap, folders, selectedId, unavailableTargets],
+    () => dialogFolderId === null
+      ? new Set<number>()
+      : new Set([dialogFolderId, ...descendantIds(dialogFolderId, grouped)]),
+    [dialogFolderId, grouped],
   );
 
   const navigationItems = useMemo(() => {
@@ -444,17 +440,20 @@ export function FolderPanel({
           ) : null}
 
           {dialogMode === "move" ? (
-            <label className="field">
+            <div className="field">
               <span>Destination</span>
-              <select name="parentId" value={targetId} onChange={(event) => setTargetId(event.target.value)}>
-                <option value="">Library root</option>
-                {moveTargets.map((folder) => (
-                  <option key={folder.id} value={folder.id}>
-                    {folder.path}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <FolderPicker
+                name="parentId"
+                label="Destination"
+                folders={folders}
+                value={targetId ? Number(targetId) : null}
+                onChange={(id) => setTargetId(id === null ? "" : String(id))}
+                allowRoot
+                rootLabel="Library root"
+                excludedIds={unavailableTargets}
+                disabled={pending}
+              />
+            </div>
           ) : null}
 
           {dialogMode === "delete" ? (

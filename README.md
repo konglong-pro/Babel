@@ -24,6 +24,7 @@ port in the registry's 3000-3999 range.
 ## Install and verify
 
 Use Node.js 24.0 or newer, but lower than Node.js 25.
+On Windows, install PowerShell 7 and ensure `pwsh.exe` is on PATH.
 
 ```powershell
 npm.cmd install
@@ -50,6 +51,18 @@ Existing applications also expose root shortcuts such as
 `npm.cmd run dev:retex`.
 
 ## Open pages
+
+Folder fields support searching by name or full path and browsing an expandable
+tree. Children appear directly below their parent, in the same sibling order as
+the sidebar. Use the arrow keys to navigate/expand, Enter to select, and Escape
+to close. Search results show parent paths to distinguish same-name folders.
+
+Drag a saved note from the content list onto a sidebar folder to move it. The
+destination highlights while dragging; dropping between sibling notes reorders
+them. A move follows each notebook's existing subtree rules, appends to the
+destination, and preserves content and images. Save or close dirty pages and
+child drafts before moving their subtree. Editors with Folder fields also
+support location changes using the keyboard.
 
 Each notebook keeps document pages in an app-level tab strip. Opening another
 note, entry, exercise, reflection, or canvas preserves the mounted read/edit
@@ -130,7 +143,7 @@ start and is available after independent workers are stopped; that aggregate
 session is stopped only by `STOP ALL`. `STOP SELECTED`
 applies only to an independent worker created by `OPEN`. `VERIFY ALL`, shortcut
 settings, and the bounded session log remain in the command-panel interface.
-The native launcher hosts Windows PowerShell runspaces directly, while notebook
+The native launcher starts PowerShell 7 with console creation disabled, while notebook
 processes use detached Windows process creation, so hidden console-host processes
 do not remain resident.
 `MINIMIZE TO TRAY` hides the launcher without stopping its workers. The tray
@@ -153,7 +166,7 @@ also unregisters the global hotkey. Use Escape or `MINIMIZE TO TRAY` when you
 want to leave the hotkey available.
 
 `Babel.exe` is a small Windows-native wrapper around `Babel.Gui.ps1`; it does not
-duplicate launcher behavior. Rebuild it with the Windows .NET Framework compiler
+duplicate launcher behavior. It runs PowerShell 7 in a hidden STA process. Rebuild it with the Windows .NET Framework compiler
 already included with Windows:
 
 ```powershell
@@ -231,13 +244,13 @@ their existing confirmation dialogs.
 The command-line launcher remains available for scripts and recovery work:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launcher\Babel.ps1 -Selection All
+pwsh.exe -NoProfile -ExecutionPolicy Bypass -File .\launcher\Babel.ps1 -Selection All
 ```
 
 For a non-interactive readiness and clean-shutdown check:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launcher\Babel.ps1 -Selection All -NoBrowser -VerifyAndExit
+pwsh.exe -NoProfile -ExecutionPolicy Bypass -File .\launcher\Babel.ps1 -Selection All -NoBrowser -VerifyAndExit
 ```
 
 The launcher refuses to create or migrate missing user data. Every path in an

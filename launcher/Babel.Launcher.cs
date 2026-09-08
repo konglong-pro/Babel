@@ -1,10 +1,8 @@
 using System;
 using System.IO;
-using System.Management.Automation;
-using System.Management.Automation.Runspaces;
+using System.Diagnostics;
 using System.Reflection;
 using System.Text;
-using System.Threading;
 using System.Windows.Forms;
 
 [assembly: AssemblyTitle("Babel Launcher")]
@@ -59,62 +57,37 @@ internal static class Program
 
     private static int InvokeGui(string guiScript, string[] args)
     {
-        using (Runspace runspace = CreateStaRunspace())
-        using (PowerShell powerShell = PowerShell.Create())
+        string command = "& '" + guiScript.Replace("'", "''") + "'";
+        foreach (string argument in args)
         {
-            powerShell.Runspace = runspace;
-            powerShell.AddCommand(guiScript);
-            foreach (string argument in args)
-            {
-                if (argument.Length < 2 || argument[0] != '-')
-                {
+            if (argument.Length < 2 || argument[0] != '-')
+                throw new ArgumentException("Unsupported Babel launcher argument: " + argument);
+            foreach (char character in argument.TrimStart('-'))
+                if (!Char.IsLetter(character))
                     throw new ArgumentException("Unsupported Babel launcher argument: " + argument);
-                }
-
-                powerShell.AddParameter(argument.TrimStart('-'));
-            }
-
-            return InvokePowerShell(powerShell, runspace);
+            command += " " + argument;
         }
+        return InvokeScript(command);
     }
 
     private static int InvokeScript(string script)
     {
-        using (Runspace runspace = CreateStaRunspace())
-        using (PowerShell powerShell = PowerShell.Create())
+        // Keep terminating errors and worker status visible to callers.
+        string command = "$ErrorActionPreference = 'Stop'; try { " + script +
+            "; if ($null -ne $global:BabelLauncherExitCode) { exit $global:BabelLauncherExitCode }" +
+            " } catch { [Console]::Error.WriteLine($_); exit 1 }";
+        ProcessStartInfo startInfo = new ProcessStartInfo();
+        startInfo.FileName = "pwsh.exe";
+        startInfo.Arguments = "-NoLogo -NoProfile -NonInteractive -STA -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand " +
+            Convert.ToBase64String(Encoding.Unicode.GetBytes(command));
+        startInfo.UseShellExecute = false;
+        startInfo.CreateNoWindow = true;
+        startInfo.WorkingDirectory = Directory.GetCurrentDirectory();
+        using (Process process = Process.Start(startInfo))
         {
-            powerShell.Runspace = runspace;
-            powerShell.AddScript(script);
-            return InvokePowerShell(powerShell, runspace);
+            process.WaitForExit();
+            return process.ExitCode;
         }
-    }
-
-    private static Runspace CreateStaRunspace()
-    {
-        InitialSessionState sessionState = InitialSessionState.CreateDefault();
-        // Match the PowerShell entrypoints without changing machine or user policy.
-        sessionState.ExecutionPolicy = Microsoft.PowerShell.ExecutionPolicy.Bypass;
-        Runspace runspace = RunspaceFactory.CreateRunspace(sessionState);
-        runspace.ApartmentState = ApartmentState.STA;
-        runspace.ThreadOptions = PSThreadOptions.UseNewThread;
-        runspace.Open();
-        return runspace;
-    }
-
-    private static int InvokePowerShell(PowerShell powerShell, Runspace runspace)
-    {
-        powerShell.Invoke();
-
-        if (powerShell.HadErrors)
-        {
-            string message = powerShell.Streams.Error.Count > 0
-                ? powerShell.Streams.Error[0].ToString()
-                : "The hosted PowerShell invocation failed.";
-            throw new InvalidOperationException(message);
-        }
-
-        object exitCode = runspace.SessionStateProxy.GetVariable("BabelLauncherExitCode");
-        return exitCode == null ? 0 : Convert.ToInt32(exitCode);
     }
 
     private static int Fail(string message, string[] args)

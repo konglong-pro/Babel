@@ -1,5 +1,7 @@
 "use client";
 
+import { FolderPicker } from "@babel-apps/platform/folders/picker";
+
 import {
   type FormEvent,
   useId,
@@ -133,20 +135,6 @@ function FolderBranch({
   );
 }
 
-function buildPath(folder: FolderDto, map: Map<number, FolderDto>): string {
-  const names = [folder.name];
-  const seen = new Set([folder.id]);
-  let parentId = folder.parentId;
-  while (parentId !== null && !seen.has(parentId)) {
-    const parent = map.get(parentId);
-    if (!parent) break;
-    names.unshift(parent.name);
-    seen.add(parent.id);
-    parentId = parent.parentId;
-  }
-  return names.join(" / ");
-}
-
 function descendantIds(id: number, grouped: Map<number | null, FolderDto[]>): Set<number> {
   const result = new Set<number>();
   const stack = [id];
@@ -218,14 +206,6 @@ export function FolderPanel({
   const unavailableTargets = useMemo(
     () => (selectedId === null ? new Set<number>() : descendantIds(selectedId, grouped)),
     [grouped, selectedId],
-  );
-  const moveTargets = useMemo(
-    () =>
-      folders
-        .filter((folder) => folder.id !== selectedId && !unavailableTargets.has(folder.id))
-        .map((folder) => ({ id: folder.id, path: buildPath(folder, folderMap) }))
-        .sort((a, b) => a.path.localeCompare(b.path, "en-US")),
-    [folderMap, folders, selectedId, unavailableTargets],
   );
   const reorder = useFolderReorder({ folders, disabled: busy || pending, onReorder });
 
@@ -457,21 +437,20 @@ export function FolderPanel({
           ) : null}
 
           {dialogMode === "move" ? (
-            <label className="field">
+            <div className="field">
               <span>Destination Folder</span>
-              <select
+              <FolderPicker
                 name="parentId"
-                value={targetId}
-                onChange={(event) => setTargetId(event.target.value)}
-              >
-                <option value="">{spaceName} Root</option>
-                {moveTargets.map((folder) => (
-                  <option key={folder.id} value={folder.id}>
-                    {folder.path}
-                  </option>
-                ))}
-              </select>
-            </label>
+                label="Destination folder"
+                folders={folders}
+                value={targetId ? Number(targetId) : null}
+                onChange={(id) => setTargetId(id === null ? "" : String(id))}
+                allowRoot
+                rootLabel={`${spaceName} Root`}
+                excludedIds={new Set([...unavailableTargets, ...(selectedId === null ? [] : [selectedId])])}
+                disabled={pending}
+              />
+            </div>
           ) : null}
 
           {dialogMode === "delete" ? (
