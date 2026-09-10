@@ -46,6 +46,20 @@ the sidebar order. Drag a note onto a sidebar folder to move it with its child
 pages, or between sibling notes to reorder. Moves preserve note contents and
 images; save or close dirty subtree pages and child drafts before moving.
 
+Canvases use the shared Babel editor. `Ctrl+Shift+1` through `Ctrl+Shift+8`
+select Select, Hand, Pen, Eraser, Text, Rectangle, Ellipse, and Arrow. `Ctrl+Z`
+undoes and `Ctrl+Y` redoes; canvas commands appear in `Ctrl+K` while a canvas is
+active. Text inputs keep their normal editing shortcuts. Box-select or hold
+Shift to select multiple objects, then move or resize them together. Hold Space
+to pan temporarily, or use Fit all and Fit selection. Each editing gesture is
+one undo step; pan and zoom do not enter undo history.
+
+Text is editable directly on the canvas. Tool properties retain color, line,
+fill, and text settings, and attached arrows follow their targets. Eraser removes
+parts of pen strokes or whole objects. Paste PNG, JPEG, or WebP images with
+`Ctrl+V`; images are stored inside scene JSON with a 2 MiB per-image limit and a
+5 MiB total scene limit. Scenes autosave and contain at most 2,000 elements.
+
 Editing an existing note opens a focused **Content + Outline** window aligned
 to the note-detail column. The main edit page continues to manage the title,
 folder, parent page, tags, Save, and Cancel; new-note drafts remain inline.

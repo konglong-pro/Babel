@@ -39,6 +39,7 @@ export interface CommandPaletteAction {
   readonly label: string;
   readonly keywords?: readonly string[];
   readonly group?: string;
+  readonly binding?: string;
   readonly available?: boolean;
   readonly run: () => boolean | void | Promise<boolean | void>;
 }
@@ -427,6 +428,7 @@ export function useCommandPaletteActions(
     label: action.label,
     keywords: action.keywords,
     group: action.group,
+    binding: action.binding,
     available: action.available !== false,
   })));
   useEffect(() => {
@@ -774,7 +776,7 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts" }: Shor
 
       for (const [sourceId, registration] of actionRegistry) {
         for (const action of registration.value) {
-          if (!matchesQuery(filter, [action.id, action.label, action.group, ...(action.keywords ?? [])])) {
+          if (!matchesQuery(filter, [action.id, action.label, action.group, action.binding, ...(action.keywords ?? [])])) {
             continue;
           }
           results.push({
@@ -782,11 +784,15 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts" }: Shor
             kind: "action",
             label: action.label,
             description: action.group ?? "Action",
+            binding: action.binding,
             available: action.available !== false,
             run: action.run,
           });
         }
       }
+      // Scoped editing shortcuts should be visible immediately when their editor is active.
+      results.sort((left, right) => Number(right.kind === "action" && right.binding !== undefined) -
+        Number(left.kind === "action" && left.binding !== undefined));
     }
 
     const includeItems = paletteMode === "items" || filter.trim() !== "";

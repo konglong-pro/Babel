@@ -81,6 +81,32 @@ copy of the discarded edit. It does not undo earlier completed autosaves.
 Embedded canvases share refresh requests, and inactive pages stop refreshing
 unless their content remains visible in a detached reader.
 
+## Canvas controls
+
+All notebook canvases and the application scaffold use the same tools. In the
+active canvas, `Ctrl+Shift+1` through `Ctrl+Shift+8` select **Select**, **Hand**,
+**Pen**, **Eraser**, **Text**, **Rectangle**, **Ellipse**, and **Arrow**, in that
+order. The toolbar and the `Ctrl+K` command palette show the canvas shortcuts.
+`Ctrl+Z` undoes an edit; `Ctrl+Y` redoes it. Inputs keep their normal text-editing
+shortcuts, including `Ctrl+X` to cut.
+
+Drag empty space with Select to box-select, and hold Shift to add or remove
+objects from the selection. Selected objects can move or resize together. Hold
+Space to pan temporarily without changing tools; **Fit all** and **Fit selection**
+bring content back into view. View changes do not occupy undo history, and each
+drawing, move, resize, erasing gesture, or text-editing session is one undo step.
+
+Text has no card background: click to start typing and double-click existing text
+to edit it. Tool properties remember color, stroke width, fill, and text settings
+as appropriate. Eraser cuts freehand strokes locally and removes other touched
+objects. Arrow endpoints attach to objects and follow them when they move or
+resize.
+
+Paste a PNG, JPEG, or WebP image with `Ctrl+V` while the canvas is active. Large
+clipboard images are scaled down before insertion. Images are stored inline in
+the scene, up to 2 MiB per image. The complete saved scene
+remains limited to 5 MiB and 2,000 elements.
+
 ## Import Markdown folders
 
 The **Import** menu keeps the single-file draft flow and adds **Import Markdown

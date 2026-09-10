@@ -18,7 +18,7 @@ import {
 test("canvas scene validation accepts editable elements and rejects malformed data", () => {
   const scene = createEmptyCanvasScene();
   scene.elements.push(
-    { id: "card_1", type: "card", x: 10, y: 20, width: 240, height: 140, text: "Seed" },
+    { id: "text_1", type: "text", x: 10, y: 20, width: 240, height: 140, text: "Seed", fontSize: 20, textAlign: "left" },
     { id: "line_1", type: "path", points: [{ x: 1, y: 2 }, { x: 3, y: 4 }] },
     { id: "shape_1", type: "shape", shape: "ellipse", x: 5, y: 6, width: 80, height: 50 },
     { id: "arrow_1", type: "arrow", start: { x: 0, y: 0 }, end: { x: 20, y: 30 } },
@@ -60,7 +60,12 @@ test("canvas API creates, updates, lists, validates, and deletes canvases", asyn
   assert.equal(created.title, "Opening image");
 
   const scene = createEmptyCanvasScene();
-  scene.elements.push({ id: "idea_1", type: "card", x: 24, y: 36, width: 240, height: 140, text: "What if?" });
+  scene.elements.push({ id: "idea_1", type: "text", x: 24, y: 36, width: 240, height: 140, text: "What if?", fontSize: 20, textAlign: "left" });
+  scene.elements.push({
+    id: "image_1", type: "image", x: 320, y: 36, width: 100, height: 100,
+    src: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/Z1kAAAAASUVORK5CYII=",
+    alt: "Pasted image",
+  });
   const updatedResponse = await itemRoute.PATCH(
     jsonRequest(`/api/canvases/${created.id}`, "PATCH", { scene }),
     routeContext(created.id),
@@ -68,6 +73,11 @@ test("canvas API creates, updates, lists, validates, and deletes canvases", asyn
   assert.equal(updatedResponse.status, 200);
   const updated = (await updatedResponse.json()) as { scene: typeof scene };
   assert.deepEqual(updated.scene, scene);
+  const reloadedResponse = await itemRoute.GET(
+    new Request(`http://localhost/api/canvases/${created.id}`),
+    routeContext(created.id),
+  );
+  assert.deepEqual(((await reloadedResponse.json()) as { scene: typeof scene }).scene, scene);
 
   const listResponse = await collectionRoute.GET();
   assert.equal(listResponse.status, 200);

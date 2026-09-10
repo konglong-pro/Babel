@@ -2,7 +2,7 @@
 
 Ruider is Babel's local, single-user space for drafts and visual brainstorming.
 Its primary `/canvases` workspace manages named infinite canvases with editable
-cards, freehand paths, shapes, and arrows. Canvas scenes auto-save as structured
+text, freehand paths, shapes, attached arrows, and pasted images. Canvas scenes auto-save as structured
 JSON in SQLite. The scaffold's Markdown notes, folders, tags, search, and managed
 note images remain available under `/notes`.
 
@@ -20,6 +20,9 @@ private `data/` repository. The launcher supplies absolute
 
 Canvas changes are debounced and saved automatically. Scene JSON is limited to
 5 MiB and 2,000 elements so malformed or unexpectedly large writes are rejected.
+Pasted PNG, JPEG, and WebP images are stored inside the scene, up to 2 MiB each.
+Ruider uses the same canvas editor and scene validation as the other Babel apps;
+see the [canvas controls](../../README.md#canvas-controls) for shortcuts and editing gestures.
 
 Editing an existing note opens a focused **Content + Outline** window aligned
 to the note-detail column. The main edit page continues to manage the title,
@@ -50,8 +53,8 @@ and 1 GiB of images while preserving the per-note limits above.
 ## Keyboard navigation
 
 The Ready/Edit bindings apply to Ruider's `/notes` workspace and to the outer
-canvas list, tabs, and document actions. Keyboard traversal and movement of
-elements inside an open canvas remain outside this scope.
+canvas list, tabs, and document actions. The active canvas additionally exposes
+its tools and editing shortcuts in the `Ctrl+K` command palette.
 `Ctrl+F6` and `Ctrl+Shift+F6` cycle the visible folder tree, note tree, tab
 strip, and detail pane, skipping absent panes and remembering each pane's last
 focus. Hierarchical folders and notes expose `tree`/`treeitem`; flat search

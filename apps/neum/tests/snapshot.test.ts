@@ -59,7 +59,7 @@ test("complete database and image snapshots round-trip without semantic loss", a
     assert.equal(exported.manifest.appId, "neum");
     assert.equal(exported.manifest.schemaVersion, 5);
     assert.equal(exported.manifest.canvases[0].title, "System map");
-    assert.equal(exported.manifest.canvases[0].scene.elements[0]?.type, "card");
+    assert.equal(exported.manifest.canvases[0].scene.elements[0]?.type, "text");
     assert.deepEqual(exported.manifest.folders.map(({ position }) => position), [1, 0]);
     assert.equal(exported.manifest.entries[1].parentId, 11);
     assert.equal(exported.manifest.entries[1].code, "root: [still, editable");
@@ -647,13 +647,15 @@ function seedRichSource(sqlite: BetterSqlite3.Database): void {
         version: 1,
         elements: [
           {
-            id: "card-1",
-            type: "card",
+            id: "text-1",
+            type: "text",
             x: 40,
             y: 60,
             width: 240,
             height: 140,
             text: "Snapshot canvas",
+            fontSize: 20,
+            textAlign: "left",
           },
         ],
         viewport: { x: 12, y: 18, zoom: 1.25 },

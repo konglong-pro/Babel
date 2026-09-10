@@ -737,62 +737,6 @@ button:hover:not(:disabled) {
   opacity: 0.28;
 }
 
-rect.canvas-element,
-ellipse.canvas-element {
-  fill: rgb(255 255 255 / 18%);
-  stroke: #050505;
-  stroke-width: 2.5;
-}
-
-rect.canvas-element.selected,
-ellipse.canvas-element.selected {
-  fill: rgb(255 255 255 / 55%);
-  stroke: #ffffff;
-}
-
-.canvas-card {
-  fill: #ffffff;
-  stroke: #050505;
-  stroke-width: 2;
-  filter: drop-shadow(6px 6px 0 rgb(5 5 5 / 100%));
-}
-
-.canvas-card-handle {
-  fill: #050505;
-  opacity: 1;
-}
-
-.canvas-element.selected .canvas-card {
-  stroke: #ffffff;
-  stroke-width: 3;
-}
-
-.canvas-card-text {
-  color: #050505;
-  font-family: var(--hand);
-  font-size: 14px;
-  font-weight: 700;
-}
-
-.canvas-card-text::placeholder {
-  color: #4b4b4b;
-}
-
-.canvas-path,
-.canvas-arrow {
-  stroke: #050505;
-  stroke-width: 3;
-}
-
-.canvas-element.selected .canvas-path,
-.canvas-element.selected .canvas-arrow {
-  stroke: #ffffff;
-}
-
-#ruider-arrow path {
-  fill: #050505;
-}
-
 .canvas-zoom-controls {
   border: 2px solid #050505;
   border-radius: 0;

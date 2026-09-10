@@ -59,12 +59,14 @@ test("shared canvas repository persists CRUD data and validates scenes", () => {
     const scene = createEmptyCanvasScene();
     scene.elements.push({
       id: "idea_1",
-      type: "card",
+      type: "text",
       x: 24,
       y: 36,
       width: 240,
       height: 140,
       text: "What if?",
+      fontSize: 24,
+      textAlign: "left",
     });
     assert.deepEqual(repository.update(created.id, { scene })?.scene, scene);
     assert.throws(

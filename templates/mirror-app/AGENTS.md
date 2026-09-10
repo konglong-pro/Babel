@@ -35,4 +35,15 @@ item and folder reorder hooks handle drag sources and folder drop targets.
 Keep moves as location-only PATCH requests, block dirty/pending subtree pages
 and child drafts, and refresh affected clean page sessions after success.
 
+Use the shared canvas workspace/editor, `@babel-apps/platform/canvas/core` scene
+validation, and `@babel-apps/platform/canvas.css`. Keep notebook API and SQLite
+adapters local. Canvas tools and commands must apply only to the active visible
+canvas and yield to text inputs and overlays. Preserve per-gesture undo history
+separate from viewport changes, and the shared autosave/page-session lifecycle.
+Text and raster images are scene elements; Card elements are unsupported. Pasted
+PNG/JPEG/WebP images stay inline in scene JSON, with the shared 2 MiB image and
+5 MiB scene limits enforced before saving. New apps inherit the canvas tools,
+selection/resize, eraser, attached arrows, and command-palette shortcuts without
+copying an editor implementation.
+
 The root `AGENTS.md` owns shared commands and public/private data discipline.
