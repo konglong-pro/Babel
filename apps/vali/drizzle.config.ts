@@ -1,12 +1,20 @@
+import path from "node:path";
+
 import { defineConfig } from "drizzle-kit";
 
-import { valiDatabasePath } from "./src/lib/db/paths";
+const configuredDatabasePath = process.env.VALI_DATABASE_PATH;
+const databasePath =
+  configuredDatabasePath === undefined
+    ? path.resolve(process.cwd(), "..", "..", "data", "vali", "sqlite.db")
+    : path.resolve(configuredDatabasePath);
 
 export default defineConfig({
-  dialect: "sqlite",
   schema: "./src/lib/db/schema.ts",
   out: "./drizzle",
+  dialect: "sqlite",
   dbCredentials: {
-    url: valiDatabasePath(),
+    url: databasePath,
   },
+  strict: true,
+  verbose: true,
 });

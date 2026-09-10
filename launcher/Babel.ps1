@@ -1,3 +1,4 @@
+#requires -Version 7.0
 [CmdletBinding()]
 param(
     [string]$Selection = "Menu",
@@ -11,6 +12,13 @@ param(
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
+$global:BabelLauncherExitCode = 0
+
+$processHelperPath = Join-Path $PSScriptRoot "Babel.Process.ps1"
+if (-not (Test-Path -LiteralPath $processHelperPath -PathType Leaf)) {
+    throw "Process helper not found: $processHelperPath"
+}
+. $processHelperPath
 
 try {
     $Host.UI.RawUI.WindowTitle = "Babel"
@@ -121,6 +129,126 @@ function Test-ObjectProperty {
     return $null -ne $InputObject.PSObject.Properties[$Name]
 }
 
+function Resolve-NodeRuntime {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RootPath
+    )
+
+    $manifestPath = Join-Path $RootPath "package.json"
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        throw "Babel root manifest is missing: '$manifestPath'."
+    }
+
+    try {
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    } catch {
+        throw "Babel root manifest is not valid JSON: $($_.Exception.Message)"
+    }
+
+    if (
+        -not (Test-ObjectProperty -InputObject $manifest -Name "engines") -or
+        -not (Test-ObjectProperty -InputObject $manifest.engines -Name "node")
+    ) {
+        throw "Babel root manifest must declare engines.node."
+    }
+
+    $engineRange = ([string]$manifest.engines.node).Trim()
+    $rangeMatch = [regex]::Match(
+        $engineRange,
+        "^>=\s*(?<minimum>[0-9]+\.[0-9]+\.[0-9]+)\s+<\s*(?<maximumMajor>[0-9]+)\s*$"
+    )
+    if (-not $rangeMatch.Success) {
+        throw "Unsupported engines.node range '$engineRange'; expected '>=x.y.z <major'."
+    }
+
+    $minimumVersion = [Version]::Parse($rangeMatch.Groups["minimum"].Value)
+    $maximumMajor = [int]$rangeMatch.Groups["maximumMajor"].Value
+    $candidatePaths = @()
+
+    foreach ($command in @(Get-Command node.exe -All -CommandType Application -ErrorAction SilentlyContinue)) {
+        $candidatePaths += [string]$command.Source
+    }
+
+    $fnmRoots = @()
+    if (-not [string]::IsNullOrWhiteSpace($env:FNM_DIR)) {
+        $fnmRoots += $env:FNM_DIR
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:APPDATA)) {
+        $fnmRoots += Join-Path $env:APPDATA "fnm"
+    }
+    foreach ($fnmRoot in $fnmRoots) {
+        $candidatePaths += Join-Path $fnmRoot "aliases\default\node.exe"
+    }
+
+    $seenPaths = @{}
+    $discoveredRuntimes = @()
+    foreach ($candidatePath in $candidatePaths) {
+        if ([string]::IsNullOrWhiteSpace($candidatePath)) {
+            continue
+        }
+
+        try {
+            $resolvedCandidate = [IO.Path]::GetFullPath($candidatePath)
+        } catch {
+            continue
+        }
+        if ($seenPaths.ContainsKey($resolvedCandidate)) {
+            continue
+        }
+        $seenPaths[$resolvedCandidate] = $true
+        if (-not (Test-Path -LiteralPath $resolvedCandidate -PathType Leaf)) {
+            continue
+        }
+
+        try {
+            $versionOutput = @(& $resolvedCandidate --version 2>$null)
+            $versionExitCode = $LASTEXITCODE
+        } catch {
+            continue
+        }
+        if ($versionExitCode -ne 0 -or $versionOutput.Count -eq 0) {
+            continue
+        }
+
+        $versionText = ([string]$versionOutput[0]).Trim()
+        $versionMatch = [regex]::Match(
+            $versionText,
+            "^v?(?<version>[0-9]+\.[0-9]+\.[0-9]+)(?:[-+].*)?$"
+        )
+        if (-not $versionMatch.Success) {
+            continue
+        }
+
+        $version = [Version]::Parse($versionMatch.Groups["version"].Value)
+        $discoveredRuntimes += "$versionText at '$resolvedCandidate'"
+        if ($version -lt $minimumVersion -or $version.Major -ge $maximumMajor) {
+            continue
+        }
+
+        $runtimeDirectory = Split-Path -Parent $resolvedCandidate
+        $npmPath = Join-Path $runtimeDirectory "npm.cmd"
+        if (-not (Test-Path -LiteralPath $npmPath -PathType Leaf)) {
+            $discoveredRuntimes += "compatible $versionText at '$resolvedCandidate' without npm.cmd"
+            continue
+        }
+
+        return [pscustomobject]@{
+            NodePath = $resolvedCandidate
+            NpmPath = $npmPath
+            Directory = $runtimeDirectory
+            Version = $version
+            EngineRange = $engineRange
+        }
+    }
+
+    $discoveredSummary = "none"
+    if ($discoveredRuntimes.Count -gt 0) {
+        $discoveredSummary = $discoveredRuntimes -join "; "
+    }
+    throw "No Node.js runtime satisfies engines.node '$engineRange'. Found: $discoveredSummary. Select a compatible Node version and retry."
+}
+
 function Resolve-BabelRelativePath {
     param(
         [Parameter(Mandatory = $true)]
@@ -221,6 +349,9 @@ function Get-BabelApps {
     if (-not (Test-ObjectProperty -InputObject $registry -Name "apps")) {
         throw "Babel app registry is missing 'apps'."
     }
+
+    $nodeRuntime = Resolve-NodeRuntime -RootPath $RootPath
+    Write-Host "[runtime] Node v$($nodeRuntime.Version) ($($nodeRuntime.NodePath))"
 
     $definitions = @($registry.apps)
     if ($definitions.Count -eq 0) {
@@ -325,6 +456,14 @@ function Get-BabelApps {
             throw "Babel app '$name' workspace package name must be '$expectedPackageName'."
         }
 
+        $databaseCheckArguments = @()
+        if (
+            (Test-ObjectProperty -InputObject $workspaceManifest -Name "scripts") -and
+            (Test-ObjectProperty -InputObject $workspaceManifest.scripts -Name "db:check")
+        ) {
+            $databaseCheckArguments = @("run", "db:check", "-w", $expectedPackageName)
+        }
+
         $environment = @{}
         foreach ($property in @($definition.env.PSObject.Properties)) {
             if ($property.Name -notmatch "^[A-Za-z_][A-Za-z0-9_]*$") {
@@ -334,6 +473,14 @@ function Get-BabelApps {
                 -RootPath $RootPath `
                 -RelativePath ([string]$property.Value) `
                 -FieldName "$name.env.$($property.Name)"
+        }
+        $environment["PATH"] = $nodeRuntime.Directory
+        $processPath = [Environment]::GetEnvironmentVariable(
+            "PATH",
+            [EnvironmentVariableTarget]::Process
+        )
+        if (-not [string]::IsNullOrWhiteSpace($processPath)) {
+            $environment["PATH"] += [IO.Path]::PathSeparator + $processPath
         }
 
         $requiredDataPaths = @()
@@ -349,7 +496,8 @@ function Get-BabelApps {
 
         $buildMarker = Join-Path $workspace ".next\BUILD_ID"
         $nextEntrypoint = Join-Path $RootPath "node_modules\next\dist\bin\next"
-        $baseUrl = "http://127.0.0.1:$port"
+        $internalBaseUrl = "http://127.0.0.1:$port"
+        $publicBaseUrl = "http://localhost:$port"
         $buildInputPaths = @(
             (Join-Path $workspace "src"),
             (Join-Path $workspace "public"),
@@ -369,6 +517,8 @@ function Get-BabelApps {
             (Join-Path $workspace ".env.production"),
             (Join-Path $workspace ".env.production.local"),
             (Join-Path $RootPath "packages\config"),
+            (Join-Path $RootPath "packages\markdown"),
+            (Join-Path $RootPath "packages\platform"),
             (Join-Path $RootPath "package.json"),
             (Join-Path $RootPath "package-lock.json"),
             $registryPath
@@ -378,9 +528,9 @@ function Get-BabelApps {
             Name = $name
             Id = $id
             Port = $port
-            Url = $baseUrl
-            HealthUrl = $baseUrl + $healthPath
-            IdentityUrl = $baseUrl + $identityPath
+            Url = $internalBaseUrl
+            HealthUrl = $internalBaseUrl + $healthPath
+            IdentityUrl = $publicBaseUrl + $identityPath
             IdentityText = $identityText
             ReadyTimeoutSeconds = $readyTimeoutSeconds
             RequiredPaths = $requiredDataPaths
@@ -394,10 +544,14 @@ function Get-BabelApps {
                 (Join-Path $workspace ".next\required-server-files.json")
             )
             BuildInputPaths = $buildInputPaths
-            BuildCommand = "npm.cmd"
+            BuildCommand = $nodeRuntime.NpmPath
             BuildArguments = @("run", "build", "-w", $expectedPackageName)
             BuildWorkingDirectory = $RootPath
-            StartCommand = "node.exe"
+            PackageName = $expectedPackageName
+            DatabaseCheckCommand = $nodeRuntime.NpmPath
+            DatabaseCheckArguments = $databaseCheckArguments
+            DatabaseCheckWorkingDirectory = $RootPath
+            StartCommand = $nodeRuntime.NodePath
             StartArguments = @(
                 $nextEntrypoint,
                 "start",
@@ -465,19 +619,10 @@ function Test-AppHealth {
             return $false
         }
 
-        $identityResponse = Invoke-WebRequest `
-            -Uri $App.IdentityUrl `
-            -UseBasicParsing `
-            -TimeoutSec 2
-
-        if ($identityResponse.StatusCode -lt 200 -or $identityResponse.StatusCode -ge 400) {
-            return $false
-        }
-
-        return $identityResponse.Content.IndexOf(
-            $App.IdentityText,
-            [System.StringComparison]::OrdinalIgnoreCase
-        ) -ge 0
+        $health = $response.Content | ConvertFrom-Json -ErrorAction Stop
+        return `
+            [string]$health.status -ieq "ok" -and
+            [string]$health.app -ieq [string]$App.IdentityText
     } catch {
         return $false
     }
@@ -579,6 +724,38 @@ function Restore-Environment {
     }
 }
 
+function Assert-AppDatabaseReady {
+    param(
+        [Parameter(Mandatory = $true)]
+        [pscustomobject]$App
+    )
+
+    if ($App.DatabaseCheckArguments.Count -eq 0) {
+        return
+    }
+
+    $command = Get-Command $App.DatabaseCheckCommand -ErrorAction SilentlyContinue
+    if ($null -eq $command) {
+        throw "Cannot find '$($App.DatabaseCheckCommand)' required to check $($App.Name)'s database."
+    }
+
+    $exitCode = 1
+    $environmentSnapshot = Set-TemporaryEnvironment -Environment $App.Environment
+    Push-Location -LiteralPath $App.DatabaseCheckWorkingDirectory
+
+    try {
+        & $command.Source @($App.DatabaseCheckArguments) | Out-Host
+        $exitCode = $LASTEXITCODE
+    } finally {
+        Pop-Location
+        Restore-Environment -Snapshot $environmentSnapshot
+    }
+
+    if ($exitCode -ne 0) {
+        throw "$($App.Name) database readiness check failed. Review the diagnostic output above and retry."
+    }
+}
+
 function Assert-AppPreflight {
     param(
         [Parameter(Mandatory = $true)]
@@ -667,21 +844,10 @@ function Start-AppProcess {
     $environmentSnapshot = Set-TemporaryEnvironment -Environment $App.Environment
 
     try {
-        $startInfo = New-Object System.Diagnostics.ProcessStartInfo
-        $startInfo.FileName = $command.Source
-        $startInfo.Arguments = @($App.StartArguments) -join " "
-        $startInfo.WorkingDirectory = $App.StartWorkingDirectory
-        $startInfo.UseShellExecute = $false
-        $startInfo.CreateNoWindow = $false
-
-        $process = New-Object System.Diagnostics.Process
-        $process.StartInfo = $startInfo
-
-        if (-not $process.Start()) {
-            throw "Failed to create the $($App.Name) process."
-        }
-
-        return $process
+        return Start-BabelDetachedProcess `
+            -FilePath $command.Source `
+            -Arguments (@($App.StartArguments) -join " ") `
+            -WorkingDirectory $App.StartWorkingDirectory
     } finally {
         Restore-Environment -Snapshot $environmentSnapshot
     }
@@ -745,7 +911,7 @@ function Start-OrReuseApp {
     if (Test-TcpPort -ComputerName "127.0.0.1" -Port $App.Port) {
         Write-Host "[reuse] $($App.Name) is already listening on port $($App.Port)." -ForegroundColor Cyan
         Wait-ExistingAppReady -App $App
-        Write-Host "[ready] $($App.Name): $($App.Url)" -ForegroundColor Green
+        Write-Host "[ready] $($App.Name): $($App.IdentityUrl)" -ForegroundColor Green
 
         return [pscustomobject]@{
             App = $App
@@ -754,6 +920,7 @@ function Start-OrReuseApp {
     }
 
     Assert-AppPreflight -App $App
+    Assert-AppDatabaseReady -App $App
     Ensure-AppBuild -App $App
 
     Write-Host "[start] Starting $($App.Name) on port $($App.Port)..."
@@ -765,7 +932,7 @@ function Start-OrReuseApp {
     [void]$ManagedEntries.Add($managedEntry)
 
     Wait-AppReady -App $App -RootProcess $rootProcess
-    Write-Host "[ready] $($App.Name): $($App.Url)" -ForegroundColor Green
+    Write-Host "[ready] $($App.Name): $($App.IdentityUrl)" -ForegroundColor Green
     return [pscustomobject]@{
         App = $App
         AlreadyRunning = $false
@@ -916,29 +1083,6 @@ function Get-SelectedApps {
     throw "Unknown selection '$resolvedSelection'. Use Menu, All, or a registered app name or id."
 }
 
-function Open-AppPages {
-    param(
-        [Parameter(Mandatory = $true)]
-        [object[]]$Statuses,
-
-        [switch]$SuppressBrowser
-    )
-
-    foreach ($status in $Statuses) {
-        if ($SuppressBrowser) {
-            Write-Host "[browser] Would open: $($status.App.Url)"
-            continue
-        }
-
-        try {
-            Start-Process -FilePath $status.App.Url
-            Write-Host "[browser] Opened: $($status.App.Url)"
-        } catch {
-            Write-Warning "Could not open '$($status.App.Url)'. Open it manually in your browser."
-        }
-    }
-}
-
 function Wait-ForStopRequest {
     param(
         [Parameter(Mandatory = $true)]
@@ -971,15 +1115,11 @@ function Wait-ForStopRequest {
                 if ($entry.RootProcess.HasExited) {
                     throw "$($entry.App.Name) stopped unexpectedly (exit code $($entry.RootProcess.ExitCode))."
                 }
-
-                if (-not (Test-TcpPort -ComputerName "127.0.0.1" -Port $entry.App.Port)) {
-                    throw "$($entry.App.Name) stopped listening unexpectedly."
-                }
             }
             $nextProcessCheck = [DateTime]::UtcNow.AddSeconds(1)
         }
 
-        Start-Sleep -Milliseconds 100
+        Start-Sleep -Milliseconds 500
     }
 }
 
@@ -1002,10 +1142,6 @@ try {
     foreach ($app in $selectedApps) {
         $statuses += Start-OrReuseApp -App $app -ManagedEntries $managedEntries
     }
-
-    Open-AppPages `
-        -Statuses $statuses `
-        -SuppressBrowser:($NoBrowser -or $VerifyAndExit)
 
     if ($VerifyAndExit) {
         Write-Host "[verify] Readiness checks passed; cleaning up managed services."
@@ -1036,6 +1172,7 @@ try {
 }
 
 if ($exitCode -ne 0) {
+    $global:BabelLauncherExitCode = $exitCode
     if (
         -not $VerifyAndExit -and
         -not $PSBoundParameters.ContainsKey("StopSignalPath") -and

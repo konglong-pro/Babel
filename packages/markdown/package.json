@@ -1,0 +1,31 @@
+{
+  "name": "@babel-apps/markdown",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./core": "./src/core.ts",
+    "./detached-editor": "./src/detached-editor.tsx",
+    "./editing": "./src/editing.ts",
+    "./outline": "./src/outline.ts",
+    "./react": "./src/react.tsx",
+    "./reference": "./src/reference.tsx",
+    "./formula.css": "./src/formula.css",
+    "./reference.css": "./src/reference.css"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit --incremental false",
+    "test": "tsx --test tests/*.test.ts",
+    "check": "npm run lint && npm run typecheck && npm run test"
+  },
+  "dependencies": {
+    "@babel-apps/katex": "0.1.0",
+    "@babel-apps/platform": "0.1.0",
+    "@babel-apps/typst": "0.1.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
+  }
+}

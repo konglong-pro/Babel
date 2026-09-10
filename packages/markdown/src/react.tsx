@@ -1,0 +1,1805 @@
+"use client";
+
+import {
+  Children,
+  cloneElement,
+  createContext,
+  createElement,
+  type CSSProperties,
+  type ChangeEvent,
+  type ClipboardEvent,
+  type DragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type InputHTMLAttributes,
+  type ReactElement,
+  type ReactNode,
+  type RefObject,
+  isValidElement,
+  useCallback,
+  useContext,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
+import ReactMarkdown, {
+  defaultUrlTransform,
+  type Components,
+  type UrlTransform,
+} from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { KatexFormula } from "@babel-apps/katex/react";
+import { CanvasPreview } from "@babel-apps/platform/canvas/react";
+import { usePageDeckPageContext, useWorkspaceProcessActive } from "@babel-apps/platform/pages/react";
+import { subscribeCanvasEmbed, type CanvasEmbedSnapshot } from "./canvas-embeds";
+import {
+  type CanvasSummary,
+} from "@babel-apps/platform/canvas/core";
+import { TypstFormula } from "@babel-apps/typst/react";
+
+import { findAutocompleteQuery, type AutocompleteQuery } from "./autocomplete";
+import {
+  extractWikilinks,
+  preprocessCanvasEmbeds,
+  preprocessWikilinks,
+  type Wikilink,
+} from "./core";
+import {
+  editFromMarkdownKey,
+  editFromMarkdownPaste,
+  minimalTextReplacement,
+  toggleTaskListSelection,
+  wrapInlineSelection,
+  type InlineMarker,
+  type TextEditResult,
+} from "./editing";
+import {
+  extractOutline,
+  outlineSlugs,
+  sourceOffsetToTextareaOffset,
+} from "./outline";
+import { createRemarkFormulaMath, prepareFormulaMath } from "./formula-math";
+
+export type RemarkFeature = "gfm" | "typst-math" | "formula-math";
+
+export interface ResolvedWikilink {
+  id: number;
+  kind?: string;
+}
+
+type TaskInputProps = InputHTMLAttributes<HTMLInputElement> & {
+  "data-source-line"?: number;
+};
+
+const TaskToggleContext = createContext<((line: number) => void) | undefined>(undefined);
+const SearchFocusLineContext = createContext<number | undefined>(undefined);
+
+export interface MarkdownRendererProps {
+  content: string;
+  emptyText?: string;
+  imagePreviews?: ReadonlyMap<string, string>;
+  /** The image placeholder scheme without ://, for example esperanto-upload. */
+  uploadScheme?: string;
+  remarkFeatures?: readonly RemarkFeature[];
+  /** Used for unresolved typed links; a resolved target's kind takes precedence. */
+  defaultWikilinkKind?: string;
+  resolveWikilink?: (titleKey: string) => ResolvedWikilink | null;
+  onNavigateWikilink?: (target: ResolvedWikilink, wikilink: Wikilink) => void;
+  onCreateFromWikilink?: (wikilink: Wikilink) => void;
+  /** Enables task checkbox changes to be written back by source line. */
+  onToggleTask?: (line: number) => void;
+  /** Optional namespace when a page renders more than one Markdown document. */
+  headingIdPrefix?: string;
+  /** Marks rendered blocks whose Markdown source range contains this one-based line. */
+  focusSourceLine?: number;
+}
+
+export function MarkdownRenderer({
+  content,
+  emptyText = "No content yet.",
+  imagePreviews,
+  uploadScheme,
+  remarkFeatures = ["gfm"],
+  defaultWikilinkKind,
+  resolveWikilink,
+  onNavigateWikilink,
+  onCreateFromWikilink,
+  onToggleTask,
+  headingIdPrefix = "",
+  focusSourceLine,
+}: MarkdownRendererProps) {
+  const renderedContent = useMemo(() => {
+    return withImagePreviews(content, uploadScheme, imagePreviews);
+  }, [content, imagePreviews, uploadScheme]);
+
+  const preparedFormulaMath = useMemo(() => {
+    const dualEngine = remarkFeatures.includes("formula-math");
+    const typst = dualEngine || remarkFeatures.includes("typst-math");
+    return typst
+      ? prepareFormulaMath(renderedContent, { typst, latex: dualEngine })
+      : null;
+  }, [remarkFeatures, renderedContent]);
+  const contentWithoutFormulaSyntax = preparedFormulaMath?.content ?? renderedContent;
+  const contentWithCanvasEmbeds = useMemo(
+    () => preprocessCanvasEmbeds(contentWithoutFormulaSyntax),
+    [contentWithoutFormulaSyntax],
+  );
+
+  const headingIds = useMemo(() => {
+    const outline = extractOutline(renderedContent);
+    const slugs = outlineSlugs(outline);
+    return new Map(outline.map((item, index) => [
+      `${item.line}:${item.level}`,
+      `${headingIdPrefix}${slugs[index]}`,
+    ]));
+  }, [headingIdPrefix, renderedContent]);
+
+  const targetsByKey = useMemo(() => {
+    const nextTargets = new Map<string, ResolvedWikilink | null>();
+    for (const wikilink of extractWikilinks(contentWithCanvasEmbeds)) {
+      if (!nextTargets.has(wikilink.titleKey)) {
+        nextTargets.set(wikilink.titleKey, resolveWikilink?.(wikilink.titleKey) ?? null);
+      }
+    }
+    return nextTargets;
+  }, [contentWithCanvasEmbeds, resolveWikilink]);
+
+  const { preprocessedContent, wikilinksByOffset } = useMemo(() => {
+    const nextWikilinksByOffset = new Map<number, Wikilink>();
+    const nextContent = preprocessWikilinks(contentWithCanvasEmbeds, {
+      targetKind: ({ titleKey }) => targetsByKey.get(titleKey)?.kind ?? defaultWikilinkKind,
+      onWikilink: (wikilink, occurrence) => {
+        nextWikilinksByOffset.set(occurrence.start, wikilink);
+      },
+    });
+    return {
+      preprocessedContent: nextContent,
+      wikilinksByOffset: nextWikilinksByOffset,
+    };
+  }, [contentWithCanvasEmbeds, defaultWikilinkKind, targetsByKey]);
+
+  const components = useMemo<Components>(() => {
+    const nextComponents: Components = {
+      h1: createHeadingComponent("h2", 1, headingIds, focusSourceLine),
+      h2: createHeadingComponent("h3", 2, headingIds, focusSourceLine),
+      h3: createHeadingComponent("h4", 3, headingIds, focusSourceLine),
+      h4: createHeadingComponent("h5", 4, headingIds, focusSourceLine),
+      h5: createHeadingComponent("h6", 5, headingIds, focusSourceLine),
+      h6: createHeadingComponent("h6", 6, headingIds, focusSourceLine),
+      p: ({ node, ...props }) => (
+        <p {...props} {...searchFocusAttributes(node, focusSourceLine)} />
+      ),
+      pre: ({ node, style, ...props }) => (
+        <pre
+          {...props}
+          style={{ ...style, whiteSpace: "pre" }}
+          {...searchFocusAttributes(node, focusSourceLine)}
+        />
+      ),
+      blockquote: ({ node, ...props }) => (
+        <blockquote {...props} {...searchFocusAttributes(node, focusSourceLine)} />
+      ),
+      td: ({ node, ...props }) => (
+        <td {...props} {...searchFocusAttributes(node, focusSourceLine)} />
+      ),
+      th: ({ node, ...props }) => (
+        <th {...props} {...searchFocusAttributes(node, focusSourceLine)} />
+      ),
+      // A module-level component must survive preview focus changes during a pointer click.
+      li: MarkdownListItem,
+      a: ({ href, children, className, node, ...props }) => {
+        const parsed = parseWikilinkHref(href);
+        if (parsed === null) {
+          return <a {...props} className={className} href={href}>{children}</a>;
+        }
+
+        const wikilink = wikilinksByOffset.get(node?.position?.start.offset ?? -1) ?? {
+          titleRaw: parsed.titleKey,
+          titleKey: parsed.titleKey,
+          alias: null,
+        };
+        const target = targetsByKey.get(parsed.titleKey) ?? null;
+        const isActionable = target === null
+          ? onCreateFromWikilink !== undefined
+          : onNavigateWikilink !== undefined;
+        const stateClass = target === null ? "wikilink-unresolved" : "wikilink-resolved";
+        const classes = [className, "wikilink", stateClass].filter(Boolean).join(" ");
+
+        return (
+          <a
+            {...props}
+            className={classes}
+            href={isActionable ? href : undefined}
+            tabIndex={isActionable ? undefined : -1}
+            data-wikilink-kind={target?.kind ?? parsed.kind}
+            data-wikilink-title={wikilink.titleRaw}
+            aria-disabled={!isActionable}
+            onClick={(event) => {
+              event.preventDefault();
+              if (target !== null) {
+                onNavigateWikilink?.(target, wikilink);
+              } else {
+                onCreateFromWikilink?.(wikilink);
+              }
+            }}
+          >
+            {children}
+          </a>
+        );
+      },
+    };
+
+    nextComponents.img = ({ alt, node, src, ...props }) => {
+      void node;
+      const canvasId = typeof src === "string" ? parseCanvasEmbedSource(src) : null;
+      if (canvasId !== null) return <CanvasEmbedCard canvasId={canvasId} fallbackLabel={alt ?? ""} />;
+      if (typeof src === "string" && uploadScheme !== undefined && src.startsWith(`${uploadScheme}://`)) {
+        return <span className="markdown-image-pending">Image awaiting file: {alt?.trim() || "Untitled image"}</span>;
+      }
+      // Markdown images may be local, remote, or unsaved blob URLs with unknown dimensions.
+      // eslint-disable-next-line @next/next/no-img-element
+      return <img {...props} src={src} alt={alt ?? ""} loading="lazy" />;
+    };
+    if (preparedFormulaMath !== null) {
+      const componentsWithFormula = nextComponents as Components & Record<string, unknown>;
+      componentsWithFormula["babel-formula"] = ({ formulaIndex }: { formulaIndex?: number | string }) => {
+        const occurrence = preparedFormulaMath.occurrences[Number(formulaIndex)];
+        if (occurrence === undefined) return null;
+        if (occurrence.engine === "latex") {
+          return (
+            <KatexFormula
+              source={occurrence.source}
+              display={occurrence.display}
+              sourceLine={occurrence.sourceLine}
+              sourceColumn={occurrence.sourceColumn}
+            />
+          );
+        }
+        return (
+          <TypstFormula
+            source={occurrence.source}
+            display={occurrence.display}
+            sourceLine={occurrence.sourceLine}
+            sourceColumn={occurrence.sourceColumn}
+          />
+        );
+      };
+    }
+    return nextComponents;
+  }, [
+    onCreateFromWikilink,
+    onNavigateWikilink,
+    focusSourceLine,
+    headingIds,
+    preparedFormulaMath,
+    targetsByKey,
+    uploadScheme,
+    wikilinksByOffset,
+  ]);
+
+  const useGfm = remarkFeatures.includes("gfm");
+  const urlTransform = useMemo<UrlTransform>(() => {
+    if (uploadScheme === undefined) return internalMarkdownUrlTransform;
+    const placeholderPrefix = `${uploadScheme}://`;
+    return (value, key, node) => {
+      if (key === "src" && value.startsWith(placeholderPrefix)) return value;
+      return internalMarkdownUrlTransform(value, key, node);
+    };
+  }, [uploadScheme]);
+
+  if (!content.trim()) return <p className="empty-copy">{emptyText}</p>;
+
+  return (
+    <div className="markdown-body">
+      <SearchFocusLineContext.Provider value={focusSourceLine}>
+        <TaskToggleContext.Provider value={onToggleTask}>
+          <ReactMarkdown
+            components={components}
+            remarkPlugins={[
+              ...(useGfm ? [remarkGfm] : []),
+              ...(preparedFormulaMath === null ? [] : [createRemarkFormulaMath(preparedFormulaMath)]),
+            ]}
+            urlTransform={urlTransform}
+          >
+            {preprocessedContent}
+          </ReactMarkdown>
+        </TaskToggleContext.Provider>
+      </SearchFocusLineContext.Provider>
+    </div>
+  );
+}
+
+export interface WikilinkTitleSuggestion {
+  id: number;
+  title: string;
+  kind?: string;
+}
+
+const EMPTY_TITLE_SUGGESTIONS: readonly WikilinkTitleSuggestion[] = [];
+
+export type FetchWikilinkTitles = (
+  query: string,
+  signal: AbortSignal,
+) => Promise<readonly WikilinkTitleSuggestion[]>;
+
+export interface UseWikilinkAutocompleteOptions {
+  /** @deprecated Controlled textareas are now updated through a native input event. */
+  onTextChange?: (nextText: string) => void;
+  /** Change this when the app, entity kind, or workspace queried by fetchTitles changes. */
+  fetchScope?: string | number;
+}
+
+interface AutocompletePosition {
+  left: number;
+  top: number;
+  width: number;
+  maxHeight: number;
+}
+
+export interface WikilinkAutocompleteController {
+  isOpen: boolean;
+  isLoading: boolean;
+  query: string;
+  suggestions: readonly WikilinkTitleSuggestion[];
+  activeIndex: number;
+  listboxId: string;
+  ownerDocument: Document | null;
+  position: AutocompletePosition | null;
+  close: () => void;
+  selectSuggestion: (index: number) => void;
+}
+
+export function useWikilinkAutocomplete(
+  textareaRef: RefObject<HTMLTextAreaElement | null>,
+  fetchTitles: FetchWikilinkTitles | null | undefined,
+  options: UseWikilinkAutocompleteOptions = {},
+): WikilinkAutocompleteController {
+  const listboxId = useId();
+  const [activeQuery, setActiveQuery] = useState<AutocompleteQuery | null>(null);
+  const [suggestions, setSuggestions] = useState<readonly WikilinkTitleSuggestion[]>([]);
+  const [suggestionScope, setSuggestionScope] = useState(options.fetchScope);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
+  const [position, setPosition] = useState<AutocompletePosition | null>(null);
+  const [textareaElement, setTextareaElement] = useState<HTMLTextAreaElement | null>(null);
+  const activeQueryRef = useRef(activeQuery);
+  const suggestionsRef = useRef(suggestions);
+  const activeIndexRef = useRef(activeIndex);
+  const dismissedQueryRef = useRef<string | null>(null);
+  const fetchTitlesRef = useRef(fetchTitles);
+  const isComposingRef = useRef(false);
+  const hasFetchTitles = fetchTitles != null;
+  const scopeIsStale = suggestionScope !== options.fetchScope;
+  const visibleSuggestions = scopeIsStale ? EMPTY_TITLE_SUGGESTIONS : suggestions;
+
+  // RefObject.current can change without changing the RefObject identity (for
+  // example when a keyed textarea is replaced), so observe it after every commit.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const nextElement = textareaRef.current;
+    setTextareaElement((current) => current === nextElement ? current : nextElement);
+  });
+
+  useEffect(() => {
+    activeQueryRef.current = activeQuery;
+    suggestionsRef.current = visibleSuggestions;
+    activeIndexRef.current = activeIndex;
+    fetchTitlesRef.current = fetchTitles;
+  }, [
+    activeIndex,
+    activeQuery,
+    fetchTitles,
+    visibleSuggestions,
+  ]);
+
+  const close = useCallback(() => {
+    const current = activeQueryRef.current;
+    dismissedQueryRef.current = current === null ? null : querySignature(current);
+    setActiveQuery(null);
+    setSuggestions([]);
+    setIsLoading(false);
+  }, []);
+
+  const refresh = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (textarea === null || !hasFetchTitles) {
+      setActiveQuery(null);
+      return;
+    }
+
+    const nextQuery = findAutocompleteQuery(
+      textarea.value,
+      textarea.selectionStart,
+      textarea.selectionEnd,
+    );
+    if (nextQuery === null || dismissedQueryRef.current === querySignature(nextQuery)) {
+      setActiveQuery(null);
+      setSuggestions([]);
+      setIsLoading(false);
+      return;
+    }
+    dismissedQueryRef.current = null;
+    const current = activeQueryRef.current;
+    const queryChanged = current?.openingIndex !== nextQuery.openingIndex ||
+      current.query !== nextQuery.query;
+    if (queryChanged) {
+      setActiveQuery(nextQuery);
+      setSuggestions([]);
+      setActiveIndex(0);
+      setIsLoading(true);
+      setSuggestionScope(options.fetchScope);
+    }
+    setPosition(positionForTextarea(textarea));
+  }, [hasFetchTitles, options.fetchScope, textareaRef]);
+
+  const selectSuggestion = useCallback((index: number) => {
+    const textarea = textareaRef.current;
+    const suggestion = suggestionsRef.current[index];
+    const query = activeQueryRef.current;
+    if (
+      textarea === null ||
+      suggestion === undefined ||
+      query === null ||
+      isComposingRef.current ||
+      suggestionScope !== options.fetchScope
+    ) {
+      return;
+    }
+
+    const currentQuery = findAutocompleteQuery(
+      textarea.value,
+      textarea.selectionStart,
+      textarea.selectionEnd,
+    );
+    if (currentQuery === null || querySignature(currentQuery) !== querySignature(query)) {
+      setActiveQuery(null);
+      setSuggestions([]);
+      setIsLoading(false);
+      return;
+    }
+
+    const cursor = textarea.selectionStart;
+    const replacement = `[[${suggestion.title}]]`;
+    const nextText = `${textarea.value.slice(0, query.openingIndex)}${replacement}${textarea.value.slice(cursor)}`;
+    const nextCursor = query.openingIndex + replacement.length;
+
+    dismissedQueryRef.current = null;
+    setActiveQuery(null);
+    setSuggestions([]);
+    setIsLoading(false);
+    setNativeTextareaValue(textarea, nextText);
+    const restoreSelection = () => {
+      textarea.focus();
+      textarea.setSelectionRange(nextCursor, nextCursor);
+    };
+    const view = textarea.ownerDocument.defaultView;
+    if (view === null) restoreSelection();
+    else view.requestAnimationFrame(restoreSelection);
+  }, [options.fetchScope, suggestionScope, textareaRef]);
+
+  useEffect(() => {
+    const textarea = textareaElement;
+    if (textarea === null) return;
+    const view = textarea.ownerDocument.defaultView;
+    let pendingInputRefresh: number | null = null;
+
+    const onInput = () => {
+      if (view === null) {
+        refresh();
+        return;
+      }
+      if (pendingInputRefresh !== null) view.clearTimeout(pendingInputRefresh);
+      // React handles controlled textarea input from a delegated listener.
+      // Refresh after that handler commits so we do not render the old value
+      // over the browser's edit before the app's onChange can observe it.
+      pendingInputRefresh = view.setTimeout(() => {
+        pendingInputRefresh = null;
+        refresh();
+      }, 0);
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (activeQueryRef.current === null || event.isComposing || event.keyCode === 229) return;
+      const count = suggestionsRef.current.length;
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        close();
+      } else if (event.key === "ArrowDown" && count > 0) {
+        event.preventDefault();
+        setActiveIndex((current) => (current + 1) % count);
+      } else if (event.key === "ArrowUp" && count > 0) {
+        event.preventDefault();
+        setActiveIndex((current) => (current - 1 + count) % count);
+      } else if (event.key === "Enter" && count > 0) {
+        event.preventDefault();
+        selectSuggestion(activeIndexRef.current);
+      }
+    };
+    const onDocumentPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      const NodeConstructor = textarea.ownerDocument.defaultView?.Node;
+      if (NodeConstructor === undefined || !(target instanceof NodeConstructor) || target === textarea) {
+        return;
+      }
+      const listbox = textarea.ownerDocument.getElementById(listboxId);
+      if (listbox?.contains(target)) return;
+      close();
+    };
+    const onCompositionStart = () => {
+      isComposingRef.current = true;
+    };
+    const onCompositionEnd = () => {
+      isComposingRef.current = false;
+    };
+
+    textarea.addEventListener("input", onInput);
+    textarea.addEventListener("click", refresh);
+    textarea.addEventListener("select", refresh);
+    textarea.addEventListener("keydown", onKeyDown);
+    textarea.addEventListener("compositionstart", onCompositionStart);
+    textarea.addEventListener("compositionend", onCompositionEnd);
+    textarea.ownerDocument.addEventListener("pointerdown", onDocumentPointerDown);
+    refresh();
+    return () => {
+      textarea.removeEventListener("input", onInput);
+      textarea.removeEventListener("click", refresh);
+      textarea.removeEventListener("select", refresh);
+      textarea.removeEventListener("keydown", onKeyDown);
+      textarea.removeEventListener("compositionstart", onCompositionStart);
+      textarea.removeEventListener("compositionend", onCompositionEnd);
+      textarea.ownerDocument.removeEventListener("pointerdown", onDocumentPointerDown);
+      if (pendingInputRefresh !== null) view?.clearTimeout(pendingInputRefresh);
+    };
+  }, [close, listboxId, refresh, selectSuggestion, textareaElement]);
+
+  useEffect(() => {
+    const requestTitles = fetchTitlesRef.current;
+    if (activeQuery === null || requestTitles == null) return;
+    const controller = new AbortController();
+    const requestScope = options.fetchScope;
+
+    void requestTitles(activeQuery.query, controller.signal).then(
+      (nextSuggestions) => {
+        if (controller.signal.aborted) return;
+        setSuggestionScope(requestScope);
+        setSuggestions(nextSuggestions);
+        setActiveIndex(0);
+        setIsLoading(false);
+      },
+      () => {
+        if (controller.signal.aborted) return;
+        setSuggestionScope(requestScope);
+        setSuggestions([]);
+        setActiveIndex(0);
+        setIsLoading(false);
+      },
+    );
+    return () => controller.abort();
+  }, [activeQuery, hasFetchTitles, options.fetchScope]);
+
+  useEffect(() => {
+    const textarea = textareaElement;
+    if (textarea === null || activeQuery === null) return;
+    const updatePosition = () => setPosition(positionForTextarea(textarea));
+    const view = textarea.ownerDocument.defaultView;
+    view?.addEventListener("resize", updatePosition);
+    view?.addEventListener("scroll", updatePosition, true);
+    return () => {
+      view?.removeEventListener("resize", updatePosition);
+      view?.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [activeQuery, textareaElement]);
+
+  useEffect(() => {
+    const textarea = textareaElement;
+    if (textarea === null) return;
+    const previous = new Map<string, string | null>();
+    for (const attribute of ["aria-autocomplete", "aria-controls", "aria-haspopup"]) {
+      previous.set(attribute, textarea.getAttribute(attribute));
+    }
+    textarea.setAttribute("aria-autocomplete", "list");
+    textarea.setAttribute("aria-controls", listboxId);
+    textarea.setAttribute("aria-haspopup", "listbox");
+    return () => {
+      for (const [attribute, value] of previous) {
+        if (value === null) textarea.removeAttribute(attribute);
+        else textarea.setAttribute(attribute, value);
+      }
+      textarea.removeAttribute("aria-expanded");
+      textarea.removeAttribute("aria-activedescendant");
+    };
+  }, [listboxId, textareaElement]);
+
+  useEffect(() => {
+    const textarea = textareaElement;
+    if (textarea === null) return;
+    const isOpen = activeQuery !== null;
+    textarea.setAttribute("aria-expanded", String(isOpen));
+    if (isOpen && visibleSuggestions[activeIndex] !== undefined) {
+      textarea.setAttribute("aria-activedescendant", optionId(listboxId, activeIndex));
+    } else {
+      textarea.removeAttribute("aria-activedescendant");
+    }
+  }, [activeIndex, activeQuery, listboxId, textareaElement, visibleSuggestions]);
+
+  return {
+    isOpen: activeQuery !== null,
+    isLoading: isLoading || (activeQuery !== null && scopeIsStale),
+    query: activeQuery?.query ?? "",
+    suggestions: visibleSuggestions,
+    activeIndex,
+    listboxId,
+    ownerDocument: textareaElement?.ownerDocument ?? null,
+    position,
+    close,
+    selectSuggestion,
+  };
+}
+
+export interface WikilinkAutocompleteProps {
+  autocomplete: WikilinkAutocompleteController;
+  className?: string;
+  style?: CSSProperties;
+}
+
+export function WikilinkAutocomplete({
+  autocomplete,
+  className,
+  style,
+}: WikilinkAutocompleteProps) {
+  useEffect(() => {
+    if (!autocomplete.isOpen || autocomplete.ownerDocument === null) return;
+    autocomplete.ownerDocument
+      .getElementById(optionId(autocomplete.listboxId, autocomplete.activeIndex))
+      ?.scrollIntoView({ block: "nearest" });
+  }, [
+    autocomplete.activeIndex,
+    autocomplete.isOpen,
+    autocomplete.listboxId,
+    autocomplete.ownerDocument,
+    autocomplete.suggestions,
+  ]);
+
+  if (
+    !autocomplete.isOpen ||
+    autocomplete.position === null ||
+    autocomplete.ownerDocument === null
+  ) {
+    return null;
+  }
+
+  const { left, top, width, maxHeight } = autocomplete.position;
+  return createPortal(
+    <div
+      id={autocomplete.listboxId}
+      className={["wikilink-autocomplete", className].filter(Boolean).join(" ")}
+      role="listbox"
+      aria-label="Note titles"
+      style={{
+        position: "fixed",
+        zIndex: 1000,
+        left,
+        top,
+        width,
+        maxHeight,
+        overflowY: "auto",
+        ...style,
+      }}
+    >
+      {autocomplete.isLoading ? (
+        <div className="wikilink-autocomplete-status" role="status">Loading…</div>
+      ) : autocomplete.suggestions.length === 0 ? (
+        <div className="wikilink-autocomplete-status" role="status">No matching notes</div>
+      ) : (
+        autocomplete.suggestions.map((suggestion, index) => (
+          <button
+            key={`${suggestion.kind ?? "note"}:${suggestion.id}`}
+            id={optionId(autocomplete.listboxId, index)}
+            className="wikilink-autocomplete-option"
+            type="button"
+            role="option"
+            aria-selected={index === autocomplete.activeIndex}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => autocomplete.selectSuggestion(index)}
+          >
+            <span>{suggestion.title}</span>
+            {suggestion.kind === undefined ? null : (
+              <span className="wikilink-autocomplete-kind">{suggestion.kind}</span>
+            )}
+          </button>
+        ))
+      )}
+    </div>,
+    autocomplete.ownerDocument.body,
+  );
+}
+
+export interface DetachedReaderWindowContext {
+  document: Document;
+  window: Window;
+}
+
+export interface DetachedReaderWindowProps {
+  children?:
+    | ReactNode
+    | ((context: DetachedReaderWindowContext) => ReactNode);
+  title: string;
+  windowKey: string;
+  buttonLabel?: ReactNode;
+  buttonClassName?: string;
+  buttonPortalTargetId?: string;
+  disabled?: boolean;
+  onBlocked?: () => void;
+}
+
+interface DetachedReaderHost {
+  windowKey: string;
+  popup: Window;
+  root: HTMLElement;
+  owners: Set<symbol>;
+}
+
+const detachedReaderHosts = new Map<string, DetachedReaderHost>();
+let nextDetachedReaderPortalId = 1;
+
+export function detachedReaderWindowFeatures(): string {
+  return [
+    // Request normal browser chrome so the reader has native window controls.
+    "popup=no",
+    "width=1040",
+    "height=860",
+    "resizable=yes",
+    "scrollbars=yes",
+  ].join(",");
+}
+
+const DETACHED_READER_STYLE = `
+html {
+  min-height: 100%;
+}
+
+body.babel-detached-reader-window {
+  min-height: 100vh;
+  overflow: auto;
+}
+
+.babel-detached-reader-root {
+  width: 100%;
+  min-height: 100vh;
+  padding: clamp(1.25rem, 4vw, 4rem);
+}
+
+.babel-detached-reader-root > * {
+  width: min(1160px, 100%);
+  margin-inline: auto;
+}
+`;
+
+export function detachedReaderWindowName(windowKey: string): string {
+  const normalized = windowKey
+    .trim()
+    .replace(/[^A-Za-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 96);
+  return `babel-reader-${normalized || "document"}`;
+}
+
+function prepareDetachedReaderDocument(
+  popup: Window,
+  sourceDocument: Document,
+  title: string,
+): HTMLElement {
+  const targetDocument = popup.document;
+  targetDocument.open();
+  targetDocument.write("<!doctype html><html><head></head><body></body></html>");
+  targetDocument.close();
+  targetDocument.documentElement.lang = sourceDocument.documentElement.lang || "en";
+  targetDocument.documentElement.className = sourceDocument.documentElement.className;
+  targetDocument.head.replaceChildren();
+
+  const charset = targetDocument.createElement("meta");
+  charset.setAttribute("charset", "utf-8");
+  targetDocument.head.append(charset);
+
+  const viewport = targetDocument.createElement("meta");
+  viewport.name = "viewport";
+  viewport.content = "width=device-width, initial-scale=1";
+  targetDocument.head.append(viewport);
+
+  const base = targetDocument.createElement("base");
+  base.href = sourceDocument.baseURI;
+  targetDocument.head.append(base);
+
+  for (const sourceNode of sourceDocument.head.querySelectorAll(
+    'link[rel="stylesheet"], style',
+  )) {
+    const clone = sourceNode.cloneNode(true);
+    if (clone.nodeName === "LINK" && sourceNode instanceof HTMLLinkElement) {
+      (clone as HTMLLinkElement).href = sourceNode.href;
+    }
+    targetDocument.head.append(clone);
+  }
+
+  const readerStyle = targetDocument.createElement("style");
+  readerStyle.dataset.babelDetachedReader = "";
+  readerStyle.textContent = DETACHED_READER_STYLE;
+  targetDocument.head.append(readerStyle);
+
+  targetDocument.title = title;
+  targetDocument.body.replaceChildren();
+  targetDocument.body.className = [
+    sourceDocument.body.className,
+    "babel-detached-reader-window",
+  ].filter(Boolean).join(" ");
+
+  const root = targetDocument.createElement("main");
+  root.className = "babel-detached-reader-root";
+  root.tabIndex = -1;
+  targetDocument.body.append(root);
+  return root;
+}
+
+function updateDetachedReaderTitle(popup: Window, title: string) {
+  popup.document.title = title;
+}
+
+export function DetachedReaderWindow(props: DetachedReaderWindowProps) {
+  return <DetachedReaderWindowInstance key={props.windowKey} {...props} />;
+}
+
+function DetachedReaderWindowInstance({
+  children,
+  title,
+  windowKey,
+  buttonLabel = "Open reader",
+  buttonClassName,
+  buttonPortalTargetId,
+  disabled = false,
+  onBlocked,
+}: DetachedReaderWindowProps) {
+  const [host, setHost] = useState<DetachedReaderHost | null>(() =>
+    peekDetachedReaderHost(windowKey)
+  );
+  const [buttonPortalTarget, setButtonPortalTarget] = useState<HTMLElement | null>(null);
+  const [sourceCanPortal, setSourceCanPortal] = useState(
+    buttonPortalTargetId === undefined,
+  );
+  const [portalKey] = useState(() =>
+    `babel-reader-portal-${nextDetachedReaderPortalId++}`
+  );
+  const fallbackButtonRef = useRef<HTMLButtonElement>(null);
+  const hostRef = useRef<DetachedReaderHost | null>(host);
+  const ownerRef = useRef(Symbol(windowKey));
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      setButtonPortalTarget(
+        buttonPortalTargetId === undefined
+          ? null
+          : document.getElementById(buttonPortalTargetId),
+      );
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [buttonPortalTargetId]);
+
+  useEffect(() => {
+    if (buttonPortalTargetId === undefined) return;
+
+    let observer: MutationObserver | null = null;
+    const frame = window.requestAnimationFrame(() => {
+      const page = fallbackButtonRef.current?.closest<HTMLElement>("[data-page-key]") ?? null;
+      const update = () => {
+        setSourceCanPortal(
+          page === null ||
+            (!page.hidden && page.getAttribute("aria-hidden") !== "true"),
+        );
+      };
+      update();
+      if (page !== null) {
+        observer = new MutationObserver(update);
+        observer.observe(page, {
+          attributes: true,
+          attributeFilter: ["hidden", "aria-hidden"],
+        });
+      }
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer?.disconnect();
+    };
+  }, [buttonPortalTargetId]);
+
+  useEffect(() => {
+    hostRef.current = host;
+    if (host === null) return;
+
+    const owner = ownerRef.current;
+    host.owners.add(owner);
+    detachedReaderHosts.set(windowKey, host);
+    return () => {
+      host.owners.delete(owner);
+      window.setTimeout(() => {
+        if (host.owners.size > 0) return;
+        if (detachedReaderHosts.get(host.windowKey) === host) {
+          detachedReaderHosts.delete(host.windowKey);
+        }
+        if (detachedReaderHostIsUsable(host)) host.popup.close();
+      }, 0);
+    };
+  }, [host, windowKey]);
+
+  useEffect(() => {
+    if (host === null) return;
+    try {
+      updateDetachedReaderTitle(host.popup, title);
+    } catch {
+      // A reader navigated away. The next click will recreate its document.
+    }
+  }, [host, title]);
+
+  useEffect(() => {
+    if (host === null) return;
+    const { popup } = host;
+    const forgetClosedWindow = () => {
+      try {
+        if (
+          !popup.closed &&
+          host.root.isConnected &&
+          popup.document === host.root.ownerDocument
+        ) return;
+      } catch {
+        // Cross-origin navigation detaches the live reader from its opener.
+      }
+      if (hostRef.current?.root === host.root) hostRef.current = null;
+      setHost((current) => current?.root === host.root ? null : current);
+    };
+    const interval = window.setInterval(forgetClosedWindow, 500);
+    popup.addEventListener("pagehide", forgetClosedWindow);
+    return () => {
+      window.clearInterval(interval);
+      popup.removeEventListener("pagehide", forgetClosedWindow);
+    };
+  }, [host]);
+
+  function openReader() {
+    const current = hostRef.current;
+    if (current !== null && detachedReaderHostIsUsable(current)) {
+      current.popup.focus();
+      return;
+    }
+
+    const popup = window.open(
+      "",
+      detachedReaderWindowName(windowKey),
+      detachedReaderWindowFeatures(),
+    );
+    if (popup === null) {
+      if (onBlocked !== undefined) onBlocked();
+      else window.alert("The reading window was blocked. Allow pop-ups for this local app and try again.");
+      return;
+    }
+
+    try {
+      popup.opener = null;
+      const root = prepareDetachedReaderDocument(popup, document, title);
+      const nextHost: DetachedReaderHost = {
+        windowKey,
+        popup,
+        root,
+        owners: new Set(),
+      };
+      detachedReaderHosts.set(windowKey, nextHost);
+      hostRef.current = nextHost;
+      setHost(nextHost);
+      popup.focus();
+      root.focus();
+    } catch {
+      popup.close();
+      if (onBlocked !== undefined) onBlocked();
+      else window.alert("The reading window could not be opened. Close it and try again.");
+    }
+  }
+
+  const readerContent = host === null
+    ? null
+    : typeof children === "function"
+      ? children({ document: host.root.ownerDocument, window: host.popup })
+      : children;
+
+  function readerButton(
+    className = buttonClassName,
+    ref?: RefObject<HTMLButtonElement | null>,
+  ) {
+    return (
+      <button
+        ref={ref}
+        className={className}
+        data-babel-command="read"
+        type="button"
+        disabled={disabled}
+        title="Open a live reading window"
+        onClick={openReader}
+      >
+        {buttonLabel}
+      </button>
+    );
+  }
+
+  const fallbackButtonClassName = [
+    buttonClassName,
+    "babel-detached-reader-fallback",
+  ].filter(Boolean).join(" ");
+
+  return (
+    <>
+      {buttonPortalTargetId === undefined
+        ? readerButton()
+        : (
+            <>
+              {buttonPortalTarget !== null && sourceCanPortal
+                ? createPortal(readerButton(), buttonPortalTarget)
+                : null}
+              {readerButton(fallbackButtonClassName, fallbackButtonRef)}
+            </>
+          )}
+      {host === null ? null : createPortal(readerContent, host.root, portalKey)}
+    </>
+  );
+}
+
+function peekDetachedReaderHost(windowKey: string): DetachedReaderHost | null {
+  const host = detachedReaderHosts.get(windowKey);
+  if (host !== undefined && detachedReaderHostIsUsable(host)) return host;
+  detachedReaderHosts.delete(windowKey);
+  return null;
+}
+
+function detachedReaderHostIsUsable(host: DetachedReaderHost): boolean {
+  try {
+    return !host.popup.closed &&
+      host.root.isConnected &&
+      host.popup.document === host.root.ownerDocument;
+  } catch {
+    return false;
+  }
+}
+
+export const ACCEPTED_IMAGE_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+]);
+export const MARKDOWN_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+
+export interface StagedImage {
+  token: string;
+  file: File;
+  previewUrl: string;
+}
+
+export function imageFileError(file: File): string | null {
+  if (!ACCEPTED_IMAGE_TYPES.has(file.type)) {
+    return `${file.name || "This file"} is not a PNG, JPEG, WebP, or GIF image.`;
+  }
+  if (file.size > MARKDOWN_IMAGE_MAX_BYTES) {
+    return `${file.name || "This image"} is larger than 10 MB.`;
+  }
+  if (file.size === 0) return `${file.name || "This image"} is empty.`;
+  return null;
+}
+
+export function stageImageFile(file: File, token = newImageToken()): StagedImage {
+  return { token, file, previewUrl: URL.createObjectURL(file) };
+}
+
+export interface MarkdownEditorProps {
+  label: string;
+  name: string;
+  value: string;
+  onChange: (value: string) => void;
+  uploadScheme?: string;
+  /** @deprecated The editor no longer renders a preview. Retained for source compatibility. */
+  imagePreviews?: ReadonlyMap<string, string>;
+  onStageImage?: (image: StagedImage) => void;
+  onImageError?: (message: string) => void;
+  /** @deprecated The editor no longer renders a preview. Retained for source compatibility. */
+  remarkFeatures?: readonly RemarkFeature[];
+  fetchTitles?: FetchWikilinkTitles | null;
+  fetchScope?: string | number;
+  /** Allows choosing an app-local canvas and inserting a stable-id embed. */
+  enableCanvasEmbeds?: boolean;
+  /** @deprecated The editor no longer renders a preview. Retained for source compatibility. */
+  defaultWikilinkKind?: string;
+  /** @deprecated The editor no longer renders a preview. Retained for source compatibility. */
+  resolveWikilink?: (titleKey: string) => ResolvedWikilink | null;
+  /** @deprecated The editor no longer renders a preview. Retained for source compatibility. */
+  onNavigateWikilink?: (target: ResolvedWikilink, wikilink: Wikilink) => void;
+  /** @deprecated The editor no longer renders a preview. Retained for source compatibility. */
+  onCreateFromWikilink?: (wikilink: Wikilink) => void;
+  toolbarExtras?: ReactNode;
+  footerExtras?: ReactNode;
+  hintText?: string;
+  placeholder?: string;
+  /** @deprecated The editor no longer renders a preview. Retained for source compatibility. */
+  emptyPreviewText?: string;
+  rows?: number;
+  disabled?: boolean;
+  textareaRef?: RefObject<HTMLTextAreaElement | null>;
+  /** @deprecated The editor no longer renders a preview. Retained for source compatibility. */
+  headingIdPrefix?: string;
+}
+
+export function MarkdownEditor({
+  label,
+  name,
+  value,
+  onChange,
+  uploadScheme,
+  onStageImage,
+  onImageError,
+  fetchTitles,
+  fetchScope,
+  enableCanvasEmbeds = false,
+  toolbarExtras,
+  footerExtras,
+  hintText = "Write Markdown with tables, task lists, links, images, and [[note links]].",
+  placeholder = "Write Markdown…",
+  rows = 20,
+  disabled = false,
+  textareaRef: suppliedTextareaRef,
+}: MarkdownEditorProps) {
+  const id = useId();
+  const hintId = `${id}-hint`;
+  const fallbackTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const textareaRef = suppliedTextareaRef ?? fallbackTextareaRef;
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [canvasPickerOpen, setCanvasPickerOpen] = useState(false);
+  const [canvasPickerLoading, setCanvasPickerLoading] = useState(false);
+  const [canvasPickerError, setCanvasPickerError] = useState("");
+  const [canvasChoices, setCanvasChoices] = useState<CanvasSummary[] | null>(null);
+  const autocomplete = useWikilinkAutocomplete(textareaRef, fetchTitles, { fetchScope });
+  const closeAutocomplete = autocomplete.close;
+  const canStageImages = uploadScheme !== undefined && onStageImage !== undefined;
+
+  useEffect(() => {
+    if (disabled) closeAutocomplete();
+  }, [closeAutocomplete, disabled]);
+
+  function commit(edit: TextEditResult | null) {
+    const textarea = textareaRef.current;
+    if (textarea === null || edit === null || disabled) return;
+    setNativeTextareaValue(textarea, edit.text);
+    focusTextarea(textarea, edit.selectionStart, edit.selectionEnd);
+  }
+
+  function stageFiles(files: readonly File[], pasted: boolean) {
+    const textarea = textareaRef.current;
+    if (textarea === null || !canStageImages || disabled) return;
+    const accepted: Array<{ image: StagedImage; markdown: string }> = [];
+
+    for (const file of files) {
+      const error = imageFileError(file);
+      if (error !== null) {
+        onImageError?.(error);
+        continue;
+      }
+      const image = stageImageFile(file);
+      accepted.push({
+        image,
+        markdown: `![${imageAlt(file, pasted)}](${uploadScheme}://${image.token})`,
+      });
+      onStageImage(image);
+    }
+    if (accepted.length === 0) return;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const current = textarea.value;
+    const before = current.slice(0, start);
+    const after = current.slice(end);
+    const leadingBreak = before && !before.endsWith("\n") ? "\n" : "";
+    const trailingBreak = after && !after.startsWith("\n") ? "\n" : "";
+    const insertion = accepted.map(({ markdown }) => markdown).join("\n\n");
+    const nextText = `${before}${leadingBreak}${insertion}${trailingBreak}${after}`;
+    const cursor = before.length + leadingBreak.length + insertion.length + trailingBreak.length;
+    onImageError?.("");
+    commit({ text: nextText, selectionStart: cursor, selectionEnd: cursor });
+  }
+
+  function chooseImages(event: ChangeEvent<HTMLInputElement>) {
+    stageFiles(Array.from(event.target.files ?? []), false);
+    event.target.value = "";
+  }
+
+  function paste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    if (disabled) return;
+    const files = Array.from(event.clipboardData.items)
+      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => file !== null);
+    if (files.length > 0 && canStageImages) {
+      event.preventDefault();
+      stageFiles(files, true);
+      return;
+    }
+
+    const textarea = textareaRef.current;
+    if (textarea === null) return;
+    const edit = editFromMarkdownPaste(
+      textarea.value,
+      textarea.selectionStart,
+      textarea.selectionEnd,
+      event.clipboardData.getData("text/plain"),
+    );
+    if (edit === null) return;
+    event.preventDefault();
+    commit(edit);
+  }
+
+  function drop(event: DragEvent<HTMLTextAreaElement>) {
+    const files = Array.from(event.dataTransfer.files);
+    if (files.length === 0 || !canStageImages || disabled) return;
+    event.preventDefault();
+    stageFiles(files, false);
+  }
+
+  function keyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
+    if (
+      disabled ||
+      event.defaultPrevented ||
+      event.nativeEvent.isComposing ||
+      event.keyCode === 229
+    ) {
+      return;
+    }
+    if (event.key === "Enter" && autocomplete.isOpen) return;
+    const textarea = event.currentTarget;
+    const edit = editFromMarkdownKey(
+      textarea.value,
+      textarea.selectionStart,
+      textarea.selectionEnd,
+      event,
+    );
+    if (edit === null) return;
+    event.preventDefault();
+    commit(edit);
+  }
+
+  function format(marker: InlineMarker) {
+    const textarea = textareaRef.current;
+    if (textarea === null) return;
+    commit(wrapInlineSelection(
+      textarea.value,
+      textarea.selectionStart,
+      textarea.selectionEnd,
+      marker,
+    ));
+  }
+
+  function toggleTasks() {
+    const textarea = textareaRef.current;
+    if (textarea === null) return;
+    commit(toggleTaskListSelection(
+      textarea.value,
+      textarea.selectionStart,
+      textarea.selectionEnd,
+    ));
+  }
+
+  async function openCanvasPicker() {
+    if (disabled) return;
+    if (canvasPickerOpen) {
+      setCanvasPickerOpen(false);
+      return;
+    }
+    setCanvasPickerOpen(true);
+    if (canvasPickerLoading) return;
+    setCanvasPickerLoading(true);
+    setCanvasPickerError("");
+    try {
+      const response = await fetch("/api/canvases");
+      if (!response.ok) throw new Error("Could not load canvases");
+      setCanvasChoices(await response.json() as CanvasSummary[]);
+    } catch (cause) {
+      setCanvasPickerError(cause instanceof Error ? cause.message : "Could not load canvases");
+    } finally {
+      setCanvasPickerLoading(false);
+    }
+  }
+
+  function insertCanvas(canvas: CanvasSummary) {
+    const textarea = textareaRef.current;
+    if (textarea === null || disabled) return;
+    const label = canvas.title.replace(/[|\]\r\n]/gu, " ").trim() || `Canvas ${canvas.id}`;
+    const embed = `![[canvas:${canvas.id}|${label}]]`;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const before = textarea.value.slice(0, start);
+    const after = textarea.value.slice(end);
+    const leadingBreak = before.length > 0 && !before.endsWith("\n") ? "\n\n" : "";
+    const trailingBreak = after.length > 0 && !after.startsWith("\n") ? "\n\n" : "";
+    const insertion = `${leadingBreak}${embed}${trailingBreak}`;
+    const cursor = start + insertion.length;
+    commit({
+      text: `${before}${insertion}${after}`,
+      selectionStart: cursor,
+      selectionEnd: cursor,
+    });
+    setCanvasPickerOpen(false);
+  }
+
+  return (
+    <section className="editor-field">
+      <div className="field-heading">
+        <div>
+          <label htmlFor={id}>{label}</label>
+          <p id={hintId}>{hintText}</p>
+        </div>
+        <div className="editor-tools">
+          <div className="editor-format-tools" aria-label="Markdown formatting">
+            <button
+              type="button"
+              disabled={disabled}
+              aria-label="Bold"
+              aria-keyshortcuts="Control+B Meta+B"
+              onClick={() => format("**")}
+            >
+              <strong>B</strong>
+            </button>
+            <button
+              type="button"
+              disabled={disabled}
+              aria-label="Italic"
+              aria-keyshortcuts="Control+I Meta+I"
+              onClick={() => format("*")}
+            >
+              <em>I</em>
+            </button>
+            <button type="button" disabled={disabled} aria-label="Inline code" onClick={() => format("`") }>
+              <code>&lt;/&gt;</code>
+            </button>
+            <button type="button" disabled={disabled} aria-label="Task list" onClick={toggleTasks}>
+              ☑
+            </button>
+          </div>
+          {canStageImages ? (
+            <>
+              <input
+                ref={fileInputRef}
+                className="sr-only"
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                multiple
+                tabIndex={-1}
+                disabled={disabled}
+                onChange={chooseImages}
+              />
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                Add image
+              </button>
+            </>
+          ) : null}
+          {enableCanvasEmbeds ? (
+            <>
+              <button
+                type="button"
+                disabled={disabled}
+                aria-expanded={canvasPickerOpen}
+                aria-haspopup="dialog"
+                onClick={() => void openCanvasPicker()}
+              >
+                Embed canvas
+              </button>
+              {canvasPickerOpen && !disabled ? (
+                <div className="canvas-embed-picker" role="dialog" aria-label="Choose a canvas to embed">
+                  <strong>Embed a live canvas preview</strong>
+                  {canvasPickerLoading ? <span role="status">Loading canvases…</span> : null}
+                  {canvasPickerError ? <span role="alert">{canvasPickerError}</span> : null}
+                  {!canvasPickerLoading && canvasChoices?.length === 0 ? (
+                    <span>No canvases yet. Create one from New first.</span>
+                  ) : null}
+                  {canvasChoices && canvasChoices.length > 0 ? (
+                    <ul className="canvas-embed-picker__list">
+                      {canvasChoices.map((canvas) => (
+                        <li key={canvas.id}>
+                          <button type="button" onClick={() => insertCanvas(canvas)}>{canvas.title}</button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  <button type="button" onClick={() => setCanvasPickerOpen(false)}>Cancel</button>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+          {toolbarExtras}
+        </div>
+      </div>
+      <div className="editor-grid">
+        <textarea
+          ref={textareaRef}
+          id={id}
+          name={name}
+          autoComplete="off"
+          rows={rows}
+          value={value}
+          placeholder={placeholder}
+          aria-describedby={hintId}
+          spellCheck
+          disabled={disabled}
+          onPaste={paste}
+          onDrop={drop}
+          onDragOver={(event) => {
+            if (canStageImages && !disabled && event.dataTransfer.types.includes("Files")) {
+              event.preventDefault();
+            }
+          }}
+          onKeyDown={keyDown}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      </div>
+      {footerExtras}
+      {disabled ? null : <WikilinkAutocomplete autocomplete={autocomplete} />}
+    </section>
+  );
+}
+
+export interface OutlinePanelProps {
+  content: string;
+  mode: "edit" | "read";
+  textareaRef?: RefObject<HTMLTextAreaElement | null>;
+  ownerDocument?: Document | null;
+  headingIdPrefix?: string;
+  className?: string;
+  title?: string;
+}
+
+export function OutlinePanel({
+  content,
+  mode,
+  textareaRef,
+  ownerDocument,
+  headingIdPrefix = "",
+  className,
+  title = "Outline",
+}: OutlinePanelProps) {
+  const outline = useMemo(() => extractOutline(content), [content]);
+  const slugs = useMemo(() => outlineSlugs(outline), [outline]);
+  if (outline.length === 0) return null;
+
+  function navigate(index: number, event: ReactMouseEvent<HTMLButtonElement>) {
+    const item = outline[index];
+    if (item === undefined) return;
+    if (mode === "edit") {
+      const textarea = textareaRef?.current;
+      if (textarea === undefined || textarea === null) return;
+      textarea.focus();
+      const textareaOffset = sourceOffsetToTextareaOffset(content, item.offset);
+      textarea.setSelectionRange(textareaOffset, textareaOffset);
+      scrollTextareaSelectionIntoView(textarea, textareaOffset);
+      return;
+    }
+    const targetDocument = ownerDocument ?? textareaRef?.current?.ownerDocument ??
+      (typeof document === "undefined" ? null : document);
+    const targetId = `${headingIdPrefix}${slugs[index]}`;
+    const page = event.currentTarget.closest<HTMLElement>("[data-page-key]");
+    const pageTarget = page === null
+      ? null
+      : Array.from(page.querySelectorAll<HTMLElement>("[id]"))
+          .find((element) => element.id === targetId) ?? null;
+    const target = page === null
+      ? targetDocument?.getElementById(targetId) ?? null
+      : pageTarget;
+    target?.scrollIntoView({ block: "start", inline: "nearest" });
+  }
+
+  return (
+    <nav className={["outline-panel", className].filter(Boolean).join(" ")} aria-label={title}>
+      <details open>
+        <summary>{title}</summary>
+        <ol>
+          {outline.map((item, index) => (
+            <li key={`${item.offset}:${item.level}`} className={`outline-level-${item.level}`}>
+              <button type="button" onClick={(event) => navigate(index, event)}>
+                {item.text || "Untitled heading"}
+              </button>
+            </li>
+          ))}
+        </ol>
+      </details>
+    </nav>
+  );
+}
+
+function scrollTextareaSelectionIntoView(
+  textarea: HTMLTextAreaElement,
+  selectionOffset: number,
+): void {
+  const view = textarea.ownerDocument.defaultView;
+  const parent = textarea.parentElement;
+  if (view === null || parent === null) return;
+
+  const computed = view.getComputedStyle(textarea);
+  const borderWidth =
+    finiteCssPixels(computed.borderLeftWidth) +
+    finiteCssPixels(computed.borderRightWidth);
+  const lineHeight = finiteCssPixels(computed.lineHeight) ||
+    finiteCssPixels(computed.fontSize) * 1.2 ||
+    24;
+  const mirror = textarea.cloneNode(false) as HTMLTextAreaElement;
+  mirror.removeAttribute("id");
+  mirror.removeAttribute("name");
+  mirror.removeAttribute("disabled");
+  mirror.removeAttribute("placeholder");
+  mirror.setAttribute("aria-hidden", "true");
+  mirror.tabIndex = -1;
+  mirror.value = textarea.value.slice(0, selectionOffset);
+  // A same-style textarea lets the browser measure its own soft wrapping.
+  Object.assign(mirror.style, {
+    position: "fixed",
+    inset: "0 auto auto -100000px",
+    visibility: "hidden",
+    pointerEvents: "none",
+    boxSizing: "border-box",
+    width: `${textarea.clientWidth + borderWidth}px`,
+    height: "0",
+    minHeight: "0",
+    maxHeight: "none",
+    overflow: "hidden",
+    resize: "none",
+  });
+
+  parent.append(mirror);
+  const caretTop = Math.max(
+    0,
+    mirror.scrollHeight - finiteCssPixels(computed.paddingBottom) - lineHeight,
+  );
+  mirror.remove();
+
+  const maxScrollTop = Math.max(0, textarea.scrollHeight - textarea.clientHeight);
+  textarea.scrollTop = Math.min(
+    maxScrollTop,
+    Math.max(0, caretTop - textarea.clientHeight / 3),
+  );
+}
+
+function finiteCssPixels(value: string): number {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function withImagePreviews(
+  content: string,
+  uploadScheme?: string,
+  previews?: ReadonlyMap<string, string>,
+): string {
+  if (uploadScheme === undefined || !previews?.size) return content;
+  const pattern = new RegExp(
+    `${escapeRegExp(uploadScheme)}:\\/\\/([A-Za-z0-9._-]+)`,
+    "g",
+  );
+  return content.replace(pattern, (placeholder, token: string) => {
+    return previews.get(token) ?? placeholder;
+  });
+}
+
+function createHeadingComponent(
+  tag: "h2" | "h3" | "h4" | "h5" | "h6",
+  sourceLevel: number,
+  headingIds: ReadonlyMap<string, string>,
+  focusSourceLine?: number,
+): NonNullable<Components["h1"]> {
+  return function MarkdownHeading({ node, ...props }) {
+    const line = node?.position?.start.line;
+    const id = line === undefined ? undefined : headingIds.get(`${line}:${sourceLevel}`);
+    return createElement(tag, {
+      ...props,
+      ...searchFocusAttributes(node, focusSourceLine),
+      id,
+    });
+  };
+}
+
+const MarkdownListItem: NonNullable<Components["li"]> = function MarkdownListItem({
+  node,
+  children,
+  ...props
+}) {
+  const onToggleTask = useContext(TaskToggleContext);
+  const focusSourceLine = useContext(SearchFocusLineContext);
+  const sourceLine = node?.position?.start.line;
+  const editable = sourceLine !== undefined && onToggleTask !== undefined;
+  const nextChildren = editable
+    ? enableTaskCheckboxes(children, sourceLine, onToggleTask)
+    : children;
+  return (
+    <li {...props} {...searchFocusAttributes(node, focusSourceLine)}>
+      {nextChildren}
+    </li>
+  );
+};
+
+function searchFocusAttributes(
+  node: { position?: { start: { line: number }; end: { line: number } } } | undefined,
+  focusSourceLine: number | undefined,
+): { "data-search-source-focus"?: "true" } {
+  if (
+    focusSourceLine === undefined ||
+    node?.position === undefined ||
+    focusSourceLine < node.position.start.line ||
+    focusSourceLine > node.position.end.line
+  ) {
+    return {};
+  }
+  return { "data-search-source-focus": "true" };
+}
+
+function enableTaskCheckboxes(
+  children: ReactNode,
+  sourceLine: number,
+  onToggleTask: (line: number) => void,
+): ReactNode {
+  return Children.map(children, (child) => {
+    if (!isValidElement<TaskInputProps & { children?: ReactNode }>(child)) return child;
+    if (child.type === "input" && child.props.type === "checkbox") {
+      return cloneElement(child as ReactElement<TaskInputProps>, {
+        disabled: false,
+        readOnly: false,
+        "data-source-line": sourceLine,
+        onChange: () => onToggleTask(sourceLine),
+      });
+    }
+    if (child.props.children === undefined) return child;
+    return cloneElement(child, {
+      children: enableTaskCheckboxes(child.props.children, sourceLine, onToggleTask),
+    });
+  });
+}
+
+function newImageToken(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function imageAlt(file: File, pasted: boolean): string {
+  if (pasted) return "Pasted image";
+  const name = file.name.trim() || "Image";
+  return name.replace(/[\[\]]/gu, "");
+}
+
+function focusTextarea(
+  textarea: HTMLTextAreaElement,
+  selectionStart: number,
+  selectionEnd: number,
+): void {
+  const focus = () => {
+    textarea.focus();
+    textarea.setSelectionRange(selectionStart, selectionEnd);
+  };
+  const view = textarea.ownerDocument.defaultView;
+  if (view === null) focus();
+  else view.requestAnimationFrame(focus);
+}
+
+const internalMarkdownUrlTransform: UrlTransform = (value, key) => {
+  if (value.startsWith("blob:")) return value;
+  if (value.startsWith("babel-canvas:")) {
+    return key === "src" && parseCanvasEmbedSource(value) !== null ? value : undefined;
+  }
+  if (value.startsWith("babel-note:")) {
+    return key === "href" && parseWikilinkHref(value) !== null ? value : undefined;
+  }
+  return defaultUrlTransform(value);
+};
+
+function parseCanvasEmbedSource(value: string | undefined): number | null {
+  const match = /^babel-canvas:\/\/([1-9]\d*)$/u.exec(value ?? "");
+  if (match === null) return null;
+  const id = Number(match[1]);
+  return Number.isSafeInteger(id) ? id : null;
+}
+
+function CanvasEmbedCard({ canvasId, fallbackLabel }: { canvasId: number; fallbackLabel: string }) {
+  const [{ canvas, error }, setSnapshot] = useState<CanvasEmbedSnapshot>({ canvas: null, error: "" });
+  const hostRef = useRef<HTMLSpanElement>(null);
+  const { active } = usePageDeckPageContext();
+  const processActive = useWorkspaceProcessActive();
+
+  useEffect(() => {
+    const ownerDocument = hostRef.current?.ownerDocument;
+    if (ownerDocument === undefined) return;
+    // A detached reader remains visible independently of its source tab.
+    if (ownerDocument === document && (!active || !processActive)) return;
+    return subscribeCanvasEmbed(canvasId, ownerDocument, setSnapshot);
+  }, [active, canvasId, processActive]);
+
+  const title = canvas?.title ?? (fallbackLabel.trim() || `Canvas ${canvasId}`);
+  return (
+    <span ref={hostRef} className="canvas-embed" data-canvas-id={canvasId} role="group" aria-label={`${title} canvas embed`}>
+      <span className="canvas-embed__heading">
+        <strong>{title}</strong>
+        <a href={`/canvases?canvas=${canvasId}`}>Open canvas</a>
+      </span>
+      {canvas ? <CanvasPreview scene={canvas.scene} label={`${title} canvas preview`} /> : (
+        <span className="canvas-preview-stage canvas-preview-status" role={error ? "alert" : "status"}>
+          {error || "Loading canvas…"}
+        </span>
+      )}
+    </span>
+  );
+}
+
+function parseWikilinkHref(href: string | undefined): { titleKey: string; kind?: string } | null {
+  const prefix = "babel-note://";
+  if (href === undefined || !href.startsWith(prefix)) return null;
+  const encoded = href.slice(prefix.length);
+  const separator = encoded.indexOf("/");
+
+  try {
+    if (separator === -1) {
+      const titleKey = decodeURIComponent(encoded);
+      return titleKey === "" ? null : { titleKey };
+    }
+    const kind = decodeURIComponent(encoded.slice(0, separator));
+    const titleKey = decodeURIComponent(encoded.slice(separator + 1));
+    return kind === "" || titleKey === "" ? null : { titleKey, kind };
+  } catch {
+    return null;
+  }
+}
+
+function setNativeTextareaValue(textarea: HTMLTextAreaElement, value: string): void {
+  const replacement = minimalTextReplacement(textarea.value, value);
+  if (replacement === null) return;
+
+  textarea.focus();
+  textarea.setSelectionRange(replacement.from, replacement.to);
+  if (textarea.ownerDocument.execCommand("insertText", false, replacement.insert)) return;
+
+  const view = textarea.ownerDocument.defaultView;
+  const prototype = view?.HTMLTextAreaElement.prototype;
+  const setter = prototype === undefined
+    ? undefined
+    : Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+  if (setter === undefined) textarea.value = value;
+  else setter.call(textarea, value);
+  const InputEventConstructor = view?.InputEvent ?? view?.Event;
+  if (InputEventConstructor !== undefined) {
+    textarea.dispatchEvent(new InputEventConstructor("input", { bubbles: true }));
+  }
+}
+
+function positionForTextarea(textarea: HTMLTextAreaElement): AutocompletePosition {
+  const rect = textarea.getBoundingClientRect();
+  const view = textarea.ownerDocument.defaultView;
+  const viewportWidth = view?.innerWidth ?? rect.right + 8;
+  const viewportHeight = view?.innerHeight ?? rect.bottom + 240;
+  const width = Math.min(Math.max(rect.width, 220), 420, Math.max(0, viewportWidth - 16));
+  const left = Math.min(Math.max(8, rect.left), Math.max(8, viewportWidth - width - 8));
+  const spaceBelow = viewportHeight - rect.bottom - 8;
+  const showAbove = spaceBelow < 160 && rect.top > spaceBelow;
+  const maxHeight = Math.max(80, Math.min(240, showAbove ? rect.top - 12 : spaceBelow));
+  const top = showAbove ? Math.max(8, rect.top - maxHeight - 4) : rect.bottom + 4;
+  return { left, top, width, maxHeight };
+}
+
+function optionId(listboxId: string, index: number): string {
+  return `${listboxId}-option-${index}`;
+}
+
+function querySignature(query: AutocompleteQuery): string {
+  return `${query.openingIndex}:${query.query}`;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}

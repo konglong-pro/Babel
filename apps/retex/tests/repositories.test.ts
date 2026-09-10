@@ -71,7 +71,7 @@ test("repository workflow preserves archive invariants", async () => {
   const firstExercise = repositories.createExercise({
     folderId: exerciseRoot.id,
     title: "经典换元积分题 001",
-    imagePath: "data/uploads/exercises/repository-test-1.png",
+    problemMd: "Repository problem 1",
     answerMd: "$1/3$",
     solutionMd: "解法关键词 solution-substitution-token",
     tags: ["经典", "换元"],
@@ -79,7 +79,7 @@ test("repository workflow preserves archive invariants", async () => {
   const secondExercise = repositories.createExercise({
     folderId: exerciseRoot.id,
     title: "经典换元积分题 002",
-    imagePath: "data/uploads/exercises/repository-test-2.png",
+    problemMd: "Repository problem 2",
     solutionMd: "另一种推导",
     tags: ["积分"],
   });
@@ -169,4 +169,359 @@ test("repository workflow preserves archive invariants", async () => {
   assert.equal(repositories.deleteFolder(knowledgeChild.id), true);
   assert.equal(repositories.deleteFolder(knowledgeRoot.id), true);
   assert.equal(repositories.deleteFolder(exerciseRoot.id), true);
+});
+
+test("knowledge notes form a parent-child tree inside one folder", () => {
+  const folder = repositories.createFolder({ type: "knowledge", name: "Page tree" });
+  const parent = repositories.createKnowledge({
+    folderId: folder.id,
+    title: "Parent page",
+  });
+  const child = repositories.createKnowledge({
+    folderId: folder.id,
+    parentId: parent.id,
+    title: "Child page",
+  });
+
+  assert.equal(parent.parentId, null);
+  assert.equal(child.parentId, parent.id);
+  assert.equal(repositories.listKnowledge(folder.id).find((item) => item.id === child.id)?.parentId, parent.id);
+});
+
+test("knowledge and exercises are created first and persist manual order", async () => {
+  const knowledgeFolder = repositories.createFolder({
+    type: "knowledge",
+    name: "Knowledge item order",
+  });
+  const firstKnowledge = repositories.createKnowledge({
+    folderId: knowledgeFolder.id,
+    title: "First knowledge",
+  });
+  const secondKnowledge = repositories.createKnowledge({
+    folderId: knowledgeFolder.id,
+    title: "Second knowledge",
+  });
+  assert.deepEqual(
+    repositories.listKnowledge(knowledgeFolder.id).map(({ id, position }) => ({ id, position })),
+    [{ id: secondKnowledge.id, position: 0 }, { id: firstKnowledge.id, position: 1 }],
+  );
+  repositories.updateKnowledge(firstKnowledge.id, { position: 0 });
+  assert.deepEqual(
+    repositories.listKnowledge(knowledgeFolder.id).map(({ id }) => id),
+    [firstKnowledge.id, secondKnowledge.id],
+  );
+
+  const exerciseFolder = repositories.createFolder({
+    type: "exercise",
+    name: "Exercise item order",
+  });
+  const firstExercise = repositories.createExercise({
+    folderId: exerciseFolder.id,
+    title: "First exercise",
+    problemMd: "Problem one",
+  });
+  const secondExercise = repositories.createExercise({
+    folderId: exerciseFolder.id,
+    title: "Second exercise",
+    problemMd: "Problem two",
+  });
+  repositories.updateExercise(firstExercise.id, { position: 0 });
+  assert.deepEqual(
+    repositories.listExercises(exerciseFolder.id).map(({ id, position }) => ({ id, position })),
+    [{ id: firstExercise.id, position: 0 }, { id: secondExercise.id, position: 1 }],
+  );
+  assert.throws(
+    () => repositories.updateExercise(firstExercise.id, { position: -1 }),
+    /position must be a non-negative integer/i,
+  );
+
+  assert.equal(repositories.deleteKnowledge(firstKnowledge.id), true);
+  assert.equal(repositories.getKnowledge(secondKnowledge.id)?.position, 0);
+  assert.equal(repositories.deleteKnowledge(secondKnowledge.id), true);
+  assert.equal(await repositories.deleteExercise(firstExercise.id), true);
+  assert.equal(repositories.getExercise(secondExercise.id)?.position, 0);
+  assert.equal(await repositories.deleteExercise(secondExercise.id), true);
+  assert.equal(repositories.deleteFolder(knowledgeFolder.id), true);
+  assert.equal(repositories.deleteFolder(exerciseFolder.id), true);
+});
+
+test("folder positions remain contiguous within each type and parent", () => {
+  const knowledgeScope = repositories.createFolder({
+    type: "knowledge",
+    name: "Order knowledge scope",
+  });
+  const knowledgeA = repositories.createFolder({
+    type: "knowledge",
+    parentId: knowledgeScope.id,
+    name: "Order A",
+  });
+  const knowledgeB = repositories.createFolder({
+    type: "knowledge",
+    parentId: knowledgeScope.id,
+    name: "Order B",
+  });
+  const knowledgeC = repositories.createFolder({
+    type: "knowledge",
+    parentId: knowledgeScope.id,
+    name: "Order C",
+  });
+  const sourceParent = repositories.createFolder({
+    type: "knowledge",
+    parentId: knowledgeScope.id,
+    name: "Order source parent",
+  });
+  const childA = repositories.createFolder({
+    type: "knowledge",
+    parentId: sourceParent.id,
+    name: "Order child A",
+  });
+  const childB = repositories.createFolder({
+    type: "knowledge",
+    parentId: sourceParent.id,
+    name: "Order child B",
+  });
+  const targetParent = repositories.createFolder({
+    type: "knowledge",
+    parentId: knowledgeScope.id,
+    name: "Order target parent",
+  });
+  const targetChild = repositories.createFolder({
+    type: "knowledge",
+    parentId: targetParent.id,
+    name: "Order target child",
+  });
+  const exerciseScope = repositories.createFolder({
+    type: "exercise",
+    name: "Order exercise scope",
+  });
+  const exerciseA = repositories.createFolder({
+    type: "exercise",
+    parentId: exerciseScope.id,
+    name: "Order A",
+  });
+  const exerciseB = repositories.createFolder({
+    type: "exercise",
+    parentId: exerciseScope.id,
+    name: "Order B",
+  });
+
+  repositories.updateFolder(knowledgeC.id, { position: 0 });
+  assert.deepEqual(
+    foldersUnder("knowledge", knowledgeScope.id).map(({ id }) => id),
+    [knowledgeC.id, knowledgeA.id, knowledgeB.id, sourceParent.id, targetParent.id],
+  );
+  assert.deepEqual(
+    foldersUnder("knowledge", knowledgeScope.id).map(({ position }) => position),
+    [0, 1, 2, 3, 4],
+  );
+  assert.deepEqual(
+    foldersUnder("exercise", exerciseScope.id).map(({ id, position }) => [id, position]),
+    [[exerciseA.id, 0], [exerciseB.id, 1]],
+  );
+
+  repositories.updateFolder(childB.id, { position: 0 });
+  assert.deepEqual(
+    childFolders(sourceParent.id).map(({ id, position }) => [id, position]),
+    [[childB.id, 0], [childA.id, 1]],
+  );
+  assert.throws(
+    () => repositories.updateFolder(childB.id, { position: -1 }),
+    /non-negative integer/i,
+  );
+  assert.throws(
+    () => repositories.updateFolder(childB.id, { position: 0.5 }),
+    /non-negative integer/i,
+  );
+  assert.throws(
+    () => repositories.updateFolder(childB.id, { position: 99 }),
+    /sibling range/i,
+  );
+  assert.deepEqual(
+    childFolders(sourceParent.id).map(({ id, position }) => [id, position]),
+    [[childB.id, 0], [childA.id, 1]],
+  );
+
+  const moved = repositories.updateFolder(childB.id, { parentId: targetParent.id });
+  assert.equal(moved.position, 1);
+  assert.deepEqual(
+    childFolders(sourceParent.id).map(({ id, position }) => [id, position]),
+    [[childA.id, 0]],
+  );
+  assert.deepEqual(
+    childFolders(targetParent.id).map(({ id, position }) => [id, position]),
+    [[targetChild.id, 0], [childB.id, 1]],
+  );
+
+  repositories.updateFolder(childB.id, { position: 0 });
+  assert.equal(repositories.deleteFolder(targetChild.id), true);
+  assert.deepEqual(
+    childFolders(targetParent.id).map(({ id, position }) => [id, position]),
+    [[childB.id, 0]],
+  );
+});
+
+function foldersUnder(type: "knowledge" | "exercise", parentId: number) {
+  return repositories.listFolders(type).filter((folder) => folder.parentId === parentId);
+}
+
+function childFolders(parentId: number) {
+  return repositories.listFolders("knowledge").filter((folder) => folder.parentId === parentId);
+}
+
+test("knowledge page moves preserve tree invariants", () => {
+  const source = repositories.createFolder({ type: "knowledge", name: "Tree source" });
+  const target = repositories.createFolder({ type: "knowledge", name: "Tree target" });
+  const root = repositories.createKnowledge({ folderId: source.id, title: "Tree root" });
+  const child = repositories.createKnowledge({
+    folderId: source.id,
+    parentId: root.id,
+    title: "Tree child",
+  });
+  const grandchild = repositories.createKnowledge({
+    folderId: source.id,
+    parentId: child.id,
+    title: "Tree grandchild",
+  });
+
+  assert.throws(
+    () => repositories.updateKnowledge(root.id, { parentId: grandchild.id }),
+    /cycle|itself|descendant/i,
+  );
+  assert.throws(
+    () => repositories.createKnowledge({ folderId: target.id, parentId: root.id, title: "Wrong folder" }),
+    /same folder/i,
+  );
+  assert.throws(() => repositories.deleteKnowledge(root.id), /cannot be deleted|child/i);
+
+  const moved = repositories.updateKnowledge(root.id, { folderId: target.id });
+  assert.equal(moved.parentId, null);
+  assert.deepEqual(
+    [root.id, child.id, grandchild.id].map((id) => repositories.getKnowledge(id)?.folderId),
+    [target.id, target.id, target.id],
+  );
+  assert.equal(repositories.getKnowledge(child.id)?.parentId, root.id);
+  assert.equal(repositories.getKnowledge(grandchild.id)?.parentId, child.id);
+
+  const sourceParent = repositories.createKnowledge({ folderId: source.id, title: "Source parent" });
+  const detached = repositories.createKnowledge({
+    folderId: source.id,
+    parentId: sourceParent.id,
+    title: "Detach on move",
+  });
+  const detachedChild = repositories.createKnowledge({
+    folderId: source.id,
+    parentId: detached.id,
+    title: "Move with parent",
+  });
+  assert.equal(repositories.updateKnowledge(detached.id, { folderId: target.id }).parentId, null);
+  assert.equal(repositories.getKnowledge(detachedChild.id)?.folderId, target.id);
+  assert.equal(
+    repositories.updateKnowledge(detached.id, { parentId: root.id }).parentId,
+    root.id,
+  );
+});
+
+test("search ranks exact titles before newer body matches within each group", () => {
+  const knowledgeFolder = repositories.createFolder({
+    type: "knowledge",
+    name: "Search ranking knowledge",
+  });
+  const exerciseFolder = repositories.createFolder({
+    type: "exercise",
+    name: "Search ranking exercises",
+  });
+  const query = "Zeta rank before pagination";
+  const exactKnowledge = repositories.createKnowledge({
+    folderId: knowledgeFolder.id,
+    title: query,
+  });
+  repositories.createKnowledge({
+    folderId: knowledgeFolder.id,
+    title: "A newer knowledge body match",
+    contentMd: `This body contains ${query}.`,
+  });
+  const exactExercise = repositories.createExercise({
+    folderId: exerciseFolder.id,
+    title: query,
+    problemMd: "Exact-title problem",
+  });
+  repositories.createExercise({
+    folderId: exerciseFolder.id,
+    title: "A newer exercise solution match",
+    problemMd: "Body-match problem",
+    solutionMd: `This solution contains ${query}.`,
+  });
+
+  const results = repositories.searchArchive(query);
+
+  assert.equal(results.knowledge[0]?.id, exactKnowledge.id);
+  assert.equal(results.exercises[0]?.id, exactExercise.id);
+});
+
+test("Markdown folder imports are atomic and reserve exercise titles", () => {
+  const baseFolder = repositories.createFolder({
+    type: "knowledge",
+    name: "Markdown import base",
+  });
+  const exerciseFolder = repositories.createFolder({
+    type: "exercise",
+    name: "Markdown import title scope",
+  });
+  repositories.createExercise({
+    folderId: exerciseFolder.id,
+    title: "Reserved exercise title",
+    problemMd: "Existing exercise",
+  });
+
+  assert.throws(
+    () => repositories.importMarkdownFolderBatch(baseFolder.id, [{
+      sourcePath: "collision.md",
+      title: " reserved   EXERCISE title ",
+      folder: { kind: "mapped", path: "Collision branch" },
+      parent: null,
+      tags: [],
+      linkDecisions: {},
+      contentMd: "Should not be inserted",
+      images: [],
+      imagePaths: [],
+    }]),
+    (error: unknown) =>
+      error instanceof repositories.RepositoryError && error.code === "CONFLICT",
+  );
+  assert.equal(
+    repositories.listFolders("knowledge").some((folder) =>
+      folder.parentId === baseFolder.id && folder.name === "Collision branch"),
+    false,
+  );
+
+  const records = [
+    {
+      sourcePath: "batch/child.md",
+      title: "ReTex imported child",
+      folder: { kind: "mapped", path: "Batch" } as const,
+      parent: { kind: "batch", sourcePath: "batch/parent.md" } as const,
+      tags: [],
+      linkDecisions: {},
+      contentMd: "Child body",
+      images: [],
+      imagePaths: [],
+    },
+    {
+      sourcePath: "batch/parent.md",
+      title: "ReTex imported parent",
+      folder: { kind: "mapped", path: "Batch" } as const,
+      parent: null,
+      tags: [],
+      linkDecisions: {},
+      contentMd: "Parent body",
+      images: [],
+      imagePaths: [],
+    },
+  ] satisfies readonly RepositoryModule.PersistedMarkdownFolderRecord[];
+  const result = repositories.importMarkdownFolderBatch(baseFolder.id, records);
+  assert.equal(result.createdFolderCount, 1);
+  assert.equal(
+    repositories.getKnowledge(result.imported[0].id)?.parentId,
+    result.imported[1].id,
+  );
 });

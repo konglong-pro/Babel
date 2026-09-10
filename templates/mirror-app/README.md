@@ -1,0 +1,120 @@
+# __APP_NAME__
+
+__APP_NAME__ is Babel's local, single-user language notebook. It organizes Markdown
+notes in nested folders, supports tags and search, and stores managed note images
+beside its SQLite database.
+
+From the Babel root:
+
+```powershell
+npm.cmd run dev:__APP_ID__
+npm.cmd run check -w @babel-apps/__APP_ID__
+```
+
+Open `http://127.0.0.1:__APP_PORT__`. Private data lives in
+`data/__APP_ID__/sqlite.db` and `data/__APP_ID__/uploads/notes/` in the independent
+private `data/` repository. The launcher supplies absolute
+`__APP_ENV_PREFIX___DATABASE_PATH` and `__APP_ENV_PREFIX___UPLOAD_DIRECTORY` values.
+
+Saved notes open in app-level page tabs. Multiple notes can remain mounted in
+read or edit mode at once; selecting an already open note focuses its tab.
+Unsaved drafts use temporary tabs until first save, and dirty tabs require an
+explicit Save, Discard, or Cancel choice before closing.
+
+The root layout owns a persistent workspace-process host. Notes remains mounted
+while another registered library is active, and page tabs use soft Next routing.
+When adding a future library, register its pathname, scope, and legacy page kind
+in `src/lib/workspace-process.ts`, render its concrete workspace from
+`src/components/workspace-process-host.tsx`, and give every page descriptor the
+same scope. Page keys are application-global identities, so every library must
+use distinct keys; prefer `scopedPageKey(scope, localKey)` from
+`@babel-apps/platform/pages/core`. Internal library switches must never close
+dirty pages; only explicit page close or leaving the application may ask to save
+or discard. The active workspace history guard uses
+`preserveOnHistoryNavigation: true`, so browser
+Back/Forward also hides and restores processes without closing them.
+
+Folders and subfolders can be reordered with their drag handle, or with
+`Ctrl+Alt+ArrowUp`/`Ctrl+Alt+ArrowDown` while that handle is focused. Reordering
+is deliberately sibling-only: it changes the zero-based `position` within one
+parent and never changes hierarchy.
+Use the existing **Move** action to change a folder's parent; moved and newly
+created folders append to the destination level.
+
+The **Folder** field supports name/path search and an expandable tree matching
+the sidebar order. Drag a note onto a sidebar folder to move it with its child
+pages, or between sibling notes to reorder. Moves preserve note contents and
+images; save or close dirty subtree pages and child drafts before moving.
+
+Canvases use the shared Babel editor. `Ctrl+Shift+1` through `Ctrl+Shift+8`
+select Select, Hand, Pen, Eraser, Text, Rectangle, Ellipse, and Arrow. `Ctrl+Z`
+undoes and `Ctrl+Y` redoes; canvas commands appear in `Ctrl+K` while a canvas is
+active. Text inputs keep their normal editing shortcuts. Box-select or hold
+Shift to select multiple objects, then move or resize them together. Hold Space
+to pan temporarily, or use Fit all and Fit selection. Each editing gesture is
+one undo step; pan and zoom do not enter undo history.
+
+Text is editable directly on the canvas. Tool properties retain color, line,
+fill, and text settings, and attached arrows follow their targets. Eraser removes
+parts of pen strokes or whole objects. Paste PNG, JPEG, or WebP images with
+`Ctrl+V`; images are stored inside scene JSON with a 2 MiB per-image limit and a
+5 MiB total scene limit. Scenes autosave and contain at most 2,000 elements.
+
+Editing an existing note opens a focused **Content + Outline** window aligned
+to the note-detail column. The main edit page continues to manage the title,
+folder, parent page, tags, Save, and Cancel; new-note drafts remain inline.
+Rendered GitHub Flavored Markdown remains available in reading mode. **Read** sits above the note-list heading in the
+middle column and opens a separate reader window for either saved content or
+the current live title, tags, Markdown, outline, and staged images.
+Bottom-left English **Markdown Guide** and **Formula Reference** panels span the
+folder and note columns.
+The middle-column **Edit Templates** control manages notebook-local static
+Markdown templates that can be copied into a new note.
+PNG, JPEG, WebP, and GIF images up to 10 MiB can be
+selected or pasted and are committed only when the note is saved. A save accepts
+up to 10 MiB of Markdown, 50 new images, and 100 MiB in total; multipart transport
+is limited to 160 MiB. Image mutations are serialized, and interrupted
+transactions are reconciled during health checks and before later writes.
+
+The **Import** menu can open one UTF-8 `.md` file as a draft or recursively
+review a Markdown folder before importing it. Folder import leaves the selected
+root container out of the notebook, maps its subdirectories to destination
+folders, and lets every file change its Title, Folder, Parent page, and Tags.
+App-wide titles are compared after NFC normalization, whitespace
+trimming/collapsing, and case folding. Conflicts must be resolved manually in
+the review window; source files are never renamed or modified.
+
+Only referenced local PNG, JPEG, WebP, and GIF files inside the selected root
+are staged. Relative document links and unambiguous wikilinks follow the final
+reviewed titles; ambiguous wikilinks can be assigned or preserved. The server
+revalidates the staged batch and commits its notes, folders, tags, links, and
+managed images as one rollback-safe operation. A batch is limited to 1,000 Markdown files,
+250 MiB of Markdown, and 1 GiB of images, while each note keeps the normal save
+limits above.
+
+## Keyboard navigation
+
+__APP_NAME__ follows Babel's Ready/Edit keyboard model. `Ctrl+F6` and
+`Ctrl+Shift+F6` cycle the visible folder tree, note tree, tab strip, and detail
+pane, skipping absent panes and remembering each pane's last focus. Hierarchical
+folders and notes expose `tree`/`treeitem`; flat search results expose `listbox`.
+Up/Down moves, Left/Right collapses or expands, Home/End/PageUp/PageDown moves
+through supported lists, and typed letters jump by title. `Enter` selects a
+folder or opens a note tab; `F2` renames a focused folder or opens a focused note
+directly in edit mode. The `tablist` uses Left/Right to move and Enter to
+activate.
+
+Reordering uses `Ctrl+Alt+ArrowUp` and `Ctrl+Alt+ArrowDown`. Escape gives the
+topmost dialog or overlay priority, then leaves edit mode for the reader and the
+reader for the note tree; dirty-edit confirmations still apply. `Ctrl+K`
+searches commands, registered actions, and titles, while `Ctrl+Alt+P` searches
+titles only. `Ctrl+Alt+H` opens keyboard help. Tab defaults are
+`Ctrl+Alt+ArrowRight`, `Ctrl+Alt+ArrowLeft`, and `Ctrl+Alt+W` for next, previous,
+and close. Schema v1/v2 bindings are preserved during migration; a conflicting
+new command remains `Unbound`. See the
+[root keyboard contract](../../README.md#launcher) for the complete schema-v3
+command table.
+
+Run schema generation or migration only for an explicit database task and only
+while __APP_NAME__ is stopped. Use the root `npm.cmd run data:backup` workflow for
+normal backups; never commit notebook data to the public Babel repository.

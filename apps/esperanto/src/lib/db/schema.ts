@@ -25,11 +25,27 @@ export const folders = sqliteTable(
       { onDelete: "restrict" },
     ),
     name: text("name").notNull(),
+    position: integer("position").notNull().default(0),
     ...timestamps,
   },
   (table) => [
     index("folder_parent_idx").on(table.parentId),
+    index("folder_parent_position_idx").on(table.parentId, table.position, table.id),
     check("folder_name_not_blank", sql`length(trim(${table.name})) > 0`),
+  ],
+);
+
+export const canvases = sqliteTable(
+  "canvas",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    title: text("title").notNull(),
+    scene: text("scene").notNull().default('{"version":1,"elements":[],"viewport":{"x":0,"y":0,"zoom":1}}'),
+    ...timestamps,
+  },
+  (table) => [
+    index("canvas_updated_idx").on(table.updatedAt),
+    check("canvas_title_not_blank", sql`length(trim(${table.title})) > 0`),
   ],
 );
 
@@ -40,15 +56,65 @@ export const notes = sqliteTable(
     folderId: integer("folder_id")
       .notNull()
       .references(() => folders.id, { onDelete: "restrict" }),
+    parentId: integer("parent_id").references(
+      (): AnySQLiteColumn => notes.id,
+      { onDelete: "restrict" },
+    ),
     title: text("title").notNull(),
     contentMd: text("content_md").notNull().default(""),
     tags: text("tags").notNull().default("[]"),
+    position: integer("position").notNull().default(0),
     ...timestamps,
   },
   (table) => [
     index("note_folder_idx").on(table.folderId),
+    index("note_parent_idx").on(table.parentId),
+    index("note_scope_position_idx").on(
+      table.folderId,
+      table.parentId,
+      table.position,
+      table.id,
+    ),
     index("note_title_idx").on(table.title),
     check("note_title_not_blank", sql`length(trim(${table.title})) > 0`),
+  ],
+);
+
+export const noteTemplates = sqliteTable(
+  "note_template",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    name: text("name").notNull(),
+    contentMd: text("content_md").notNull().default(""),
+    ...timestamps,
+  },
+  (table) => [
+    uniqueIndex("note_template_name_unique").on(sql`lower(${table.name})`),
+    check("note_template_name_not_blank", sql`length(trim(${table.name})) > 0`),
+    check("note_template_name_max_length", sql`length(${table.name}) <= 120`),
+  ],
+);
+
+export const noteLinks = sqliteTable(
+  "note_link",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    sourceNoteId: integer("source_note_id")
+      .notNull()
+      .references(() => notes.id, { onDelete: "cascade" }),
+    targetTitleKey: text("target_title_key").notNull(),
+    targetNoteId: integer("target_note_id").references(() => notes.id, {
+      onDelete: "set null",
+    }),
+    createdAt: text("created_at").notNull().default(timestampDefault),
+  },
+  (table) => [
+    uniqueIndex("note_link_source_title_unique").on(
+      table.sourceNoteId,
+      table.targetTitleKey,
+    ),
+    index("note_link_target_idx").on(table.targetNoteId),
+    index("note_link_title_key_idx").on(table.targetTitleKey),
   ],
 );
 

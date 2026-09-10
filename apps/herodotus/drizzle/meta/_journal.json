@@ -1,0 +1,62 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1783669000000,
+      "tag": "0000_herodotus_notes",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1783911803345,
+      "tag": "0001_red_lila_cheney",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1783935760283,
+      "tag": "0002_lonely_tarantula",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1784217600000,
+      "tag": "0003_search_trigram",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1784684003455,
+      "tag": "0004_note_templates",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1785835010668,
+      "tag": "0005_light_red_shift",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1785924043706,
+      "tag": "0006_uneven_butterfly",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1786724107954,
+      "tag": "0007_new_pepper_potts",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "extends": "../config/tsconfig.base.json",
+  "compilerOptions": {
+    "incremental": false
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts"],
+  "exclude": ["node_modules"]
+}

@@ -1,12 +1,13 @@
+import path from "node:path";
+
 import type { NextConfig } from "next";
 
-import { resolveBabelRoot } from "./src/lib/db/paths";
-
-const monorepoRoot = resolveBabelRoot();
+const monorepoRoot = path.resolve(__dirname, "../..");
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["better-sqlite3"],
   outputFileTracingRoot: monorepoRoot,
+  serverExternalPackages: ["better-sqlite3"],
+  transpilePackages: ["@babel-apps/markdown", "@babel-apps/platform", "@babel-apps/typst"],
   turbopack: {
     root: monorepoRoot,
   },

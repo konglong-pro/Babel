@@ -1,0 +1,193 @@
+.babel-folder-picker {
+  position: relative;
+  min-width: 0;
+  width: 100%;
+}
+
+.babel-folder-picker .babel-folder-picker__trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  min-height: 40px;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--line-strong, #777);
+  border-radius: 4px;
+  background: var(--paper, Canvas);
+  color: var(--ink, CanvasText);
+  font: inherit;
+  text-align: left;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.babel-folder-picker__trigger > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.babel-folder-picker__trigger > svg,
+.babel-folder-picker__disclosure > svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+}
+
+.babel-folder-picker .babel-folder-picker__trigger:hover:not(:disabled) {
+  border-color: var(--ink-soft, #999);
+  background: var(--paper-muted, Canvas);
+  color: var(--ink, CanvasText);
+}
+
+.babel-folder-picker .babel-folder-picker__form-value {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  pointer-events: none;
+}
+
+.babel-folder-picker__popup {
+  position: fixed;
+  inset: auto;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 8px;
+  overflow: hidden;
+  border: 1px solid var(--line-strong, #777);
+  border-radius: 6px;
+  background: var(--paper-raised, Canvas);
+  color: var(--ink, CanvasText);
+  font: inherit;
+  box-shadow: var(--shadow, 0 8px 30px rgb(0 0 0 / 22%));
+}
+
+.babel-folder-picker__popup .babel-folder-picker__search {
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  flex-shrink: 0;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--line-strong, #777);
+  border-radius: 3px;
+  background: var(--paper, Canvas);
+  color: var(--ink, CanvasText);
+  font: inherit;
+}
+
+.babel-folder-picker__tree {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  margin-top: 6px;
+}
+
+.babel-folder-picker__row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 36px;
+  padding: 4px 7px 4px calc(4px + var(--folder-picker-depth, 0) * 18px);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.babel-folder-picker__row:hover,
+.babel-folder-picker__row[data-active] {
+  background: var(--blue-soft, Highlight);
+  outline: 1px solid var(--line-strong, #777);
+  outline-offset: -1px;
+}
+
+.babel-folder-picker__row[aria-selected="true"] {
+  font-weight: 700;
+}
+
+.babel-folder-picker__row[aria-disabled="true"] > .babel-folder-picker__name {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.babel-folder-picker__popup .babel-folder-picker__disclosure,
+.babel-folder-picker__disclosure-spacer {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  min-height: 24px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.babel-folder-picker__disclosure[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+
+.babel-folder-picker__name {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.babel-folder-picker__name small {
+  color: var(--ink-soft, GrayText);
+  font-size: 0.85em;
+  font-weight: 400;
+}
+
+.babel-folder-picker__hint,
+.babel-folder-picker__empty {
+  margin: 8px 5px 2px;
+  color: var(--ink-soft, GrayText);
+  font-size: 0.8em;
+}
+
+.babel-folder-picker__hint {
+  flex-shrink: 0;
+}
+
+.folder-item-drop-target {
+  border-radius: 3px;
+  background: var(--blue-soft, Highlight);
+  outline: 2px solid var(--focus, currentColor);
+  outline-offset: -2px;
+}
+
+.folder-move-status,
+.folder-move-error {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(440px, calc(100vw - 40px));
+  padding: 10px 14px;
+  border: 1px solid var(--line-strong, #777);
+  border-radius: 5px;
+  background: var(--paper-raised, Canvas);
+  color: var(--ink, CanvasText);
+  box-shadow: var(--shadow-small, 0 2px 8px rgb(0 0 0 / 20%));
+}
+
+.folder-move-error {
+  border-color: var(--rust, #b44);
+}
