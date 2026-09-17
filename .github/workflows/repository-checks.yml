@@ -1,0 +1,104 @@
+name: Repository checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject user data in the public repository
+        shell: bash
+        run: |
+          blocked="$(git ls-files | grep -Ei '(^|/)data/|\.(db|sqlite)(-|$|\.)|-(wal|shm|journal)$|(^|/)uploads?/.*\.(png|jpe?g|gif|webp)$' || true)"
+          if [[ -n "$blocked" ]]; then
+            echo "User data must live only in the private babel-data repository:"
+            echo "$blocked"
+            exit 1
+          fi
+
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Run the full repository gate
+        run: npm run check
+      - name: Smoke-test every search benchmark
+        run: npm run benchmark:search:smoke
+
+  windows-smoke:
+    needs: [guard, quality]
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Prepare disposable registered app data
+        shell: pwsh
+        run: |
+          $registry = Get-Content -Raw .\babel.apps.json | ConvertFrom-Json
+          foreach ($app in $registry.apps) {
+            $previous = @{}
+            try {
+              foreach ($property in $app.env.PSObject.Properties) {
+                $previous[$property.Name] = [Environment]::GetEnvironmentVariable(
+                  $property.Name,
+                  "Process"
+                )
+                $resolved = [IO.Path]::GetFullPath((Join-Path $PWD $property.Value))
+                [Environment]::SetEnvironmentVariable(
+                  $property.Name,
+                  $resolved,
+                  "Process"
+                )
+              }
+
+              & npm.cmd run db:migrate -w "@babel-apps/$($app.id)"
+              if ($LASTEXITCODE -ne 0) {
+                throw "Migration failed for $($app.name)."
+              }
+
+              foreach ($requiredPath in $app.requiredDataPaths) {
+                $resolved = [IO.Path]::GetFullPath((Join-Path $PWD $requiredPath))
+                if (-not (Test-Path -LiteralPath $resolved)) {
+                  New-Item -ItemType Directory -Force -Path $resolved | Out-Null
+                }
+              }
+            } finally {
+              foreach ($property in $app.env.PSObject.Properties) {
+                [Environment]::SetEnvironmentVariable(
+                  $property.Name,
+                  $previous[$property.Name],
+                  "Process"
+                )
+              }
+            }
+          }
+      - name: Verify every registered application
+        shell: pwsh
+        run: >
+          pwsh.exe -NoProfile -ExecutionPolicy Bypass
+          -File .\launcher\Babel.ps1
+          -Selection All -NoBrowser -VerifyAndExit
+      - name: Smoke-test the WPF launcher
+        shell: pwsh
+        run: >
+          pwsh.exe -NoProfile -STA -ExecutionPolicy Bypass
+          -File .\launcher\Babel.Gui.ps1 -SmokeTest

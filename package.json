@@ -8,16 +8,29 @@
     "packages/*"
   ],
   "engines": {
-    "node": ">=22.13.0 <23"
+    "node": ">=24.0.0 <25"
   },
   "scripts": {
-    "check": "npm run registry:check && npm run check --workspaces --if-present",
+    "check": "npm run registry:check && npm run test:scripts && npm run template:check && npm run check --workspaces --if-present",
     "registry:check": "tsx scripts/check-registry.ts",
+    "test:scripts": "tsx --test scripts/*.test.ts",
+    "template:check": "npm run check --prefix templates/mirror-app",
+    "benchmark:search:all": "tsx scripts/search-text-benchmark.ts && npm run --silent benchmark:search --workspaces --if-present",
+    "benchmark:search:smoke": "tsx scripts/search-text-benchmark.ts && npm run --silent benchmark:search --workspaces --if-present -- --smoke && npm run --silent benchmark:search --prefix templates/mirror-app -- --smoke",
+    "new-app": "tsx scripts/new-app.ts",
     "data:backup": "tsx scripts/data-backup.ts",
     "git:setup": "git config core.hooksPath .githooks",
+    "launcher:build": "pwsh.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File .\\launcher\\Build-BabelExe.ps1",
     "dev:retex": "npm run dev -w @babel-apps/retex",
     "dev:esperanto": "npm run dev -w @babel-apps/esperanto",
-    "dev:vali": "npm run dev -w @babel-apps/vali"
+    "dev:vali": "npm run dev -w @babel-apps/vali",
+    "dev:neum": "npm run dev -w @babel-apps/neum",
+    "dev:herodotus": "npm run dev -w @babel-apps/herodotus",
+    "dev:leviathan": "npm run dev -w @babel-apps/leviathan",
+    "dev:klsche": "npm run dev -w @babel-apps/klsche",
+    "dev:ruider": "npm run dev -w @babel-apps/ruider",
+    "dev:matter": "npm run dev -w @babel-apps/matter",
+    "dev:bio": "npm run dev -w @babel-apps/bio"
   },
   "dependencies": {
     "better-sqlite3": "12.11.1"

@@ -1,6 +1,9 @@
 export type ImageStorageErrorCode =
   | "INVALID_TYPE"
   | "FILE_TOO_LARGE"
+  | "CONTENT_TOO_LARGE"
+  | "TOO_MANY_IMAGES"
+  | "REQUEST_TOO_LARGE"
   | "EMPTY_FILE"
   | "INVALID_CONTENT"
   | "INVALID_PATH"

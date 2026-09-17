@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 
 type RegisteredApp = {
@@ -23,6 +23,9 @@ const root = path.resolve(import.meta.dirname, "..");
 const registry = JSON.parse(
   await readFile(path.join(root, "babel.apps.json"), "utf8"),
 ) as Registry;
+const rootPackage = JSON.parse(
+  await readFile(path.join(root, "package.json"), "utf8"),
+) as { scripts?: Record<string, string> };
 
 if (registry.schemaVersion !== 1) {
   throw new Error(`Unsupported registry schemaVersion: ${registry.schemaVersion}`);
@@ -38,19 +41,31 @@ const ports = new Set<number>();
 for (const app of registry.apps) {
   requireText(app.name, "name");
   requireText(app.id, `${app.name}.id`);
+  if (!/^[a-z0-9][a-z0-9-]*$/.test(app.id)) {
+    throw new Error(`${app.name}.id must use lowercase letters, digits, and hyphens`);
+  }
   requireText(app.healthPath, `${app.name}.healthPath`);
   requireText(app.identityPath, `${app.name}.identityPath`);
   requireText(app.identityText, `${app.name}.identityText`);
+  requireRoutePath(app.healthPath, `${app.name}.healthPath`);
+  requireRoutePath(app.identityPath, `${app.name}.identityPath`);
   if (!Number.isInteger(app.port) || app.port < 3000 || app.port > 3999) {
     throw new Error(`${app.name}.port must be an integer in the 3000-3999 range`);
   }
-  if (!Number.isInteger(app.readyTimeoutSeconds) || app.readyTimeoutSeconds < 1) {
-    throw new Error(`${app.name}.readyTimeoutSeconds must be a positive integer`);
+  if (
+    !Number.isInteger(app.readyTimeoutSeconds) ||
+    app.readyTimeoutSeconds < 1 ||
+    app.readyTimeoutSeconds > 600
+  ) {
+    throw new Error(`${app.name}.readyTimeoutSeconds must be an integer from 1 to 600`);
   }
   addUnique(names, app.name.toLowerCase(), "app name");
   addUnique(ids, app.id.toLowerCase(), "app id");
   addUnique(ports, app.port, "port");
 
+  if (app.workspace !== `apps/${app.id}`) {
+    throw new Error(`${app.name}.workspace must be apps/${app.id}`);
+  }
   const workspace = resolveInsideRoot(app.workspace, `${app.name}.workspace`);
   const packageJson = JSON.parse(
     await readFile(path.join(workspace, "package.json"), "utf8"),
@@ -68,19 +83,55 @@ for (const app of registry.apps) {
       );
     }
   }
+  for (const scriptName of ["build", "db:check", "db:migrate"] as const) {
+    requireText(
+      packageJson.scripts?.[scriptName],
+      `${app.name} workspace script ${scriptName}`,
+    );
+  }
+  const rootDevScript = rootPackage.scripts?.[`dev:${app.id}`];
+  if (rootDevScript !== `npm run dev -w @babel-apps/${app.id}`) {
+    throw new Error(
+      `Root package script dev:${app.id} must launch @babel-apps/${app.id}`,
+    );
+  }
+  await requireSourceEntry(
+    workspace,
+    app.healthPath,
+    "route.ts",
+    `${app.name}.healthPath`,
+  );
+  await requireSourceEntry(
+    workspace,
+    app.identityPath,
+    "page.tsx",
+    `${app.name}.identityPath`,
+  );
 
   if (!Array.isArray(app.requiredDataPaths) || app.requiredDataPaths.length === 0) {
     throw new Error(`${app.name}.requiredDataPaths must not be empty`);
   }
   for (const dataPath of app.requiredDataPaths) {
     const resolved = resolveInsideRoot(dataPath, `${app.name}.requiredDataPaths`);
-    if (!resolved.startsWith(path.join(root, "data") + path.sep)) {
-      throw new Error(`${app.name} required data path must live under data/`);
+    const appDataRoot = path.join(root, "data", app.id) + path.sep;
+    if (!resolved.startsWith(appDataRoot)) {
+      throw new Error(
+        `${app.name} required data path must live under data/${app.id}/`,
+      );
     }
   }
+  const requiredDataPaths = new Set(app.requiredDataPaths);
   for (const [key, value] of Object.entries(app.env)) {
     requireText(key, `${app.name}.env key`);
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+      throw new Error(`${app.name}.env key is not a valid environment variable: ${key}`);
+    }
     resolveInsideRoot(value, `${app.name}.env.${key}`);
+    if (!requiredDataPaths.has(value)) {
+      throw new Error(
+        `${app.name}.env.${key} must also appear in requiredDataPaths`,
+      );
+    }
   }
 }
 
@@ -112,4 +163,31 @@ function resolveInsideRoot(relativePath: string, label: string): string {
     throw new Error(`${label} escapes the Babel root`);
   }
   return resolved;
+}
+
+function requireRoutePath(value: string, label: string): void {
+  if (
+    !value.startsWith("/") ||
+    value.includes("\\") ||
+    value.includes("?") ||
+    value.includes("#") ||
+    value.split("/").some((segment) => segment === "." || segment === "..")
+  ) {
+    throw new Error(`${label} must be an absolute application route path`);
+  }
+}
+
+async function requireSourceEntry(
+  workspace: string,
+  routePath: string,
+  filename: "route.ts" | "page.tsx",
+  label: string,
+): Promise<void> {
+  const segments = routePath.split("/").filter(Boolean);
+  const sourcePath = path.join(workspace, "src", "app", ...segments, filename);
+  try {
+    await access(sourcePath);
+  } catch {
+    throw new Error(`${label} does not resolve to ${path.relative(root, sourcePath)}`);
+  }
 }

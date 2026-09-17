@@ -1,0 +1,62 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1783669000000,
+      "tag": "0000_leviathan_notes",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1783911803345,
+      "tag": "0001_red_lila_cheney",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1783935760283,
+      "tag": "0002_lonely_tarantula",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1784217600000,
+      "tag": "0003_search_trigram",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1784684953198,
+      "tag": "0004_note_templates",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1785834959969,
+      "tag": "0005_tricky_punisher",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1785924042280,
+      "tag": "0006_fancy_archangel",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1786724110285,
+      "tag": "0007_mushy_malcolm_colcord",
+      "breakpoints": true
+    }
+  ]
+}

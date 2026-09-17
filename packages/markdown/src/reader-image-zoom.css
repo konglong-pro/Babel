@@ -1,0 +1,78 @@
+.babel-reader-image { cursor: zoom-in; }
+.babel-reader-image:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
+
+dialog.babel-image-viewer {
+  position: fixed;
+  inset: 0;
+  width: calc(100vw - 40px);
+  height: calc(100dvh - 40px);
+  max-width: none;
+  max-height: none;
+  margin: auto;
+  padding: 0;
+  border: 1px solid #555;
+  border-radius: 12px;
+  background: #202124;
+  color: #f5f5f5;
+  box-shadow: 0 20px 80px #0008;
+  font: 14px/1.4 system-ui, sans-serif;
+  overflow: hidden;
+}
+.babel-image-viewer[open] { display: flex; flex-direction: column; }
+.babel-image-viewer::backdrop { background: #000b; }
+.babel-image-viewer-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 20px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #48494b;
+}
+.babel-image-viewer-toolbar strong {
+  flex: 1 1 120px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.babel-image-viewer-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.babel-image-viewer-controls button {
+  min-width: 36px;
+  min-height: 36px;
+  border: 1px solid #707175;
+  border-radius: 6px;
+  padding: 6px 10px;
+  background: #303134;
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+.babel-image-viewer-controls button:hover:not(:disabled) { background: #48494b; }
+.babel-image-viewer-controls button:disabled { opacity: 0.4; cursor: default; }
+.babel-image-viewer-controls output { min-width: 50px; text-align: center; font-variant-numeric: tabular-nums; }
+.babel-image-viewer :focus-visible { outline: 2px solid #b4d2ff; outline-offset: -3px; }
+.babel-image-viewer-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  touch-action: none;
+  cursor: grab;
+}
+.babel-image-viewer-stage[data-dragging] { cursor: grabbing; }
+.babel-image-viewer-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 100%;
+  min-height: 100%;
+  box-sizing: border-box;
+  padding: 24px;
+}
+.babel-image-viewer-content img { display: block; flex: none; max-width: none; max-height: none; user-select: none; }
+.babel-image-viewer-content p { position: absolute; margin: 0; }
+.babel-image-viewer footer { padding: 9px 16px; color: #c6c6c6; font-size: 12px; border-top: 1px solid #48494b; }
+@media (max-width: 560px) {
+  dialog.babel-image-viewer { width: 100vw; height: 100dvh; border-radius: 0; }
+}

@@ -1,0 +1,658 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "9e167d52-4ab0-4231-9f42-59d429a7984c",
+  "prevId": "c7ed21d5-e98d-4250-9aa6-5fa463aa70ef",
+  "tables": {
+    "exercise": {
+      "name": "exercise",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "folder_id": {
+          "name": "folder_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "image_path": {
+          "name": "image_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "answer_md": {
+          "name": "answer_md",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "solution_md": {
+          "name": "solution_md",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "tags": {
+          "name": "tags",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {
+        "exercise_folder_idx": {
+          "name": "exercise_folder_idx",
+          "columns": [
+            "folder_id"
+          ],
+          "isUnique": false
+        },
+        "exercise_title_idx": {
+          "name": "exercise_title_idx",
+          "columns": [
+            "title"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "exercise_folder_id_folder_id_fk": {
+          "name": "exercise_folder_id_folder_id_fk",
+          "tableFrom": "exercise",
+          "tableTo": "folder",
+          "columnsFrom": [
+            "folder_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "exercise_title_not_blank": {
+          "name": "exercise_title_not_blank",
+          "value": "length(trim(\"exercise\".\"title\")) > 0"
+        },
+        "exercise_image_path_not_blank": {
+          "name": "exercise_image_path_not_blank",
+          "value": "length(trim(\"exercise\".\"image_path\")) > 0"
+        }
+      }
+    },
+    "folder": {
+      "name": "folder",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "parent_id": {
+          "name": "parent_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {
+        "folder_type_parent_idx": {
+          "name": "folder_type_parent_idx",
+          "columns": [
+            "type",
+            "parent_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "folder_parent_id_folder_id_fk": {
+          "name": "folder_parent_id_folder_id_fk",
+          "tableFrom": "folder",
+          "tableTo": "folder",
+          "columnsFrom": [
+            "parent_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "folder_type_check": {
+          "name": "folder_type_check",
+          "value": "\"folder\".\"type\" in ('knowledge', 'exercise')"
+        },
+        "folder_name_not_blank": {
+          "name": "folder_name_not_blank",
+          "value": "length(trim(\"folder\".\"name\")) > 0"
+        }
+      }
+    },
+    "knowledge_exercise": {
+      "name": "knowledge_exercise",
+      "columns": {
+        "knowledge_id": {
+          "name": "knowledge_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "exercise_id": {
+          "name": "exercise_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "knowledge_exercise_exercise_idx": {
+          "name": "knowledge_exercise_exercise_idx",
+          "columns": [
+            "exercise_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "knowledge_exercise_knowledge_id_knowledge_note_id_fk": {
+          "name": "knowledge_exercise_knowledge_id_knowledge_note_id_fk",
+          "tableFrom": "knowledge_exercise",
+          "tableTo": "knowledge_note",
+          "columnsFrom": [
+            "knowledge_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "knowledge_exercise_exercise_id_exercise_id_fk": {
+          "name": "knowledge_exercise_exercise_id_exercise_id_fk",
+          "tableFrom": "knowledge_exercise",
+          "tableTo": "exercise",
+          "columnsFrom": [
+            "exercise_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "knowledge_exercise_knowledge_id_exercise_id_pk": {
+          "columns": [
+            "knowledge_id",
+            "exercise_id"
+          ],
+          "name": "knowledge_exercise_knowledge_id_exercise_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "knowledge_note": {
+      "name": "knowledge_note",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "parent_id": {
+          "name": "parent_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "folder_id": {
+          "name": "folder_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "content_md": {
+          "name": "content_md",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "tags": {
+          "name": "tags",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {
+        "knowledge_folder_idx": {
+          "name": "knowledge_folder_idx",
+          "columns": [
+            "folder_id"
+          ],
+          "isUnique": false
+        },
+        "knowledge_parent_idx": {
+          "name": "knowledge_parent_idx",
+          "columns": [
+            "parent_id"
+          ],
+          "isUnique": false
+        },
+        "knowledge_title_idx": {
+          "name": "knowledge_title_idx",
+          "columns": [
+            "title"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "knowledge_note_parent_id_knowledge_note_id_fk": {
+          "name": "knowledge_note_parent_id_knowledge_note_id_fk",
+          "tableFrom": "knowledge_note",
+          "tableTo": "knowledge_note",
+          "columnsFrom": [
+            "parent_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "knowledge_note_folder_id_folder_id_fk": {
+          "name": "knowledge_note_folder_id_folder_id_fk",
+          "tableFrom": "knowledge_note",
+          "tableTo": "folder",
+          "columnsFrom": [
+            "folder_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "knowledge_title_not_blank": {
+          "name": "knowledge_title_not_blank",
+          "value": "length(trim(\"knowledge_note\".\"title\")) > 0"
+        }
+      }
+    },
+    "note_image": {
+      "name": "note_image",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "source_kind": {
+          "name": "source_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_id": {
+          "name": "source_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "image_path": {
+          "name": "image_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {
+        "note_image_source_idx": {
+          "name": "note_image_source_idx",
+          "columns": [
+            "source_kind",
+            "source_id"
+          ],
+          "isUnique": false
+        },
+        "note_image_path_unique": {
+          "name": "note_image_path_unique",
+          "columns": [
+            "image_path"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "note_image_source_kind_check": {
+          "name": "note_image_source_kind_check",
+          "value": "\"note_image\".\"source_kind\" in ('knowledge', 'exercise')"
+        },
+        "note_image_source_id_check": {
+          "name": "note_image_source_id_check",
+          "value": "\"note_image\".\"source_id\" > 0"
+        },
+        "note_image_path_not_blank": {
+          "name": "note_image_path_not_blank",
+          "value": "length(trim(\"note_image\".\"image_path\")) > 0"
+        }
+      }
+    },
+    "note_link": {
+      "name": "note_link",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "source_kind": {
+          "name": "source_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_id": {
+          "name": "source_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "target_title_key": {
+          "name": "target_title_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "target_kind": {
+          "name": "target_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "target_id": {
+          "name": "target_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {
+        "note_link_source_title_unique": {
+          "name": "note_link_source_title_unique",
+          "columns": [
+            "source_kind",
+            "source_id",
+            "target_title_key"
+          ],
+          "isUnique": true
+        },
+        "note_link_target_idx": {
+          "name": "note_link_target_idx",
+          "columns": [
+            "target_kind",
+            "target_id"
+          ],
+          "isUnique": false
+        },
+        "note_link_title_key_idx": {
+          "name": "note_link_title_key_idx",
+          "columns": [
+            "target_title_key"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "note_link_source_kind_check": {
+          "name": "note_link_source_kind_check",
+          "value": "\"note_link\".\"source_kind\" in ('knowledge', 'exercise')"
+        },
+        "note_link_target_kind_check": {
+          "name": "note_link_target_kind_check",
+          "value": "\"note_link\".\"target_kind\" is null or \"note_link\".\"target_kind\" in ('knowledge', 'exercise')"
+        },
+        "note_link_target_pair_check": {
+          "name": "note_link_target_pair_check",
+          "value": "(\"note_link\".\"target_kind\" is null and \"note_link\".\"target_id\" is null) or (\"note_link\".\"target_kind\" is not null and \"note_link\".\"target_id\" is not null)"
+        },
+        "note_link_source_id_check": {
+          "name": "note_link_source_id_check",
+          "value": "\"note_link\".\"source_id\" > 0"
+        },
+        "note_link_target_id_check": {
+          "name": "note_link_target_id_check",
+          "value": "\"note_link\".\"target_id\" is null or \"note_link\".\"target_id\" > 0"
+        },
+        "note_link_title_key_not_blank": {
+          "name": "note_link_title_key_not_blank",
+          "value": "length(\"note_link\".\"target_title_key\") > 0"
+        }
+      }
+    },
+    "scratch_solution": {
+      "name": "scratch_solution",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "exercise_id": {
+          "name": "exercise_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "content_md": {
+          "name": "content_md",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {
+        "scratch_exercise_unique": {
+          "name": "scratch_exercise_unique",
+          "columns": [
+            "exercise_id"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "scratch_solution_exercise_id_exercise_id_fk": {
+          "name": "scratch_solution_exercise_id_exercise_id_fk",
+          "tableFrom": "scratch_solution",
+          "tableTo": "exercise",
+          "columnsFrom": [
+            "exercise_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}

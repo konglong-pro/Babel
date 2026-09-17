@@ -1,0 +1,34 @@
+{
+  "name": "@babel-apps/bio",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "typst:assets": "tsx ../../packages/typst/scripts/sync-public-assets.ts public",
+    "predev": "npm run typst:assets",
+    "dev": "next dev -H 127.0.0.1 -p 3009",
+    "prebuild": "npm run typst:assets",
+    "build": "tsx scripts/build.ts",
+    "prestart": "npm run typst:assets",
+    "start": "next start -H 127.0.0.1 -p 3009",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "db:backfill-links": "tsx scripts/backfill-links.ts",
+    "db:check": "tsx scripts/check-database.ts",
+    "db:checkpoint": "tsx scripts/checkpoint-database.ts",
+    "benchmark:search": "tsx scripts/benchmark-search.ts",
+    "test": "tsx --test tests/*.test.ts",
+    "check": "npm run lint && npm run typecheck && npm run test && npm run build"
+  },
+  "dependencies": {
+    "@babel-apps/markdown": "0.1.0",
+    "@babel-apps/platform": "0.1.0",
+    "@babel-apps/typst": "0.1.0",
+    "better-sqlite3": "^12.11.1",
+    "drizzle-orm": "^0.45.2",
+    "next": "^16.2.10",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  }
+}

@@ -1,0 +1,43 @@
+"use client";
+
+import {
+  MarkdownEditor as SharedMarkdownEditor,
+  type MarkdownEditorProps as SharedMarkdownEditorProps,
+} from "@babel-apps/markdown/react";
+
+const REMARK_FEATURES = ["gfm", "formula-math"] as const;
+
+import { listNoteTitles } from "@/lib/api-client";
+
+export {
+  ACCEPTED_IMAGE_TYPES,
+  imageFileError,
+  stageImageFile,
+  type StagedImage,
+} from "@babel-apps/markdown/react";
+
+type MarkdownEditorProps = Omit<
+  SharedMarkdownEditorProps,
+  | "emptyPreviewText"
+  | "fetchScope"
+  | "fetchTitles"
+  | "hintText"
+  | "placeholder"
+  | "remarkFeatures"
+  | "uploadScheme"
+>;
+
+export function MarkdownEditor(props: MarkdownEditorProps) {
+  return (
+    <SharedMarkdownEditor
+      {...props}
+      enableCanvasEmbeds
+      fetchScope="vali:documents"
+      fetchTitles={listNoteTitles}
+      hintText="Write Markdown with GFM, [[document links]], and Typst math: $x$ inline or $ x $ on its own line."
+      placeholder="Write a definition, example, observation, or question..."
+      remarkFeatures={REMARK_FEATURES}
+      uploadScheme="vali-upload"
+    />
+  );
+}

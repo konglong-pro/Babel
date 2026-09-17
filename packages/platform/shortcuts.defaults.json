@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 3,
+  "commands": [
+    {
+      "command": "save",
+      "label": "Save",
+      "defaultBinding": "Ctrl+S"
+    },
+    {
+      "command": "new",
+      "label": "New",
+      "defaultBinding": "Ctrl+Alt+N"
+    },
+    {
+      "command": "edit",
+      "label": "Edit",
+      "defaultBinding": "Ctrl+Alt+E"
+    },
+    {
+      "command": "read",
+      "label": "Read",
+      "defaultBinding": "Ctrl+R"
+    },
+    {
+      "command": "confirm",
+      "label": "Confirm",
+      "defaultBinding": "Ctrl+Enter"
+    },
+    {
+      "command": "cancel",
+      "label": "Cancel",
+      "defaultBinding": "Escape"
+    },
+    {
+      "command": "search",
+      "label": "Search",
+      "defaultBinding": "Ctrl+F"
+    },
+    {
+      "command": "delete",
+      "label": "Delete",
+      "defaultBinding": "Ctrl+Delete"
+    },
+    {
+      "command": "commandPalette",
+      "label": "Command Palette",
+      "defaultBinding": "Ctrl+K"
+    },
+    {
+      "command": "focusNextPane",
+      "label": "Focus Next Pane",
+      "defaultBinding": "Ctrl+F6"
+    },
+    {
+      "command": "focusPreviousPane",
+      "label": "Focus Previous Pane",
+      "defaultBinding": "Ctrl+Shift+F6"
+    },
+    {
+      "command": "nextTab",
+      "label": "Next Tab",
+      "defaultBinding": "Ctrl+Alt+ArrowRight"
+    },
+    {
+      "command": "previousTab",
+      "label": "Previous Tab",
+      "defaultBinding": "Ctrl+Alt+ArrowLeft"
+    },
+    {
+      "command": "closeTab",
+      "label": "Close Tab",
+      "defaultBinding": "Ctrl+Alt+W"
+    },
+    {
+      "command": "quickOpen",
+      "label": "Quick Open",
+      "defaultBinding": "Ctrl+Alt+P"
+    },
+    {
+      "command": "help",
+      "label": "Keyboard Help",
+      "defaultBinding": "Ctrl+Alt+H"
+    }
+  ]
+}

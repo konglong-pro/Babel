@@ -8,6 +8,55 @@
       "when": 1783669000000,
       "tag": "0000_esperanto_notes",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1783911742997,
+      "tag": "0001_jazzy_electro",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1783933005010,
+      "tag": "0002_lumpy_slipstream",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1784217600000,
+      "tag": "0003_search_trigram",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1784684003438,
+      "tag": "0004_note_templates",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1785834961109,
+      "tag": "0005_worthless_mordo",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1785924038414,
+      "tag": "0006_true_supreme_intelligence",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1786724106854,
+      "tag": "0007_wealthy_golden_guardian",
+      "breakpoints": true
     }
   ]
 }

@@ -10,7 +10,7 @@ Set shell = CreateObject("WScript.Shell")
 Set fileSystem = CreateObject("Scripting.FileSystemObject")
 
 scriptDirectory = fileSystem.GetParentFolderName(WScript.ScriptFullName)
-command = "powershell.exe -NoLogo -NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File " _
+command = "pwsh.exe -NoLogo -NoProfile -STA -WindowStyle Hidden -ExecutionPolicy Bypass -File " _
     & Chr(34) & scriptDirectory & "\Babel.Gui.ps1" & Chr(34)
 
 exitCode = shell.Run(command, 0, True)

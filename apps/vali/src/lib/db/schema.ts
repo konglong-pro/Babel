@@ -1,99 +1,205 @@
 import { sql } from "drizzle-orm";
 import {
   check,
+  index,
   integer,
-  primaryKey,
   sqliteTable,
   text,
   uniqueIndex,
+  type AnySQLiteColumn,
 } from "drizzle-orm/sqlite-core";
 
-export const category = sqliteTable(
-  "category",
+const timestampDefault = sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`;
+
+const timestamps = {
+  createdAt: text("created_at").notNull().default(timestampDefault),
+  updatedAt: text("updated_at").notNull().default(timestampDefault),
+};
+
+export const folders = sqliteTable(
+  "folder",
   {
-    id: text("id").primaryKey(),
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    parentId: integer("parent_id").references(
+      (): AnySQLiteColumn => folders.id,
+      { onDelete: "restrict" },
+    ),
     name: text("name").notNull(),
-    order: integer("order").notNull(),
-    content: text("content").notNull(),
-    createdAt: text("created_at").notNull(),
-    updatedAt: text("updated_at").notNull(),
+    position: integer("position").notNull().default(0),
+    ...timestamps,
   },
   (table) => [
-    uniqueIndex("category_name_unique").on(table.name),
-    check("category_id_prefix", sql`substr(${table.id}, 1, 4) = 'cat_'`),
-    check("category_order_integer", sql`typeof(${table.order}) = 'integer'`),
+    index("folder_parent_idx").on(table.parentId),
+    index("folder_parent_position_idx").on(table.parentId, table.position, table.id),
+    check("folder_name_not_blank", sql`length(trim(${table.name})) > 0`),
   ],
 );
 
-export const vaultConfig = sqliteTable(
-  "vault_config",
+export const canvases = sqliteTable(
+  "canvas",
   {
-    id: integer("id").primaryKey(),
-    name: text("name").notNull(),
-    schemaVersion: integer("schema_version").notNull(),
-    createdAt: text("created_at").notNull(),
-    defaultCategoryId: text("default_category_id")
-      .notNull()
-      .references(() => category.id, { onDelete: "restrict", onUpdate: "cascade" }),
-  },
-  (table) => [
-    check("vault_config_singleton", sql`${table.id} = 1`),
-    check("vault_config_schema_version", sql`${table.schemaVersion} = 1`),
-  ],
-);
-
-export const entry = sqliteTable(
-  "entry",
-  {
-    id: text("id").primaryKey(),
-    categoryId: text("category_id")
-      .notNull()
-      .references(() => category.id, { onDelete: "restrict", onUpdate: "cascade" }),
+    id: integer("id").primaryKey({ autoIncrement: true }),
     title: text("title").notNull(),
-    order: integer("order").notNull(),
-    content: text("content").notNull(),
-    createdAt: text("created_at").notNull(),
-    updatedAt: text("updated_at").notNull(),
+    scene: text("scene").notNull().default('{"version":1,"elements":[],"viewport":{"x":0,"y":0,"zoom":1}}'),
+    ...timestamps,
   },
   (table) => [
-    uniqueIndex("entry_category_title_unique").on(table.categoryId, table.title),
-    check("entry_id_prefix", sql`substr(${table.id}, 1, 4) = 'ent_'`),
-    check("entry_order_integer", sql`typeof(${table.order}) = 'integer'`),
+    index("canvas_updated_idx").on(table.updatedAt),
+    check("canvas_title_not_blank", sql`length(trim(${table.title})) > 0`),
   ],
 );
 
-export const entryAlias = sqliteTable(
-  "entry_alias",
+export const notes = sqliteTable(
+  "note",
   {
-    entryId: text("entry_id")
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    folderId: integer("folder_id")
       .notNull()
-      .references(() => entry.id, { onDelete: "cascade", onUpdate: "cascade" }),
-    alias: text("alias").notNull(),
-    position: integer("position").notNull(),
+      .references(() => folders.id, { onDelete: "restrict" }),
+    parentId: integer("parent_id").references(
+      (): AnySQLiteColumn => notes.id,
+      { onDelete: "restrict" },
+    ),
+    title: text("title").notNull(),
+    contentMd: text("content_md").notNull().default(""),
+    tags: text("tags").notNull().default("[]"),
+    position: integer("position").notNull().default(0),
+    ...timestamps,
   },
   (table) => [
-    primaryKey({ columns: [table.entryId, table.position] }),
-    uniqueIndex("entry_alias_entry_alias_unique").on(table.entryId, table.alias),
-    check("entry_alias_position_nonnegative", sql`${table.position} >= 0`),
+    index("note_folder_idx").on(table.folderId),
+    index("note_parent_idx").on(table.parentId),
+    index("note_scope_position_idx").on(
+      table.folderId,
+      table.parentId,
+      table.position,
+      table.id,
+    ),
+    index("note_title_idx").on(table.title),
+    check("note_title_not_blank", sql`length(trim(${table.title})) > 0`),
   ],
 );
 
-export const reflection = sqliteTable("reflection", {
-  date: text("date").primaryKey(),
-  content: text("content").notNull(),
-});
-
-export const trashEntry = sqliteTable(
-  "trash_entry",
+export const noteTemplates = sqliteTable(
+  "note_template",
   {
-    occurrenceId: integer("occurrence_id").primaryKey({ autoIncrement: true }),
-    deletedAt: text("deleted_at"),
-    originalEntryId: text("original_entry_id").notNull(),
-    snapshotJson: text("snapshot_json").notNull(),
-    legacySourceName: text("legacy_source_name"),
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    name: text("name").notNull(),
+    contentMd: text("content_md").notNull().default(""),
+    ...timestamps,
   },
   (table) => [
-    uniqueIndex("trash_entry_legacy_source_unique").on(table.legacySourceName),
-    check("trash_entry_snapshot_json", sql`json_valid(${table.snapshotJson})`),
+    uniqueIndex("note_template_name_unique").on(sql`lower(${table.name})`),
+    check(
+      "note_template_name_not_blank",
+      sql`length(trim(${table.name})) > 0`,
+    ),
+    check(
+      "note_template_name_length",
+      sql`length(${table.name}) <= 120`,
+    ),
+  ],
+);
+
+export const reflections = sqliteTable(
+  "reflection",
+  {
+    date: text("date").primaryKey(),
+    contentMd: text("content_md").notNull().default(""),
+    ...timestamps,
+  },
+  (table) => [
+    index("reflection_updated_idx").on(table.updatedAt),
+    check(
+      "reflection_date_valid",
+      sql`${table.date} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' AND strftime('%Y-%m-%d', ${table.date}) = ${table.date}`,
+    ),
+  ],
+);
+
+export const noteLinks = sqliteTable(
+  "note_link",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    sourceNoteId: integer("source_note_id")
+      .notNull()
+      .references(() => notes.id, { onDelete: "cascade" }),
+    targetTitleKey: text("target_title_key").notNull(),
+    targetNoteId: integer("target_note_id").references(() => notes.id, {
+      onDelete: "set null",
+    }),
+    targetReflectionDate: text("target_reflection_date").references(
+      () => reflections.date,
+      { onDelete: "set null" },
+    ),
+    createdAt: text("created_at").notNull().default(timestampDefault),
+  },
+  (table) => [
+    uniqueIndex("note_link_source_title_unique").on(
+      table.sourceNoteId,
+      table.targetTitleKey,
+    ),
+    index("note_link_target_idx").on(table.targetNoteId),
+    index("note_link_target_reflection_idx").on(table.targetReflectionDate),
+    index("note_link_title_key_idx").on(table.targetTitleKey),
+    check(
+      "note_link_single_target",
+      sql`${table.targetNoteId} IS NULL OR ${table.targetReflectionDate} IS NULL`,
+    ),
+  ],
+);
+
+export const reflectionLinks = sqliteTable(
+  "reflection_link",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    sourceReflectionDate: text("source_reflection_date")
+      .notNull()
+      .references(() => reflections.date, { onDelete: "cascade" }),
+    targetTitleKey: text("target_title_key").notNull(),
+    targetNoteId: integer("target_note_id").references(() => notes.id, {
+      onDelete: "set null",
+    }),
+    targetReflectionDate: text("target_reflection_date").references(
+      () => reflections.date,
+      { onDelete: "set null" },
+    ),
+    createdAt: text("created_at").notNull().default(timestampDefault),
+  },
+  (table) => [
+    uniqueIndex("reflection_link_source_title_unique").on(
+      table.sourceReflectionDate,
+      table.targetTitleKey,
+    ),
+    index("reflection_link_target_note_idx").on(table.targetNoteId),
+    index("reflection_link_target_reflection_idx").on(table.targetReflectionDate),
+    index("reflection_link_title_key_idx").on(table.targetTitleKey),
+    check(
+      "reflection_link_single_target",
+      sql`${table.targetNoteId} IS NULL OR ${table.targetReflectionDate} IS NULL`,
+    ),
+  ],
+);
+
+export const noteImages = sqliteTable(
+  "document_image",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    noteId: integer("note_id").references(() => notes.id, { onDelete: "cascade" }),
+    reflectionDate: text("reflection_date").references(() => reflections.date, {
+      onDelete: "cascade",
+    }),
+    imagePath: text("image_path").notNull(),
+    createdAt: text("created_at").notNull().default(timestampDefault),
+  },
+  (table) => [
+    index("document_image_note_idx").on(table.noteId),
+    index("document_image_reflection_idx").on(table.reflectionDate),
+    uniqueIndex("document_image_path_unique").on(table.imagePath),
+    check("document_image_path_not_blank", sql`length(trim(${table.imagePath})) > 0`),
+    check(
+      "document_image_single_owner",
+      sql`(${table.noteId} IS NULL) <> (${table.reflectionDate} IS NULL)`,
+    ),
   ],
 );

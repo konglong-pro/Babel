@@ -1,65 +1,75 @@
 "use client";
 
+import { FolderMoveProvider } from "@babel-apps/platform/folders/move-react";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  MarkdownWritingGuidePanel,
+  TypstReferencePanel,
+  type ReferencePanelKind,
+} from "@babel-apps/markdown/reference";
+import {
+  usePageSessionHistoryGuard,
+  usePageSessions,
+} from "@babel-apps/platform/pages/react";
+import { usePaneFocus } from "@babel-apps/platform/navigation/react";
+import { useCommandPaletteItemSource } from "@babel-apps/platform/shortcuts/react";
+import { MarkdownFolderImportDialog } from "@babel-apps/platform/imports/react";
+import type { SearchFocus } from "@babel-apps/platform/search/focus";
 
 import {
   BEFORE_NAVIGATE_EVENT,
   type BeforeNavigateDetail,
 } from "@/components/app-header";
 import { FolderPanel } from "@/components/folder-panel";
-import { NoteDetail, type NoteViewMode } from "@/components/note-detail";
+import {
+  NotePageSession,
+  type NoteDraftSession,
+  savedNotePage,
+} from "@/components/note-page-session";
 import { NoteList } from "@/components/note-list";
+import { TemplateEditor, TemplateList } from "@/components/template-manager";
 import {
   createFolder,
   deleteFolder,
   getErrorMessage,
-  getNote,
   listFolders,
   listNotes,
+  reorderNote,
+  moveNote,
+  listNoteTemplates,
   updateFolder,
 } from "@/lib/api-client";
-import type { FolderDto, NoteDetailDto, NoteSummaryDto } from "@/lib/types";
+import {
+  parseMarkdownImport,
+  type MarkdownImportDraft,
+} from "@/lib/markdown-import";
+import { NOTE_CONTENT_MAX_BYTES } from "@/lib/note-limits";
+import type {
+  FolderDto,
+  NoteSearchField,
+  NoteSummaryDto,
+  NoteTemplateDto,
+} from "@/lib/types";
 
 type ResponsiveStage = "library" | "notes" | "note";
-
-const HISTORY_GUARD_KEY = "__esperantoDirtyGuard";
-
-function currentRelativeUrl(): string {
-  return `${window.location.pathname}${window.location.search}${window.location.hash}`;
-}
-
-function guardedHistoryState(): Record<string, unknown> {
-  const current = window.history.state;
-  const state = current && typeof current === "object"
-    ? (current as Record<string, unknown>)
-    : {};
-  return { ...state, [HISTORY_GUARD_KEY]: true };
-}
-
-function isGuardedHistoryState(value: unknown): boolean {
-  return Boolean(
-    value &&
-    typeof value === "object" &&
-    (value as Record<string, unknown>)[HISTORY_GUARD_KEY],
-  );
-}
 
 interface NotesWorkspaceProps {
   initialFolderId?: number | null;
   initialNoteId?: number | null;
+  initialSearchFocus?: SearchFocus<NoteSearchField> | null;
 }
 
-function subtreeIds(rootId: number, folders: readonly FolderDto[]): Set<number> {
+function subtreeIds(rootId: number, folders: readonly Pick<FolderDto, "id" | "parentId">[]): Set<number> {
   const grouped = new Map<number | null, number[]>();
   for (const folder of folders) {
     const children = grouped.get(folder.parentId) ?? [];
     children.push(folder.id);
     grouped.set(folder.parentId, children);
   }
-
   const ids = new Set([rootId]);
   const stack = [rootId];
-  while (stack.length) {
+  while (stack.length > 0) {
     const current = stack.pop();
     if (current === undefined) continue;
     for (const childId of grouped.get(current) ?? []) {
@@ -71,60 +81,70 @@ function subtreeIds(rootId: number, folders: readonly FolderDto[]): Set<number> 
   return ids;
 }
 
-function newestFirst(a: NoteSummaryDto, b: NoteSummaryDto): number {
-  const timeDifference = new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
-  return timeDifference || a.title.localeCompare(b.title, "en-US") || a.id - b.id;
+function templateNameOrder(a: NoteTemplateDto, b: NoteTemplateDto): number {
+  return a.name.localeCompare(b.name, "en-US", { sensitivity: "base" }) || a.id - b.id;
+}
+
+function savedNoteId(pageKey: string | null): number | null {
+  if (pageKey === null || !pageKey.startsWith("note:")) return null;
+  const id = Number(pageKey.slice("note:".length));
+  return Number.isInteger(id) && id > 0 ? id : null;
 }
 
 export function NotesWorkspace({
   initialFolderId = null,
   initialNoteId = null,
+  initialSearchFocus = null,
 }: NotesWorkspaceProps) {
+  const {
+    pages,
+    activeKey,
+    activatePage,
+    closePage,
+    openPage,
+    updatePage,
+  } = usePageSessions();
+  const { focusPane } = usePaneFocus();
   const [folders, setFolders] = useState<FolderDto[]>([]);
   const [notes, setNotes] = useState<NoteSummaryDto[]>([]);
+  const [templates, setTemplates] = useState<NoteTemplateDto[]>([]);
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(initialFolderId);
-  const [selectedNoteId, setSelectedNoteId] = useState<number | null>(initialNoteId);
-  const [detail, setDetail] = useState<NoteDetailDto | null>(null);
-  const [mode, setMode] = useState<NoteViewMode>("view");
   const [stage, setStage] = useState<ResponsiveStage>(
     initialNoteId !== null ? "note" : initialFolderId !== null ? "notes" : "library",
   );
   const [indexLoading, setIndexLoading] = useState(true);
-  const [detailLoading, setDetailLoading] = useState(initialNoteId !== null);
-  const [detailRequestVersion, setDetailRequestVersion] = useState(0);
   const [error, setError] = useState("");
-  const [detailError, setDetailError] = useState("");
-  const [dirty, setDirty] = useState(false);
-  const dirtyRef = useRef(false);
-  const saveActionRef = useRef<(() => void) | null>(null);
-  const guardedUrlRef = useRef("");
-  const guardEntryPresentRef = useRef(false);
-  const allowNextPopRef = useRef(false);
-  const allowUnloadRef = useRef(false);
-  const popFallbackTimerRef = useRef<number | null>(null);
+  const [notice, setNotice] = useState("");
+  const [folderImportFiles, setFolderImportFiles] = useState<File[] | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, NoteDraftSession>>({});
+  const [movingItemIds, setMovingItemIds] = useState<ReadonlySet<number>>(new Set());
+  const [moveRevisions, setMoveRevisions] = useState<Record<number, number>>({});
+  const [pendingEditPageKey, setPendingEditPageKey] = useState<string | null>(null);
+  const [managingTemplates, setManagingTemplates] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
+  const [creatingTemplate, setCreatingTemplate] = useState(false);
+  const [templateDraftVersion, setTemplateDraftVersion] = useState(0);
+  const [templateDirty, setTemplateDirty] = useState(false);
+  const [templatePending, setTemplatePending] = useState(false);
+  const [activeReferencePanel, setActiveReferencePanel] = useState<ReferencePanelKind | null>(null);
+  const referenceTriggerRef = useRef<HTMLElement | null>(null);
+  const initialOpenedRef = useRef(false);
 
   const refreshIndex = useCallback(async () => {
-    const [nextFolders, nextNotes] = await Promise.all([listFolders(), listNotes()]);
+    const [nextFolders, nextNotes, nextTemplates] = await Promise.all([
+      listFolders(),
+      listNotes(),
+      listNoteTemplates(),
+    ]);
     setFolders(nextFolders);
     setNotes(nextNotes);
-    return { folders: nextFolders, notes: nextNotes };
+    setTemplates(nextTemplates.sort(templateNameOrder));
   }, []);
 
   useEffect(() => {
     let active = true;
-    Promise.all([listFolders(), listNotes()])
-      .then(([nextFolders, nextNotes]) => {
-        if (!active) return;
-        setFolders(nextFolders);
-        setNotes(nextNotes);
-        if (
-          initialFolderId !== null &&
-          !nextFolders.some((folder) => folder.id === initialFolderId)
-        ) {
-          setSelectedFolderId(null);
-          setStage(initialNoteId !== null ? "note" : "library");
-        }
-      })
+    void Promise.resolve()
+      .then(refreshIndex)
       .catch((caught) => {
         if (active) setError(getErrorMessage(caught));
       })
@@ -134,360 +154,551 @@ export function NotesWorkspace({
     return () => {
       active = false;
     };
-  }, [initialFolderId, initialNoteId]);
+  }, [refreshIndex]);
 
   useEffect(() => {
-    if (selectedNoteId === null) return;
-    if (detail?.id === selectedNoteId && detailRequestVersion === 0) return;
+    if (indexLoading || initialOpenedRef.current) return;
+    initialOpenedRef.current = true;
+    if (initialNoteId === null) return;
+    const note = notes.find((candidate) => candidate.id === initialNoteId);
+    openPage(note
+      ? savedNotePage(note)
+      : {
+          key: `note:${initialNoteId}`,
+          kind: "Note",
+          title: `Note ${initialNoteId}`,
+          href: `/notes${initialFolderId === null
+            ? `?note=${initialNoteId}`
+            : `?folder=${initialFolderId}&note=${initialNoteId}`}`,
+        });
+  }, [indexLoading, initialFolderId, initialNoteId, notes, openPage]);
 
-    let active = true;
-    getNote(selectedNoteId)
-      .then((nextDetail) => {
-        if (!active) return;
-        setDetail(nextDetail);
-        setDetailRequestVersion(0);
-      })
-      .catch((caught) => {
-        if (!active) return;
-        setDetail(null);
-        setDetailError(getErrorMessage(caught));
-      })
-      .finally(() => {
-        if (active) setDetailLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [detail?.id, detailRequestVersion, selectedNoteId]);
-
-  const setDirtyState = useCallback((nextDirty: boolean) => {
-    dirtyRef.current = nextDirty;
-    setDirty(nextDirty);
-
-    if (nextDirty && !guardEntryPresentRef.current) {
-      guardedUrlRef.current = currentRelativeUrl();
-      window.history.pushState(
-        guardedHistoryState(),
-        "",
-        guardedUrlRef.current,
-      );
-      guardEntryPresentRef.current = true;
+  const activePage = pages.find((page) => page.key === activeKey && page.kind === "Note") ?? null;
+  useEffect(() => {
+    if (activePage === null) return;
+    const url = new URL(activePage.href, window.location.origin);
+    const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (nextUrl !== currentUrl) {
+      window.history.replaceState(window.history.state, "", nextUrl);
     }
-  }, []);
+  }, [activePage]);
 
-  const registerSave = useCallback((action: (() => void) | null) => {
-    saveActionRef.current = action;
-  }, []);
-
-  const confirmDiscard = useCallback((): boolean => {
-    if (!dirtyRef.current) return true;
-    return window.confirm("Discard your unsaved changes?");
-  }, []);
-
-  const resetToLibraryRoot = useCallback(() => {
-    setDirtyState(false);
-    setSelectedFolderId(null);
-    setSelectedNoteId(null);
-    setDetail(null);
-    setDetailError("");
-    setDetailLoading(false);
-    setDetailRequestVersion(0);
-    setMode("view");
-    setStage("library");
-  }, [setDirtyState]);
+  usePageSessionHistoryGuard({
+    dirty: templateDirty,
+    pending: templatePending,
+    onDiscard: () => {
+      setTemplateDirty(false);
+      setTemplatePending(false);
+    },
+  });
 
   useEffect(() => {
-    guardedUrlRef.current = currentRelativeUrl();
-    guardEntryPresentRef.current = isGuardedHistoryState(window.history.state);
-
-    function beforeUnload(event: BeforeUnloadEvent) {
-      if (!dirtyRef.current || allowUnloadRef.current) return;
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (!templateDirty && !templatePending) return;
       event.preventDefault();
       event.returnValue = true;
-    }
-
-    function saveShortcut(event: KeyboardEvent) {
-      if (!(event.ctrlKey || event.metaKey) || event.key.toLocaleLowerCase() !== "s") return;
-      if (!saveActionRef.current) return;
-      event.preventDefault();
-      saveActionRef.current();
-    }
-
-    function beforeNavigate(event: Event) {
-      if (!confirmDiscard()) {
+    };
+    const beforeNavigate = (event: Event) => {
+      const dirtyPages = pages.filter((page) => page.dirty || page.pending);
+      if (
+        (templateDirty || templatePending || dirtyPages.length > 0) &&
+        !window.confirm("Discard your unsaved changes?")
+      ) {
         event.preventDefault();
         return;
       }
-
+      for (const page of dirtyPages) closePage(page.key);
+      setTemplateDirty(false);
+      setTemplatePending(false);
       const navigationEvent = event as CustomEvent<BeforeNavigateDetail>;
-      if (navigationEvent.detail?.destination === "/notes") resetToLibraryRoot();
-    }
-
-    function popState(event: PopStateEvent) {
-      if (allowNextPopRef.current) {
-        allowNextPopRef.current = false;
-        allowUnloadRef.current = false;
-        if (popFallbackTimerRef.current !== null) {
-          window.clearTimeout(popFallbackTimerRef.current);
-          popFallbackTimerRef.current = null;
-        }
-        return;
-      }
-
-      if (!guardEntryPresentRef.current) return;
-
-      // The first Back only leaves our same-URL sentinel. Keep Next from
-      // observing that intermediate entry while we decide whether to leave.
-      event.stopImmediatePropagation();
-
-      if (dirtyRef.current && !confirmDiscard()) {
-        window.history.pushState(
-          guardedHistoryState(),
-          "",
-          guardedUrlRef.current,
-        );
-        guardEntryPresentRef.current = true;
-        return;
-      }
-
-      guardEntryPresentRef.current = false;
-      allowNextPopRef.current = true;
-      allowUnloadRef.current = dirtyRef.current;
-      window.history.back();
-
-      // A sentinel can be the first usable entry in a fresh tab. If there is
-      // nowhere else to go, re-arm it so a later edit is still protected.
-      popFallbackTimerRef.current = window.setTimeout(() => {
-        if (!allowNextPopRef.current) return;
-        allowNextPopRef.current = false;
-        allowUnloadRef.current = false;
-        window.history.pushState(
-          guardedHistoryState(),
-          "",
-          guardedUrlRef.current,
-        );
-        guardEntryPresentRef.current = true;
-        popFallbackTimerRef.current = null;
-      }, 500);
-    }
-
-    window.addEventListener("beforeunload", beforeUnload);
-    window.addEventListener("keydown", saveShortcut);
-    window.addEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
-    window.addEventListener("popstate", popState, true);
-    return () => {
-      window.removeEventListener("beforeunload", beforeUnload);
-      window.removeEventListener("keydown", saveShortcut);
-      window.removeEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
-      window.removeEventListener("popstate", popState, true);
-      if (popFallbackTimerRef.current !== null) {
-        window.clearTimeout(popFallbackTimerRef.current);
-        popFallbackTimerRef.current = null;
+      if (navigationEvent.detail?.destination === "/notes") {
+        activatePage(null);
+        setSelectedFolderId(null);
+        setStage("library");
       }
     };
-  }, [confirmDiscard, resetToLibraryRoot]);
+    window.addEventListener("beforeunload", beforeUnload);
+    window.addEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
+    return () => {
+      window.removeEventListener("beforeunload", beforeUnload);
+      window.removeEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
+    };
+  }, [
+    activatePage,
+    closePage,
+    pages,
+    templateDirty,
+    templatePending,
+  ]);
 
-  const folderMap = useMemo(() => new Map(folders.map((folder) => [folder.id, folder])), [folders]);
+  const folderMap = useMemo(
+    () => new Map(folders.map((folder) => [folder.id, folder])),
+    [folders],
+  );
+  const activeFolderId = useMemo(() => {
+    if (activePage === null) return null;
+    const candidate = Number(
+      new URL(activePage.href, "http://babel.local").searchParams.get("folder"),
+    );
+    return Number.isInteger(candidate) && candidate > 0 ? candidate : null;
+  }, [activePage]);
+  const visibleFolderId = activeFolderId ?? selectedFolderId;
   const visibleNotes = useMemo(() => {
-    const scopedFolderIds = selectedFolderId === null ? null : subtreeIds(selectedFolderId, folders);
+    const scopedFolderIds = visibleFolderId === null
+      ? null
+      : subtreeIds(visibleFolderId, folders);
     const filtered = scopedFolderIds === null
       ? notes
       : notes.filter((note) => scopedFolderIds.has(note.folderId));
-    return [...filtered].sort(newestFirst);
-  }, [folders, notes, selectedFolderId]);
+    return filtered;
+  }, [folders, notes, visibleFolderId]);
+  const selectedTemplate = useMemo(
+    () => templates.find((template) => template.id === selectedTemplateId) ?? null,
+    [selectedTemplateId, templates],
+  );
+  const selectedNoteId = savedNoteId(activeKey);
+  const hasUnsavedPages = pages.some((page) => page.dirty || page.pending);
+  const showingTemplates = managingTemplates && activePage === null;
+  const visibleStage: ResponsiveStage = activePage === null ? stage : "note";
 
-  function replaceLocation(folderId: number | null, noteId: number | null) {
-    const params = new URLSearchParams();
-    if (folderId !== null) params.set("folder", String(folderId));
-    if (noteId !== null) params.set("note", String(noteId));
-    const query = params.toString();
-    const nextUrl = query ? `/notes?${query}` : "/notes";
-    guardedUrlRef.current = nextUrl;
+  function showList(folderId = selectedFolderId) {
+    activatePage(null);
+    setSelectedFolderId(folderId);
+    setStage("notes");
+    const nextUrl = folderId === null ? "/notes" : `/notes?folder=${folderId}`;
     window.history.replaceState(window.history.state, "", nextUrl);
+    window.requestAnimationFrame(() => focusPane("items"));
+  }
+
+  function openNote(id: number, folderId?: number) {
+    const note = notes.find((candidate) => candidate.id === id);
+    const targetFolderId = folderId ?? note?.folderId ?? null;
+    openPage(note
+      ? savedNotePage(note)
+      : {
+          key: `note:${id}`,
+          kind: "Note",
+          title: `Note ${id}`,
+          href: `/notes${targetFolderId === null ? `?note=${id}` : `?folder=${targetFolderId}&note=${id}`}`,
+        });
+    if (targetFolderId !== null) setSelectedFolderId(targetFolderId);
+    setStage("note");
+    window.requestAnimationFrame(() => focusPane("detail"));
+  }
+
+  function openNoteForEdit(id: number, folderId?: number) {
+    const note = notes.find((candidate) => candidate.id === id);
+    setPendingEditPageKey(note ? savedNotePage(note).key : `note:${id}`);
+    openNote(id, folderId);
+  }
+  function openDraft(
+    input: Omit<NoteDraftSession, "title"> & { title?: string },
+  ) {
+    const key = `note-draft:${crypto.randomUUID()}`;
+    const draft: NoteDraftSession = {
+      ...input,
+      title: input.title?.trim() || "Untitled note",
+    };
+    setDrafts((current) => ({ ...current, [key]: draft }));
+    openPage({
+      key,
+      kind: "Note",
+      title: draft.title,
+      href: `/notes?folder=${draft.folderId}`,
+      restorable: false,
+    });
+    setSelectedFolderId(draft.folderId);
+    setStage("note");
   }
 
   function selectFolder(id: number | null) {
-    if (!confirmDiscard()) return;
-    setSelectedFolderId(id);
-    setSelectedNoteId(null);
-    setDetail(null);
-    setDetailError("");
-    setDetailLoading(false);
-    setDetailRequestVersion(0);
-    setMode("view");
-    setStage("notes");
-    replaceLocation(id, null);
-  }
-
-  function selectNote(id: number) {
-    if (!confirmDiscard()) return;
-    setSelectedNoteId(id);
-    setDetail(null);
-    setDetailError("");
-    setDetailLoading(true);
-    setDetailRequestVersion(0);
-    setMode("view");
-    setStage("note");
-    replaceLocation(selectedFolderId, id);
+    setManagingTemplates(false);
+    showList(id);
   }
 
   async function handleCreateFolder(name: string, parentId: number | null) {
-    if (!confirmDiscard()) return;
-    const created = await createFolder({ name, parentId });
-    await refreshIndex();
-    setSelectedFolderId(created.id);
-    setSelectedNoteId(null);
-    setDetail(null);
-    setMode("view");
-    setDetailLoading(false);
-    setDetailRequestVersion(0);
-    setStage("notes");
-    replaceLocation(created.id, null);
+    try {
+      const created = await createFolder({ name, parentId });
+      await refreshIndex();
+      showList(created.id);
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+    }
   }
 
   async function handleRenameFolder(id: number, name: string) {
-    await updateFolder(id, { name });
-    await refreshIndex();
+    try {
+      await updateFolder(id, { name });
+      await refreshIndex();
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+    }
   }
 
   async function handleMoveFolder(id: number, parentId: number | null) {
-    await updateFolder(id, { parentId });
-    await refreshIndex();
+    try {
+      await updateFolder(id, { parentId });
+      await refreshIndex();
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+    }
+  }
+
+  async function handleReorderFolder(id: number, position: number) {
+    try {
+      await updateFolder(id, { position });
+      await refreshIndex();
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+      throw caught;
+    }
   }
 
   async function handleDeleteFolder(id: number) {
-    if (!confirmDiscard()) return;
-    await deleteFolder(id);
-    await refreshIndex();
-    setSelectedFolderId(null);
-    setSelectedNoteId(null);
-    setDetail(null);
-    setMode("view");
-    setDetailLoading(false);
-    setDetailRequestVersion(0);
-    setStage("library");
-    replaceLocation(null, null);
+    try {
+      await deleteFolder(id);
+      await refreshIndex();
+      showList(null);
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+    }
   }
 
-  async function handleSaved(saved: NoteDetailDto) {
-    const folderChanged = detail !== null && saved.folderId !== detail.folderId;
-    const nextFolderId = detail === null || folderChanged ? saved.folderId : selectedFolderId;
-    setDetail(saved);
-    setSelectedNoteId(saved.id);
-    setSelectedFolderId(nextFolderId);
-    setMode("view");
+  async function handleMoveNote(id: number, folderId: number) {
+    const note = notes.find((candidate) => candidate.id === id);
+    if (!note || !folders.some((folder) => folder.id === folderId)) {
+      throw new Error("This note or destination folder is no longer available. Refresh and try again.");
+    }
+    if (note.folderId === folderId) return;
+    const affectedIds = subtreeIds(id, notes);
+    const blocked = pages.some((page) => {
+      const savedId = savedNoteId(page.key);
+      if (savedId !== null && affectedIds.has(savedId) && (page.dirty || page.pending)) return true;
+      const draft = drafts[page.key];
+      return draft?.parentId !== null && draft?.parentId !== undefined && affectedIds.has(draft.parentId);
+    });
+    if (blocked) throw new Error("Save or close open drafts in this note and its child notes before moving it.");
+    setMovingItemIds(affectedIds);
+    try {
+      await moveNote(id, folderId);
+      for (const page of pages) {
+        const savedId = savedNoteId(page.key);
+        if (savedId === null || !affectedIds.has(savedId)) continue;
+        updatePage(page.key, { href: savedNotePage({ id: savedId, folderId, title: page.title }).href });
+      }
+      setMoveRevisions((current) => {
+        const next = { ...current };
+        for (const affectedId of affectedIds) next[affectedId] = (next[affectedId] ?? 0) + 1;
+        return next;
+      });
+      await refreshIndex();
+    } finally {
+      setMovingItemIds(new Set());
+    }
+  }
+
+  async function handleReorderNote(id: number, position: number) {
+    try {
+      await reorderNote(id, position);
+      await refreshIndex();
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+    }
+  }
+
+  async function handleImportMarkdown(file: File) {
+    if (selectedFolderId === null) return;
+    if (file.size > NOTE_CONTENT_MAX_BYTES) {
+      setError("Markdown files must not exceed 10 MB.");
+      return;
+    }
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const importDraft: MarkdownImportDraft = parseMarkdownImport(file.name, bytes);
+      openDraft({
+        folderId: selectedFolderId,
+        parentId: null,
+        importDraft,
+        title: importDraft.title,
+      });
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+    }
+  }
+
+  function confirmTemplateDiscard(): boolean {
+    return !templateDirty && !templatePending
+      ? true
+      : window.confirm("Discard your unsaved template changes?");
+  }
+
+  function beginManagingTemplates() {
+    setActiveReferencePanel(null);
+    activatePage(null);
+    setManagingTemplates(true);
+    setSelectedTemplateId(null);
+    setCreatingTemplate(false);
+    setTemplateDirty(false);
+    setTemplatePending(false);
+    setTemplateDraftVersion((version) => version + 1);
+    setStage("notes");
+  }
+
+  function closeTemplateManager(nextStage: ResponsiveStage = "notes") {
+    if (!confirmTemplateDiscard()) return;
+    setManagingTemplates(false);
+    setSelectedTemplateId(null);
+    setCreatingTemplate(false);
+    setTemplateDirty(false);
+    setTemplatePending(false);
+    setTemplateDraftVersion((version) => version + 1);
+    setStage(nextStage);
+  }
+
+  function selectManagedTemplate(id: number) {
+    if (!confirmTemplateDiscard()) return;
+    setSelectedTemplateId(id);
+    setCreatingTemplate(false);
+    setTemplateDirty(false);
+    setTemplatePending(false);
+    setTemplateDraftVersion((version) => version + 1);
     setStage("note");
-    setDetailLoading(false);
-    setDetailRequestVersion(0);
-    setDirtyState(false);
-    replaceLocation(nextFolderId, saved.id);
-    try {
-      await refreshIndex();
-    } catch (caught) {
-      setError(getErrorMessage(caught));
-    }
   }
 
-  async function handleDeleted() {
-    setSelectedNoteId(null);
-    setDetail(null);
-    setMode("view");
-    setStage("notes");
-    setDetailLoading(false);
-    setDetailRequestVersion(0);
-    replaceLocation(selectedFolderId, null);
-    try {
-      await refreshIndex();
-    } catch (caught) {
-      setError(getErrorMessage(caught));
-    }
+  function beginTemplateCreation() {
+    if (!confirmTemplateDiscard()) return;
+    setSelectedTemplateId(null);
+    setCreatingTemplate(true);
+    setTemplateDirty(false);
+    setTemplatePending(false);
+    setTemplateDraftVersion((version) => version + 1);
+    setStage("note");
   }
 
-  function cancelEditing() {
-    if (!confirmDiscard()) return;
-    setMode("view");
-    if (!detail) setStage("notes");
-  }
-
-  function backToNotes() {
-    if (!confirmDiscard()) return;
-    setMode("view");
+  function cancelTemplateEditing() {
+    if (!confirmTemplateDiscard()) return;
+    setSelectedTemplateId(null);
+    setCreatingTemplate(false);
+    setTemplateDirty(false);
+    setTemplatePending(false);
+    setTemplateDraftVersion((version) => version + 1);
     setStage("notes");
   }
 
+  function openReferencePanel(panel: ReferencePanelKind) {
+    referenceTriggerRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    setActiveReferencePanel(panel);
+  }
+
+  function closeReferencePanel() {
+    setActiveReferencePanel(null);
+    window.requestAnimationFrame(() => referenceTriggerRef.current?.focus());
+  }
+
+  useCommandPaletteItemSource({
+    id: "esperanto.notes",
+    label: "Notes",
+    items: notes.map((note) => ({
+      id: String(note.id),
+      dedupeKey: `esperanto:note:${note.id}`,
+      label: note.title,
+      description: folderMap.get(note.folderId)?.name ?? "Note",
+      keywords: note.tags,
+      open: () => openNote(note.id, note.folderId),
+      edit: () => openNoteForEdit(note.id, note.folderId),
+    })),
+  });
   return (
-    <div className={`notes-workspace stage-${stage}${dirty ? " has-unsaved" : ""}`}>
+    <FolderMoveProvider
+      scope="esperanto:notes"
+      items={notes}
+      folderIds={folders.map(({ id }) => id)}
+      disabled={indexLoading || movingItemIds.size > 0}
+      onMove={handleMoveNote}
+    >
+    <div
+      className={`notes-workspace stage-${visibleStage}${hasUnsavedPages || templateDirty ? " has-unsaved" : ""}${showingTemplates ? " managing-templates" : ""}`}
+    >
       {error ? (
         <div className="workspace-alert" role="alert">
           <span>{error}</span>
           <button type="button" onClick={() => setError("")}>Dismiss</button>
         </div>
       ) : null}
+      {notice ? (
+        <div className="workspace-alert" role="status">
+          <span>{notice}</span>
+          <button type="button" onClick={() => setNotice("")}>Dismiss</button>
+        </div>
+      ) : null}
 
       <FolderPanel
         folders={folders}
-        selectedId={selectedFolderId}
+        selectedId={visibleFolderId}
         busy={indexLoading}
+        activeReferencePanel={activeReferencePanel}
+        onOpenMarkdownReference={() => openReferencePanel("markdown")}
+        onOpenTypstReference={() => openReferencePanel("typst")}
         onSelect={selectFolder}
         onCreate={handleCreateFolder}
         onRename={handleRenameFolder}
         onMove={handleMoveFolder}
+        onReorder={handleReorderFolder}
         onDelete={handleDeleteFolder}
       />
-      <NoteList
-        notes={visibleNotes}
-        folders={folderMap}
-        selectedFolderId={selectedFolderId}
-        selectedNoteId={selectedNoteId}
-        loading={indexLoading}
-        onSelect={selectNote}
-        onCreate={() => {
-          if (selectedFolderId === null || !confirmDiscard()) return;
-          setSelectedNoteId(null);
-          setDetail(null);
-          setDetailError("");
-          setDetailLoading(false);
-          setDetailRequestVersion(0);
-          setMode("create");
-          setStage("note");
-          replaceLocation(selectedFolderId, null);
-        }}
-        onBack={() => setStage("library")}
-      />
 
-      {detailError ? (
-        <section className="detail-panel error-state" role="alert">
-          <button className="content-back" type="button" onClick={backToNotes}>← Notes</button>
-          <span aria-hidden="true">!</span>
-          <h2>Could not load this note</h2>
-          <p>{detailError}</p>
-          <button
-            type="button"
-            onClick={() => {
-              setDetailError("");
-              setDetailLoading(true);
-              setDetailRequestVersion((version) => version + 1);
-            }}
-          >
-            Retry
-          </button>
-        </section>
+      {showingTemplates ? (
+        <TemplateList
+          templates={templates}
+          selectedId={selectedTemplateId}
+          creating={creatingTemplate}
+          loading={indexLoading}
+          referencePanelOpen={activeReferencePanel !== null}
+          onSelect={selectManagedTemplate}
+          onCreate={beginTemplateCreation}
+          onExit={() => closeTemplateManager("notes")}
+          onBack={() => closeTemplateManager("library")}
+        />
       ) : (
-        <NoteDetail
-          detail={detail}
-          mode={mode}
-          folderId={detail?.folderId ?? selectedFolderId}
-          folders={folders}
-          loading={detailLoading}
-          onEdit={() => setMode("edit")}
-          onCancel={cancelEditing}
-          onSaved={handleSaved}
-          onDeleted={handleDeleted}
-          onDirtyChange={setDirtyState}
-          onRegisterSave={registerSave}
-          onBack={backToNotes}
+        <NoteList
+          notes={visibleNotes}
+          folders={folderMap}
+          selectedFolderId={visibleFolderId}
+          selectedNoteId={selectedNoteId}
+          loading={indexLoading}
+          referencePanelOpen={activeReferencePanel !== null}
+          onSelect={openNote}
+          onEdit={openNoteForEdit}
+          onReorder={handleReorderNote}
+          onImport={handleImportMarkdown}
+          onImportFolder={(files) => setFolderImportFiles(files)}
+          onManageTemplates={beginManagingTemplates}
+          onCreate={(parentId) => {
+            const targetFolderId = parentId === null
+              ? selectedFolderId
+              : notes.find((note) => note.id === parentId)?.folderId ?? null;
+            if (targetFolderId === null) return;
+            openDraft({
+              folderId: targetFolderId,
+              parentId,
+              importDraft: null,
+              title: parentId === null ? "New note" : "New subnote",
+            });
+          }}
+          onBack={() => {
+            activatePage(null);
+            setStage("library");
+          }}
         />
       )}
+
+      {showingTemplates ? (
+        <TemplateEditor
+          key={`template-${templateDraftVersion}-${selectedTemplateId ?? "new"}-${creatingTemplate}`}
+          template={selectedTemplate}
+          creating={creatingTemplate}
+          onSaved={(saved) => {
+            setTemplateDirty(false);
+            setTemplatePending(false);
+            setTemplates((current) => [
+              ...current.filter((template) => template.id !== saved.id),
+              saved,
+            ].sort(templateNameOrder));
+            setSelectedTemplateId(saved.id);
+            setCreatingTemplate(false);
+            setTemplateDraftVersion((version) => version + 1);
+            setStage("note");
+          }}
+          onDeleted={(id) => {
+            setTemplateDirty(false);
+            setTemplatePending(false);
+            setTemplates((current) => current.filter((template) => template.id !== id));
+            setSelectedTemplateId(null);
+            setCreatingTemplate(false);
+            setTemplateDraftVersion((version) => version + 1);
+            setStage("notes");
+          }}
+          onCancel={cancelTemplateEditing}
+          onDirtyChange={setTemplateDirty}
+          onPendingChange={setTemplatePending}
+          onRegisterSave={() => undefined}
+          onBack={cancelTemplateEditing}
+        />
+      ) : (
+        <>
+          {pages
+            .filter((page) => page.kind === "Note")
+            .map((page) => {
+              const noteId = savedNoteId(page.key);
+              const draft = drafts[page.key] ?? null;
+              if (noteId === null && draft === null) return null;
+              return (
+                <NotePageSession
+                  key={`${page.key}:${noteId === null ? 0 : moveRevisions[noteId] ?? 0}`}
+                  moving={noteId !== null && movingItemIds.has(noteId)}
+                  pageKey={page.key}
+                  noteId={noteId}
+                  draft={draft}
+                  folders={folders}
+                  notes={notes}
+                  templates={templates}
+                  searchFocus={noteId === initialNoteId ? initialSearchFocus : null}
+                  editRequested={pendingEditPageKey === page.key}
+                  onEditRequestConsumed={() => {
+                    setPendingEditPageKey((current) => current === page.key ? null : current);
+                  }}
+                  onOpenNote={openNote}
+                  onOpenDraft={openDraft}
+                  onRefreshIndex={refreshIndex}
+                  onShowList={() => showList()}
+                  onError={setError}
+                />
+              );
+            })}
+          {activePage === null ? (
+            <section className="detail-panel empty-state" data-babel-pane="detail" tabIndex={-1} aria-label="Note details">
+              <button className="content-back" type="button" onClick={() => showList()}>
+                <span aria-hidden="true">←</span> Notes
+              </button>
+              <span className="empty-monogram" aria-hidden="true">E</span>
+              <h2>Open more than one thought</h2>
+              <p>Select a note to open it in a persistent page tab.</p>
+            </section>
+          ) : null}
+        </>
+      )}
+
+      {activeReferencePanel === "markdown" ? (
+        <MarkdownWritingGuidePanel onClose={closeReferencePanel} />
+      ) : null}
+      {activeReferencePanel === "typst" ? (
+        <TypstReferencePanel onClose={closeReferencePanel} />
+      ) : null}
+      {folderImportFiles && visibleFolderId !== null ? (
+        <MarkdownFolderImportDialog
+          files={folderImportFiles}
+          folders={folders}
+          existingTitles={notes.map(({ title }) => title)}
+          parentItems={notes.map(({ id, folderId, title }) => ({ id, folderId, title }))}
+          baseFolderId={visibleFolderId}
+          itemLabel="note"
+          onCancel={() => setFolderImportFiles(null)}
+          onComplete={async (result) => {
+            setFolderImportFiles(null);
+            await refreshIndex();
+            const first = result.imported[0];
+            setNotice(
+              `Imported ${result.imported.length} ${result.imported.length === 1 ? "note" : "notes"}` +
+              `${result.createdFolderCount ? ` and created ${result.createdFolderCount} ${result.createdFolderCount === 1 ? "folder" : "folders"}` : ""}.`,
+            );
+            if (first) openNote(first.id, first.folderId);
+          }}
+        />
+      ) : null}
     </div>
+    </FolderMoveProvider>
   );
 }
