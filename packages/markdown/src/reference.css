@@ -1,4 +1,5 @@
 @import "./formula.css";
+@import "./reader-image-zoom.css";
 
 .folder-panel:has(> .reference-panel-triggers) {
   display: flex;

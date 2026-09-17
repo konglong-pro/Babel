@@ -62,6 +62,7 @@ import {
   sourceOffsetToTextareaOffset,
 } from "./outline";
 import { createRemarkFormulaMath, prepareFormulaMath } from "./formula-math";
+import { ReaderImage, ReaderImageZoom } from "./reader-image-zoom";
 
 export type RemarkFeature = "gfm" | "typst-math" | "formula-math";
 
@@ -239,9 +240,7 @@ export function MarkdownRenderer({
       if (typeof src === "string" && uploadScheme !== undefined && src.startsWith(`${uploadScheme}://`)) {
         return <span className="markdown-image-pending">Image awaiting file: {alt?.trim() || "Untitled image"}</span>;
       }
-      // Markdown images may be local, remote, or unsaved blob URLs with unknown dimensions.
-      // eslint-disable-next-line @next/next/no-img-element
-      return <img {...props} src={src} alt={alt ?? ""} loading="lazy" />;
+      return <ReaderImage {...props} src={src} alt={alt ?? ""} />;
     };
     if (preparedFormulaMath !== null) {
       const componentsWithFormula = nextComponents as Components & Record<string, unknown>;
@@ -1046,7 +1045,7 @@ function DetachedReaderWindowInstance({
               {readerButton(fallbackButtonClassName, fallbackButtonRef)}
             </>
           )}
-      {host === null ? null : createPortal(readerContent, host.root, portalKey)}
+      {host === null ? null : createPortal(<ReaderImageZoom>{readerContent}</ReaderImageZoom>, host.root, portalKey)}
     </>
   );
 }

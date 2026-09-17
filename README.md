@@ -81,6 +81,13 @@ copy of the discarded edit. It does not undo earlier completed autosaves.
 Embedded canvases share refresh requests, and inactive pages stop refreshing
 unless their content remains visible in a detached reader.
 
+In a **Read** window, click a Markdown image (or focus it and press Enter/Space)
+to open the image viewer. Use the zoom buttons or mouse wheel, drag to pan,
+choose **100%** for original size or **Fit** to fit the window, and press Escape
+to close. Zoom affects only the reading view, including live draft images; it
+does not change the note or attachment. All apps and the scaffold inherit this
+behavior from the shared reader.
+
 ## Canvas controls
 
 All notebook canvases and the application scaffold use the same tools. In the

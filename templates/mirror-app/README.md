@@ -46,6 +46,11 @@ the sidebar order. Drag a note onto a sidebar folder to move it with its child
 pages, or between sibling notes to reorder. Moves preserve note contents and
 images; save or close dirty subtree pages and child drafts before moving.
 
+In **Read**, click an image to zoom. The shared viewer supports zoom buttons,
+mouse-wheel zoom, drag to pan, **Fit**, **100%**, and Escape to close. Keyboard
+users can focus an image and press Enter or Space. This works for saved and live
+draft images and does not change the note or attachment.
+
 Canvases use the shared Babel editor. `Ctrl+Shift+1` through `Ctrl+Shift+8`
 select Select, Hand, Pen, Eraser, Text, Rectangle, Ellipse, and Arrow. `Ctrl+Z`
 undoes and `Ctrl+Y` redoes; canvas commands appear in `Ctrl+K` while a canvas is

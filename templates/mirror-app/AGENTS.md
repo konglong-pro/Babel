@@ -46,4 +46,9 @@ PNG/JPEG/WebP images stay inline in scene JSON, with the shared 2 MiB image and
 selection/resize, eraser, attached arrows, and command-palette shortcuts without
 copying an editor implementation.
 
+Keep Read content inside the shared `DetachedReaderWindow` and render Markdown
+with the shared `MarkdownRenderer`. This automatically supplies image zoom in
+the reader's own document, including draft blob previews, without changing
+attachment data or enabling reader controls in editing previews.
+
 The root `AGENTS.md` owns shared commands and public/private data discipline.
