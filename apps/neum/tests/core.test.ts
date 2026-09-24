@@ -69,6 +69,8 @@ test("Neum core persistence", async (t) => {
       "entry_search",
       "entry_tag",
       "folder",
+      "reader_underline",
+      "reader_underline_note",
       "tag",
       "tag_search",
       "trash_entry",

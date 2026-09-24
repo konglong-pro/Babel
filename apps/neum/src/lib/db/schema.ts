@@ -191,3 +191,37 @@ export const trashEntries = sqliteTable(
     check("trash_entry_snapshot_json_valid", sql`json_valid(${table.snapshotJson})`),
   ],
 );
+
+export const readerUnderlines = sqliteTable(
+  "reader_underline",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    sourceEntryId: integer("source_entry_id").notNull().references(() => entries.id, { onDelete: "cascade" }),
+    fieldKey: text("field_key").notNull(),
+    color: text("color").notNull(),
+    anchorStart: integer("anchor_start").notNull(),
+    anchorEnd: integer("anchor_end").notNull(),
+    anchorExact: text("anchor_exact").notNull(),
+    anchorPrefix: text("anchor_prefix").notNull(),
+    anchorSuffix: text("anchor_suffix").notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    index("reader_underline_entry_source_idx").on(table.sourceEntryId),
+    check("reader_underline_field_check", sql`${table.fieldKey} IN ('notes', 'code')`),
+    check("reader_underline_color_check", sql`${table.color} IN ('yellow', 'green', 'blue', 'pink', 'orange')`),
+    check("reader_underline_anchor_check", sql`${table.anchorStart} >= 0 AND ${table.anchorEnd} > ${table.anchorStart} AND length(${table.anchorExact}) > 0`),
+  ],
+);
+
+export const readerUnderlineNotes = sqliteTable(
+  "reader_underline_note",
+  {
+    underlineId: integer("underline_id").notNull().references(() => readerUnderlines.id, { onDelete: "cascade" }),
+    noteId: integer("note_id").notNull().references(() => entries.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.underlineId, table.noteId] }),
+    index("reader_underline_note_target_idx").on(table.noteId),
+  ],
+);

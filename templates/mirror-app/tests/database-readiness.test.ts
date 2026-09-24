@@ -12,7 +12,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { assertAppDatabaseReady } from "@/lib/db/readiness";
 import { GET as getHealth } from "@/app/api/health/route";
 
-const latestMigration = 1_786_724_117_932;
+const latestMigration = 1790167372094;
 const migrationsFolder = path.resolve(process.cwd(), "drizzle");
 
 test("__APP_NAME__ database readiness", async (t) => {
@@ -68,6 +68,19 @@ test("__APP_NAME__ database readiness", async (t) => {
     assert.throws(
       () => assertAppDatabaseReady(databasePath),
       /missing required column: note_template\.name/i,
+    );
+  });
+
+  await t.test("rejects a current database without reader underlines", () => {
+    const databasePath = path.join(root, "missing-underlines.db");
+    const sqlite = new BetterSqlite3(databasePath);
+    migrate(drizzle(sqlite), { migrationsFolder });
+    sqlite.exec("DROP TABLE reader_underline_note; DROP TABLE reader_underline");
+    sqlite.close();
+
+    assert.throws(
+      () => assertAppDatabaseReady(databasePath),
+      /missing required column: reader_underline\.source_note_id/i,
     );
   });
 

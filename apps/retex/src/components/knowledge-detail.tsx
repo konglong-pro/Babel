@@ -15,6 +15,7 @@ import Link from "next/link";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ImportedImageMatcher } from "@/components/imported-image-matcher";
+import { ReaderSourceUnderlines } from "@/components/reader-note-underlines";
 import { LinkedMentions } from "@/components/linked-mentions";
 import { MarkdownEditor, type StagedImage } from "@/components/markdown-editor";
 import { pageDescendantIds } from "@/components/page-tree-state";
@@ -66,6 +67,11 @@ function estimatedPersistedMarkdownBytes(contentMd: string): number {
 }
 
 interface KnowledgeReaderDraftProps {
+  sourceId: number | null;
+  annotationsEnabled: boolean;
+  notes: KnowledgeSummaryDto[];
+  onCreateLinkedNote: (underlineId: number) => void;
+  onEditLinkedNote: (noteId: number) => void;
   title: string;
   tags: string[];
   content: string;
@@ -77,6 +83,11 @@ interface KnowledgeReaderDraftProps {
 }
 
 function KnowledgeReaderDraft({
+  sourceId,
+  annotationsEnabled,
+  notes,
+  onCreateLinkedNote,
+  onEditLinkedNote,
   title,
   tags,
   content,
@@ -99,16 +110,26 @@ function KnowledgeReaderDraft({
       </header>
       <div className="document-outline-layout">
         <section className="document-content" aria-label="Note content">
-          <MarkdownRenderer
-            content={content}
-            imagePreviews={imagePreviews}
-            uploadScheme="retex-upload"
-            remarkFeatures={REMARK_FEATURES}
-            defaultWikilinkKind="knowledge"
-            resolveWikilink={resolveWikilink}
-            onNavigateWikilink={onNavigateWikilink}
-            headingIdPrefix={headingIdPrefix}
-          />
+          <ReaderSourceUnderlines
+            sourceKind="knowledge"
+            sourceId={sourceId}
+            fieldKey="content"
+            enabled={annotationsEnabled}
+            notes={notes}
+            onCreateLinkedNote={onCreateLinkedNote}
+            onEditLinkedNote={onEditLinkedNote}
+          >
+            <MarkdownRenderer
+              content={content}
+              imagePreviews={imagePreviews}
+              uploadScheme="retex-upload"
+              remarkFeatures={REMARK_FEATURES}
+              defaultWikilinkKind="knowledge"
+              resolveWikilink={resolveWikilink}
+              onNavigateWikilink={onNavigateWikilink}
+              headingIdPrefix={headingIdPrefix}
+            />
+          </ReaderSourceUnderlines>
         </section>
         <OutlinePanel
           content={content}
@@ -143,6 +164,8 @@ interface KnowledgeDetailProps {
     folderId?: number,
   ) => void;
   onCreateWikilink: (title: string, folderId: number) => Promise<void> | void;
+  onCreateLinkedNote: (underlineId: number) => void;
+  onEditLinkedNote: (noteId: number) => void;
   onDirtyChange?: (dirty: boolean) => void;
   onRegisterSave?: (action: (() => void) | null) => void;
 }
@@ -180,6 +203,8 @@ export function KnowledgeDetail({
   onDeleted,
   onNavigateEntity,
   onCreateWikilink,
+  onCreateLinkedNote,
+  onEditLinkedNote,
   onDirtyChange,
   onRegisterSave,
 }: KnowledgeDetailProps) {
@@ -265,6 +290,8 @@ export function KnowledgeDetail({
         resolveWikilink={resolveWikilink}
         onNavigateWikilink={navigateWikilink}
         onCreateWikilink={onCreateWikilink}
+        onCreateLinkedNote={onCreateLinkedNote}
+        onEditLinkedNote={onEditLinkedNote}
         onDirtyChange={onDirtyChange}
         onRegisterSave={onRegisterSave}
       />
@@ -293,6 +320,11 @@ export function KnowledgeDetail({
           >
             {({ document: readerDocument }) => (
               <KnowledgeReaderDraft
+                sourceId={detail.id}
+                annotationsEnabled={true}
+                notes={pages}
+                onCreateLinkedNote={onCreateLinkedNote}
+                onEditLinkedNote={onEditLinkedNote}
                 title={detail.title}
                 tags={detail.tags}
                 content={detail.contentMd}
@@ -399,6 +431,8 @@ interface KnowledgeFormProps {
   resolveWikilink: (titleKey: string) => ResolvedWikilink | null;
   onNavigateWikilink: (target: ResolvedWikilink) => void;
   onCreateWikilink: (title: string, folderId: number) => Promise<void> | void;
+  onCreateLinkedNote: (underlineId: number) => void;
+  onEditLinkedNote: (noteId: number) => void;
   onDirtyChange?: (dirty: boolean) => void;
   onRegisterSave?: (action: (() => void) | null) => void;
 }
@@ -415,6 +449,8 @@ function KnowledgeForm({
   resolveWikilink,
   onNavigateWikilink,
   onCreateWikilink,
+  onCreateLinkedNote,
+  onEditLinkedNote,
   onDirtyChange,
   onRegisterSave,
 }: KnowledgeFormProps) {
@@ -676,6 +712,11 @@ function KnowledgeForm({
             >
               {({ document: readerDocument }) => (
                 <KnowledgeReaderDraft
+                  sourceId={detail?.id ?? null}
+                  annotationsEnabled={false}
+                  notes={pages}
+                  onCreateLinkedNote={onCreateLinkedNote}
+                  onEditLinkedNote={onEditLinkedNote}
                   title={title}
                   tags={parseTags(tags)}
                   content={content}

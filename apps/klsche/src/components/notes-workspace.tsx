@@ -641,6 +641,7 @@ export function NotesWorkspace({
                     setPendingEditPageKey((current) => current === page.key ? null : current);
                   }}
                   onOpenNote={openNote}
+                  onOpenNoteForEdit={openNoteForEdit}
                   onOpenDraft={openDraft}
                   onRefreshIndex={refreshIndex}
                   onShowList={() => showList()}

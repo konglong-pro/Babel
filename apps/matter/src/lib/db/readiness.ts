@@ -11,7 +11,7 @@ const databasePathOptions = {
 export const appDatabaseReadinessOptions = {
   appName: "Matter",
   packageName: "@babel-apps/matter",
-  expectedMigration: 1_786_724_111_580,
+  expectedMigration: 1_790_167_352_516,
   requiredColumns: {
     canvas: ["title", "scene", "updated_at"],
     knowledge_note: ["parent_id", "position"],
@@ -27,6 +27,8 @@ export const appDatabaseReadinessOptions = {
     knowledge_search: ["title", "content_md", "tags"],
     exercise_search: ["title", "problem_md", "answer_md", "solution_md", "tags"],
     folder: ["position"],
+    reader_underline: ["id", "source_knowledge_id", "source_exercise_id", "source_scratch_id", "field_key", "color", "anchor_start", "anchor_end", "anchor_exact", "anchor_prefix", "anchor_suffix"],
+    reader_underline_note: ["underline_id", "note_id"],
   },
   requiredSchemaObjects: [
     {

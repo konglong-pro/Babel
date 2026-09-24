@@ -11,6 +11,7 @@ import { useCommandPaletteActions } from "@babel-apps/platform/shortcuts/react";
 
 import { ExerciseDetail } from "@/components/exercise-detail";
 import { KnowledgeDetail } from "@/components/knowledge-detail";
+import { attachReaderUnderlineNote } from "@/components/reader-note-underlines";
 import {
   createKnowledge,
   getErrorMessage,
@@ -42,6 +43,7 @@ export interface ArchiveDraftSession {
   readonly parentId: number | null;
   readonly importDraft: MarkdownImportDraft | null;
   readonly title: string;
+  readonly readerUnderlineId?: number | null;
 }
 
 interface ArchivePageSessionProps {
@@ -59,6 +61,8 @@ interface ArchivePageSessionProps {
     input: Omit<ArchiveDraftSession, "title"> & { title?: string },
   ) => void;
   onRequestKnowledgeCreation: (title: string) => void;
+  onCreateLinkedKnowledge: (underlineId: number, preferredFolderId?: number) => void;
+  onEditLinkedKnowledge: (noteId: number) => void;
   onRefreshIndex: () => Promise<void>;
   onShowList: () => void;
   onError: (message: string) => void;
@@ -98,6 +102,8 @@ export function ArchivePageSession({
   onOpenEntity,
   onOpenDraft,
   onRequestKnowledgeCreation,
+  onCreateLinkedKnowledge,
+  onEditLinkedKnowledge,
   onRefreshIndex,
   onShowList,
   onError,
@@ -166,6 +172,13 @@ export function ArchivePageSession({
     const nextPage = savedArchivePage(type, saved);
     if (pageKey !== nextPage.key) rekeyPage(pageKey, nextPage);
     else updatePage(pageKey, nextPage);
+    if (type === "knowledge" && draft?.readerUnderlineId) {
+      try {
+        await attachReaderUnderlineNote(draft.readerUnderlineId, saved.id);
+      } catch (error) {
+        onError(`Knowledge note saved, but the underline could not be linked: ${getErrorMessage(error)}`);
+      }
+    }
     try {
       await onRefreshIndex();
       const nextBacklinks = type === "knowledge"
@@ -283,6 +296,8 @@ export function ArchivePageSession({
           onDeleted={handleDeleted}
           onNavigateEntity={onOpenEntity}
           onCreateWikilink={createKnowledgeWikilink}
+          onCreateLinkedNote={(underlineId) => onCreateLinkedKnowledge(underlineId, detail?.folderId)}
+          onEditLinkedNote={onEditLinkedKnowledge}
           onDirtyChange={setDirty}
           onRegisterSave={(action) => {
             saveActionRef.current = action;
@@ -303,6 +318,8 @@ export function ArchivePageSession({
           onDeleted={handleDeleted}
           onNavigateEntity={onOpenEntity}
           onCreateKnowledgeWikilink={onRequestKnowledgeCreation}
+          onCreateLinkedNote={(underlineId) => onCreateLinkedKnowledge(underlineId)}
+          onEditLinkedNote={onEditLinkedKnowledge}
           onDirtyChange={setDirty}
           onRegisterSave={(action) => {
             saveActionRef.current = action;

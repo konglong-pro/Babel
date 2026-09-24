@@ -43,6 +43,13 @@
       "when": 1785924069106,
       "tag": "0005_supreme_wendigo",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1790167363080,
+      "tag": "0006_wandering_doctor_doom",
+      "breakpoints": true
     }
   ]
 }

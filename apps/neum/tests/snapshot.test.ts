@@ -57,7 +57,8 @@ test("complete database and image snapshots round-trip without semantic loss", a
       exportedAt: created,
     });
     assert.equal(exported.manifest.appId, "neum");
-    assert.equal(exported.manifest.schemaVersion, 5);
+    assert.equal(exported.manifest.schemaVersion, 6);
+    assert.deepEqual(exported.manifest.underlines.map(({ id, noteIds }) => [id, noteIds]), [[41, [12]]]);
     assert.equal(exported.manifest.canvases[0].title, "System map");
     assert.equal(exported.manifest.canvases[0].scene.elements[0]?.type, "text");
     assert.deepEqual(exported.manifest.folders.map(({ position }) => position), [1, 0]);
@@ -236,7 +237,7 @@ test("legacy version 1 snapshots import existing entries as root pages", () => {
   };
 
   const parsed = validateSnapshotManifest(manifest);
-  assert.equal(parsed.schemaVersion, 5);
+  assert.equal(parsed.schemaVersion, 6);
   assert.deepEqual(parsed.canvases, []);
   assert.equal(parsed.entries[0].parentId, null);
   assert.equal(parsed.folders[0].position, 0);
@@ -255,7 +256,7 @@ test("version 2 snapshots import folders with their legacy order", () => {
     trash: [],
     images: [],
   });
-  assert.equal(parsed.schemaVersion, 5);
+  assert.equal(parsed.schemaVersion, 6);
   assert.deepEqual(parsed.canvases, []);
   assert.equal(parsed.folders[0].position, 0);
 });
@@ -282,7 +283,7 @@ test("version 3 snapshots recover the former updated-time entry order", () => {
     ],
     tags: [], trash: [], images: [],
   });
-  assert.equal(parsed.schemaVersion, 5);
+  assert.equal(parsed.schemaVersion, 6);
   assert.deepEqual(parsed.canvases, []);
   assert.deepEqual(parsed.entries.map(({ id, position }) => [id, position]), [[1, 1], [2, 0]]);
 });
@@ -309,9 +310,25 @@ test("version 4 snapshots preserve explicit entry positions and default canvases
     ],
     tags: [], trash: [], images: [],
   });
-  assert.equal(parsed.schemaVersion, 5);
+  assert.equal(parsed.schemaVersion, 6);
   assert.deepEqual(parsed.canvases, []);
   assert.deepEqual(parsed.entries.map(({ id, position }) => [id, position]), [[1, 1], [2, 0]]);
+});
+
+test("version 5 snapshots retain canvases and begin with no underlines", () => {
+  const parsed = validateSnapshotManifest({
+    appId: "neum",
+    schemaVersion: 5,
+    exportedAt: created,
+    canvases: [],
+    folders: [{ id: 1, parentId: null, name: "Inbox", position: 0, createdAt: created, updatedAt: created }],
+    entries: [],
+    tags: [],
+    trash: [],
+    images: [],
+  });
+  assert.equal(parsed.schemaVersion, 6);
+  assert.deepEqual(parsed.underlines, []);
 });
 
 test("import rejects non-pristine targets before writing files", async () => {
@@ -611,6 +628,29 @@ function createSchema(sqlite: BetterSqlite3.Database): void {
     );
     CREATE INDEX entry_image_entry_idx ON entry_image(entry_id);
     CREATE UNIQUE INDEX entry_image_path_unique ON entry_image(image_path);
+    CREATE TABLE reader_underline (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_entry_id INTEGER NOT NULL REFERENCES entry(id) ON DELETE CASCADE,
+      field_key TEXT NOT NULL,
+      color TEXT NOT NULL,
+      anchor_start INTEGER NOT NULL,
+      anchor_end INTEGER NOT NULL,
+      anchor_exact TEXT NOT NULL,
+      anchor_prefix TEXT NOT NULL,
+      anchor_suffix TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CONSTRAINT reader_underline_field_check CHECK(field_key IN ('notes', 'code')),
+      CONSTRAINT reader_underline_color_check CHECK(color IN ('yellow', 'orange', 'pink', 'green', 'blue')),
+      CONSTRAINT reader_underline_anchor_check CHECK(anchor_start >= 0 AND anchor_end > anchor_start AND length(anchor_exact) > 0)
+    );
+    CREATE INDEX reader_underline_entry_source_idx ON reader_underline(source_entry_id);
+    CREATE TABLE reader_underline_note (
+      underline_id INTEGER NOT NULL REFERENCES reader_underline(id) ON DELETE CASCADE,
+      note_id INTEGER NOT NULL REFERENCES entry(id) ON DELETE CASCADE,
+      PRIMARY KEY(underline_id, note_id)
+    );
+    CREATE INDEX reader_underline_note_target_idx ON reader_underline_note(note_id);
     CREATE TABLE trash_entry (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       original_entry_id INTEGER NOT NULL,
@@ -730,6 +770,9 @@ function seedRichSource(sqlite: BetterSqlite3.Database): void {
   sqlite
     .prepare('INSERT INTO "entry_image" VALUES (?, ?, ?, ?)')
     .run(13, 11, activeImagePath, created);
+  sqlite.prepare('INSERT INTO "reader_underline" VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(41, 11, "notes", "orange", 0, 4, "Keep", "", " Unicode", created, updated);
+  sqlite.prepare('INSERT INTO "reader_underline_note" VALUES (?, ?)').run(41, 12);
   const trashSnapshot = {
     entry: {
       id: 99,

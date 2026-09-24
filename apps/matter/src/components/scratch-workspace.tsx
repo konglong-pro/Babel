@@ -21,6 +21,7 @@ import {
   getErrorMessage,
   getExercise,
   getScratch,
+  listFolders,
   saveScratch,
 } from "@/lib/api-client";
 import {
@@ -31,6 +32,7 @@ import {
 import type { ExerciseDetailDto } from "@/lib/types";
 import { isMatterWorkspaceDestination } from "@/lib/workspace-process";
 import { MarkdownEditor } from "@/components/markdown-editor";
+import { ReaderSourceUnderlines, useReaderKnowledgeOptions } from "@/components/reader-note-underlines";
 import { ConfirmButton, formatDate, Tags } from "@/components/shared";
 
 const SCRATCH_HEADING_ID_PREFIX = "matter-scratch-heading-";
@@ -38,6 +40,7 @@ const REMARK_FEATURES = ["gfm", "formula-math"] as const;
 
 export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
   const router = useRouter();
+  const readerNotes = useReaderKnowledgeOptions();
   const processActive = useWorkspaceProcessActive();
   const pageKey = `scratch:${exerciseId}`;
   const readerTriggerId = `matter-scratch-${exerciseId}-reader-trigger`;
@@ -142,6 +145,27 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
     }
   }
 
+  async function createLinkedKnowledge(underlineId: number) {
+    try {
+      const folders = await listFolders("knowledge");
+      const folderId = folders[0]?.id;
+      if (folderId === undefined) throw new Error("Create a Knowledge folder before adding a linked note.");
+      const params = new URLSearchParams({
+        folder: String(folderId),
+        new: "1",
+        readerUnderline: String(underlineId),
+        request: crypto.randomUUID(),
+      });
+      router.push(`/knowledge?${params}`);
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+    }
+  }
+
+  function editLinkedKnowledge(noteId: number) {
+    router.push(`/knowledge?item=${noteId}&edit=1`);
+  }
+
   if (loading) {
     return (
       <PageDeckPage pageKey={pageKey}>
@@ -214,27 +238,47 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
                   <section className="exercise-problem" aria-labelledby="reader-scratch-problem-heading">
                     <h2 id="reader-scratch-problem-heading">Problem</h2>
                     <div className="document-content">
-                      <MarkdownRenderer
-                        content={exercise.problemMd}
-                        emptyText="No archived problem yet."
-                        uploadScheme="matter-upload"
-                        remarkFeatures={REMARK_FEATURES}
-                        defaultWikilinkKind="knowledge"
-                      />
+                      <ReaderSourceUnderlines
+                        sourceKind="exercise"
+                        sourceId={exercise.id}
+                        fieldKey="problem"
+                        enabled
+                        notes={readerNotes}
+                        onCreateLinkedNote={createLinkedKnowledge}
+                        onEditLinkedNote={editLinkedKnowledge}
+                      >
+                        <MarkdownRenderer
+                          content={exercise.problemMd}
+                          emptyText="No archived problem yet."
+                          uploadScheme="matter-upload"
+                          remarkFeatures={REMARK_FEATURES}
+                          defaultWikilinkKind="knowledge"
+                        />
+                      </ReaderSourceUnderlines>
                     </div>
                   </section>
                   <section aria-labelledby="reader-scratch-work-heading">
                     <h2 id="reader-scratch-work-heading">Current work</h2>
                     <div className="document-outline-layout">
                       <div className="document-content">
-                        <MarkdownRenderer
-                          content={content}
-                          emptyText="No scratch work yet."
-                          uploadScheme="matter-upload"
-                          remarkFeatures={REMARK_FEATURES}
-                          defaultWikilinkKind="knowledge"
-                          headingIdPrefix={headingIdPrefix}
-                        />
+                        <ReaderSourceUnderlines
+                          sourceKind="scratch"
+                          sourceId={exerciseId}
+                          fieldKey="work"
+                          enabled={updatedAt !== null && !dirty && !saving}
+                          notes={readerNotes}
+                          onCreateLinkedNote={createLinkedKnowledge}
+                          onEditLinkedNote={editLinkedKnowledge}
+                        >
+                          <MarkdownRenderer
+                            content={content}
+                            emptyText="No scratch work yet."
+                            uploadScheme="matter-upload"
+                            remarkFeatures={REMARK_FEATURES}
+                            defaultWikilinkKind="knowledge"
+                            headingIdPrefix={headingIdPrefix}
+                          />
+                        </ReaderSourceUnderlines>
                       </div>
                       <OutlinePanel
                         content={content}

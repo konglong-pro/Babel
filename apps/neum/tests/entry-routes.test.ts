@@ -22,6 +22,14 @@ test("entry units expose stable workspace routes", () => {
   );
   assert.equal(entryWorkspaceHref("snippet"), "/code");
   assert.equal(
+    entryWorkspaceHref("snippet", { folderId: 4, entryId: 9, edit: true }),
+    "/code?folder=4&entry=9&edit=1",
+  );
+  assert.equal(
+    entryWorkspaceHref("knowledge", { folderId: 4, newLinkedUnderlineId: 21 }),
+    "/knowledge?folder=4&newLinked=21",
+  );
+  assert.equal(
     entryWorkspaceHref("knowledge", {
       folderId: 3,
       entryId: 8,

@@ -73,6 +73,8 @@ interface ArchiveWorkspaceProps {
   type: FolderType;
   initialFolderId?: number | null;
   initialItemId?: number | null;
+  initialNewLinkedUnderlineId?: number | null;
+  initialEditRequested?: boolean;
   initialSearchFocus?: ArchiveSearchFocus | null;
   routeTargetKey?: string;
 }
@@ -103,6 +105,8 @@ export function ArchiveWorkspace({
   type,
   initialFolderId = null,
   initialItemId = null,
+  initialNewLinkedUnderlineId = null,
+  initialEditRequested = false,
   initialSearchFocus = null,
   routeTargetKey = "initial",
 }: ArchiveWorkspaceProps) {
@@ -171,6 +175,35 @@ export function ArchiveWorkspace({
     ) return;
     openedRouteTargetRef.current = routeTargetKey;
     setSelectedFolderId(initialFolderId);
+    if (type === "knowledge" && initialNewLinkedUnderlineId !== null) {
+      const targetFolderId = initialFolderId ?? folders[0]?.id ?? null;
+      if (targetFolderId === null) {
+        queueMicrotask(() => setError("Create a Knowledge folder before adding a linked note."));
+        return;
+      }
+      const key = `knowledge-draft:${crypto.randomUUID()}`;
+      const draft: ArchiveDraftSession = {
+        type: "knowledge",
+        folderId: targetFolderId,
+        parentId: null,
+        importDraft: null,
+        title: "New linked Knowledge note",
+        readerUnderlineId: initialNewLinkedUnderlineId,
+      };
+      const frame = window.requestAnimationFrame(() => {
+        setDrafts((current) => ({ ...current, [key]: draft }));
+        openPage({
+          key,
+          kind: "Knowledge",
+          title: draft.title,
+          href: entityLocation("knowledge", null, targetFolderId),
+          scope: "knowledge",
+          restorable: false,
+        });
+        setSelectedFolderId(targetFolderId);
+      });
+      return () => window.cancelAnimationFrame(frame);
+    }
     if (initialItemId === null) return;
     const item = items.find((candidate) => candidate.id === initialItemId);
     openPage(item
@@ -182,10 +215,19 @@ export function ArchiveWorkspace({
           href: entityLocation(type, initialItemId, initialFolderId),
           scope: type,
         });
+    if (initialEditRequested && type === "knowledge") {
+      const frame = window.requestAnimationFrame(() => {
+        setPendingEditPageKey(`knowledge:${initialItemId}`);
+      });
+      return () => window.cancelAnimationFrame(frame);
+    }
   }, [
+    folders,
     indexLoading,
+    initialEditRequested,
     initialFolderId,
     initialItemId,
+    initialNewLinkedUnderlineId,
     items,
     openPage,
     pageKind,
@@ -315,6 +357,33 @@ export function ArchiveWorkspace({
       restorable: false,
     });
     setSelectedFolderId(draft.folderId);
+  }
+
+  async function requestLinkedKnowledgeDraft(underlineId: number, preferredFolderId?: number) {
+    try {
+      const available = type === "knowledge"
+        ? folders.filter((folder) => folder.type === "knowledge")
+        : await listFolders("knowledge");
+      const folderId = available.find((folder) => folder.id === preferredFolderId)?.id
+        ?? available[0]?.id;
+      if (folderId === undefined) {
+        throw new Error("Create a Knowledge folder before adding a linked note.");
+      }
+      const params = new URLSearchParams({
+        folder: String(folderId),
+        new: "1",
+        readerUnderline: String(underlineId),
+        request: crypto.randomUUID(),
+      });
+      router.push(`/knowledge?${params}`);
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+    }
+  }
+
+  function editLinkedKnowledge(noteId: number) {
+    const params = new URLSearchParams({ item: String(noteId), edit: "1" });
+    router.push(`/knowledge?${params}`);
   }
 
   function selectFolder(id: number | null) {
@@ -623,6 +692,8 @@ export function ArchiveWorkspace({
                     onOpenEntity={openEntity}
                     onOpenDraft={openDraft}
                     onRequestKnowledgeCreation={requestKnowledgeCreation}
+                    onCreateLinkedKnowledge={requestLinkedKnowledgeDraft}
+                    onEditLinkedKnowledge={editLinkedKnowledge}
                     onRefreshIndex={loadIndex}
                     onShowList={() => showList()}
                     onError={setError}

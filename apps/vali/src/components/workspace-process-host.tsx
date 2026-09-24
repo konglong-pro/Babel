@@ -21,6 +21,8 @@ import {
 interface NotesRouteTarget {
   readonly folderId: number | null;
   readonly noteId: number | null;
+  readonly editRequested: boolean;
+  readonly readerUnderlineId: number | null;
   readonly searchFocus: ValiSearchFocus | null;
   readonly key: string;
 }
@@ -34,6 +36,8 @@ interface ReflectionRouteTarget {
 const EMPTY_NOTES_TARGET: NotesRouteTarget = {
   folderId: null,
   noteId: null,
+  editRequested: false,
+  readerUnderlineId: null,
   searchFocus: null,
   key: "",
 };
@@ -79,6 +83,8 @@ function ValiWorkspaceProcessRuntime({ children }: { children: ReactNode }) {
     ? {
         folderId: positiveInteger(searchParams.get("folder")),
         noteId: positiveInteger(searchParams.get("note")),
+        editRequested: searchParams.get("edit") === "1",
+        readerUnderlineId: positiveInteger(searchParams.get("readerUnderline")),
         searchFocus: valiSearchFocusFromParams(routeParams),
         key: routeKey,
       }
@@ -115,6 +121,8 @@ function ValiWorkspaceProcessRuntime({ children }: { children: ReactNode }) {
             <NotesWorkspace
               initialFolderId={notesTarget.folderId}
               initialNoteId={notesTarget.noteId}
+              initialEditRequested={notesTarget.editRequested}
+              readerUnderlineId={notesTarget.readerUnderlineId}
               initialSearchFocus={notesTarget.searchFocus}
               routeTargetKey={notesTarget.key}
             />

@@ -5,7 +5,7 @@ import type BetterSqlite3 from "better-sqlite3";
 import { resolveDatabasePath } from "@babel-apps/platform/db/client";
 import { assertLiveDatabaseMigrationsCurrent } from "@babel-apps/platform/db/readiness";
 
-export const NEUM_SCHEMA_MIGRATION_TIMESTAMP = 1_786_724_112_675;
+export const NEUM_SCHEMA_MIGRATION_TIMESTAMP = 1_790_167_364_747;
 
 const databasePathOptions = {
   envVar: "NEUM_DATABASE_PATH",
@@ -21,6 +21,8 @@ export const appDatabaseReadinessOptions = {
     folder: ["position"],
     entry: ["parent_id", "position"],
     entry_link: ["source_entry_id", "target_title_key", "target_entry_id"],
+    reader_underline: ["id", "source_entry_id", "field_key", "color", "anchor_start", "anchor_end", "anchor_exact", "anchor_prefix", "anchor_suffix"],
+    reader_underline_note: ["underline_id", "note_id"],
   },
   requiredSchemaObjects: [
     {
@@ -94,6 +96,8 @@ const requiredTables = {
     "deleted_at",
   ],
   entry_search: ["title", "notes_md", "code", "language", "filename"],
+  reader_underline: ["id", "source_entry_id", "field_key", "color", "anchor_start", "anchor_end", "anchor_exact", "anchor_prefix", "anchor_suffix", "created_at", "updated_at"],
+  reader_underline_note: ["underline_id", "note_id"],
   tag_search: ["name"],
 } as const;
 
@@ -147,6 +151,8 @@ const requiredIndexes = {
     columns: ["tag_id"],
     unique: false,
   },
+  reader_underline_entry_source_idx: { table: "reader_underline", columns: ["source_entry_id"], unique: false },
+  reader_underline_note_target_idx: { table: "reader_underline_note", columns: ["note_id"], unique: false },
   folder_parent_idx: { table: "folder", columns: ["parent_id"], unique: false },
   folder_parent_position_idx: {
     table: "folder",
@@ -195,6 +201,9 @@ const requiredForeignKeys = [
   ["entry_tag", "tag_id", "tag", "id", "CASCADE"],
   ["folder", "parent_id", "folder", "id", "RESTRICT"],
   ["trash_entry", "folder_id", "folder", "id", "RESTRICT"],
+  ["reader_underline", "source_entry_id", "entry", "id", "CASCADE"],
+  ["reader_underline_note", "underline_id", "reader_underline", "id", "CASCADE"],
+  ["reader_underline_note", "note_id", "entry", "id", "CASCADE"],
 ] as const;
 
 const requiredChecks = {
@@ -208,6 +217,7 @@ const requiredChecks = {
   folder: ["folder_name_not_blank"],
   tag: ["tag_name_not_blank"],
   trash_entry: ["trash_entry_snapshot_json_valid"],
+  reader_underline: ["reader_underline_field_check", "reader_underline_color_check", "reader_underline_anchor_check"],
 } as const;
 
 const requiredTableSqlFragments = {

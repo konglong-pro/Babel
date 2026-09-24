@@ -11,6 +11,7 @@ import {
   DetachedReaderWindow,
   MarkdownRenderer,
   OutlinePanel,
+  type ReaderNoteOption,
   type ResolvedWikilink,
 } from "@babel-apps/markdown/react";
 import {
@@ -24,6 +25,7 @@ import {
 
 import { ImportedImageMatcher } from "@/components/imported-image-matcher";
 import { MarkdownEditor, type StagedImage } from "@/components/markdown-editor";
+import { ReaderSourceUnderlines } from "@/components/reader-source-underlines";
 import {
   ConfirmButton,
   entryKindLabel,
@@ -36,6 +38,7 @@ import {
   createEntry,
   deleteEntry,
   getErrorMessage,
+  listEntries,
   updateEntry,
 } from "@/lib/api-client";
 import { entryUnitLabel } from "@/lib/entry-routes";
@@ -76,6 +79,8 @@ function estimatedPersistedMarkdownBytes(notesMd: string): number {
 }
 
 interface EntryReaderDraftProps {
+  sourceId: number | null;
+  annotationsEnabled: boolean;
   kind: EntryKind;
   title: string;
   folderLabel: string;
@@ -89,9 +94,13 @@ interface EntryReaderDraftProps {
   ownerDocument: Document;
   resolveWikilink: (titleKey: string) => ResolvedWikilink | null;
   onNavigateWikilink: (target: ResolvedWikilink) => void;
+  onCreateLinkedEntry: (underlineId: number) => void;
+  onEditLinkedEntry: (entryId: number) => void;
 }
 
 function EntryReaderDraft({
+  sourceId,
+  annotationsEnabled,
   kind,
   title,
   folderLabel,
@@ -105,8 +114,52 @@ function EntryReaderDraft({
   ownerDocument,
   resolveWikilink,
   onNavigateWikilink,
+  onCreateLinkedEntry,
+  onEditLinkedEntry,
 }: EntryReaderDraftProps) {
   const headingIdPrefix = `${ENTRY_HEADING_ID_PREFIX}reader-`;
+  const [availableEntries, setAvailableEntries] = useState<ReaderNoteOption[]>([]);
+  const [availableEntriesError, setAvailableEntriesError] = useState("");
+
+  useEffect(() => {
+    if (!annotationsEnabled) return;
+    let active = true;
+    async function loadAvailableEntries(): Promise<ReaderNoteOption[]> {
+      const options: ReaderNoteOption[] = [];
+      let offset = 0;
+      let total: number;
+      do {
+        const page = await listEntries({ completeTree: true, limit: 100, offset });
+        options.push(...page.items
+          .filter((entry) => entry.id !== sourceId)
+          .map((entry) => ({
+            id: entry.id,
+            title: `${entry.title} · ${entryUnitLabel(entry.kind)}`,
+          })));
+        offset += page.limit;
+        total = page.total;
+      } while (offset < total);
+      return options;
+    }
+    const refreshAvailableEntries = () => {
+      void loadAvailableEntries()
+        .then((options) => {
+          if (!active) return;
+          setAvailableEntries(options);
+          setAvailableEntriesError("");
+        })
+        .catch((caught) => {
+          if (active) setAvailableEntriesError(getErrorMessage(caught));
+        });
+    };
+    refreshAvailableEntries();
+    window.addEventListener("reader-underlines-updated", refreshAvailableEntries);
+    return () => {
+      active = false;
+      window.removeEventListener("reader-underlines-updated", refreshAvailableEntries);
+    };
+  }, [annotationsEnabled, sourceId]);
+
   return (
     <article className="document-view" aria-label={live ? "Live entry reader" : "Entry reader"}>
       <header className="document-header">
@@ -120,9 +173,18 @@ function EntryReaderDraft({
       </header>
       <div className="document-outline-layout">
         <section className="document-content" aria-label="Entry content">
-          {notesMd ? (
+          {availableEntriesError ? <p className="form-error" role="alert">{availableEntriesError}</p> : null}
+          <ReaderSourceUnderlines
+            sourceId={sourceId}
+            fieldKey="notes"
+            enabled={annotationsEnabled}
+            notes={availableEntries}
+            onCreateLinkedNote={onCreateLinkedEntry}
+            onEditLinkedNote={onEditLinkedEntry}
+          >
             <MarkdownRenderer
               content={notesMd}
+              emptyText="No explanatory notes yet."
               imagePreviews={imagePreviews}
               remarkFeatures={REMARK_FEATURES}
               uploadScheme="neum-upload"
@@ -130,16 +192,24 @@ function EntryReaderDraft({
               onNavigateWikilink={onNavigateWikilink}
               headingIdPrefix={headingIdPrefix}
             />
-          ) : (
-            <p className="empty-copy">No explanatory notes yet.</p>
-          )}
+          </ReaderSourceUnderlines>
           {kind === "snippet" ? (
             <section className="snippet-view" aria-label="Code snippet">
               <p className="code-meta">
                 <strong>{language.trim() || "Unspecified language"}</strong>
                 {filename.trim() ? <span>{filename}</span> : null}
               </p>
-              <pre className="code-block"><code>{code}</code></pre>
+              <ReaderSourceUnderlines
+                sourceId={sourceId}
+                fieldKey="code"
+                textRootSelector=".code-block"
+                enabled={annotationsEnabled}
+                notes={availableEntries}
+                onCreateLinkedNote={onCreateLinkedEntry}
+                onEditLinkedNote={onEditLinkedEntry}
+              >
+                <pre className="code-block"><code>{code}</code></pre>
+              </ReaderSourceUnderlines>
             </section>
           ) : null}
         </section>
@@ -215,6 +285,8 @@ interface EntryDetailProps {
     folderId?: number,
     exactFolder?: boolean,
   ) => void;
+  onCreateLinkedEntry: (underlineId: number) => void;
+  onEditLinkedEntry: (entryId: number) => void;
   onCreateWikilink?: (title: string, folderId: number) => Promise<void> | void;
   onDirtyChange: (dirty: boolean) => void;
   onRegisterSave: (action: (() => void) | null) => void;
@@ -240,6 +312,8 @@ export function EntryDetail({
   onSaved,
   onDeleted,
   onNavigateEntry,
+  onCreateLinkedEntry,
+  onEditLinkedEntry,
   onCreateWikilink,
   onDirtyChange,
   onRegisterSave,
@@ -338,6 +412,8 @@ export function EntryDetail({
         onRegisterSave={onRegisterSave}
         resolveWikilink={resolveWikilink}
         onNavigateWikilink={navigateWikilink}
+        onCreateLinkedEntry={onCreateLinkedEntry}
+        onEditLinkedEntry={onEditLinkedEntry}
         onCreateWikilink={onCreateWikilink}
       />
     );
@@ -371,6 +447,8 @@ export function EntryDetail({
           >
             {({ document: readerDocument }) => (
               <EntryReaderDraft
+                sourceId={detail.id}
+                annotationsEnabled
                 kind={detail.kind}
                 title={detail.title}
                 folderLabel={folderPathLabel(detail.folderId, folderMap)}
@@ -384,6 +462,8 @@ export function EntryDetail({
                 ownerDocument={readerDocument}
                 resolveWikilink={resolveWikilink}
                 onNavigateWikilink={navigateWikilink}
+                onCreateLinkedEntry={onCreateLinkedEntry}
+                onEditLinkedEntry={onEditLinkedEntry}
               />
             )}
           </DetachedReaderWindow>
@@ -512,6 +592,8 @@ interface EntryFormProps {
   onRegisterSave: (action: (() => void) | null) => void;
   resolveWikilink: (titleKey: string) => ResolvedWikilink | null;
   onNavigateWikilink: (target: ResolvedWikilink) => void;
+  onCreateLinkedEntry: (underlineId: number) => void;
+  onEditLinkedEntry: (entryId: number) => void;
   onCreateWikilink?: (title: string, folderId: number) => Promise<void> | void;
 }
 
@@ -530,6 +612,8 @@ function EntryForm({
   onRegisterSave,
   resolveWikilink,
   onNavigateWikilink,
+  onCreateLinkedEntry,
+  onEditLinkedEntry,
   onCreateWikilink,
 }: EntryFormProps) {
   const formRef = useRef<HTMLFormElement>(null);
@@ -787,6 +871,8 @@ function EntryForm({
             >
               {({ document: readerDocument }) => (
                 <EntryReaderDraft
+                  sourceId={detail?.id ?? null}
+                  annotationsEnabled={detail !== null && !dirty && !pending}
                   kind={kind}
                   title={title}
                   folderLabel={folderId === null ? "" : folderPathLabel(folderId, folderMap)}
@@ -800,6 +886,8 @@ function EntryForm({
                   ownerDocument={readerDocument}
                   resolveWikilink={resolveWikilink}
                   onNavigateWikilink={onNavigateWikilink}
+                  onCreateLinkedEntry={onCreateLinkedEntry}
+                  onEditLinkedEntry={onEditLinkedEntry}
                 />
               )}
             </DetachedReaderWindow>

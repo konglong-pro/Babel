@@ -23,6 +23,7 @@ import {
 } from "react";
 
 import { ImportedImageMatcher } from "@/components/imported-image-matcher";
+import { ReaderNoteUnderlines } from "@/components/reader-note-underlines";
 import { MarkdownEditor, type StagedImage } from "@/components/markdown-editor";
 import {
   ConfirmButton,
@@ -58,6 +59,11 @@ const EMPTY_IMAGE_PREVIEWS: ReadonlyMap<string, string> = new Map();
 type ValiResolvedWikilink = ResolvedWikilink & { date?: string };
 
 interface NoteReaderDraftProps {
+  noteId: number | null;
+  annotationsEnabled: boolean;
+  notes: NoteSummaryDto[];
+  onCreateLinkedNote: (underlineId: number) => void;
+  onEditLinkedNote: (noteId: number) => void;
   title: string;
   folderLabel: string;
   tags: string[];
@@ -70,6 +76,11 @@ interface NoteReaderDraftProps {
 }
 
 function NoteReaderDraft({
+  noteId,
+  annotationsEnabled,
+  notes,
+  onCreateLinkedNote,
+  onEditLinkedNote,
   title,
   folderLabel,
   tags,
@@ -93,6 +104,13 @@ function NoteReaderDraft({
       </header>
       <div className="document-outline-layout">
         <section className="document-content" aria-label="Note content">
+          <ReaderNoteUnderlines
+            noteId={noteId}
+            enabled={annotationsEnabled}
+            notes={notes}
+            onCreateLinkedNote={onCreateLinkedNote}
+            onEditLinkedNote={onEditLinkedNote}
+          >
           <MarkdownRenderer
             content={content}
             imagePreviews={imagePreviews}
@@ -102,6 +120,7 @@ function NoteReaderDraft({
             onNavigateWikilink={onNavigateWikilink}
             headingIdPrefix={headingIdPrefix}
           />
+          </ReaderNoteUnderlines>
         </section>
         <OutlinePanel
           content={content}
@@ -135,6 +154,8 @@ interface NoteDetailProps {
   onSaved: (detail: NoteDetailDto) => Promise<void> | void;
   onDeleted: () => Promise<void> | void;
   onNavigateNote: (id: number, folderId?: number) => void;
+  onCreateLinkedNote: (underlineId: number) => void;
+  onEditLinkedNote: (noteId: number) => void;
   onNavigateReflection: (date: string) => void;
   onCreateWikilink: (title: string, folderId: number) => Promise<void> | void;
   onDirtyChange: (dirty: boolean) => void;
@@ -161,6 +182,8 @@ export function NoteDetail({
   onSaved,
   onDeleted,
   onNavigateNote,
+  onCreateLinkedNote,
+  onEditLinkedNote,
   onNavigateReflection,
   onCreateWikilink,
   onDirtyChange,
@@ -271,6 +294,8 @@ export function NoteDetail({
         resolveWikilink={resolveWikilink}
         onNavigateWikilink={navigateWikilink}
         onCreateWikilink={onCreateWikilink}
+        onCreateLinkedNote={onCreateLinkedNote}
+        onEditLinkedNote={onEditLinkedNote}
       />
     );
   }
@@ -303,6 +328,11 @@ export function NoteDetail({
           >
             {({ document: readerDocument }) => (
               <NoteReaderDraft
+                noteId={detail.id}
+                annotationsEnabled={true}
+                notes={notes}
+                onCreateLinkedNote={onCreateLinkedNote}
+                onEditLinkedNote={onEditLinkedNote}
                 title={detail.title}
                 folderLabel={folderPathLabel(detail.folderId, folderMap)}
                 tags={detail.tags}
@@ -423,6 +453,8 @@ interface NoteFormProps {
   resolveWikilink: (titleKey: string) => ResolvedWikilink | null;
   onNavigateWikilink: (target: ResolvedWikilink) => void;
   onCreateWikilink: (title: string, folderId: number) => Promise<void> | void;
+  onCreateLinkedNote: (underlineId: number) => void;
+  onEditLinkedNote: (noteId: number) => void;
 }
 
 function NoteForm({
@@ -441,6 +473,8 @@ function NoteForm({
   resolveWikilink,
   onNavigateWikilink,
   onCreateWikilink,
+  onCreateLinkedNote,
+  onEditLinkedNote,
 }: NoteFormProps) {
   const formRef = useRef<HTMLFormElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -664,6 +698,11 @@ function NoteForm({
             >
               {({ document: readerDocument }) => (
                 <NoteReaderDraft
+                  noteId={detail?.id ?? null}
+                  annotationsEnabled={false}
+                  notes={notes}
+                  onCreateLinkedNote={onCreateLinkedNote}
+                  onEditLinkedNote={onEditLinkedNote}
                   title={title}
                   folderLabel={folderId === null ? "" : folderPathLabel(folderId, folderMap)}
                   tags={parseTags(tags)}

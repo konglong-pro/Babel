@@ -212,3 +212,42 @@ export const noteImages = sqliteTable(
     check("note_image_path_not_blank", sql`length(trim(${table.imagePath})) > 0`),
   ],
 );
+
+export const readerUnderlines = sqliteTable(
+  "reader_underline",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    sourceKnowledgeId: integer("source_knowledge_id").references(() => knowledgeNotes.id, { onDelete: "cascade" }),
+    sourceExerciseId: integer("source_exercise_id").references(() => exercises.id, { onDelete: "cascade" }),
+    sourceScratchId: integer("source_scratch_id").references(() => scratchSolutions.id, { onDelete: "cascade" }),
+    fieldKey: text("field_key").notNull(),
+    color: text("color").notNull(),
+    anchorStart: integer("anchor_start").notNull(),
+    anchorEnd: integer("anchor_end").notNull(),
+    anchorExact: text("anchor_exact").notNull(),
+    anchorPrefix: text("anchor_prefix").notNull(),
+    anchorSuffix: text("anchor_suffix").notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    index("reader_underline_knowledge_source_idx").on(table.sourceKnowledgeId),
+    index("reader_underline_exercise_source_idx").on(table.sourceExerciseId),
+    index("reader_underline_scratch_source_idx").on(table.sourceScratchId),
+    check("reader_underline_single_source", sql`(${table.sourceKnowledgeId} IS NOT NULL) + (${table.sourceExerciseId} IS NOT NULL) + (${table.sourceScratchId} IS NOT NULL) = 1`),
+    check("reader_underline_field_check", sql`(${table.sourceKnowledgeId} IS NOT NULL AND ${table.fieldKey} = 'content') OR (${table.sourceExerciseId} IS NOT NULL AND ${table.fieldKey} IN ('problem', 'answer', 'solution')) OR (${table.sourceScratchId} IS NOT NULL AND ${table.fieldKey} = 'work')`),
+    check("reader_underline_color_check", sql`${table.color} IN ('yellow', 'green', 'blue', 'pink', 'orange')`),
+    check("reader_underline_anchor_check", sql`${table.anchorStart} >= 0 AND ${table.anchorEnd} > ${table.anchorStart} AND length(${table.anchorExact}) > 0`),
+  ],
+);
+
+export const readerUnderlineNotes = sqliteTable(
+  "reader_underline_note",
+  {
+    underlineId: integer("underline_id").notNull().references(() => readerUnderlines.id, { onDelete: "cascade" }),
+    noteId: integer("note_id").notNull().references(() => knowledgeNotes.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.underlineId, table.noteId] }),
+    index("reader_underline_note_target_idx").on(table.noteId),
+  ],
+);

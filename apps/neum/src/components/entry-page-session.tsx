@@ -11,6 +11,7 @@ import {
 import { useCommandPaletteActions } from "@babel-apps/platform/shortcuts/react";
 
 import { EntryDetail, type EntryViewMode } from "@/components/entry-detail";
+import { attachReaderUnderlineNote } from "@/components/reader-source-underlines";
 import {
   createEntry,
   getEntry,
@@ -35,6 +36,7 @@ export interface EntryDraftSession {
   readonly parentId: number | null;
   readonly importDraft: MarkdownImportDraft | null;
   readonly title: string;
+  readonly linkedUnderlineId?: number;
 }
 
 interface EntryPageSessionProps {
@@ -54,6 +56,8 @@ interface EntryPageSessionProps {
     folderId?: number,
     exactFolder?: boolean,
   ) => void;
+  onOpenEntryForEdit: (id: number, kind: EntryKind, folderId: number) => void;
+  onOpenLinkedKnowledgeDraft: (folderId: number, underlineId: number) => void;
   onOpenDraft: (input: Omit<EntryDraftSession, "title"> & { title?: string }) => void;
   onRefreshIndex: (folderId: number | null) => Promise<void>;
   onShowList: () => void;
@@ -87,6 +91,8 @@ export function EntryPageSession({
   onEditRequestConsumed,
   searchFocus,
   onOpenEntry,
+  onOpenEntryForEdit,
+  onOpenLinkedKnowledgeDraft,
   onOpenDraft,
   onRefreshIndex,
   onShowList,
@@ -165,6 +171,13 @@ export function EntryPageSession({
     const nextPage = savedEntryPage(saved);
     if (pageKey !== nextPage.key) rekeyPage(pageKey, nextPage);
     else updatePage(pageKey, nextPage);
+    if (draft?.linkedUnderlineId !== undefined) {
+      try {
+        await attachReaderUnderlineNote(draft.linkedUnderlineId, saved.id);
+      } catch (error) {
+        onError(`The entry was saved, but its reader underline could not be linked: ${getErrorMessage(error)}`);
+      }
+    }
     try {
       await Promise.all([
         onRefreshIndex(saved.folderId),
@@ -285,6 +298,26 @@ export function EntryPageSession({
         onSaved={handleSaved}
         onDeleted={handleDeleted}
         onNavigateEntry={onOpenEntry}
+        onCreateLinkedEntry={(underlineId) => {
+          if (detail === null) return;
+          if (detail.kind === "snippet") {
+            onOpenLinkedKnowledgeDraft(detail.folderId, underlineId);
+            return;
+          }
+          onOpenDraft({
+            kind: "knowledge",
+            folderId: detail.folderId,
+            parentId: null,
+            importDraft: null,
+            title: "New linked entry",
+            linkedUnderlineId: underlineId,
+          });
+        }}
+        onEditLinkedEntry={(targetId) => {
+          void getEntry(targetId)
+            .then((target) => onOpenEntryForEdit(target.id, target.kind, target.folderId))
+            .catch((error) => onError(getErrorMessage(error)));
+        }}
         onCreateWikilink={handleCreateWikilink}
         onDirtyChange={setDirty}
         onRegisterSave={(action) => {

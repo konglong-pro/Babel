@@ -18,6 +18,8 @@ export function entryWorkspaceHref(
   input: {
     folderId?: number | null;
     entryId?: number | null;
+    edit?: boolean;
+    newLinkedUnderlineId?: number;
     searchFocus?: EntrySearchFocus | null;
   } = {},
 ): string {
@@ -27,6 +29,10 @@ export function entryWorkspaceHref(
   }
   if (input.entryId !== null && input.entryId !== undefined) {
     params.set("entry", String(input.entryId));
+  }
+  if (input.edit) params.set("edit", "1");
+  if (input.newLinkedUnderlineId !== undefined) {
+    params.set("newLinked", String(input.newLinkedUnderlineId));
   }
   appendSearchFocus(params, input.searchFocus);
   const query = params.toString();

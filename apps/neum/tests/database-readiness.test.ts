@@ -12,7 +12,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { assertAppDatabaseReady } from "@/lib/db/readiness";
 import { GET as getHealth } from "@/app/api/health/route";
 
-const latestMigration = 1_786_724_112_675;
+const latestMigration = 1_790_167_364_747;
 const migrationsFolder = path.resolve(process.cwd(), "drizzle");
 
 test("Neum database readiness", async (t) => {

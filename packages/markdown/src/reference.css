@@ -442,3 +442,207 @@ button.babel-detached-reader-fallback {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Reader annotations are scoped to the detached reading window's content. */
+.babel-reader-annotations {
+  min-width: 0;
+}
+
+.babel-reader-annotations__toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: grid;
+  gap: 0.6rem;
+  margin: -0.5rem 0 1rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--line-strong, #758094);
+  background: var(--cream, #fff);
+  color: var(--night, #17202c);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
+  font: 0.82rem/1.4 var(--sans, system-ui, sans-serif);
+}
+
+.babel-reader-annotations__hint {
+  color: var(--ink-soft, #465367);
+}
+
+.babel-reader-annotations__palette,
+.babel-reader-annotations__actions,
+.babel-reader-annotations__linked {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.babel-reader-annotations__color {
+  display: inline-grid;
+  place-items: center;
+  width: 2rem;
+  min-width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--line-strong, #758094);
+  border-radius: 0.25rem;
+  background: var(--cream, #fff);
+  color: var(--night, #17202c);
+  cursor: pointer;
+  font-weight: 700;
+  text-decoration-line: underline;
+  text-decoration-color: var(--underline-color);
+  text-decoration-thickness: 0.2em;
+  text-underline-offset: 0.16em;
+}
+
+.babel-reader-annotations__color[aria-pressed="true"] {
+  outline: 2px solid var(--underline-color);
+  outline-offset: 2px;
+}
+
+.babel-reader-annotations__color:disabled,
+.babel-reader-annotations__actions button:disabled,
+.babel-reader-annotations__linked button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.babel-reader-annotations__active {
+  display: grid;
+  gap: 0.55rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--line-strong, #758094);
+}
+
+.babel-reader-annotations__active > strong {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.babel-reader-annotations__actions button,
+.babel-reader-annotations__linked button,
+.babel-reader-annotations__picker button {
+  min-height: 2rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--line-strong, #758094);
+  border-radius: 0.25rem;
+  background: var(--cream, #fff);
+  color: var(--night, #17202c);
+  cursor: pointer;
+  font: inherit;
+}
+
+.babel-reader-annotations__picker {
+  display: grid;
+  gap: 0.4rem;
+  max-width: 30rem;
+}
+
+.babel-reader-annotations__picker input {
+  width: 100%;
+  min-height: 2rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--line-strong, #758094);
+  background: var(--cream, #fff);
+  color: var(--night, #17202c);
+  font: inherit;
+}
+
+.babel-reader-annotations__picker ul {
+  display: grid;
+  gap: 0.25rem;
+  max-height: 14rem;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.babel-reader-annotations__picker li button {
+  width: 100%;
+  text-align: left;
+}
+
+.babel-reader-annotations__picker p,
+.babel-reader-annotations__error {
+  margin: 0;
+}
+
+.babel-reader-annotations__error {
+  color: #aa2145;
+}
+
+.babel-reader-annotations__body {
+  position: relative;
+}
+
+.babel-reader-annotations__fallback {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.babel-reader-annotations__fallback span {
+  position: absolute;
+  height: 0;
+  border-bottom: 3px solid;
+}
+
+.babel-reader-annotations__list {
+  margin-top: 1.5rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--line-strong, #758094);
+  font: 0.82rem/1.4 var(--sans, system-ui, sans-serif);
+}
+
+.babel-reader-annotations__list summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.babel-reader-annotations__list ol {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.babel-reader-annotations__entry {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.babel-reader-annotations__entry[aria-pressed="true"] {
+  border-color: var(--line-strong, #758094);
+}
+
+.babel-reader-annotations__entry > span:nth-child(2) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.babel-reader-annotations__entry small {
+  flex: none;
+  color: var(--ink-soft, #465367);
+}
+
+.babel-reader-annotations__entry-swatch {
+  width: 1.3rem;
+  flex: none;
+  border-bottom: 3px solid;
+}

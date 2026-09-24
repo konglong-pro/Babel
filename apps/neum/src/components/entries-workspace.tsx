@@ -68,6 +68,8 @@ interface EntriesWorkspaceProps {
   kind: EntryKind;
   initialFolderId?: number | null;
   initialEntryId?: number | null;
+  initialEditRequested?: boolean;
+  initialLinkedUnderlineId?: number | null;
   initialSearchFocus?: EntrySearchFocus | null;
   routeTargetKey?: string;
 }
@@ -82,6 +84,8 @@ export function EntriesWorkspace({
   kind,
   initialFolderId = null,
   initialEntryId = null,
+  initialEditRequested = false,
+  initialLinkedUnderlineId = null,
   initialSearchFocus = null,
   routeTargetKey = "initial",
 }: EntriesWorkspaceProps) {
@@ -110,7 +114,9 @@ export function EntriesWorkspace({
   const [drafts, setDrafts] = useState<Record<string, EntryDraftSession>>({});
   const [movingItemIds, setMovingItemIds] = useState<ReadonlySet<number>>(new Set());
   const [moveRevisions, setMoveRevisions] = useState<Record<number, number>>({});
-  const [pendingEditPageKey, setPendingEditPageKey] = useState<string | null>(null);
+  const [pendingEditPageKey, setPendingEditPageKey] = useState<string | null>(
+    initialEditRequested && initialEntryId !== null ? `entry:${initialEntryId}` : null,
+  );
   const [activeReferencePanel, setActiveReferencePanel] = useState<ReferencePanelKind | null>(null);
   const referenceTriggerRef = useRef<HTMLElement | null>(null);
   const openedRouteTargetRef = useRef<string | null>(null);
@@ -118,6 +124,25 @@ export function EntriesWorkspace({
   const indexRequestRef = useRef(0);
   const quickOpenRequestRef = useRef(0);
   const loadedFolderRef = useRef<number | null | undefined>(undefined);
+
+  const openDraft = useCallback((input: Omit<EntryDraftSession, "title"> & { title?: string }) => {
+    const key = `entry-draft:${crypto.randomUUID()}`;
+    const draft: EntryDraftSession = {
+      ...input,
+      title: input.title?.trim() || `Untitled ${pageKind.toLowerCase()} entry`,
+    };
+    setDrafts((current) => ({ ...current, [key]: draft }));
+    openPage({
+      key,
+      kind: pageKind,
+      scope: kind,
+      title: draft.title,
+      href: entryWorkspaceHref(kind, { folderId: draft.folderId }),
+      restorable: false,
+    });
+    setSelectedFolderId(draft.folderId);
+    setStage("entry");
+  }, [kind, openPage, pageKind]);
 
   const refreshEntries = useCallback(async (folderId: number | null) => {
     const requestId = ++indexRequestRef.current;
@@ -235,6 +260,20 @@ export function EntriesWorkspace({
     if (!processActive || indexLoading || openedRouteTargetRef.current === routeTargetKey) {
       return;
     }
+    if (initialLinkedUnderlineId !== null && initialFolderId !== null && kind === "knowledge") {
+      const frame = window.requestAnimationFrame(() => {
+        openedRouteTargetRef.current = routeTargetKey;
+        openDraft({
+          kind: "knowledge",
+          folderId: initialFolderId,
+          parentId: null,
+          importDraft: null,
+          title: "New linked Knowledge entry",
+          linkedUnderlineId: initialLinkedUnderlineId,
+        });
+      });
+      return () => window.cancelAnimationFrame(frame);
+    }
     openedRouteTargetRef.current = routeTargetKey;
     if (initialEntryId === null) return;
     const entry = entries.find((candidate) => candidate.id === initialEntryId);
@@ -255,8 +294,10 @@ export function EntriesWorkspace({
     indexLoading,
     initialEntryId,
     initialFolderId,
+    initialLinkedUnderlineId,
     processActive,
     kind,
+    openDraft,
     openPage,
     pageKind,
     routeTargetKey,
@@ -414,30 +455,29 @@ export function EntriesWorkspace({
     window.requestAnimationFrame(() => focusPane("detail"));
   }
 
-  function openEntryForEdit(id: number) {
+  function openEntryForEdit(id: number, targetKind?: EntryKind, folderId?: number) {
     const entry = entries.find((candidate) => candidate.id === id)
       ?? quickOpenEntries.find((candidate) => candidate.id === id);
+    const resolvedKind = targetKind ?? entry?.kind ?? kind;
+    const resolvedFolderId = folderId ?? entry?.folderId;
+    if (resolvedKind !== kind) {
+      const href = entryWorkspaceHref(resolvedKind, {
+        folderId: resolvedFolderId,
+        entryId: id,
+        edit: true,
+      });
+      openPage({
+        key: `entry:${id}`,
+        kind: entryUnitLabel(resolvedKind),
+        scope: resolvedKind,
+        title: entry?.title ?? `${entryUnitLabel(resolvedKind)} ${id}`,
+        href,
+      });
+      router.push(href);
+      return;
+    }
     setPendingEditPageKey(entry ? savedEntryPage(entry).key : `entry:${id}`);
-    openEntry(id, entry?.kind ?? kind, entry?.folderId);
-  }
-
-  function openDraft(input: Omit<EntryDraftSession, "title"> & { title?: string }) {
-    const key = `entry-draft:${crypto.randomUUID()}`;
-    const draft: EntryDraftSession = {
-      ...input,
-      title: input.title?.trim() || `Untitled ${pageKind.toLowerCase()} entry`,
-    };
-    setDrafts((current) => ({ ...current, [key]: draft }));
-    openPage({
-      key,
-      kind: pageKind,
-      scope: kind,
-      title: draft.title,
-      href: entryWorkspaceHref(kind, { folderId: draft.folderId }),
-      restorable: false,
-    });
-    setSelectedFolderId(draft.folderId);
-    setStage("entry");
+    openEntry(id, resolvedKind, resolvedFolderId);
   }
 
   function selectFolder(id: number | null) {
@@ -725,6 +765,13 @@ export function EntriesWorkspace({
                   setPendingEditPageKey((current) => current === page.key ? null : current);
                 }}
                 onOpenEntry={openEntry}
+                onOpenEntryForEdit={openEntryForEdit}
+                onOpenLinkedKnowledgeDraft={(folderId, underlineId) => {
+                  router.push(entryWorkspaceHref("knowledge", {
+                    folderId,
+                    newLinkedUnderlineId: underlineId,
+                  }));
+                }}
                 onOpenDraft={openDraft}
                 onRefreshIndex={refreshWorkspaceIndex}
                 onShowList={() => showList()}

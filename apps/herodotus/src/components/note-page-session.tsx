@@ -11,6 +11,7 @@ import type { SearchFocus } from "@babel-apps/platform/search/focus";
 import type { PageSessionDescriptor } from "@babel-apps/platform/pages/core";
 
 import { NoteDetail, type NoteViewMode } from "@/components/note-detail";
+import { attachReaderUnderlineNote } from "@/components/reader-note-underlines";
 import {
   createNote,
   getErrorMessage,
@@ -33,6 +34,7 @@ export interface NoteDraftSession {
   readonly parentId: number | null;
   readonly importDraft: MarkdownImportDraft | null;
   readonly title: string;
+  readonly linkedUnderlineId?: number;
 }
 
 interface NotePageSessionProps {
@@ -47,6 +49,7 @@ interface NotePageSessionProps {
   onEditRequestConsumed: () => void;
   searchFocus: SearchFocus<NoteSearchField> | null;
   onOpenNote: (id: number, folderId?: number) => void;
+  onOpenNoteForEdit: (id: number, folderId?: number) => void;
   onOpenDraft: (input: Omit<NoteDraftSession, "title"> & { title?: string }) => void;
   onRefreshIndex: () => Promise<void>;
   onShowList: () => void;
@@ -76,6 +79,7 @@ export function NotePageSession({
   onEditRequestConsumed,
   searchFocus,
   onOpenNote,
+  onOpenNoteForEdit,
   onOpenDraft,
   onRefreshIndex,
   onShowList,
@@ -150,6 +154,13 @@ export function NotePageSession({
     const nextPage = savedNotePage(saved);
     if (pageKey !== nextPage.key) rekeyPage(pageKey, nextPage);
     else updatePage(pageKey, nextPage);
+    if (draft?.linkedUnderlineId !== undefined) {
+      try {
+        await attachReaderUnderlineNote(draft.linkedUnderlineId, saved.id);
+      } catch (error) {
+        onError(`The note was saved, but its reader underline could not be linked: ${getErrorMessage(error)}`);
+      }
+    }
     try {
       await Promise.all([onRefreshIndex(), refreshBacklinks(saved.id)]);
     } catch (error) {
@@ -262,6 +273,17 @@ export function NotePageSession({
         onSaved={handleSaved}
         onDeleted={handleDeleted}
         onNavigateNote={onOpenNote}
+        onCreateLinkedNote={(underlineId) => {
+          if (detail === null) return;
+          onOpenDraft({
+            folderId: detail.folderId,
+            parentId: null,
+            importDraft: null,
+            title: "New linked note",
+            linkedUnderlineId: underlineId,
+          });
+        }}
+        onEditLinkedNote={onOpenNoteForEdit}
         onCreateWikilink={handleCreateWikilink}
         onDirtyChange={setDirty}
         onPendingChange={setPending}

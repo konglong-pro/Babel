@@ -50,6 +50,13 @@
       "when": 1786724112675,
       "tag": "0006_narrow_power_pack",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1790167364747,
+      "tag": "0007_eager_hobgoblin",
+      "breakpoints": true
     }
   ]
 }

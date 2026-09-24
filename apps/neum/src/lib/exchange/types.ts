@@ -1,7 +1,8 @@
 import type { CanvasScene } from "@babel-apps/platform/canvas/core";
 
 export const NEUM_SNAPSHOT_APP_ID = "neum" as const;
-export const NEUM_SNAPSHOT_SCHEMA_VERSION = 5 as const;
+export const NEUM_SNAPSHOT_SCHEMA_VERSION = 6 as const;
+export const NEUM_CANVAS_SNAPSHOT_SCHEMA_VERSION = 5 as const;
 export const NEUM_LEGACY_SNAPSHOT_SCHEMA_VERSION = 1 as const;
 export const NEUM_PREVIOUS_SNAPSHOT_SCHEMA_VERSION = 2 as const;
 export const NEUM_FOLDER_POSITION_SNAPSHOT_SCHEMA_VERSION = 3 as const;
@@ -88,6 +89,17 @@ export interface SnapshotCanvas {
   updatedAt: string;
 }
 
+export interface SnapshotReaderUnderline {
+  id: number;
+  sourceEntryId: number;
+  fieldKey: "notes" | "code";
+  color: "yellow" | "orange" | "pink" | "green" | "blue";
+  anchor: { start: number; end: number; exact: string; prefix: string; suffix: string };
+  noteIds: number[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface NeumSnapshotManifest {
   appId: typeof NEUM_SNAPSHOT_APP_ID;
   schemaVersion: typeof NEUM_SNAPSHOT_SCHEMA_VERSION;
@@ -95,6 +107,7 @@ export interface NeumSnapshotManifest {
   canvases: SnapshotCanvas[];
   folders: SnapshotFolder[];
   entries: SnapshotEntry[];
+  underlines: SnapshotReaderUnderline[];
   tags: SnapshotTag[];
   trash: SnapshotTrashEntry[];
   images: SnapshotImage[];

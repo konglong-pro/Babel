@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import type { Wikilink } from "@babel-apps/markdown/core";
 import {
   DetachedEditorWindow,
@@ -28,10 +29,12 @@ import {
 import { useCommandPaletteActions } from "@babel-apps/platform/shortcuts/react";
 
 import { MarkdownEditor, type StagedImage } from "@/components/markdown-editor";
+import { ReaderSourceUnderlines } from "@/components/reader-note-underlines";
 import { formatDate } from "@/components/shared";
 import {
   getErrorMessage,
   getReflection,
+  listNotes,
   listReflectionBacklinks,
   saveReflection,
 } from "@/lib/api-client";
@@ -44,6 +47,7 @@ import {
 } from "@/lib/search-focus";
 import type {
   DocumentBacklinkDto,
+  NoteSummaryDto,
   ReflectionDetailDto,
 } from "@/lib/types";
 
@@ -86,12 +90,14 @@ export function ReflectionPageSession({
   onSaved,
   onShowList,
 }: ReflectionPageSessionProps) {
+  const router = useRouter();
   const { activeKey, setPageStatus, updatePage } = usePageSessions();
   const formRef = useRef<HTMLFormElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const stagedRef = useRef<StagedImage[]>([]);
   const [detail, setDetail] = useState<ReflectionDetailDto | null>(null);
   const [backlinks, setBacklinks] = useState<DocumentBacklinkDto[]>([]);
+  const [notes, setNotes] = useState<NoteSummaryDto[]>([]);
   const [content, setContent] = useState("");
   const [stagedImages, setStagedImages] = useState<StagedImage[]>([]);
   const [mode, setMode] = useState<"view" | "edit">(exists ? "view" : "edit");
@@ -120,6 +126,16 @@ export function ReflectionPageSession({
     [stagedImages],
   );
   const limitError = documentSaveLimitError(content, stagedImages);
+
+  useEffect(() => {
+    let active = true;
+    void listNotes().then((nextNotes) => {
+      if (active) setNotes(nextNotes);
+    }).catch(() => {
+      // The reader's note picker remains empty until the notes index is available.
+    });
+    return () => { active = false; };
+  }, []);
   const wikilinkTargets = useMemo(() => {
     const entries: Array<[string, ValiResolvedWikilink]> = [];
     for (const link of detail?.links ?? []) {
@@ -304,16 +320,26 @@ export function ReflectionPageSession({
         </header>
         <div className="document-outline-layout">
           <section className="document-content" aria-label="Reflection content">
-            <MarkdownRenderer
-              content={content}
-              emptyText="This reflection is empty."
-              imagePreviews={imagePreviews}
-              remarkFeatures={REMARK_FEATURES}
-              uploadScheme="vali-upload"
-              resolveWikilink={resolveWikilink}
-              onNavigateWikilink={navigateWikilink}
-              headingIdPrefix={headingIdPrefix}
-            />
+            <ReaderSourceUnderlines
+              sourceKind="reflection"
+              sourceId={date}
+              fieldKey="content"
+              enabled={!live && detail !== null}
+              notes={notes}
+              onCreateLinkedNote={(underlineId) => router.push(`/notes?readerUnderline=${underlineId}`)}
+              onEditLinkedNote={(noteId) => router.push(`/notes?note=${noteId}&edit=1`)}
+            >
+              <MarkdownRenderer
+                content={content}
+                emptyText="This reflection is empty."
+                imagePreviews={imagePreviews}
+                remarkFeatures={REMARK_FEATURES}
+                uploadScheme="vali-upload"
+                resolveWikilink={resolveWikilink}
+                onNavigateWikilink={navigateWikilink}
+                headingIdPrefix={headingIdPrefix}
+              />
+            </ReaderSourceUnderlines>
           </section>
           <OutlinePanel
             content={content}

@@ -57,6 +57,13 @@
       "when": 1786724106854,
       "tag": "0007_wealthy_golden_guardian",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1790167354830,
+      "tag": "0008_giant_rattler",
+      "breakpoints": true
     }
   ]
 }

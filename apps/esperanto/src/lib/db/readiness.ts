@@ -18,7 +18,7 @@ const databasePathOptions = {
 export const appDatabaseReadinessOptions = {
   appName: "Esperanto",
   packageName: "@babel-apps/esperanto",
-  expectedMigration: 1_786_724_106_854,
+  expectedMigration: 1790167354830,
   requiredColumns: {
     canvas: ["title", "scene", "updated_at"],
     folder: ["position"],
@@ -26,6 +26,8 @@ export const appDatabaseReadinessOptions = {
     note_link: ["source_note_id", "target_title_key", "target_note_id"],
     note_template: ["name", "content_md", "created_at", "updated_at"],
     note_search: ["title", "content_md", "tags"],
+    reader_underline: ["source_note_id", "field_key", "color", "start_offset", "end_offset", "exact_text", "prefix_text", "suffix_text"],
+    reader_underline_note: ["underline_id", "note_id"],
   },
   requiredSchemaObjects: [
     {

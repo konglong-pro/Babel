@@ -12,7 +12,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { assertAppDatabaseReady } from "@/lib/db/readiness";
 import { GET as getHealth } from "@/app/api/health/route";
 
-const latestMigration = 1_786_724_109_099;
+const latestMigration = 1790167360377;
 const migrationsFolder = path.resolve(process.cwd(), "drizzle");
 
 test("KLsche database readiness", async (t) => {

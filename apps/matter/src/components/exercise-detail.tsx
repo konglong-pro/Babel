@@ -23,6 +23,7 @@ import {
 } from "react";
 
 import { LinkedMentions } from "@/components/linked-mentions";
+import { ReaderSourceUnderlines, useReaderKnowledgeOptions } from "@/components/reader-note-underlines";
 import { MarkdownEditor, type StagedImage } from "@/components/markdown-editor";
 import {
   ConfirmButton,
@@ -57,6 +58,11 @@ const REMARK_FEATURES = ["gfm", "formula-math"] as const;
 const EMPTY_IMAGE_PREVIEWS: ReadonlyMap<string, string> = new Map();
 
 interface ExerciseReaderDraftProps {
+  sourceId: number | null;
+  annotationsEnabled: boolean;
+  notes: readonly { id: number; title: string }[];
+  onCreateLinkedNote: (underlineId: number) => void;
+  onEditLinkedNote: (noteId: number) => void;
   title: string;
   tags: string[];
   problem: string;
@@ -70,6 +76,12 @@ interface ExerciseReaderDraftProps {
 }
 
 function ExerciseReaderSection({
+  sourceId,
+  fieldKey,
+  annotationsEnabled,
+  notes,
+  onCreateLinkedNote,
+  onEditLinkedNote,
   label,
   content,
   emptyText,
@@ -79,6 +91,12 @@ function ExerciseReaderSection({
   resolveWikilink,
   onNavigateWikilink,
 }: {
+  sourceId: number | null;
+  fieldKey: "problem" | "answer" | "solution";
+  annotationsEnabled: boolean;
+  notes: readonly { id: number; title: string }[];
+  onCreateLinkedNote: (underlineId: number) => void;
+  onEditLinkedNote: (noteId: number) => void;
   label: string;
   content: string;
   emptyText: string;
@@ -93,17 +111,27 @@ function ExerciseReaderSection({
       <h2>{label}</h2>
       <div className="document-outline-layout">
         <div className="document-content">
-          <MarkdownRenderer
-            content={content}
-            emptyText={emptyText}
-            imagePreviews={imagePreviews}
-            uploadScheme="matter-upload"
-            remarkFeatures={REMARK_FEATURES}
-            defaultWikilinkKind="knowledge"
-            resolveWikilink={resolveWikilink}
-            onNavigateWikilink={onNavigateWikilink}
-            headingIdPrefix={headingIdPrefix}
-          />
+          <ReaderSourceUnderlines
+            sourceKind="exercise"
+            sourceId={sourceId}
+            fieldKey={fieldKey}
+            enabled={annotationsEnabled}
+            notes={notes}
+            onCreateLinkedNote={onCreateLinkedNote}
+            onEditLinkedNote={onEditLinkedNote}
+          >
+            <MarkdownRenderer
+              content={content}
+              emptyText={emptyText}
+              imagePreviews={imagePreviews}
+              uploadScheme="matter-upload"
+              remarkFeatures={REMARK_FEATURES}
+              defaultWikilinkKind="knowledge"
+              resolveWikilink={resolveWikilink}
+              onNavigateWikilink={onNavigateWikilink}
+              headingIdPrefix={headingIdPrefix}
+            />
+          </ReaderSourceUnderlines>
         </div>
         <OutlinePanel
           content={content}
@@ -117,6 +145,11 @@ function ExerciseReaderSection({
 }
 
 function ExerciseReaderDraft({
+  sourceId,
+  annotationsEnabled,
+  notes,
+  onCreateLinkedNote,
+  onEditLinkedNote,
   title,
   tags,
   problem,
@@ -140,6 +173,12 @@ function ExerciseReaderDraft({
       </header>
       <div className="exercise-sections">
         <ExerciseReaderSection
+          sourceId={sourceId}
+          fieldKey="problem"
+          annotationsEnabled={annotationsEnabled}
+          notes={notes}
+          onCreateLinkedNote={onCreateLinkedNote}
+          onEditLinkedNote={onEditLinkedNote}
           label="Problem"
           content={problem}
           emptyText="No problem statement yet."
@@ -150,6 +189,12 @@ function ExerciseReaderDraft({
           onNavigateWikilink={onNavigateWikilink}
         />
         <ExerciseReaderSection
+          sourceId={sourceId}
+          fieldKey="answer"
+          annotationsEnabled={annotationsEnabled}
+          notes={notes}
+          onCreateLinkedNote={onCreateLinkedNote}
+          onEditLinkedNote={onEditLinkedNote}
           label="Archived Answer"
           content={answer}
           emptyText="No archived answer yet."
@@ -160,6 +205,12 @@ function ExerciseReaderDraft({
           onNavigateWikilink={onNavigateWikilink}
         />
         <ExerciseReaderSection
+          sourceId={sourceId}
+          fieldKey="solution"
+          annotationsEnabled={annotationsEnabled}
+          notes={notes}
+          onCreateLinkedNote={onCreateLinkedNote}
+          onEditLinkedNote={onEditLinkedNote}
           label="Your Solution"
           content={solution}
           emptyText="No solution notes yet."
@@ -192,6 +243,8 @@ interface ExerciseDetailProps {
     folderId?: number,
   ) => void;
   onCreateKnowledgeWikilink: (title: string) => void;
+  onCreateLinkedNote: (underlineId: number) => void;
+  onEditLinkedNote: (noteId: number) => void;
   onDirtyChange?: (dirty: boolean) => void;
   onRegisterSave?: (action: (() => void) | null) => void;
 }
@@ -210,9 +263,12 @@ export function ExerciseDetail({
   onDeleted,
   onNavigateEntity,
   onCreateKnowledgeWikilink,
+  onCreateLinkedNote,
+  onEditLinkedNote,
   onDirtyChange,
   onRegisterSave,
 }: ExerciseDetailProps) {
+  const readerNotes = useReaderKnowledgeOptions();
   const wikilinkTargets = useMemo(() => {
     const targets = new Map<string, ResolvedWikilink>();
     for (const link of detail?.links ?? []) {
@@ -301,6 +357,8 @@ export function ExerciseDetail({
         resolveWikilink={resolveWikilink}
         onNavigateWikilink={navigateWikilink}
         onCreateKnowledgeWikilink={onCreateKnowledgeWikilink}
+        onCreateLinkedNote={onCreateLinkedNote}
+        onEditLinkedNote={onEditLinkedNote}
         onDirtyChange={onDirtyChange}
         onRegisterSave={onRegisterSave}
       />
@@ -329,6 +387,11 @@ export function ExerciseDetail({
           >
             {({ document: readerDocument }) => (
               <ExerciseReaderDraft
+                sourceId={detail.id}
+                annotationsEnabled={true}
+                notes={readerNotes}
+                onCreateLinkedNote={onCreateLinkedNote}
+                onEditLinkedNote={onEditLinkedNote}
                 title={detail.title}
                 tags={detail.tags}
                 problem={detail.problemMd}
@@ -497,6 +560,8 @@ interface ExerciseFormProps {
   resolveWikilink: (titleKey: string) => ResolvedWikilink | null;
   onNavigateWikilink: (target: ResolvedWikilink) => void;
   onCreateKnowledgeWikilink: (title: string) => void;
+  onCreateLinkedNote: (underlineId: number) => void;
+  onEditLinkedNote: (noteId: number) => void;
   onDirtyChange?: (dirty: boolean) => void;
   onRegisterSave?: (action: (() => void) | null) => void;
 }
@@ -532,6 +597,8 @@ function ExerciseForm({
   resolveWikilink,
   onNavigateWikilink,
   onCreateKnowledgeWikilink,
+  onCreateLinkedNote,
+  onEditLinkedNote,
   onDirtyChange,
   onRegisterSave,
 }: ExerciseFormProps) {
@@ -722,6 +789,11 @@ function ExerciseForm({
             >
               {({ document: readerDocument }) => (
                 <ExerciseReaderDraft
+                  sourceId={detail?.id ?? null}
+                  annotationsEnabled={false}
+                  notes={knowledge}
+                  onCreateLinkedNote={onCreateLinkedNote}
+                  onEditLinkedNote={onEditLinkedNote}
                   title={title}
                   tags={parseTags(tags)}
                   problem={problem}

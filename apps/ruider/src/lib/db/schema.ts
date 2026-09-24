@@ -137,3 +137,43 @@ export const canvases = sqliteTable(
     check("canvas_title_not_blank", sql`length(trim(${table.title})) > 0`),
   ],
 );
+export const readerUnderlines = sqliteTable(
+  "reader_underline",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    sourceNoteId: integer("source_note_id")
+      .notNull()
+      .references(() => notes.id, { onDelete: "cascade" }),
+    fieldKey: text("field_key").notNull(),
+    color: text("color", { enum: ["yellow", "green", "blue", "pink", "orange"] }).notNull(),
+    startOffset: integer("start_offset").notNull(),
+    endOffset: integer("end_offset").notNull(),
+    exactText: text("exact_text").notNull(),
+    prefixText: text("prefix_text").notNull().default(""),
+    suffixText: text("suffix_text").notNull().default(""),
+    ...timestamps,
+  },
+  (table) => [
+    index("reader_underline_source_idx").on(table.sourceNoteId, table.id),
+    check("reader_underline_field_check", sql`${table.fieldKey} = 'content'`),
+    check("reader_underline_color_check", sql`${table.color} in ('yellow', 'green', 'blue', 'pink', 'orange')`),
+    check("reader_underline_offsets_check", sql`${table.startOffset} >= 0 and ${table.endOffset} > ${table.startOffset}`),
+    check("reader_underline_exact_check", sql`length(${table.exactText}) > 0`),
+  ],
+);
+
+export const readerUnderlineNotes = sqliteTable(
+  "reader_underline_note",
+  {
+    underlineId: integer("underline_id")
+      .notNull()
+      .references(() => readerUnderlines.id, { onDelete: "cascade" }),
+    noteId: integer("note_id")
+      .notNull()
+      .references(() => notes.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    uniqueIndex("reader_underline_note_unique").on(table.underlineId, table.noteId),
+    index("reader_underline_note_target_idx").on(table.noteId),
+  ],
+);

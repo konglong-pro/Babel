@@ -12,7 +12,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { assertAppDatabaseReady } from "@/lib/db/readiness";
 import { GET as getHealth } from "@/app/api/health/route";
 
-const latestMigration = 1_786_724_111_580;
+const latestMigration = 1_790_167_352_516;
 const migrationsFolder = path.resolve(process.cwd(), "drizzle");
 
 test("folder position migration backfills each type and parent by legacy name order", () => {

@@ -20,6 +20,7 @@ import type {
   SnapshotTag,
   SnapshotTrashEntry,
   SnapshotTrashPayload,
+  SnapshotReaderUnderline,
 } from "./types";
 
 interface FolderRow {
@@ -80,6 +81,20 @@ interface TrashRow {
   deletedAt: string;
 }
 
+interface ReaderUnderlineRow {
+  id: number;
+  sourceEntryId: number;
+  fieldKey: "notes" | "code";
+  color: SnapshotReaderUnderline["color"];
+  anchorStart: number;
+  anchorEnd: number;
+  anchorExact: string;
+  anchorPrefix: string;
+  anchorSuffix: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 const domainTables = [
   "canvas",
   "entry",
@@ -88,6 +103,8 @@ const domainTables = [
   "entry_tag",
   "entry_image",
   "trash_entry",
+  "reader_underline",
+  "reader_underline_note",
 ] as const;
 
 export function readNeumDatabaseSnapshot(
@@ -137,14 +154,14 @@ export function assertPristineNeumTarget(sqlite: BetterSqlite3.Database): void {
         sqlite
           .prepare(
             `SELECT "name", "seq" FROM "sqlite_sequence"
-             WHERE "name" IN ('canvas', 'folder', 'entry', 'entry_link', 'tag', 'entry_image', 'trash_entry')`,
+             WHERE "name" IN ('canvas', 'folder', 'entry', 'entry_link', 'tag', 'entry_image', 'trash_entry', 'reader_underline')`,
           )
           .all() as Array<{ name: string; seq: number }>
       ).map(({ name, seq }) => [name, seq]),
     );
     const hasPristineSequences =
       domainSequences.get("folder") === 1 &&
-      ["canvas", "entry", "entry_link", "tag", "entry_image", "trash_entry"].every(
+      ["canvas", "entry", "entry_link", "tag", "entry_image", "trash_entry", "reader_underline"].every(
         (name) => (domainSequences.get(name) ?? 0) === 0,
       );
     if (!hasPristineInbox || hasDomainRows || !hasPristineSequences) {
@@ -254,6 +271,18 @@ export function restoreNeumDatabaseSnapshotRows(
   }
   reserveEntryIds(sqlite, manifest);
   rebuildAllEntryLinksInTransaction(sqlite);
+  const insertUnderline = sqlite.prepare(
+    'INSERT INTO "reader_underline" ("id", "source_entry_id", "field_key", "color", "anchor_start", "anchor_end", "anchor_exact", "anchor_prefix", "anchor_suffix", "created_at", "updated_at") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  );
+  const insertUnderlineNote = sqlite.prepare(
+    'INSERT INTO "reader_underline_note" ("underline_id", "note_id") VALUES (?, ?)',
+  );
+  for (const item of manifest.underlines) {
+    insertUnderline.run(item.id, item.sourceEntryId, item.fieldKey, item.color,
+      item.anchor.start, item.anchor.end, item.anchor.exact, item.anchor.prefix,
+      item.anchor.suffix, item.createdAt, item.updatedAt);
+    for (const noteId of item.noteIds) insertUnderlineNote.run(item.id, noteId);
+  }
 }
 
 function reserveEntryIds(
@@ -315,6 +344,19 @@ function readRows(sqlite: BetterSqlite3.Database): NeumDatabaseSnapshot {
       'SELECT "id", "entry_id" AS "entryId", "image_path" AS "imagePath", "created_at" AS "createdAt" FROM "entry_image" ORDER BY "entry_id", "id"',
     )
     .all() as EntryImageRow[];
+  const underlineRows = sqlite.prepare(
+    'SELECT "id", "source_entry_id" AS "sourceEntryId", "field_key" AS "fieldKey", "color", "anchor_start" AS "anchorStart", "anchor_end" AS "anchorEnd", "anchor_exact" AS "anchorExact", "anchor_prefix" AS "anchorPrefix", "anchor_suffix" AS "anchorSuffix", "created_at" AS "createdAt", "updated_at" AS "updatedAt" FROM "reader_underline" ORDER BY "id"',
+  ).all() as ReaderUnderlineRow[];
+  const underlineNoteRows = sqlite.prepare(
+    'SELECT "underline_id" AS "underlineId", "note_id" AS "noteId" FROM "reader_underline_note" ORDER BY "underline_id", "note_id"',
+  ).all() as Array<{ underlineId: number; noteId: number }>;
+  const noteIdsByUnderline = groupBy(underlineNoteRows, ({ underlineId }) => underlineId);
+  const underlines: SnapshotReaderUnderline[] = underlineRows.map((row) => ({
+    id: row.id, sourceEntryId: row.sourceEntryId, fieldKey: row.fieldKey, color: row.color,
+    anchor: { start: row.anchorStart, end: row.anchorEnd, exact: row.anchorExact, prefix: row.anchorPrefix, suffix: row.anchorSuffix },
+    noteIds: (noteIdsByUnderline.get(row.id) ?? []).map(({ noteId }) => noteId),
+    createdAt: row.createdAt, updatedAt: row.updatedAt,
+  }));
 
   const tagIdsByEntry = groupBy(entryTagRows, ({ entryId }) => entryId);
   const imagesByEntry = groupBy(entryImageRows, ({ entryId }) => entryId);
@@ -348,6 +390,7 @@ function readRows(sqlite: BetterSqlite3.Database): NeumDatabaseSnapshot {
     canvases,
     folders: folders as SnapshotFolder[],
     entries,
+    underlines,
     tags: tags as SnapshotTag[],
     trash,
   };

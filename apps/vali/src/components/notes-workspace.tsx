@@ -59,6 +59,8 @@ type ResponsiveStage = "library" | "notes" | "note";
 interface NotesWorkspaceProps {
   initialFolderId?: number | null;
   initialNoteId?: number | null;
+  initialEditRequested?: boolean;
+  readerUnderlineId?: number | null;
   initialSearchFocus?: ValiSearchFocus | null;
   routeTargetKey?: string;
 }
@@ -97,6 +99,8 @@ function savedNoteId(pageKey: string | null): number | null {
 export function NotesWorkspace({
   initialFolderId = null,
   initialNoteId = null,
+  initialEditRequested = false,
+  readerUnderlineId = null,
   initialSearchFocus = null,
   routeTargetKey = "initial",
 }: NotesWorkspaceProps) {
@@ -157,6 +161,25 @@ export function NotesWorkspace({
     };
   }, [refreshIndex]);
 
+  const openDraft = useCallback((input: Omit<NoteDraftSession, "title"> & { title?: string }) => {
+    const key = `note-draft:${crypto.randomUUID()}`;
+    const draft: NoteDraftSession = {
+      ...input,
+      title: input.title?.trim() || "Untitled note",
+    };
+    setDrafts((current) => ({ ...current, [key]: draft }));
+    openPage({
+      key,
+      kind: "Note",
+      title: draft.title,
+      href: `/notes?folder=${draft.folderId}`,
+      scope: "notes",
+      restorable: false,
+    });
+    setSelectedFolderId(draft.folderId);
+    setStage("note");
+  }, [openPage]);
+
   useEffect(() => {
     const shouldApplyRouteTarget = workspaceProcessRouteTargetShouldApply(
       routeTargetTrackerRef.current,
@@ -170,7 +193,23 @@ export function NotesWorkspace({
     ) return;
     openedRouteTargetRef.current = routeTargetKey;
     setSelectedFolderId(initialFolderId);
-    if (initialNoteId === null) return;
+    if (initialNoteId === null) {
+      if (readerUnderlineId !== null) {
+        const targetFolderId = initialFolderId ?? selectedFolderId ?? folders[0]?.id ?? null;
+        if (targetFolderId === null) {
+          void Promise.resolve().then(() => setError("Create a note folder before linking a reader underline."));
+        } else {
+          void Promise.resolve().then(() => openDraft({
+            folderId: targetFolderId,
+            parentId: null,
+            importDraft: null,
+            title: "New linked note",
+            linkedUnderlineId: readerUnderlineId,
+          }));
+        }
+      }
+      return;
+    }
     const note = notes.find((candidate) => candidate.id === initialNoteId);
     openPage(note
       ? savedNotePage(note)
@@ -183,14 +222,22 @@ export function NotesWorkspace({
             : `?folder=${initialFolderId}&note=${initialNoteId}`}`,
           scope: "notes",
         });
+    if (initialEditRequested) {
+      void Promise.resolve().then(() => setPendingEditPageKey(`note:${initialNoteId}`));
+    }
   }, [
+    folders,
     indexLoading,
+    initialEditRequested,
     initialFolderId,
     initialNoteId,
     notes,
+    openDraft,
     openPage,
     processActive,
+    readerUnderlineId,
     routeTargetKey,
+    selectedFolderId,
   ]);
 
   const activePage = pages.find((page) => page.key === activeKey && page.kind === "Note") ?? null;
@@ -305,25 +352,6 @@ export function NotesWorkspace({
     const page = reflectionPage(date);
     openPage(page);
     router.push(page.href);
-  }
-
-  function openDraft(input: Omit<NoteDraftSession, "title"> & { title?: string }) {
-    const key = `note-draft:${crypto.randomUUID()}`;
-    const draft: NoteDraftSession = {
-      ...input,
-      title: input.title?.trim() || "Untitled note",
-    };
-    setDrafts((current) => ({ ...current, [key]: draft }));
-    openPage({
-      key,
-      kind: "Note",
-      title: draft.title,
-      href: `/notes?folder=${draft.folderId}`,
-      scope: "notes",
-      restorable: false,
-    });
-    setSelectedFolderId(draft.folderId);
-    setStage("note");
   }
 
   function selectFolder(id: number | null) {
@@ -691,6 +719,7 @@ export function NotesWorkspace({
                     setPendingEditPageKey((current) => current === page.key ? null : current);
                   }}
                   onOpenNote={openNote}
+                  onOpenNoteForEdit={openNoteForEdit}
                   onOpenDraft={openDraft}
                   onOpenReflection={openReflection}
                   onRefreshIndex={refreshIndex}

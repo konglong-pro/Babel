@@ -9,3 +9,4 @@ export * from "./relations";
 export * from "./scratch";
 export * from "./search";
 export * from "./canvases";
+export * from "./reader-underlines";

@@ -12,7 +12,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { assertAppDatabaseReady } from "@/lib/db/readiness";
 import { GET as getHealth } from "@/app/api/health/route";
 
-const latestMigration = 1_786_724_106_854;
+const latestMigration = 1790167354830;
 const migrationsFolder = path.resolve(process.cwd(), "drizzle");
 
 test("Esperanto database readiness", async (t) => {

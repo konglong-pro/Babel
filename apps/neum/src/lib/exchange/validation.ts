@@ -15,6 +15,7 @@ import { identityKey } from "../identity";
 import { SnapshotError } from "./errors";
 import {
   NEUM_LEGACY_SNAPSHOT_SCHEMA_VERSION,
+  NEUM_CANVAS_SNAPSHOT_SCHEMA_VERSION,
   NEUM_ENTRY_POSITION_SNAPSHOT_SCHEMA_VERSION,
   NEUM_FOLDER_POSITION_SNAPSHOT_SCHEMA_VERSION,
   NEUM_PREVIOUS_SNAPSHOT_SCHEMA_VERSION,
@@ -30,6 +31,7 @@ import {
   type SnapshotFolder,
   type SnapshotImage,
   type SnapshotImageContentType,
+  type SnapshotReaderUnderline,
   type SnapshotTag,
   type SnapshotTrashEntry,
   type SnapshotTrashPayload,
@@ -64,6 +66,7 @@ export function validateSnapshotManifest(value: unknown): NeumSnapshotManifest {
   const sourceSchemaVersion = manifest.schemaVersion;
   if (
     sourceSchemaVersion !== NEUM_SNAPSHOT_SCHEMA_VERSION &&
+    sourceSchemaVersion !== NEUM_CANVAS_SNAPSHOT_SCHEMA_VERSION &&
     sourceSchemaVersion !== NEUM_ENTRY_POSITION_SNAPSHOT_SCHEMA_VERSION &&
     sourceSchemaVersion !== NEUM_PREVIOUS_SNAPSHOT_SCHEMA_VERSION &&
     sourceSchemaVersion !== NEUM_FOLDER_POSITION_SNAPSHOT_SCHEMA_VERSION &&
@@ -79,9 +82,10 @@ export function validateSnapshotManifest(value: unknown): NeumSnapshotManifest {
       "appId",
       "schemaVersion",
       "exportedAt",
-      ...(sourceSchemaVersion >= NEUM_SNAPSHOT_SCHEMA_VERSION ? ["canvases"] : []),
+      ...(sourceSchemaVersion >= NEUM_CANVAS_SNAPSHOT_SCHEMA_VERSION ? ["canvases"] : []),
       "folders",
       "entries",
+      ...(sourceSchemaVersion >= NEUM_SNAPSHOT_SCHEMA_VERSION ? ["underlines"] : []),
       "tags",
       "trash",
       "images",
@@ -94,7 +98,7 @@ export function validateSnapshotManifest(value: unknown): NeumSnapshotManifest {
     schemaVersion: NEUM_SNAPSHOT_SCHEMA_VERSION,
     exportedAt: timestamp(manifest.exportedAt, "manifest.exportedAt"),
     canvases:
-      sourceSchemaVersion >= NEUM_SNAPSHOT_SCHEMA_VERSION
+      sourceSchemaVersion >= NEUM_CANVAS_SNAPSHOT_SCHEMA_VERSION
         ? array(manifest.canvases, "manifest.canvases").map((item, index) =>
             canvas(item, `manifest.canvases[${index}]`),
           )
@@ -105,6 +109,11 @@ export function validateSnapshotManifest(value: unknown): NeumSnapshotManifest {
     entries: array(manifest.entries, "manifest.entries").map((item, index) =>
       entry(item, `manifest.entries[${index}]`, sourceSchemaVersion),
     ),
+    underlines: sourceSchemaVersion >= NEUM_SNAPSHOT_SCHEMA_VERSION
+      ? array(manifest.underlines, "manifest.underlines").map((item, index) =>
+          readerUnderline(item, `manifest.underlines[${index}]`),
+        )
+      : [],
     tags: array(manifest.tags, "manifest.tags").map((item, index) =>
       tag(item, `manifest.tags[${index}]`),
     ),
@@ -139,6 +148,32 @@ function canvas(value: unknown, label: string): SnapshotCanvas {
     id: positiveInteger(item.id, `${label}.id`),
     title: nonBlankString(item.title, `${label}.title`),
     scene,
+    createdAt: timestamp(item.createdAt, `${label}.createdAt`),
+    updatedAt: timestamp(item.updatedAt, `${label}.updatedAt`),
+  };
+}
+
+function readerUnderline(value: unknown, label: string): SnapshotReaderUnderline {
+  const item = record(value, label);
+  exactKeys(item, ["id", "sourceEntryId", "fieldKey", "color", "anchor", "noteIds", "createdAt", "updatedAt"], label);
+  if (item.fieldKey !== "notes" && item.fieldKey !== "code") invalid(`${label}.fieldKey is invalid.`);
+  if (!["yellow", "orange", "pink", "green", "blue"].includes(item.color as string)) invalid(`${label}.color is invalid.`);
+  const selection = record(item.anchor, `${label}.anchor`);
+  exactKeys(selection, ["start", "end", "exact", "prefix", "suffix"], `${label}.anchor`);
+  const start = nonNegativeInteger(selection.start, `${label}.anchor.start`);
+  const end = positiveInteger(selection.end, `${label}.anchor.end`);
+  if (end <= start) invalid(`${label}.anchor.end must exceed start.`);
+  const exact = nonBlankString(selection.exact, `${label}.anchor.exact`);
+  const prefix = string(selection.prefix, `${label}.anchor.prefix`);
+  const suffix = string(selection.suffix, `${label}.anchor.suffix`);
+  if (exact.length > 10000 || prefix.length > 200 || suffix.length > 200) invalid(`${label}.anchor is too long.`);
+  return {
+    id: positiveInteger(item.id, `${label}.id`),
+    sourceEntryId: positiveInteger(item.sourceEntryId, `${label}.sourceEntryId`),
+    fieldKey: item.fieldKey,
+    color: item.color as SnapshotReaderUnderline["color"],
+    anchor: { start, end, exact, prefix, suffix },
+    noteIds: array(item.noteIds, `${label}.noteIds`).map((id, index) => positiveInteger(id, `${label}.noteIds[${index}]`)),
     createdAt: timestamp(item.createdAt, `${label}.createdAt`),
     updatedAt: timestamp(item.updatedAt, `${label}.updatedAt`),
   };
@@ -444,6 +479,7 @@ function validateRelationships(manifest: NeumSnapshotManifest): void {
   noDuplicates(manifest.canvases.map(({ id }) => id), "canvas IDs");
   noDuplicates(manifest.folders.map(({ id }) => id), "folder IDs");
   noDuplicates(manifest.entries.map(({ id }) => id), "entry IDs");
+  noDuplicates(manifest.underlines.map(({ id }) => id), "underline IDs");
   noDuplicates(manifest.tags.map(({ id }) => id), "tag IDs");
   noDuplicates(manifest.trash.map(({ id }) => id), "trash IDs");
   noDuplicates(
@@ -479,6 +515,15 @@ function validateRelationships(manifest: NeumSnapshotManifest): void {
   );
   const activeEntryIds = new Set(manifest.entries.map(({ id }) => id));
   const activeEntriesById = new Map(manifest.entries.map((item) => [item.id, item]));
+  for (const underline of manifest.underlines) {
+    const source = activeEntriesById.get(underline.sourceEntryId);
+    if (!source) invalid(`Underline ${underline.id} references missing source entry ${underline.sourceEntryId}.`);
+    if (underline.fieldKey === "code" && source.kind !== "snippet") invalid(`Underline ${underline.id} references code on a knowledge entry.`);
+    noDuplicates(underline.noteIds, `underline ${underline.id} note IDs`);
+    for (const noteId of underline.noteIds) {
+      if (!activeEntryIds.has(noteId)) invalid(`Underline ${underline.id} references missing note entry ${noteId}.`);
+    }
+  }
   const trashEntryRecords = manifest.trash.map(({ snapshot }) => snapshot.entry);
   const allEntriesById = new Map<number, SnapshotEntryRecord>([
     ...manifest.entries.map((item) => [item.id, item] as const),

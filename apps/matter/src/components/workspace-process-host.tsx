@@ -25,6 +25,8 @@ import {
 interface ArchiveRouteTarget {
   readonly folderId: number | null;
   readonly itemId: number | null;
+  readonly newLinkedUnderlineId: number | null;
+  readonly editRequested: boolean;
   readonly searchFocus: ArchiveSearchFocus | null;
   readonly key: string;
 }
@@ -32,6 +34,8 @@ interface ArchiveRouteTarget {
 const EMPTY_ARCHIVE_TARGET: ArchiveRouteTarget = {
   folderId: null,
   itemId: null,
+  newLinkedUnderlineId: null,
+  editRequested: false,
   searchFocus: null,
   key: "",
 };
@@ -66,6 +70,10 @@ function MatterWorkspaceProcessRuntime({ children }: { children: ReactNode }) {
     return {
       folderId: positiveInteger(searchParams.get("folder")),
       itemId: positiveInteger(searchParams.get("item")),
+      newLinkedUnderlineId: archiveType === "knowledge" && searchParams.get("new") === "1"
+        ? positiveInteger(searchParams.get("readerUnderline"))
+        : null,
+      editRequested: archiveType === "knowledge" && searchParams.get("edit") === "1",
       searchFocus: archiveType === null
         ? null
         : archiveSearchFocusFromParams(params, archiveType),
@@ -81,6 +89,8 @@ function MatterWorkspaceProcessRuntime({ children }: { children: ReactNode }) {
           type={type}
           initialFolderId={target.folderId}
           initialItemId={target.itemId}
+          initialNewLinkedUnderlineId={target.newLinkedUnderlineId}
+          initialEditRequested={target.editRequested}
           initialSearchFocus={target.searchFocus}
           routeTargetKey={target.key}
         />

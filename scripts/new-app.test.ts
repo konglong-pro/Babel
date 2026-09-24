@@ -398,14 +398,20 @@ test("renders the repository mirror template as an independent app", async (t) =
   assert.match(canvasMigration, /CREATE TABLE `canvas`/);
   assert.match(canvasMigration, /CREATE INDEX `canvas_updated_idx`/);
   assert.match(canvasMigration, /canvas_title_not_blank/);
+  const underlineMigration = await readFile(
+    path.join(generatedRoot, "drizzle", "0006_famous_iron_fist.sql"),
+    "utf8",
+  );
+  assert.match(underlineMigration, /CREATE TABLE `reader_underline`/);
+  assert.match(underlineMigration, /CREATE TABLE `reader_underline_note`/);
 
   const generatedJournal = await readJson<{
     entries: Array<{ tag: string; when: number }>;
   }>(path.join(generatedRoot, "drizzle", "meta", "_journal.json"));
   const latestJournalEntry = generatedJournal.entries.at(-1);
   assert.ok(latestJournalEntry, "generated journal must contain migrations");
-  assert.equal(latestJournalEntry.tag, "0005_massive_azazel");
-  assert.equal(latestJournalEntry.when, 1_786_724_117_932);
+  assert.equal(latestJournalEntry.tag, "0006_famous_iron_fist");
+  assert.equal(latestJournalEntry.when, 1_790_167_372_094);
   const expectedMigrationMatch = readinessSource.match(
     /expectedMigration:\s*([\d_]+)/,
   );
@@ -415,7 +421,7 @@ test("renders the repository mirror template as an independent app", async (t) =
     latestJournalEntry.when,
   );
 
-  const [previousSnapshot, folderPositionSnapshot, notePositionSnapshot, canvasSnapshot] = await Promise.all([
+  const [previousSnapshot, folderPositionSnapshot, notePositionSnapshot, canvasSnapshot, underlineSnapshot] = await Promise.all([
     readJson<{ id: string }>(
       path.join(generatedRoot, "drizzle", "meta", "0002_snapshot.json"),
     ),
@@ -425,13 +431,17 @@ test("renders the repository mirror template as an independent app", async (t) =
     readJson<{ id: string; prevId: string }>(
       path.join(generatedRoot, "drizzle", "meta", "0004_snapshot.json"),
     ),
-    readJson<{ prevId: string }>(
+    readJson<{ id: string; prevId: string }>(
       path.join(generatedRoot, "drizzle", "meta", "0005_snapshot.json"),
+    ),
+    readJson<{ prevId: string }>(
+      path.join(generatedRoot, "drizzle", "meta", "0006_snapshot.json"),
     ),
   ]);
   assert.equal(folderPositionSnapshot.prevId, previousSnapshot.id);
   assert.equal(notePositionSnapshot.prevId, folderPositionSnapshot.id);
   assert.equal(canvasSnapshot.prevId, notePositionSnapshot.id);
+  assert.equal(underlineSnapshot.prevId, canvasSnapshot.id);
 
   const markdownEditor = await readFile(
     path.join(generatedRoot, "src", "components", "markdown-editor.tsx"),

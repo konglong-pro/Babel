@@ -64,6 +64,16 @@ import {
 import { createRemarkFormulaMath, prepareFormulaMath } from "./formula-math";
 import { ReaderImage, ReaderImageZoom } from "./reader-image-zoom";
 
+export {
+  ReaderAnnotationLayer,
+  captureReaderUnderlineAnchor,
+  resolveReaderUnderlineAnchor,
+  type ReaderAnnotationLayerProps,
+  type ReaderNoteOption,
+  type ReaderUnderline,
+  type ReaderUnderlineAnchor,
+} from "./reader-annotations";
+
 export type RemarkFeature = "gfm" | "typst-math" | "formula-math";
 
 export interface ResolvedWikilink {

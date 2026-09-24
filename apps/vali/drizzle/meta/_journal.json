@@ -43,6 +43,13 @@
       "when": 1786724116085,
       "tag": "0005_groovy_goliath",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1790167342629,
+      "tag": "0006_fast_madrox",
+      "breakpoints": true
     }
   ]
 }

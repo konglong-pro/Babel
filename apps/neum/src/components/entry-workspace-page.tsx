@@ -21,14 +21,20 @@ export async function EntryWorkspacePage({
   const params = await searchParams;
   const folderId = numberParam(params.folder);
   const entryId = numberParam(params.entry);
+  const editRequested = entryId !== null && params.edit === "1";
+  const linkedUnderlineId = kind === "knowledge" && entryId === null && folderId !== null
+    ? numberParam(params.newLinked)
+    : null;
   const searchFocus = entryId === null ? null : entrySearchFocusFromParams(params);
 
   return (
     <EntriesWorkspace
-      key={`${kind}:folder:${folderId ?? "all"}:entry:${entryId ?? "none"}:search:${searchFocus?.field ?? "none"}:${searchFocus?.query ?? ""}`}
+      key={`${kind}:folder:${folderId ?? "all"}:entry:${entryId ?? "none"}:edit:${editRequested}:newLinked:${linkedUnderlineId ?? "none"}:search:${searchFocus?.field ?? "none"}:${searchFocus?.query ?? ""}`}
       kind={kind}
       initialFolderId={folderId}
       initialEntryId={entryId}
+      initialEditRequested={editRequested}
+      initialLinkedUnderlineId={linkedUnderlineId}
       initialSearchFocus={searchFocus}
     />
   );
