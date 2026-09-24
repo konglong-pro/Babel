@@ -19,7 +19,7 @@ test("shortcut definitions and checked-in defaults stay in lockstep", () => {
   ) as unknown;
 
   assert.deepEqual(defaultsDocument, {
-    schemaVersion: 3,
+    schemaVersion: 4,
     commands: SHORTCUT_DEFINITIONS,
   });
   assert.deepEqual(
@@ -27,7 +27,7 @@ test("shortcut definitions and checked-in defaults stay in lockstep", () => {
     SHORTCUT_COMMANDS,
   );
   assert.deepEqual(DEFAULT_SHORTCUT_SETTINGS, {
-    schemaVersion: 3,
+    schemaVersion: 4,
     bindings: {
       save: "Ctrl+S",
       new: "Ctrl+Alt+N",
@@ -37,6 +37,8 @@ test("shortcut definitions and checked-in defaults stay in lockstep", () => {
       cancel: "Escape",
       search: "Ctrl+F",
       delete: "Ctrl+Delete",
+      underlineSelection: "Ctrl+Shift+U",
+      removeUnderline: "Ctrl+Alt+U",
       commandPalette: "Ctrl+K",
       focusNextPane: "Ctrl+F6",
       focusPreviousPane: "Ctrl+Shift+F6",
@@ -108,9 +110,9 @@ test("shortcut bindings reject unsafe, uncapturable, and accidental bare keys", 
   }
 });
 
-test("shortcut settings require exact current keys and accept unbound v3 commands", () => {
+test("shortcut settings require exact current keys and accept unbound v4 commands", () => {
   const valid = {
-    schemaVersion: 3,
+    schemaVersion: 4,
     bindings: { ...DEFAULT_SHORTCUT_SETTINGS.bindings },
   };
   assert.deepEqual(parseShortcutSettings(valid), valid);
@@ -156,10 +158,10 @@ test("shortcut settings require exact current keys and accept unbound v3 command
       }),
     ShortcutValidationError,
   );
-  assert.throws(() => parseShortcutSettings({ ...valid, schemaVersion: 4 }), ShortcutValidationError);
+  assert.throws(() => parseShortcutSettings({ ...valid, schemaVersion: 5 }), ShortcutValidationError);
 });
 
-test("v1 and v2 migrations preserve old bindings and leave conflicting new commands unbound", () => {
+test("v1, v2, and v3 migrations preserve old bindings and leave conflicting new commands unbound", () => {
 
   const legacy = {
     schemaVersion: 1,
@@ -175,7 +177,7 @@ test("v1 and v2 migrations preserve old bindings and leave conflicting new comma
     },
   };
   assert.deepEqual(parseShortcutSettings(legacy), {
-    schemaVersion: 3,
+    schemaVersion: 4,
     bindings: {
       save: "Ctrl+Alt+S",
       new: "Ctrl+Alt+N",
@@ -185,6 +187,8 @@ test("v1 and v2 migrations preserve old bindings and leave conflicting new comma
       cancel: "Escape",
       search: "Ctrl+F",
       delete: "Ctrl+Delete",
+      underlineSelection: "Ctrl+Shift+U",
+      removeUnderline: "Ctrl+Alt+U",
       commandPalette: "Ctrl+K",
       focusNextPane: "Ctrl+F6",
       focusPreviousPane: "Ctrl+Shift+F6",
@@ -211,9 +215,11 @@ test("v1 and v2 migrations preserve old bindings and leave conflicting new comma
     },
   };
   assert.deepEqual(parseShortcutSettings(versionTwo), {
-    schemaVersion: 3,
+    schemaVersion: 4,
     bindings: {
       ...versionTwo.bindings,
+      underlineSelection: "Ctrl+Shift+U",
+      removeUnderline: "Ctrl+Alt+U",
       focusNextPane: "Ctrl+F6",
       focusPreviousPane: "Ctrl+Shift+F6",
       nextTab: null,
@@ -230,6 +236,26 @@ test("v1 and v2 migrations preserve old bindings and leave conflicting new comma
   };
   assert.equal(parseShortcutSettings(versionOneConflict).bindings.save, "Ctrl+R");
   assert.equal(parseShortcutSettings(versionOneConflict).bindings.read, null);
+
+  const versionThree = {
+    schemaVersion: 3,
+    bindings: Object.fromEntries(Object.entries(DEFAULT_SHORTCUT_SETTINGS.bindings).filter(
+      ([command]) => command !== "underlineSelection" && command !== "removeUnderline",
+    )),
+  };
+  const migratedVersionThree = parseShortcutSettings(versionThree);
+  assert.equal(migratedVersionThree.schemaVersion, 4);
+  assert.equal(migratedVersionThree.bindings.underlineSelection, "Ctrl+Shift+U");
+  assert.equal(migratedVersionThree.bindings.removeUnderline, "Ctrl+Alt+U");
+  const versionThreeConflict = {
+    ...versionThree,
+    bindings: { ...versionThree.bindings, save: "Ctrl+Shift+U", help: null },
+  };
+  const migratedConflict = parseShortcutSettings(versionThreeConflict);
+  assert.equal(migratedConflict.bindings.save, "Ctrl+Shift+U");
+  assert.equal(migratedConflict.bindings.help, null);
+  assert.equal(migratedConflict.bindings.underlineSelection, null);
+  assert.equal(migratedConflict.bindings.removeUnderline, "Ctrl+Alt+U");
 
   const legacyEscapeOwner = {
     ...legacy,

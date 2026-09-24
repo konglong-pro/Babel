@@ -5,6 +5,7 @@ import {
   captureReaderUnderlineAnchor,
   resolveReaderUnderlineAnchor,
 } from "@babel-apps/markdown/react";
+import { resolveReaderUnderlineRemovalId } from "../src/reader-annotation-anchor";
 
 test("captures the selected rendered text with surrounding context", () => {
   const text = "Intro: blue **is rendered text** in this test.";
@@ -80,4 +81,24 @@ test("preserves UTF-16 offsets for selections containing emoji", () => {
     start: 16,
     end: 18,
   });
+});
+
+test("remove underline targets only the exact selected passage or the active line", () => {
+  const original = "First point. Second point.";
+  const start = original.indexOf("Second point");
+  const anchor = captureReaderUnderlineAnchor(original, start, start + "Second point".length);
+  assert.ok(anchor);
+  const annotations = [{ id: 7, fieldKey: "body", color: "yellow", anchor, noteIds: [] }];
+  const updated = `Preface. ${original}`;
+  const movedStart = updated.indexOf("Second point");
+  const selected = captureReaderUnderlineAnchor(updated, movedStart, movedStart + "Second point".length);
+  assert.ok(selected);
+
+  assert.equal(resolveReaderUnderlineRemovalId(updated, annotations, selected, null), 7);
+  assert.equal(resolveReaderUnderlineRemovalId(updated, annotations, {
+    ...selected,
+    end: selected.end - 1,
+  }, 7), null);
+  assert.equal(resolveReaderUnderlineRemovalId(updated, annotations, null, 7), 7);
+  assert.equal(resolveReaderUnderlineRemovalId("Nothing remains.", annotations, selected, 7), null);
 });

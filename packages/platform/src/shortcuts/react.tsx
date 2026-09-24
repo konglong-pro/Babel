@@ -23,6 +23,7 @@ import {
   SHORTCUT_DEFINITIONS,
   shouldIgnoreShortcutEvent,
   type ShortcutCommand,
+  type ShortcutBindings,
   type ShortcutKeyboardEventLike,
   type ShortcutSettings,
 } from "./core";
@@ -102,6 +103,7 @@ interface PaletteResult {
 }
 
 const PaletteRegistrationContext = createContext<PaletteRegistrationContextValue | null>(null);
+const ShortcutBindingsContext = createContext<ShortcutBindings>(DEFAULT_SHORTCUT_SETTINGS.bindings);
 
 const EDITABLE_SELECTOR = [
   "input:not([type='hidden'])",
@@ -361,7 +363,12 @@ export function commandAllowedFromEditable(
   command: ShortcutCommand,
   editable: boolean,
 ): boolean {
-  return !editable || (command !== "new" && command !== "edit" && command !== "delete");
+  return !editable || (command !== "new" && command !== "edit" && command !== "delete" &&
+    command !== "underlineSelection" && command !== "removeUnderline");
+}
+
+export function useShortcutBinding(command: ShortcutCommand): string | null {
+  return useContext(ShortcutBindingsContext)[command];
 }
 
 export function handleReadShortcutKeyDown(
@@ -982,6 +989,7 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts" }: Shor
   }, [paletteOpen, selectedOptionId]);
 
   return (
+    <ShortcutBindingsContext.Provider value={settings.bindings}>
     <PaletteRegistrationContext.Provider value={registrationContext}>
       <PaneFocusProvider>{children}</PaneFocusProvider>
       <dialog
@@ -1098,5 +1106,6 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts" }: Shor
         </section>
       </dialog>
     </PaletteRegistrationContext.Provider>
+    </ShortcutBindingsContext.Provider>
   );
 }

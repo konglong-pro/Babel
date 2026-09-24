@@ -372,7 +372,7 @@ function Get-BabelShortcutDefinitions {
     if (-not (Test-BabelShortcutProperty -InputObject $document -Name "schemaVersion")) {
         throw "Shortcut defaults are missing schemaVersion."
     }
-    if (-not ($document.schemaVersion -is [int] -or $document.schemaVersion -is [long]) -or [long]$document.schemaVersion -ne 3) {
+    if (-not ($document.schemaVersion -is [int] -or $document.schemaVersion -is [long]) -or [long]$document.schemaVersion -ne 4) {
         throw "Unsupported shortcut defaults schemaVersion '$($document.schemaVersion)'."
     }
     if (-not (Test-BabelShortcutProperty -InputObject $document -Name "commands")) {
@@ -506,7 +506,8 @@ function Read-BabelShortcutSettings {
             (
                 [long]$document.schemaVersion -ne 1 -and
                 [long]$document.schemaVersion -ne 2 -and
-                [long]$document.schemaVersion -ne 3
+                [long]$document.schemaVersion -ne 3 -and
+                [long]$document.schemaVersion -ne 4
             )
         ) {
             throw "Unsupported shortcut settings schemaVersion '$($document.schemaVersion)'."
@@ -540,9 +541,28 @@ function Read-BabelShortcutSettings {
             "delete",
             "commandPalette"
         )
+        $versionThreeCommandIds = @(
+            "save",
+            "new",
+            "edit",
+            "read",
+            "confirm",
+            "cancel",
+            "search",
+            "delete",
+            "commandPalette",
+            "focusNextPane",
+            "focusPreviousPane",
+            "nextTab",
+            "previousTab",
+            "closeTab",
+            "quickOpen",
+            "help"
+        )
         $expectedCommandIds = switch ([long]$document.schemaVersion) {
             1 { $legacyCommandIds }
             2 { $versionTwoCommandIds }
+            3 { $versionThreeCommandIds }
             default { $currentCommandIds }
         }
         Assert-BabelShortcutExactProperties `
@@ -554,29 +574,37 @@ function Read-BabelShortcutSettings {
         foreach ($property in @($document.bindings.PSObject.Properties)) {
             if (
                 $null -eq $property.Value -and
-                [long]$document.schemaVersion -eq 3
+                [long]$document.schemaVersion -ge 3
             ) {
                 $bindings[[string]$property.Name] = $null
                 continue
             }
             if (-not ($property.Value -is [string])) {
-                $expectedType = if ([long]$document.schemaVersion -eq 3) { "a string or null" } else { "a string" }
+                $expectedType = if ([long]$document.schemaVersion -ge 3) { "a string or null" } else { "a string" }
                 throw "Shortcut setting '$($property.Name)' must be $expectedType."
             }
             $bindings[[string]$property.Name] = [string]$property.Value
         }
 
-        if ([long]$document.schemaVersion -lt 3) {
+        if ([long]$document.schemaVersion -lt 4) {
             $usedBindings = @{}
             $legacyCanonicalBindings = [ordered]@{}
             foreach ($commandId in $expectedCommandIds) {
+                if ($null -eq $bindings[$commandId]) {
+                    $legacyCanonicalBindings[$commandId] = $null
+                    continue
+                }
                 $rawLegacyBinding = [string]$bindings[$commandId]
-                if (Test-BabelLegacyFixedNavigationBinding -Binding $rawLegacyBinding) {
+                if (
+                    [long]$document.schemaVersion -lt 3 -and
+                    (Test-BabelLegacyFixedNavigationBinding -Binding $rawLegacyBinding)
+                ) {
                     $legacyCanonicalBindings[$commandId] = $null
                     continue
                 }
                 $canonicalBinding = ConvertTo-BabelShortcutBinding -Binding $rawLegacyBinding
                 if (
+                    [long]$document.schemaVersion -lt 3 -and
                     $canonicalBinding -eq "Escape" -and
                     $commandId -ne "cancel"
                 ) {
@@ -657,7 +685,7 @@ function Write-BabelShortcutSettings {
     }
 
     $document = [ordered]@{
-        schemaVersion = 3
+        schemaVersion = 4
         bindings = $canonicalBindings
     }
     $json = $document | ConvertTo-Json -Depth 4

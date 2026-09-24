@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "commands": [
     {
       "command": "save",
@@ -40,6 +40,16 @@
       "command": "delete",
       "label": "Delete",
       "defaultBinding": "Ctrl+Delete"
+    },
+    {
+      "command": "underlineSelection",
+      "label": "Underline Selection",
+      "defaultBinding": "Ctrl+Shift+U"
+    },
+    {
+      "command": "removeUnderline",
+      "label": "Remove Underline",
+      "defaultBinding": "Ctrl+Alt+U"
     },
     {
       "command": "commandPalette",

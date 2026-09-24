@@ -326,6 +326,8 @@ $expectedShortcutCommands = @(
     "cancel",
     "search",
     "delete",
+    "underlineSelection",
+    "removeUnderline",
     "commandPalette",
     "focusNextPane",
     "focusPreviousPane",
@@ -338,7 +340,7 @@ $expectedShortcutCommands = @(
 $shortcutDefinitions = @(Get-BabelShortcutDefinitions -Path $shortcutDefaultsPath)
 $actualShortcutCommands = @($shortcutDefinitions | ForEach-Object { [string]$_.Id })
 if (($actualShortcutCommands -join "|") -cne ($expectedShortcutCommands -join "|")) {
-    throw "Shortcut defaults must define the schema v3 commands in their registered order."
+    throw "Shortcut defaults must define the schema v4 commands in their registered order."
 }
 $shortcutDefaultBindings = Get-BabelDefaultShortcutBindings -Definitions $shortcutDefinitions
 

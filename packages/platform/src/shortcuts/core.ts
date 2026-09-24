@@ -1,4 +1,4 @@
-export const SHORTCUT_SCHEMA_VERSION = 3 as const;
+export const SHORTCUT_SCHEMA_VERSION = 4 as const;
 
 export const SHORTCUT_COMMANDS = [
   "save",
@@ -9,6 +9,8 @@ export const SHORTCUT_COMMANDS = [
   "cancel",
   "search",
   "delete",
+  "underlineSelection",
+  "removeUnderline",
   "commandPalette",
   "focusNextPane",
   "focusPreviousPane",
@@ -126,6 +128,16 @@ export const SHORTCUT_DEFINITIONS: readonly ShortcutDefinition[] = Object.freeze
   Object.freeze({ command: "search", label: "Search", defaultBinding: "Ctrl+F" }),
   Object.freeze({ command: "delete", label: "Delete", defaultBinding: "Ctrl+Delete" }),
   Object.freeze({
+    command: "underlineSelection",
+    label: "Underline Selection",
+    defaultBinding: "Ctrl+Shift+U",
+  }),
+  Object.freeze({
+    command: "removeUnderline",
+    label: "Remove Underline",
+    defaultBinding: "Ctrl+Alt+U",
+  }),
+  Object.freeze({
     command: "commandPalette",
     label: "Command Palette",
     defaultBinding: "Ctrl+K",
@@ -188,6 +200,24 @@ const VERSION_TWO_SHORTCUT_COMMANDS = [
   "search",
   "delete",
   "commandPalette",
+] as const;
+const VERSION_THREE_SHORTCUT_COMMANDS = [
+  "save",
+  "new",
+  "edit",
+  "read",
+  "confirm",
+  "cancel",
+  "search",
+  "delete",
+  "commandPalette",
+  "focusNextPane",
+  "focusPreviousPane",
+  "nextTab",
+  "previousTab",
+  "closeTab",
+  "quickOpen",
+  "help",
 ] as const;
 const MODIFIER_ORDER = ["Ctrl", "Alt", "Shift"] as const;
 const NAMED_KEYS = new Map<string, ShortcutKey>([
@@ -390,6 +420,7 @@ export function parseShortcutSettings(value: unknown): ShortcutSettings {
   if (
     value.schemaVersion !== 1 &&
     value.schemaVersion !== 2 &&
+    value.schemaVersion !== 3 &&
     value.schemaVersion !== SHORTCUT_SCHEMA_VERSION
   ) {
     throw new ShortcutValidationError(
@@ -404,38 +435,40 @@ export function parseShortcutSettings(value: unknown): ShortcutSettings {
       ? VERSION_ONE_SHORTCUT_COMMANDS
       : value.schemaVersion === 2
         ? VERSION_TWO_SHORTCUT_COMMANDS
-        : SHORTCUT_COMMANDS;
+        : value.schemaVersion === 3
+          ? VERSION_THREE_SHORTCUT_COMMANDS
+          : SHORTCUT_COMMANDS;
   assertExactKeys(value.bindings, sourceCommands, "Shortcut bindings");
 
   const sourceBindings = new Map<ShortcutCommand, ShortcutBinding>();
   const assignedBindings = new Map<string, ShortcutCommand>();
   for (const command of sourceCommands) {
     const rawBinding = value.bindings[command];
-    if (rawBinding === null && value.schemaVersion === SHORTCUT_SCHEMA_VERSION) {
+    if (rawBinding === null && value.schemaVersion >= 3) {
       sourceBindings.set(command, null);
       continue;
     }
     if (typeof rawBinding !== "string") {
       throw new ShortcutValidationError(
         `Shortcut binding for ${command} must be a string${
-          value.schemaVersion === SHORTCUT_SCHEMA_VERSION ? " or null" : ""
+          value.schemaVersion >= 3 ? " or null" : ""
         }.`,
       );
     }
 
     const binding = parseShortcutBindingInternal(
       rawBinding,
-      value.schemaVersion !== SHORTCUT_SCHEMA_VERSION,
+      value.schemaVersion < 3,
     ).binding;
     if (
-      value.schemaVersion !== SHORTCUT_SCHEMA_VERSION &&
+      value.schemaVersion < 3 &&
       LEGACY_FIXED_NAVIGATION_BINDINGS.has(binding)
     ) {
       sourceBindings.set(command, null);
       continue;
     }
     if (
-      value.schemaVersion !== SHORTCUT_SCHEMA_VERSION &&
+      value.schemaVersion < 3 &&
       binding === "Escape" &&
       command !== "cancel"
     ) {

@@ -94,6 +94,25 @@ export function resolveReaderUnderlineAnchor(
   return best.position;
 }
 
+/** Remove only an exact selected underline, or the explicitly active line when nothing is selected. */
+export function resolveReaderUnderlineRemovalId(
+  text: string,
+  annotations: readonly ReaderUnderline[],
+  selected: ReaderUnderlineAnchor | null,
+  activeId: number | null,
+): number | null {
+  if (selected === null) {
+    return annotations.find((annotation) => annotation.id === activeId)?.id ?? null;
+  }
+
+  const matches = annotations.filter((annotation) => {
+    const position = resolveReaderUnderlineAnchor(text, annotation.anchor);
+    return position !== null && position.start === selected.start && position.end === selected.end;
+  });
+  if (matches.length === 1) return matches[0].id;
+  return matches.find((annotation) => annotation.id === activeId)?.id ?? null;
+}
+
 function matchingPrefix(text: string, start: number, prefix: string): number {
   let count = 0;
   while (count < prefix.length && count < start &&

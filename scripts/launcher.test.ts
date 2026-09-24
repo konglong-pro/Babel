@@ -397,8 +397,8 @@ test("shared platform changes invalidate application builds", () => {
   );
 });
 
-test("the launcher edits the shared schema v3 shortcut contract", () => {
-  assert.equal(shortcutDefaults.schemaVersion, 3);
+test("the launcher edits the shared schema v4 shortcut contract", () => {
+  assert.equal(shortcutDefaults.schemaVersion, 4);
   assert.deepEqual(
     shortcutDefaults.commands?.map(({ command, defaultBinding }) => [command, defaultBinding]),
     [
@@ -410,6 +410,8 @@ test("the launcher edits the shared schema v3 shortcut contract", () => {
       ["cancel", "Escape"],
       ["search", "Ctrl+F"],
       ["delete", "Ctrl+Delete"],
+      ["underlineSelection", "Ctrl+Shift+U"],
+      ["removeUnderline", "Ctrl+Alt+U"],
       ["commandPalette", "Ctrl+K"],
       ["focusNextPane", "Ctrl+F6"],
       ["focusPreviousPane", "Ctrl+Shift+F6"],
@@ -557,7 +559,7 @@ test("shortcut settings are normalized, validated, and replaced atomically", () 
   ]) {
     assert.match(shortcutsHelperSource, new RegExp(`"${keyName}"`));
   }
-  assert.match(shortcutsHelperSource, /schemaVersion\s*=\s*3[\s\S]{0,100}bindings/i);
+  assert.match(shortcutsHelperSource, /schemaVersion\s*=\s*4[\s\S]{0,100}bindings/i);
   assert.match(shortcutsHelperSource, /migratedBindings[\s\S]{0,900}\$null/i);
   assert.match(shortcutsHelperSource, /Write-Warning/i, "missing or invalid user settings must warn");
   assert.match(shortcutsHelperSource, /Text\.UTF8Encoding\(\$false\)/i, "settings must use UTF-8 without a BOM");
@@ -668,13 +670,40 @@ if (
 [void](Write-BabelShortcutSettings -Definitions $definitions -Bindings $legacyReorderLoaded.Bindings -Path $legacyReorderSettingsPath)
 $legacyReorderRoundTrip = Get-Content -LiteralPath $legacyReorderSettingsPath -Raw | ConvertFrom-Json
 if (
-    [int]$legacyReorderRoundTrip.schemaVersion -ne 3 -or
+    [int]$legacyReorderRoundTrip.schemaVersion -ne 4 -or
     $null -ne $legacyReorderRoundTrip.bindings.read -or
     $legacyReorderRoundTrip.bindings.save -ne "Ctrl+Alt+S"
 ) {
-    throw "The migrated fixed-reorder binding did not round-trip as schema v3 null."
+    throw "The migrated fixed-reorder binding did not round-trip as schema v4 null."
 }
 [IO.File]::Delete($legacyReorderSettingsPath)
+$versionThreeSettingsPath = "$settingsPath.version-three"
+$versionThreeDocument = [ordered]@{
+    schemaVersion = 3
+    bindings = [ordered]@{}
+}
+foreach ($definition in $definitions) {
+    if ([string]$definition.Id -in @("underlineSelection", "removeUnderline")) { continue }
+    $versionThreeDocument.bindings[[string]$definition.Id] = [string]$definition.DefaultBinding
+}
+$versionThreeDocument.bindings["save"] = "Ctrl+Shift+U"
+$versionThreeDocument.bindings["help"] = $null
+[IO.File]::WriteAllText(
+    $versionThreeSettingsPath,
+    ($versionThreeDocument | ConvertTo-Json -Depth 4),
+    (New-Object Text.UTF8Encoding($false))
+)
+$versionThreeLoaded = Read-BabelShortcutSettings -Definitions $definitions -Path $versionThreeSettingsPath
+if (
+    $versionThreeLoaded.Source -ne "User" -or
+    $versionThreeLoaded.Bindings["save"] -ne "Ctrl+Shift+U" -or
+    $null -ne $versionThreeLoaded.Bindings["help"] -or
+    $null -ne $versionThreeLoaded.Bindings["underlineSelection"] -or
+    $versionThreeLoaded.Bindings["removeUnderline"] -ne "Ctrl+Alt+U"
+) {
+    throw "Schema v3 shortcut settings did not preserve custom and unbound commands."
+}
+[IO.File]::Delete($versionThreeSettingsPath)
 [void](Write-BabelShortcutSettings -Definitions $definitions -Bindings $loaded.Bindings -Path $settingsPath)
 if ((ConvertTo-BabelShortcutBinding -Binding "Ctrl+R") -ne "Ctrl+R") {
     throw "Ctrl+R was not accepted as a Babel shortcut."
@@ -784,11 +813,13 @@ Write-Output "Babel shortcut replacement test passed."
         schemaVersion?: number;
         bindings?: Record<string, string | null>;
       };
-      assert.equal(savedSettings.schemaVersion, 3);
+      assert.equal(savedSettings.schemaVersion, 4);
       assert.equal(savedSettings.bindings?.save, "Ctrl+Alt+S");
       assert.equal(savedSettings.bindings?.read, "Ctrl+R");
       assert.equal(savedSettings.bindings?.commandPalette, "Ctrl+Alt+P");
       assert.equal(savedSettings.bindings?.quickOpen, null);
+      assert.equal(savedSettings.bindings?.underlineSelection, "Ctrl+Shift+U");
+      assert.equal(savedSettings.bindings?.removeUnderline, "Ctrl+Alt+U");
       assert.deepEqual(
         Object.keys(savedSettings.bindings ?? {}),
         shortcutDefaults.commands?.map(({ command }) => command),
@@ -913,7 +944,7 @@ test(
 
     assert.match(stdout, /Babel GUI smoke test passed/i);
     assert.match(stdout, /7 shortcut control\(s\)/i);
-    assert.match(stdout, /16 shortcut command\(s\)/i);
+    assert.match(stdout, /18 shortcut command\(s\)/i);
   },
 );
 

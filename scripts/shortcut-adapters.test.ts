@@ -66,7 +66,7 @@ test("every registered app and the mirror template expose the global shortcut se
     readonly schemaVersion: number;
     readonly commands: ReadonlyArray<{ readonly command: string }>;
   };
-  assert.equal(defaults.schemaVersion, 3, "keyboard navigation commands require schema v3");
+  assert.equal(defaults.schemaVersion, 4, "reader underline commands require schema v4");
   const configuredCommands = new Set(defaults.commands.map(({ command }) => command));
   for (const command of requiredNavigationCommands) {
     assert.ok(

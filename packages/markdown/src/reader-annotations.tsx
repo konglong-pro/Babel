@@ -13,9 +13,12 @@ import {
   type ReactNode,
 } from "react";
 
+import { useShortcutBinding } from "@babel-apps/platform/shortcuts/react";
+
 import {
   captureReaderUnderlineAnchor,
   resolveReaderUnderlineAnchor,
+  resolveReaderUnderlineRemovalId,
   type ReaderUnderline,
   type ReaderUnderlineAnchor,
   type ReaderTextPosition,
@@ -54,8 +57,6 @@ const COLORS = [
   { key: "green", label: "Green", value: "#288353" },
   { key: "blue", label: "Blue", value: "#386bd6" },
 ] as const;
-
-const UNDERLINE_SHORTCUT = "Ctrl/⌘+Shift+U";
 
 type UnderlineColor = (typeof COLORS)[number];
 
@@ -159,10 +160,13 @@ export function ReaderAnnotationLayer({
 }: ReaderAnnotationLayerProps) {
   const instanceId = useId().replace(/[^a-zA-Z0-9_-]/gu, "");
   const registryPrefix = `babel-reader-underline-${instanceId}`;
+  const underlineBinding = useShortcutBinding("underlineSelection");
+  const removeBinding = useShortcutBinding("removeUnderline");
   const bodyContainerRef = useRef<HTMLDivElement>(null);
   const pickerInputRef = useRef<HTMLInputElement>(null);
   const positionedRef = useRef<PositionedUnderline[]>([]);
   const [selected, setSelected] = useState<ReaderUnderlineAnchor | null>(null);
+  const [readerText, setReaderText] = useState("");
   const [shortcutColor, setShortcutColor] = useState<UnderlineColor["key"]>("yellow");
   const [activeId, setActiveId] = useState<number | null>(null);
   const [linkingId, setLinkingId] = useState<number | null>(null);
@@ -176,6 +180,7 @@ export function ReaderAnnotationLayer({
     [annotations, fieldKey],
   );
   const active = fieldAnnotations.find((annotation) => annotation.id === activeId) ?? null;
+  const removalId = resolveReaderUnderlineRemovalId(readerText, fieldAnnotations, selected, activeId);
   const pickerNotes = useMemo(() => {
     if (active === null) return [];
     const linked = new Set(active.noteIds);
@@ -197,7 +202,10 @@ export function ReaderAnnotationLayer({
     const root = bodyContainerRef.current?.querySelector<HTMLElement>(textRootSelector);
     if (root === null || root === undefined) return;
     const doc = root.ownerDocument;
-    const updateSelection = () => setSelected(selectedAnchor(root));
+    const updateSelection = () => {
+      setReaderText(root.textContent ?? "");
+      setSelected(selectedAnchor(root));
+    };
     doc.addEventListener("selectionchange", updateSelection);
     return () => doc.removeEventListener("selectionchange", updateSelection);
   }, [children, textRootSelector]);
@@ -222,6 +230,7 @@ export function ReaderAnnotationLayer({
     const refresh = () => {
       if (disposed) return;
       const text = root.textContent ?? "";
+      setReaderText((current) => current === text ? current : text);
       const positioned: PositionedUnderline[] = [];
       const unlocated: number[] = [];
       for (const annotation of fieldAnnotations) {
@@ -300,23 +309,13 @@ export function ReaderAnnotationLayer({
     );
   }, [onAdd, runAction]);
 
-  useEffect(() => {
-    const root = bodyContainerRef.current?.querySelector<HTMLElement>(textRootSelector);
-    if (root === null || root === undefined) return;
-    const doc = root.ownerDocument;
-    const handleShortcut = (event: KeyboardEvent) => {
-      if (!enabled || busy || event.repeat || event.isComposing || !event.shiftKey ||
-        event.altKey || event.ctrlKey === event.metaKey || event.code !== "KeyU") return;
-      const target = event.target;
-      if (target instanceof Element && target.closest("input, textarea, select, [contenteditable]")) return;
-      const anchor = selectedAnchor(root);
-      if (anchor === null) return;
-      event.preventDefault();
-      addUnderline(anchor, shortcutColor);
-    };
-    doc.addEventListener("keydown", handleShortcut, true);
-    return () => doc.removeEventListener("keydown", handleShortcut, true);
-  }, [addUnderline, busy, children, enabled, shortcutColor, textRootSelector]);
+  const removeUnderline = useCallback((id: number) => {
+    void runAction(() => onRemove(id), () => {
+      setActiveId((current) => current === id ? null : current);
+      setSelected(null);
+      bodyContainerRef.current?.ownerDocument.getSelection()?.removeAllRanges();
+    });
+  }, [onRemove, runAction]);
 
   function selectExistingLine(event: ReactMouseEvent<HTMLDivElement>) {
     const target = event.target;
@@ -350,14 +349,32 @@ export function ReaderAnnotationLayer({
     <div className="babel-reader-annotations">
       <style>{highlightStyles}</style>
       <div className="babel-reader-annotations__toolbar" aria-label="Reading underlines">
+        {enabled && selected !== null ? (
+          <button hidden type="button" data-babel-command-adapter=""
+            data-babel-command="underlineSelection" disabled={busy}
+            onClick={() => {
+              const root = bodyContainerRef.current?.querySelector<HTMLElement>(textRootSelector);
+              const anchor = root ? selectedAnchor(root) : null;
+              if (anchor !== null) addUnderline(anchor, shortcutColor);
+            }} />
+        ) : null}
+        {enabled && removalId !== null ? (
+          <button hidden type="button" data-babel-command-adapter=""
+            data-babel-command="removeUnderline" disabled={busy}
+            onClick={() => removeUnderline(removalId)} />
+        ) : null}
         {enabled ? (
           selected === null ? (
             <span className="babel-reader-annotations__hint">
-              Select text to underline. {UNDERLINE_SHORTCUT} uses {paletteColor(shortcutColor).label}.
+              Select text to underline. {underlineBinding === null
+                ? "Choose a color."
+                : `${underlineBinding} uses ${paletteColor(shortcutColor).label}.`}
             </span>
           ) : (
             <div className="babel-reader-annotations__palette" role="group" aria-label="Underline selected text">
-              <span>Underline selection ({UNDERLINE_SHORTCUT}: {paletteColor(shortcutColor).label}):</span>
+              <span>Underline selection{underlineBinding === null
+                ? ":"
+                : ` (${underlineBinding}: ${paletteColor(shortcutColor).label}):`}</span>
               {COLORS.map((color) => (
                 <button
                   key={color.key}
@@ -373,6 +390,13 @@ export function ReaderAnnotationLayer({
                   <span aria-hidden="true">A</span>
                 </button>
               ))}
+              {removalId !== null ? (
+                <span className="babel-reader-annotations__actions">
+                  <button type="button" disabled={busy}
+                    onPointerDown={(event) => event.preventDefault()}
+                    onClick={() => removeUnderline(removalId)}>Remove underline</button>
+                </span>
+              ) : null}
             </div>
           )
         ) : (
@@ -411,7 +435,8 @@ export function ReaderAnnotationLayer({
                   setNoteQuery("");
                 }}>Link existing note</button>
               <button type="button" disabled={!enabled || busy}
-                onClick={() => void runAction(() => onRemove(active.id), () => setActiveId(null))}>Remove line</button>
+                title={removeBinding === null ? "Remove line" : `Remove line (${removeBinding})`}
+                onClick={() => removeUnderline(active.id)}>Remove line</button>
             </div>
             {active.noteIds.length > 0 ? (
               <div className="babel-reader-annotations__linked" aria-label="Linked notes">

@@ -11,7 +11,7 @@ import {
 } from "../src/shortcuts/react";
 
 test("editing focus preserves text editing commands", () => {
-  for (const command of ["new", "edit", "delete"] as const) {
+  for (const command of ["new", "edit", "delete", "underlineSelection", "removeUnderline"] as const) {
     assert.equal(commandAllowedFromEditable(command, true), false);
   }
   for (const command of [

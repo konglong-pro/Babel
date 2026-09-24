@@ -35,7 +35,7 @@ test("shortcut loader rereads valid settings and falls back for missing or inval
     assert.deepEqual(loadShortcutSettings({ path: settingsPath }), DEFAULT_SHORTCUT_SETTINGS);
 
     const changed = {
-      schemaVersion: 3,
+      schemaVersion: 4,
       bindings: { ...DEFAULT_SHORTCUT_SETTINGS.bindings, save: "Ctrl+Alt+S" },
     };
     writeFileSync(settingsPath, JSON.stringify(changed), "utf8");
@@ -63,7 +63,7 @@ test("shortcut loader rereads valid settings and falls back for missing or inval
     };
     writeFileSync(settingsPath, JSON.stringify(legacy), "utf8");
     assert.deepEqual(loadShortcutSettings({ path: settingsPath }), {
-      schemaVersion: 3,
+      schemaVersion: 4,
       bindings: {
         save: "Ctrl+Alt+S",
         new: "Ctrl+Alt+N",
@@ -73,6 +73,8 @@ test("shortcut loader rereads valid settings and falls back for missing or inval
         cancel: "Escape",
         search: "Ctrl+F",
         delete: "Ctrl+Delete",
+        underlineSelection: "Ctrl+Shift+U",
+        removeUnderline: "Ctrl+Alt+U",
         commandPalette: "Ctrl+K",
         focusNextPane: "Ctrl+F6",
         focusPreviousPane: "Ctrl+Shift+F6",
