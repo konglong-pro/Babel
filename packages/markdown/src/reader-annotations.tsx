@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useId,
   useLayoutEffect,
@@ -53,6 +54,8 @@ const COLORS = [
   { key: "green", label: "Green", value: "#288353" },
   { key: "blue", label: "Blue", value: "#386bd6" },
 ] as const;
+
+const UNDERLINE_SHORTCUT = "Ctrl/⌘+Shift+U";
 
 type UnderlineColor = (typeof COLORS)[number];
 
@@ -160,6 +163,7 @@ export function ReaderAnnotationLayer({
   const pickerInputRef = useRef<HTMLInputElement>(null);
   const positionedRef = useRef<PositionedUnderline[]>([]);
   const [selected, setSelected] = useState<ReaderUnderlineAnchor | null>(null);
+  const [shortcutColor, setShortcutColor] = useState<UnderlineColor["key"]>("yellow");
   const [activeId, setActiveId] = useState<number | null>(null);
   const [linkingId, setLinkingId] = useState<number | null>(null);
   const [noteQuery, setNoteQuery] = useState("");
@@ -271,7 +275,7 @@ export function ReaderAnnotationLayer({
     };
   }, [children, fieldAnnotations, registryPrefix, textRootSelector]);
 
-  async function runAction(action: () => void | Promise<void>, onSuccess?: () => void) {
+  const runAction = useCallback(async (action: () => void | Promise<void>, onSuccess?: () => void) => {
     if (!enabled || busy) return;
     setBusy(true);
     setError("");
@@ -283,7 +287,36 @@ export function ReaderAnnotationLayer({
     } finally {
       setBusy(false);
     }
-  }
+  }, [busy, enabled]);
+
+  const addUnderline = useCallback((anchor: ReaderUnderlineAnchor, color: UnderlineColor["key"]) => {
+    void runAction(
+      () => onAdd(anchor, color),
+      () => {
+        setShortcutColor(color);
+        setSelected(null);
+        bodyContainerRef.current?.ownerDocument.getSelection()?.removeAllRanges();
+      },
+    );
+  }, [onAdd, runAction]);
+
+  useEffect(() => {
+    const root = bodyContainerRef.current?.querySelector<HTMLElement>(textRootSelector);
+    if (root === null || root === undefined) return;
+    const doc = root.ownerDocument;
+    const handleShortcut = (event: KeyboardEvent) => {
+      if (!enabled || busy || event.repeat || event.isComposing || !event.shiftKey ||
+        event.altKey || event.ctrlKey === event.metaKey || event.code !== "KeyU") return;
+      const target = event.target;
+      if (target instanceof Element && target.closest("input, textarea, select, [contenteditable]")) return;
+      const anchor = selectedAnchor(root);
+      if (anchor === null) return;
+      event.preventDefault();
+      addUnderline(anchor, shortcutColor);
+    };
+    doc.addEventListener("keydown", handleShortcut, true);
+    return () => doc.removeEventListener("keydown", handleShortcut, true);
+  }, [addUnderline, busy, children, enabled, shortcutColor, textRootSelector]);
 
   function selectExistingLine(event: ReactMouseEvent<HTMLDivElement>) {
     const target = event.target;
@@ -319,10 +352,12 @@ export function ReaderAnnotationLayer({
       <div className="babel-reader-annotations__toolbar" aria-label="Reading underlines">
         {enabled ? (
           selected === null ? (
-            <span className="babel-reader-annotations__hint">Select text to underline.</span>
+            <span className="babel-reader-annotations__hint">
+              Select text to underline. {UNDERLINE_SHORTCUT} uses {paletteColor(shortcutColor).label}.
+            </span>
           ) : (
             <div className="babel-reader-annotations__palette" role="group" aria-label="Underline selected text">
-              <span>Underline selection:</span>
+              <span>Underline selection ({UNDERLINE_SHORTCUT}: {paletteColor(shortcutColor).label}):</span>
               {COLORS.map((color) => (
                 <button
                   key={color.key}
@@ -333,13 +368,7 @@ export function ReaderAnnotationLayer({
                   title={`${color.label} underline`}
                   disabled={busy}
                   onPointerDown={(event) => event.preventDefault()}
-                  onClick={() => void runAction(
-                    () => onAdd(selected, color.key),
-                    () => {
-                      setSelected(null);
-                      bodyContainerRef.current?.ownerDocument.getSelection()?.removeAllRanges();
-                    },
-                  )}
+                  onClick={() => addUnderline(selected, color.key)}
                 >
                   <span aria-hidden="true">A</span>
                 </button>
@@ -364,7 +393,10 @@ export function ReaderAnnotationLayer({
                   aria-pressed={paletteColor(active.color).key === color.key}
                   title={`Change to ${color.label}`}
                   disabled={!enabled || busy}
-                  onClick={() => void runAction(() => onRecolor(active.id, color.key))}
+                  onClick={() => void runAction(
+                    () => onRecolor(active.id, color.key),
+                    () => setShortcutColor(color.key),
+                  )}
                 >
                   <span aria-hidden="true">A</span>
                 </button>
