@@ -50,17 +50,18 @@ const shortcutDefaults = JSON.parse(shortcutDefaultsSource) as {
   commands?: Array<{ command?: string; label?: string; defaultBinding?: string }>;
 };
 
-test("the launcher opens a verified notebook in the system browser", () => {
+test("the launcher opens a verified notebook inside Babel desktop", () => {
   assert.equal(
     /Start-Process\s+-FilePath\s+\$status\.App\.Url/i.test(workerSource),
     false,
     "the worker must not open an application URL",
   );
-  assert.match(
+  assert.doesNotMatch(
     guiSource,
     /Start-Process\s+-FilePath\s+\$App\.IdentityUrl/i,
-    "the GUI must hand the registered identity URL to the system browser",
+    "OPEN must not hand the notebook to the system browser",
   );
+  assert.match(guiSource, /\$script:DesktopHost\.OpenNotebook\(\$App\.Id,\s*\$App\.Name,\s*\$App\.IdentityUrl\)/);
   assert.match(guiSource, /\bOpenSelectedButton\b/i);
   assert.match(xamlSource, /x:Name=["']OpenSelectedButton["']/i);
   assert.match(xamlSource, /Content=["']OPEN["']/i);
@@ -77,7 +78,7 @@ test("the launcher opens a verified notebook in the system browser", () => {
   assert.ok(
     openSource.search(/Test-AppHealthRecentlyPassed\s+-App\s+\$App/i) <
       openSource.search(/Complete-BabelOpenSuccess\s+-App\s+\$App/i),
-    "OPEN must verify health and identity before opening the browser",
+    "OPEN must verify health and identity before opening the desktop view",
   );
 });
 
@@ -441,7 +442,8 @@ test("the launcher edits the shared schema v4 shortcut contract", () => {
   assert.match(guiSource, /Write-BabelShortcutSettings/i);
   assert.match(guiSource, /Read-BabelLauncherHotkeySettings/i);
   assert.match(guiSource, /Write-BabelLauncherHotkeySettings/i);
-  assert.match(guiSource, /reload open application pages/i);
+  assert.match(guiSource, /DesktopHost\.RefreshShortcutSettings\(\)/);
+  assert.match(guiSource, /reload any separate browser pages/i);
   assert.match(shortcutsXamlSource, /Text=["']Unbound["']/i);
   assert.match(shortcutsXamlSource, /Backspace or Delete/i);
   assert.match(guiSource, /isUnbindGesture/i);
@@ -496,7 +498,8 @@ test("the visible launcher supports the complete keyboard loop", () => {
     /\$script:AppsGrid\.IsKeyboardFocusWithin/i,
     "window keyboard commands must not depend on a delayed DataGrid focus transition",
   );
-  assert.match(guiSource, /\[Windows\.Input\.Key\]::Return[\s\S]{0,520}Open-BabelApp\s+-App\s+\$app\s+-HideAfterOpen/i);
+  assert.match(guiSource, /\[Windows\.Input\.Key\]::Return[\s\S]{0,520}Open-BabelApp\s+-App\s+\$app/i);
+  assert.match(guiSource, /\$script:Window\.Add_PreviewKeyDown[\s\S]{0,400}DesktopHost\.IsHomeVisible/);
   assert.match(guiSource, /\[Windows\.Input\.Key\]::Delete[\s\S]{0,520}Get-AppWorkerState\s+-AppId\s+\$app\.Id[\s\S]{0,520}Request-AppWorkerStop/i);
   assert.match(guiSource, /\[Windows\.Input\.Key\]::Escape[\s\S]{0,240}Hide-BabelWindowToTray/i);
 
@@ -517,11 +520,8 @@ test("the visible launcher supports the complete keyboard loop", () => {
 
   const completeOpenSource =
     guiSource.match(/function\s+Complete-BabelOpenSuccess\b([\s\S]*?)function\s+[A-Za-z]/i)?.[1] ?? "";
-  assert.ok(
-    completeOpenSource.search(/Open-AppIdentity\s+-App\s+\$App/i) <
-      completeOpenSource.search(/Hide-BabelWindowToTray/i),
-    "keyboard OPEN may hide only after the browser open succeeds",
-  );
+  assert.doesNotMatch(completeOpenSource, /Hide-BabelWindowToTray/i,
+    "keyboard OPEN must keep the desktop notebook visible");
   assert.match(guiSource, /function\s+Show-BabelOpenError[\s\S]{0,480}Restore-BabelWindowAfterOpenFailure/i);
 });
 
@@ -714,7 +714,7 @@ if ((ConvertTo-BabelShortcutBinding -Binding "Ctrl+Alt+Right") -ne "Ctrl+Alt+Arr
 if ((ConvertTo-BabelShortcutBinding -Binding "F1") -ne "F1") {
     throw "A safe bare function key was not accepted as a Babel shortcut."
 }
-foreach ($forbiddenBinding in @("Ctrl", "A", "Shift+S", "Enter", "Ctrl+W", "Ctrl+Alt+ArrowUp", "Ctrl+Alt+ArrowDown", "F2", "F5", "F6", "Shift+F6")) {
+foreach ($forbiddenBinding in @("Ctrl", "A", "Shift+S", "Enter", "Alt+Tab", "Ctrl+Alt+ArrowUp", "Ctrl+Alt+ArrowDown", "F2", "Shift+F6")) {
     $wasRejected = $false
     try {
         [void](ConvertTo-BabelShortcutBinding -Binding $forbiddenBinding)

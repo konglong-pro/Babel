@@ -100,10 +100,11 @@ $nativeLauncherPath = Join-Path $PSScriptRoot "Babel.exe"
 $workerScriptPath = Join-Path $PSScriptRoot "Babel.ps1"
 $processHelperPath = Join-Path $PSScriptRoot "Babel.Process.ps1"
 $shortcutHelperPath = Join-Path $PSScriptRoot "Babel.Shortcuts.ps1"
+$desktopHelperPath = Join-Path $PSScriptRoot "Babel.Desktop.ps1"
 $shortcutXamlPath = Join-Path $PSScriptRoot "Babel.Shortcuts.xaml"
 $shortcutDefaultsPath = Join-Path $babelRoot "packages\platform\shortcuts.defaults.json"
 
-foreach ($helperPath in @($processHelperPath, $shortcutHelperPath)) {
+foreach ($helperPath in @($processHelperPath, $shortcutHelperPath, $desktopHelperPath)) {
     if (-not (Test-Path -LiteralPath $helperPath -PathType Leaf)) {
         throw "Launcher helper not found: $helperPath"
     }
@@ -111,6 +112,7 @@ foreach ($helperPath in @($processHelperPath, $shortcutHelperPath)) {
 try {
     . $processHelperPath
     . $shortcutHelperPath
+    . $desktopHelperPath
 } catch {
     throw "Could not load a launcher helper: $($_.Exception.Message)"
 }
@@ -368,6 +370,12 @@ $registeredApps = @(Get-RegisteredApps -Path $registryPath)
 $window = Import-BabelWindow -Path $xamlPath
 
 $requiredControlNames = @(
+    "DesktopSurface",
+    "LauncherPanel",
+    "DesktopAppTabs",
+    "DesktopHomeButton",
+    "DesktopShortcutsButton",
+    "DesktopStatusText",
     "BrandLogo",
     "AppsGrid",
     "OpenSelectedButton",
@@ -466,6 +474,7 @@ foreach ($launcherPath in @($nativeLauncherPath, $workerScriptPath)) {
 }
 
 $script:Window = $window
+$script:DesktopHost = $null
 $script:AppsGrid = $controls.AppsGrid
 $script:OpenSelectedButton = $controls.OpenSelectedButton
 $script:StartAllButton = $controls.StartAllButton
@@ -503,7 +512,6 @@ $script:LastProbeAtById = @{}
 $script:HealthProbesById = @{}
 $script:ProbeGenerationById = @{}
 $script:ExternalOpenRequestsById = @{}
-$script:HideAfterOpenById = @{}
 $script:HealthProbeScript = @'
 param(
     [string]$HealthUrl,
@@ -706,6 +714,7 @@ function Get-WpfShortcutKeyName {
         ([Windows.Input.Key]::Delete) { return "Delete" }
         ([Windows.Input.Key]::Back) { return "Backspace" }
         ([Windows.Input.Key]::Space) { return "Space" }
+        ([Windows.Input.Key]::Tab) { return "Tab" }
         ([Windows.Input.Key]::Left) { return "ArrowLeft" }
         ([Windows.Input.Key]::Up) { return "ArrowUp" }
         ([Windows.Input.Key]::Right) { return "ArrowRight" }
@@ -986,12 +995,13 @@ function Show-BabelShortcutSettings {
             $savedLauncherPath = Write-BabelLauncherHotkeySettings `
                 -Binding $launcherRegistration.Binding
             Commit-BabelGlobalHotkeyCandidate -Candidate $candidate
+            if ($null -ne $script:DesktopHost) { $script:DesktopHost.RefreshShortcutSettings() }
             $dialogState.Saved = $true
             $dialogState.Controls.ShortcutErrorText.Text = ""
-            $dialogState.Controls.ShortcutStatusText.Text = "Saved. The launcher hotkey is active now; reload open application pages for web command changes."
+            $dialogState.Controls.ShortcutStatusText.Text = "Saved. Desktop views update immediately. Reload any separate browser pages."
             [Windows.MessageBox]::Show(
                 $dialogState.Window,
-                "Launcher hotkey applied now: $($launcherRegistration.Binding)`r`n`r`nLauncher setting:`r`n$savedLauncherPath`r`n`r`nWeb command settings:`r`n$savedShortcutPath`r`n`r`nReload open application pages for web command changes.",
+                "Launcher hotkey applied now: $($launcherRegistration.Binding)`r`n`r`nDesktop views update immediately. Reload any separate browser pages.`r`n`r`nLauncher setting:`r`n$savedLauncherPath`r`n`r`nCommand settings:`r`n$savedShortcutPath",
                 "Babel Shortcuts",
                 [Windows.MessageBoxButton]::OK,
                 [Windows.MessageBoxImage]::Information
@@ -1056,6 +1066,7 @@ function Dispose-BabelTrayResources {
 }
 
 function Focus-BabelAppList {
+    if ($null -ne $script:DesktopHost) { $script:DesktopHost.ShowHome() }
     if ($script:AppsGrid.Items.Count -gt 0 -and $script:AppsGrid.SelectedIndex -lt 0) {
         $script:AppsGrid.SelectedIndex = 0
     }
@@ -1868,9 +1879,6 @@ function Request-WorkerStop {
     $WorkerState.OpenPending = $false
     if ([bool]$WorkerState.ManagesAll) {
         $script:ExternalOpenRequestsById = @{}
-        $script:HideAfterOpenById = @{}
-    } elseif (-not [string]::IsNullOrWhiteSpace([string]$WorkerState.AppId)) {
-        Clear-BabelHideAfterOpen -AppId ([string]$WorkerState.AppId)
     }
 
     try {
@@ -1913,7 +1921,6 @@ function Request-AllWorkersStop {
         return
     }
     $script:ExternalOpenRequestsById = @{}
-    $script:HideAfterOpenById = @{}
     foreach ($workerState in $activeWorkers) {
         [void](Request-WorkerStop -WorkerState $workerState)
     }
@@ -1957,7 +1964,6 @@ function Complete-WorkerStateIfExited {
             $script:AllWorkerManagedAppIds = @{}
             $script:AllWorkerReadyById = @{}
             $script:ExternalOpenRequestsById = @{}
-            $script:HideAfterOpenById = @{}
         }
     } elseif ($WorkerState.Mode -eq "Start") {
         if (
@@ -1988,8 +1994,6 @@ function Complete-WorkerStateIfExited {
             Show-BabelOpenError `
                 -AppId ([string]$WorkerState.AppId) `
                 -Message "$($WorkerState.Label) did not become ready. Review Diagnostics."
-        } else {
-            Clear-BabelHideAfterOpen -AppId ([string]$WorkerState.AppId)
         }
     }
     Trim-WorkerHistory
@@ -2161,19 +2165,19 @@ function Open-AppIdentity {
         [pscustomobject]$App
     )
 
-    $null = Start-Process -FilePath $App.IdentityUrl
-    Set-UiStatus -Message "Opened $($App.Name) in the default browser."
-}
-
-function Clear-BabelHideAfterOpen {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$AppId
-    )
-
-    if ($script:HideAfterOpenById.ContainsKey($AppId)) {
-        $script:HideAfterOpenById.Remove($AppId)
+    if ($null -eq $script:DesktopHost) {
+        Import-BabelDesktopRuntime
+        $userDataFolder = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Babel/Desktop/WebView2'
+        $allowedOrigins = @($script:RegisteredApps | ForEach-Object { ([Uri]$_.IdentityUrl).GetLeftPart([UriPartial]::Authority) })
+        $script:DesktopHost = [BabelLauncher.DesktopHost]::new(
+            $script:Window, $controls.DesktopSurface, $controls.LauncherPanel,
+            $controls.DesktopAppTabs, $controls.DesktopStatusText, $userDataFolder, [string[]]$allowedOrigins)
     }
+    if (-not $script:Window.IsVisible -or $script:Window.WindowState -eq [Windows.WindowState]::Minimized) {
+        Restore-BabelWindowFromTray
+    }
+    $script:DesktopHost.OpenNotebook($App.Id, $App.Name, $App.IdentityUrl)
+    Set-UiStatus -Message "Opened $($App.Name) in Babel."
 }
 
 function Restore-BabelWindowAfterOpenFailure {
@@ -2192,7 +2196,6 @@ function Show-BabelOpenError {
         [string]$Message
     )
 
-    Clear-BabelHideAfterOpen -AppId $AppId
     Restore-BabelWindowAfterOpenFailure
     Show-BabelError -Message $Message
 }
@@ -2206,31 +2209,20 @@ function Complete-BabelOpenSuccess {
     try {
         Open-AppIdentity -App $App
     } catch {
-        Clear-BabelHideAfterOpen -AppId $App.Id
         Restore-BabelWindowAfterOpenFailure
         throw
     }
 
-    $hideAfterOpen = $script:HideAfterOpenById.ContainsKey($App.Id)
-    Clear-BabelHideAfterOpen -AppId $App.Id
-    if ($hideAfterOpen) {
-        Hide-BabelWindowToTray
-    }
 }
 
 function Open-BabelApp {
     param(
         [Parameter(Mandatory = $true)]
-        [pscustomobject]$App,
-
-        [switch]$HideAfterOpen
+        [pscustomobject]$App
     )
 
     if ($script:CloseRequested) {
         throw "The launcher is closing and cannot open another notebook."
-    }
-    if ($HideAfterOpen) {
-        $script:HideAfterOpenById[$App.Id] = $true
     }
 
     if (Test-AppHealthRecentlyPassed -App $App) {
@@ -2307,7 +2299,6 @@ function Complete-PendingOpens {
         }
         if ($script:CloseRequested -or $workerState.StopRequested) {
             $workerState.OpenPending = $false
-            Clear-BabelHideAfterOpen -AppId $appId
             continue
         }
         if (
@@ -2333,7 +2324,6 @@ function Complete-PendingOpens {
         $app = $openRequest.App
         if ($script:CloseRequested) {
             $script:ExternalOpenRequestsById.Remove($appId)
-            Clear-BabelHideAfterOpen -AppId $appId
             continue
         }
         if ($script:HealthProbesById.ContainsKey($appId)) {
@@ -2344,7 +2334,6 @@ function Complete-PendingOpens {
             $allWorker = Get-AllWorkerState
             if ($null -eq $allWorker -or $allWorker.StopRequested) {
                 $script:ExternalOpenRequestsById.Remove($appId)
-                Clear-BabelHideAfterOpen -AppId $appId
                 continue
             }
             if (-not (Test-LocalPort -Port $app.Port)) {
@@ -2817,7 +2806,7 @@ $script:StopAllButton.Add_Click({
 $script:ShortcutsButton.Add_Click({
     try {
         if (Show-BabelShortcutSettings) {
-            Set-UiStatus -Message "Launcher hotkey applied. Reload open application pages for web command changes."
+            Set-UiStatus -Message "Shortcuts applied to open desktop views."
         }
     } catch {
         Show-BabelError -Message "Could not open shortcut settings.`r`n`r`n$($_.Exception.Message)"
@@ -2826,6 +2815,12 @@ $script:ShortcutsButton.Add_Click({
 
 $script:MinimizeToTrayButton.Add_Click({
     Hide-BabelWindowToTray
+})
+
+$controls.DesktopHomeButton.Add_Click({ Focus-BabelAppList })
+$controls.DesktopShortcutsButton.Add_Click({
+    try { [void](Show-BabelShortcutSettings) }
+    catch { Show-BabelError -Message $_.Exception.Message }
 })
 
 $script:AdvancedExpander.Add_Expanded({
@@ -2873,6 +2868,10 @@ $script:AppsGrid.Add_SelectionChanged({
 
 $script:Window.Add_PreviewKeyDown({
     param($sender, $eventArgs)
+
+    # App keystrokes belong to its WebView; home navigation must never consume
+    # Escape, number keys or Delete while a notebook is active.
+    if ($null -ne $script:DesktopHost -and -not $script:DesktopHost.IsHomeVisible) { return }
 
     $key = $eventArgs.Key
     if ($key -eq [Windows.Input.Key]::System) {
@@ -2924,7 +2923,7 @@ $script:Window.Add_PreviewKeyDown({
             Set-UiStatus -Message "Select a notebook first."
         } else {
             try {
-                Open-BabelApp -App $app -HideAfterOpen
+                Open-BabelApp -App $app
             } catch {
                 Show-BabelOpenError -AppId $app.Id -Message $_.Exception.Message
             }
@@ -2972,6 +2971,11 @@ $timer.Add_Tick({
 
 $script:Window.Add_Closing({
     param($sender, $eventArgs)
+
+    if ($null -ne $script:DesktopHost -and -not $script:DesktopHost.RequestWindowClose()) {
+        $eventArgs.Cancel = $true
+        return
+    }
 
     if ($script:AllowClose) {
         $timer.Stop()
@@ -3151,6 +3155,7 @@ try {
     [void]$wpfApplication.Run($script:Window)
 } finally {
     $timer.Stop()
+    if ($null -ne $script:DesktopHost) { $script:DesktopHost.Dispose() }
     if ($null -ne $script:TraySmokeTimer) {
         $script:TraySmokeTimer.Stop()
         $script:TraySmokeTimer = $null

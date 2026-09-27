@@ -257,7 +257,7 @@
                 Foreground="#5E5952"
                 FontSize="12"
                 TextWrapping="Wrap"
-                Text="Saved shortcuts take effect after you reload open application pages."
+                Text="Desktop views update immediately. Browser-reserved keys work only in Babel desktop; reload separate browser pages after saving."
                 AutomationProperties.LiveSetting="Polite" />
         </StackPanel>
 

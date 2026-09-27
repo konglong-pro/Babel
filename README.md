@@ -161,15 +161,34 @@ before launching or backing up the new application.
 
 ## Launcher
 
-Double-click `launcher\Babel.exe` to open the WPF application launcher. The
-existing `Babel.vbs` and `Babel.lnk` entries remain available as fallbacks. The
-launcher reads `babel.apps.json` dynamically and presents the notebooks in the
-original table-and-command-panel layout with a `Stopped`, `Starting`, `Ready`,
-`Unhealthy`, or `External` state. Choose `OPEN`: a stopped notebook gets its own
-worker, the launcher waits for its health endpoint to report the registered app
-identity, then opens the `identityPath` in the system default browser. A healthy
-notebook that is already running opens immediately; an unrelated or unhealthy
-listener on the registered port is never opened or stopped.
+Double-click `launcher\Babel.exe` to open Babel's independent desktop window.
+The existing `Babel.vbs` and `Babel.lnk` entries remain available as fallbacks.
+The `APPS` home reads `babel.apps.json` and lists each notebook as `Stopped`,
+`Starting`, `Ready`, `Unhealthy`, or `External`. Choose `OPEN`: a stopped notebook
+gets its own worker, then Babel waits for its health endpoint to report the
+registered app identity before opening `identityPath` in an embedded WebView2
+view. A healthy notebook that is already running opens immediately; an unrelated
+or unhealthy listener on the registered port is never opened or stopped.
+
+Each open app has a tab in the desktop shell. Switching app tabs or returning to
+`APPS` preserves the views and their in-memory state. Reader and search popups
+open as separate WebView2 windows owned by Babel, preserving their source view.
+Closing an app tab checks for unsaved changes and closes its related popups; it
+does not stop that app's worker. External web links open in the system browser.
+
+On a new checkout, prepare the desktop components once:
+
+```powershell
+npm.cmd run launcher:setup
+```
+
+Setup downloads the pinned Microsoft.Web.WebView2 SDK `1.0.3537.50` from NuGet,
+verifies its hashes, and installs it under the ignored `launcher/.webview2/`
+directory. Microsoft Edge WebView2 Evergreen Runtime must already be installed
+on Windows; setup does not install or change that system runtime. No .NET SDK is
+required. WebView2 profiles are stored in
+`%LOCALAPPDATA%\Babel\Desktop\WebView2`, outside the public repository and private
+`data/` repository. Notebook data continues to use its registered database paths.
 
 `START ALL` uses one aggregate CLI worker for every notebook that still needs to
 start and is available after independent workers are stopped; that aggregate
@@ -181,22 +200,25 @@ processes use detached Windows process creation, so hidden console-host processe
 do not remain resident.
 `MINIMIZE TO TRAY` hides the launcher without stopping its workers. The tray
 menu lists every notebook; choosing one follows the same start, identity-check,
-and open flow. Tray `Exit` gracefully stops all workers owned by that launcher.
+and open flow. Tray `Exit` checks open views for unsaved edits, then gracefully
+stops all workers owned by that launcher.
 While the launcher process is running, the global `Ctrl+Alt+B` hotkey toggles
 the window: it restores and focuses the notebook table when hidden or behind
 another app, and returns the launcher to the tray when it is already in front.
 After restoring, use `1`-`9` or `0` (the tenth row) to select a notebook,
 Up/Down to move, Enter to `OPEN`, Delete to stop the selected independent
-worker, and Escape to return to the tray. A keyboard `OPEN` returns to the tray
-only after the registered health identity passes and the browser opens; errors
-keep or restore the launcher so they remain visible.
+worker, and Escape to return to the tray. A keyboard `OPEN` activates the app's
+desktop view after its health identity passes. Errors keep the window visible.
+These home navigation keys apply only on `APPS`; inside a notebook, Escape and
+other keys remain available to that app.
 The `OPEN`, `STOP SELECTED`, and `MINIMIZE TO TRAY` buttons remain clickable,
 but they no longer expose O/T/M access keys; their only window-level keyboard
 commands are Enter, Delete, and Escape respectively.
 
-Closing the launcher with its X still stops its managed workers and exits, which
-also unregisters the global hotkey. Use Escape or `MINIMIZE TO TRAY` when you
-want to leave the hotkey available.
+Closing the desktop window with its X checks every open view for unsaved or
+pending edits before stopping its managed workers and exiting. Exit also
+unregisters the global hotkey. Use Escape on `APPS` or `MINIMIZE TO TRAY` when
+you want to leave the views, workers, and hotkey available.
 
 `Babel.exe` is a small Windows-native wrapper around `Babel.Gui.ps1`; it does not
 duplicate launcher behavior. It runs PowerShell 7 in a hidden STA process. Rebuild it with the Windows .NET Framework compiler
@@ -208,14 +230,15 @@ npm.cmd run launcher:build
 
 `SHORTCUTS` configures both the launcher toggle and web application commands.
 The launcher binding is stored independently in
-`%LOCALAPPDATA%\Babel\launcher.json`; the 16 schema-v3 web command overrides
+`%LOCALAPPDATA%\Babel\launcher.json`; the 18 schema-v4 notebook command overrides
 remain in `%LOCALAPPDATA%\Babel\shortcuts.json`. Both files are outside the
 public repository and the private notebook-data repository. A changed launcher
 binding is registered immediately; if Windows reports that the combination is
-already in use, Babel keeps the previous binding and settings. Reload an open notebook
-page after saving web-command changes in the launcher.
+already in use, Babel keeps the previous binding and settings. Saving notebook
+commands updates open desktop views immediately, including detached reader
+underline shortcuts. Reload any notebook pages open separately in a browser.
 
-The schema-v3 web defaults are:
+The schema-v4 defaults remain:
 
 | Command | Default binding | Purpose |
 | --- | --- | --- |
@@ -227,6 +250,8 @@ The schema-v3 web defaults are:
 | `cancel` | `Escape` | Coordinate the progressive Escape chain |
 | `search` | `Ctrl+F` | Search the current notebook |
 | `delete` | `Ctrl+Delete` | Request deletion through the existing confirmation flow |
+| `underlineSelection` | `Ctrl+Shift+U` | Underline selected reader text in the last chosen color |
+| `removeUnderline` | `Ctrl+Alt+U` | Remove the underline matching the selection, or the active line |
 | `commandPalette` | `Ctrl+K` | Search commands, actions, and document titles |
 | `focusNextPane` | `Ctrl+F6` | Focus the next available pane |
 | `focusPreviousPane` | `Ctrl+Shift+F6` | Focus the previous available pane |
@@ -236,15 +261,27 @@ The schema-v3 web defaults are:
 | `quickOpen` | `Ctrl+Alt+P` | Open the palette directly in title-only mode |
 | `help` | `Ctrl+Alt+H` | Show the complete keyboard-help overlay |
 
-Each schema-v3 binding is either a shortcut string or `null`. Schema v1 and v2
+Each schema-v4 binding is either a shortcut string or `null`. Schema v1, v2, and v3
 files remain readable. Migration preserves every existing user binding first,
 then adds each new default only when that combination is free. A conflicting
 new command becomes `null` rather than displacing the old binding; the launcher
-displays it as `Unbound`, where it can be reassigned or left unbound. Safe bare
-function keys are accepted, while the fixed `F2` key and browser or system keys
-such as bare `F5`, `F6`, `F11`, and `F12` remain reserved. Bare `Escape` cannot
-be assigned to an unrelated command. `Ctrl+Alt+ArrowUp` and
-`Ctrl+Alt+ArrowDown` are likewise reserved for structural reordering.
+displays it as `Unbound`, where it can be reassigned or left unbound. No existing
+default or user assignment changes merely by opening the desktop shell.
+
+The desktop shell disables WebView2's browser accelerator commands. Notebook
+commands can additionally use `Ctrl+W`, `Ctrl+Shift+W`, `Ctrl+T`, `Ctrl+Shift+T`,
+`Ctrl+L`, `Ctrl+N`, `Ctrl+Shift+N`, `Ctrl+Tab`, `Ctrl+Shift+Tab`, `F5`, `Ctrl+F5`,
+`F6`, `F11`, and `F12`. These bindings are marked desktop-only in keyboard help;
+ordinary browser pages load the same settings but do not execute those bindings.
+They cannot be assigned to the global launcher hotkey. In the desktop shell, a
+matching command also consumes its key when temporarily unavailable in the
+current context. Text inputs keep clipboard, undo, text navigation, and IME behavior.
+
+Other safe bare function keys remain accepted. The fixed `F2` key, Windows
+combinations such as `Alt+Tab`, `Alt+F4`, and `Ctrl+Alt+Delete`, and structural
+reordering keys `Ctrl+Alt+ArrowUp` and `Ctrl+Alt+ArrowDown` remain reserved.
+Bare `Escape` belongs to Cancel and fixed navigation and cannot be assigned to
+an unrelated command.
 
 Web notebooks use a Ready/Edit keyboard model. Focused folder and document
 trees expose `tree`/`treeitem` semantics with a roving tab stop. Up/Down moves
@@ -258,7 +295,8 @@ the focused tab.
 
 `Ctrl+F6` and `Ctrl+Shift+F6` cycle the available folder tree, document tree,
 tab strip, and detail pane, skipping hidden or absent panes and remembering the
-last focused control in each. Bare `F6` remains available to the browser.
+last focused control in each. Bare `F6` can be assigned inside the desktop shell;
+ordinary browser pages leave it to the browser.
 Keyboard reordering uses `Ctrl+Alt+ArrowUp` and `Ctrl+Alt+ArrowDown`, rather
 than unmodified arrow keys; visible hints and `aria-keyshortcuts` expose the new
 combination.
@@ -285,6 +323,10 @@ For a non-interactive readiness and clean-shutdown check:
 ```powershell
 pwsh.exe -NoProfile -ExecutionPolicy Bypass -File .\launcher\Babel.ps1 -Selection All -NoBrowser -VerifyAndExit
 ```
+
+`npm.cmd run test:scripts` also includes an isolated test using actual WebView2
+controls. That smoke test runs on Windows when the pinned SDK is installed;
+otherwise it reports a skip. It uses fixture pages and a temporary profile.
 
 The launcher refuses to create or migrate missing user data. Every path in an
 application's `requiredDataPaths` must already exist. Closing the WPF window

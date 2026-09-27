@@ -65,6 +65,7 @@ export type ShortcutKey =
   | "Delete"
   | "Backspace"
   | "Space"
+  | "Tab"
   | "ArrowUp"
   | "ArrowDown"
   | "ArrowLeft"
@@ -230,6 +231,7 @@ const NAMED_KEYS = new Map<string, ShortcutKey>([
   ["backspace", "Backspace"],
   ["back", "Backspace"],
   ["space", "Space"],
+  ["tab", "Tab"],
   ["arrowup", "ArrowUp"],
   ["up", "ArrowUp"],
   ["arrowdown", "ArrowDown"],
@@ -252,12 +254,22 @@ const EXACT_DANGEROUS_BINDINGS = new Set([
   "Ctrl+Alt+ArrowUp",
   "Ctrl+Alt+ArrowDown",
   "Ctrl+Shift+Escape",
+  "Alt+Tab",
+  "Alt+Shift+Tab",
+  "Ctrl+Alt+Tab",
+  "Ctrl+Alt+Shift+Tab",
+  "F2",
+]);
+const DESKTOP_ONLY_BINDINGS = new Set([
   "Ctrl+W",
   "Ctrl+Shift+W",
   "Ctrl+T",
   "Ctrl+Shift+T",
   "Ctrl+L",
-  "F2",
+  "Ctrl+N",
+  "Ctrl+Shift+N",
+  "Ctrl+Tab",
+  "Ctrl+Shift+Tab",
   "F5",
   "Ctrl+F5",
   "F6",
@@ -401,6 +413,14 @@ export function parseShortcutBinding(value: string): ParsedShortcutBinding {
 
 export function normalizeShortcutBinding(value: string): string {
   return parseShortcutBinding(value).binding;
+}
+
+export function isDesktopOnlyShortcutBinding(binding: string | null): boolean {
+  return binding !== null && DESKTOP_ONLY_BINDINGS.has(normalizeShortcutBinding(binding));
+}
+
+export function isShortcutBindingAvailable(binding: string | null, desktop: boolean): boolean {
+  return binding !== null && (desktop || !isDesktopOnlyShortcutBinding(binding));
 }
 
 function assertCommandBindingOwnership(command: ShortcutCommand, binding: string): void {

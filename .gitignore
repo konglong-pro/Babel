@@ -1,6 +1,7 @@
 /data/
 /node_modules/
 /.new-app.lock
+/launcher/.webview2/
 **/node_modules/
 **/.next/
 **/public/_typst/

@@ -18,6 +18,8 @@ import React, {
 
 import {
   DEFAULT_SHORTCUT_SETTINGS,
+  isDesktopOnlyShortcutBinding,
+  isShortcutBindingAvailable,
   matchesShortcutBinding,
   parseShortcutSettings,
   SHORTCUT_DEFINITIONS,
@@ -371,34 +373,90 @@ export function useShortcutBinding(command: ShortcutCommand): string | null {
   return useContext(ShortcutBindingsContext)[command];
 }
 
+function withoutKeyRepeat(event: ShortcutKeyboardEventLike): ShortcutKeyboardEventLike {
+  return {
+    key: event.key,
+    ctrlKey: event.ctrlKey,
+    altKey: event.altKey,
+    shiftKey: event.shiftKey,
+    metaKey: event.metaKey,
+    isComposing: event.isComposing,
+    keyCode: event.keyCode,
+    repeat: false,
+    defaultPrevented: event.defaultPrevented,
+    getModifierState: (keyArg) => event.getModifierState?.(keyArg) ?? false,
+  };
+}
+
+function isNativeEditingKey(event: ShortcutKeyboardEventLike): boolean {
+  return event.ctrlKey === true && event.altKey !== true && (
+    /^[acvxyz]$/iu.test(event.key) ||
+    ["Backspace", "Delete", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)
+  );
+}
+
+export function handleShortcutKeyDown(
+  event: ShortcutKeyDownEventLike,
+  command: ShortcutCommand,
+  binding: string | null,
+  editable: boolean,
+  desktop: boolean,
+  execute: () => boolean,
+): boolean {
+  if (!isShortcutBindingAvailable(binding, desktop)) return false;
+  if (!matchesShortcutBinding(withoutKeyRepeat(event), binding)) return false;
+  if (!commandAllowedFromEditable(command, editable) || (editable && isNativeEditingKey(event))) {
+    return false;
+  }
+  if (event.repeat === true && !desktop && command !== "read") return false;
+
+  const handled = event.repeat !== true && execute();
+  if (!handled && !desktop && command !== "read") return false;
+  event.preventDefault();
+  event.stopPropagation();
+  return true;
+}
+
 export function handleReadShortcutKeyDown(
   event: ShortcutKeyDownEventLike,
   binding: string | null,
   editable: boolean,
   execute: () => boolean,
 ): boolean {
-  if (binding === null) return false;
-  const matches = matchesShortcutBinding(
-    {
-      key: event.key,
-      ctrlKey: event.ctrlKey,
-      altKey: event.altKey,
-      shiftKey: event.shiftKey,
-      metaKey: event.metaKey,
-      isComposing: event.isComposing,
-      keyCode: event.keyCode,
-      repeat: false,
-      defaultPrevented: event.defaultPrevented,
-      getModifierState: (keyArg) => event.getModifierState?.(keyArg) ?? false,
-    },
-    binding,
-  );
-  if (!matches || !commandAllowedFromEditable("read", editable)) return false;
+  return handleShortcutKeyDown(event, "read", binding, editable, false, execute);
+}
 
-  if (event.repeat !== true) execute();
-  event.preventDefault();
-  event.stopPropagation();
-  return true;
+export function subscribeShortcutSettings(
+  endpoint: string,
+  eventTarget: EventTarget,
+  onSettings: (settings: ShortcutSettings) => void,
+  fetchSettings: typeof fetch = fetch,
+): () => void {
+  let controller: AbortController | null = null;
+  const refresh = () => {
+    controller?.abort();
+    const request = new AbortController();
+    controller = request;
+    void fetchSettings(endpoint, {
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+      signal: request.signal,
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error(`Shortcut settings request failed: ${response.status}.`);
+        return response.json() as Promise<unknown>;
+      })
+      .then((document) => {
+        if (!request.signal.aborted) onSettings(parseShortcutSettings(document));
+      })
+      .catch(() => undefined);
+  };
+  eventTarget.addEventListener("babel:shortcuts-changed", refresh);
+  refresh();
+  return () => {
+    eventTarget.removeEventListener("babel:shortcuts-changed", refresh);
+    controller?.abort();
+  };
 }
 
 function eventComesFromEditable(event: KeyboardEvent): boolean {
@@ -678,24 +736,7 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts" }: Shor
     return handled || closed;
   };
 
-  useEffect(() => {
-    const abortController = new AbortController();
-    void fetch(endpoint, {
-      cache: "no-store",
-      headers: { Accept: "application/json" },
-      signal: abortController.signal,
-    })
-      .then((response) => {
-        if (!response.ok) throw new Error(`Shortcut settings request failed: ${response.status}.`);
-        return response.json() as Promise<unknown>;
-      })
-      .then((document) => setSettings(parseShortcutSettings(document)))
-      .catch(() => {
-        if (!abortController.signal.aborted) setSettings(DEFAULT_SHORTCUT_SETTINGS);
-      });
-
-    return () => abortController.abort();
-  }, [endpoint]);
+  useEffect(() => subscribeShortcutSettings(endpoint, window, setSettings), [endpoint]);
 
   useEffect(() => {
     const includeItems = paletteMode === "items" || filter.trim() !== "";
@@ -774,7 +815,9 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts" }: Shor
           key: `command:${definition.command}`,
           kind: "command",
           label: definition.label,
-          description: "Command",
+          description: isDesktopOnlyShortcutBinding(settings.bindings[definition.command])
+            ? "Command · Shortcut requires Babel desktop"
+            : "Command",
           binding: settings.bindings[definition.command],
           available: availability[definition.command],
           command: definition.command,
@@ -857,16 +900,9 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts" }: Shor
   };
 
   const onWindowKeyDown = useEffectEvent((event: KeyboardEvent) => {
-    if (event.repeat === true) {
-      handleReadShortcutKeyDown(
-        event,
-        settings.bindings.read,
-        eventComesFromEditable(event),
-        () => executeShortcutCommand("read"),
-      );
-      return;
-    }
-    if (shouldIgnoreShortcutEvent(event)) return;
+    if (shouldIgnoreShortcutEvent(withoutKeyRepeat(event))) return;
+    const desktop = (window as Window & { __BABEL_DESKTOP__?: boolean }).__BABEL_DESKTOP__ === true;
+    const editable = eventComesFromEditable(event);
 
     const bareEscape =
       (event.key === "Escape" || event.key === "Esc") &&
@@ -874,54 +910,32 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts" }: Shor
       event.altKey !== true &&
       event.shiftKey !== true;
     if (bareEscape) {
-      const handled = paletteOpen
+      const handled = event.repeat === true ? false : paletteOpen
         ? closePalette()
         : helpOpen
           ? closeHelp()
           : executeCancelLadder();
-      if (handled) {
+      if (handled || (desktop && settings.bindings.cancel === "Escape")) {
         event.preventDefault();
         event.stopPropagation();
       }
       return;
     }
 
-    if (
-      handleReadShortcutKeyDown(
-        event,
-        settings.bindings.read,
-        eventComesFromEditable(event),
-        () => executeShortcutCommand("read"),
-      )
-    ) return;
-
     for (const { command } of SHORTCUT_DEFINITIONS) {
-      if (command === "read") continue;
       const binding = settings.bindings[command];
-      if (binding === null || !matchesShortcutBinding(event, binding)) continue;
-      if (!commandAllowedFromEditable(command, eventComesFromEditable(event))) return;
-
-      let handled: boolean;
-      if (command === "commandPalette") {
-        handled = openPalette("universal");
-      } else if (command === "quickOpen") {
-        handled = openPalette("items");
-      } else if (command === "help") {
-        handled = openHelp();
-      } else if (command === "cancel") {
-        handled = executeCancelLadder();
-      } else if (command === "search" && paletteOpen) {
-        searchRef.current?.focus();
-        searchRef.current?.select();
-        handled = searchRef.current !== null;
-      } else {
-        handled = executeShortcutCommand(command);
-      }
-      if (handled) {
-        event.preventDefault();
-        event.stopPropagation();
-      }
-      return;
+      if (handleShortcutKeyDown(event, command, binding, editable, desktop, () => {
+        if (command === "commandPalette") return openPalette("universal");
+        if (command === "quickOpen") return openPalette("items");
+        if (command === "help") return openHelp();
+        if (command === "cancel") return executeCancelLadder();
+        if (command === "search" && paletteOpen) {
+          searchRef.current?.focus();
+          searchRef.current?.select();
+          return searchRef.current !== null;
+        }
+        return executeShortcutCommand(command);
+      })) return;
     }
   });
 
@@ -1099,7 +1113,10 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts" }: Shor
             {SHORTCUT_DEFINITIONS.map(({ command, label }) => (
               <div key={command}>
                 <dt>{label}</dt>
-                <dd><kbd>{settings.bindings[command] ?? "Unbound"}</kbd></dd>
+                <dd>
+                  <kbd>{settings.bindings[command] ?? "Unbound"}</kbd>
+                  {isDesktopOnlyShortcutBinding(settings.bindings[command]) ? " · Desktop only" : null}
+                </dd>
               </div>
             ))}
           </dl>

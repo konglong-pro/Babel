@@ -148,6 +148,7 @@ function ConvertTo-BabelShortcutBinding {
                 "BACKSPACE" { $keyName = "Backspace" }
                 "BACK" { $keyName = "Backspace" }
                 "SPACE" { $keyName = "Space" }
+                "TAB" { $keyName = "Tab" }
                 "ARROWUP" { $keyName = "ArrowUp" }
                 "UP" { $keyName = "ArrowUp" }
                 "ARROWDOWN" { $keyName = "ArrowDown" }
@@ -193,20 +194,14 @@ function ConvertTo-BabelShortcutBinding {
         "Ctrl+Alt+ArrowDown",
         "Ctrl+Escape",
         "Ctrl+Shift+Escape",
-        "Ctrl+W",
-        "Ctrl+Shift+W",
-        "Ctrl+T",
-        "Ctrl+Shift+T",
-        "Ctrl+L",
-        "F2",
-        "F5",
-        "Ctrl+F5",
-        "F6",
-        "F11",
-        "F12"
+        "Alt+Tab",
+        "Alt+Shift+Tab",
+        "Ctrl+Alt+Tab",
+        "Ctrl+Alt+Shift+Tab",
+        "F2"
     )
     if ($reservedBindings -contains $canonicalBinding) {
-        throw "Shortcut '$canonicalBinding' is reserved by Windows or the browser."
+        throw "Shortcut '$canonicalBinding' is reserved by Windows or fixed Babel navigation."
     }
     $isBareFunctionKey = -not $hasCtrl -and -not $hasAlt -and -not $hasShift -and $keyName -match "^F([1-9]|1[0-2])$"
     if (
@@ -221,6 +216,17 @@ function ConvertTo-BabelShortcutBinding {
     return $canonicalBinding
 }
 
+function Test-BabelDesktopOnlyShortcutBinding {
+    param([Parameter(Mandatory = $true)][string]$Binding)
+
+    $canonicalBinding = ConvertTo-BabelShortcutBinding -Binding $Binding
+    return @(
+        "Ctrl+W", "Ctrl+Shift+W", "Ctrl+T", "Ctrl+Shift+T", "Ctrl+L",
+        "Ctrl+N", "Ctrl+Shift+N", "Ctrl+Tab", "Ctrl+Shift+Tab",
+        "F5", "Ctrl+F5", "F6", "F11", "F12"
+    ) -contains $canonicalBinding
+}
+
 function ConvertTo-BabelLauncherHotkeyRegistration {
     param(
         [Parameter(Mandatory = $true)]
@@ -228,6 +234,9 @@ function ConvertTo-BabelLauncherHotkeyRegistration {
     )
 
     $canonicalBinding = ConvertTo-BabelShortcutBinding -Binding $Binding
+    if (Test-BabelDesktopOnlyShortcutBinding -Binding $canonicalBinding) {
+        throw "Shortcut '$canonicalBinding' is available only inside the Babel desktop window, not as a global launcher hotkey."
+    }
     $modifiers = [uint32]0x4000
     $keyName = $null
     $hasLauncherModifier = $false

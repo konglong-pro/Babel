@@ -7,8 +7,87 @@ import { renderToStaticMarkup } from "react-dom/server";
 import {
   commandAllowedFromEditable,
   handleReadShortcutKeyDown,
+  handleShortcutKeyDown,
+  subscribeShortcutSettings,
   ShortcutProvider,
 } from "../src/shortcuts/react";
+import { DEFAULT_SHORTCUT_SETTINGS, type ShortcutSettings } from "../src/shortcuts/core";
+
+test("desktop shortcuts consume unavailable commands and repeats without browser fallback", () => {
+  let executions = 0;
+  let prevented = 0;
+  const event = {
+    key: "w",
+    ctrlKey: true,
+    preventDefault: () => { prevented += 1; },
+    stopPropagation: () => undefined,
+  };
+  const execute = () => { executions += 1; return false; };
+  assert.equal(handleShortcutKeyDown(event, "closeTab", "Ctrl+W", false, false, execute), false);
+  assert.deepEqual({ executions, prevented }, { executions: 0, prevented: 0 });
+  assert.equal(handleShortcutKeyDown(event, "closeTab", "Ctrl+W", false, true, execute), true);
+  assert.equal(handleShortcutKeyDown({ ...event, repeat: true }, "closeTab", "Ctrl+W", false, true, execute), true);
+  assert.deepEqual({ executions, prevented }, { executions: 1, prevented: 2 });
+
+  assert.equal(handleShortcutKeyDown({ ...event, key: "s" }, "save", "Ctrl+S", false, false, execute), false);
+  assert.equal(handleShortcutKeyDown({ ...event, key: "s" }, "save", "Ctrl+S", false, true, execute), true);
+  assert.deepEqual({ executions, prevented }, { executions: 3, prevented: 3 });
+});
+
+test("desktop shortcuts preserve editable keys and IME input", () => {
+  const unexpected = () => { assert.fail("editing must not execute or consume a command"); };
+  const base = {
+    ctrlKey: true,
+    preventDefault: unexpected,
+    stopPropagation: unexpected,
+  };
+  for (const key of ["a", "c", "v", "x", "y", "z", "Delete", "Backspace", "ArrowLeft", "Home"]) {
+    assert.equal(handleShortcutKeyDown({ ...base, key }, "save", `Ctrl+${key}`, true, true, unexpected), false);
+  }
+  for (const extra of [
+    { isComposing: true }, { keyCode: 229 }, { defaultPrevented: true },
+    { getModifierState: (key: string) => key === "AltGraph" },
+  ]) {
+    assert.equal(handleShortcutKeyDown({ ...base, key: "w", ...extra }, "closeTab", "Ctrl+W", false, true, unexpected), false);
+  }
+  assert.equal(handleShortcutKeyDown({ ...base, key: "n" }, "new", "Ctrl+N", true, true, unexpected), false);
+});
+
+test("saved settings refresh immediately and stale or disposed requests cannot overwrite them", async () => {
+  const target = new EventTarget();
+  const requests: Array<{ signal: AbortSignal; resolve: (response: Response) => void }> = [];
+  const received: ShortcutSettings[] = [];
+  const fetchSettings: typeof fetch = async (_input, init) => new Promise<Response>((resolve) => {
+    requests.push({ signal: init!.signal!, resolve });
+  });
+  const stop = subscribeShortcutSettings("/api/shortcuts", target, (settings) => received.push(settings), fetchSettings);
+  assert.equal(requests.length, 1);
+  target.dispatchEvent(new Event("babel:shortcuts-changed"));
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].signal.aborted, true);
+  const custom = {
+    ...DEFAULT_SHORTCUT_SETTINGS,
+    bindings: { ...DEFAULT_SHORTCUT_SETTINGS.bindings, closeTab: "Ctrl+W" },
+  };
+  requests[1].resolve(Response.json(custom));
+  await new Promise((resolve) => setImmediate(resolve));
+  requests[0].resolve(Response.json(DEFAULT_SHORTCUT_SETTINGS));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(received, [custom]);
+
+  target.dispatchEvent(new Event("babel:shortcuts-changed"));
+  requests[2].resolve(new Response("unavailable", { status: 503 }));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(received, [custom], "a failed refresh must keep the last valid settings");
+  target.dispatchEvent(new Event("babel:shortcuts-changed"));
+  stop();
+  assert.equal(requests[3].signal.aborted, true);
+  requests[3].resolve(Response.json(DEFAULT_SHORTCUT_SETTINGS));
+  await new Promise((resolve) => setImmediate(resolve));
+  target.dispatchEvent(new Event("babel:shortcuts-changed"));
+  assert.equal(requests.length, 4);
+  assert.deepEqual(received, [custom]);
+});
 
 test("editing focus preserves text editing commands", () => {
   for (const command of ["new", "edit", "delete", "underlineSelection", "removeUnderline"] as const) {

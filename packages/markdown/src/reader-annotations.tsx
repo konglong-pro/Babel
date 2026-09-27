@@ -13,7 +13,12 @@ import {
   type ReactNode,
 } from "react";
 
-import { useShortcutBinding } from "@babel-apps/platform/shortcuts/react";
+import {
+  executeShortcutCommand,
+  handleShortcutKeyDown,
+  useShortcutBinding,
+} from "@babel-apps/platform/shortcuts/react";
+import type { ShortcutBindings } from "@babel-apps/platform/shortcuts/core";
 
 import {
   captureReaderUnderlineAnchor,
@@ -143,6 +148,39 @@ function fallbackLinesFor(
   return lines;
 }
 
+type ReaderAnnotationCommand = "underlineSelection" | "removeUnderline";
+
+/** Portals keep React context, but keyboard events stay in the popup's window. */
+export function subscribeDetachedReaderAnnotationShortcuts(
+  root: HTMLElement,
+  sourceWindow: Window,
+  bindings: Pick<ShortcutBindings, ReaderAnnotationCommand>,
+  execute: (command: ReaderAnnotationCommand, document: Document) => boolean = executeShortcutCommand,
+): () => void {
+  const doc = root.ownerDocument;
+  const view = doc.defaultView;
+  if (view === null || view === sourceWindow) return () => undefined;
+
+  const editableSelector = "input:not([type='hidden']), textarea, select, [contenteditable]:not([contenteditable='false'])";
+  const isEditable = (element: Element | null) => {
+    const editable = element?.closest(editableSelector);
+    return editable !== null && editable !== undefined &&
+      !editable.matches(":disabled") && editable.closest("[inert], [aria-disabled='true']") === null;
+  };
+  const onKeyDown = (event: KeyboardEvent) => {
+    // Avoid instanceof checks against the opener's constructors across realms.
+    const target = event.target as Element | null;
+    const editable = isEditable(target?.nodeType === 1 ? target : null) || isEditable(doc.activeElement);
+    const desktop = (view as Window & { __BABEL_DESKTOP__?: boolean }).__BABEL_DESKTOP__ === true;
+    for (const command of ["underlineSelection", "removeUnderline"] as const) {
+      if (handleShortcutKeyDown(event, command, bindings[command], editable, desktop,
+        () => execute(command, doc))) return;
+    }
+  };
+  view.addEventListener("keydown", onKeyDown);
+  return () => view.removeEventListener("keydown", onKeyDown);
+}
+
 /** Adds reader-only underlines without rewriting Markdown or React's rendered nodes. */
 export function ReaderAnnotationLayer({
   fieldKey,
@@ -193,6 +231,15 @@ export function ReaderAnnotationLayer({
     () => new Map(availableNotes.map((note) => [note.id, note.title])),
     [availableNotes],
   );
+
+  useEffect(() => {
+    const root = bodyContainerRef.current;
+    if (root === null) return;
+    return subscribeDetachedReaderAnnotationShortcuts(root, window, {
+      underlineSelection: underlineBinding,
+      removeUnderline: removeBinding,
+    });
+  }, [underlineBinding, removeBinding]);
 
   useEffect(() => {
     if (linkingId !== null) pickerInputRef.current?.focus();

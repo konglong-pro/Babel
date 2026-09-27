@@ -2,9 +2,9 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     x:Name="BabelWindow"
-    Title="Babel Launcher"
-    Width="1000"
-    Height="720"
+    Title="Babel"
+    Width="1280"
+    Height="860"
     MinWidth="860"
     MinHeight="620"
     WindowStartupLocation="CenterScreen"
@@ -14,7 +14,7 @@
     UseLayoutRounding="True"
     SnapsToDevicePixels="True"
     TextOptions.TextFormattingMode="Display"
-    AutomationProperties.Name="Babel application launcher">
+    AutomationProperties.Name="Babel desktop">
     <Window.Resources>
         <DrawingBrush
             x:Key="PaperBrush"
@@ -162,7 +162,33 @@
         </Style>
     </Window.Resources>
 
-    <Grid Background="{StaticResource PaperBrush}">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <Border Grid.Row="0" Padding="10,8" BorderBrush="#D8D1C4" BorderThickness="0,0,0,1">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <DockPanel>
+                    <Button x:Name="DesktopHomeButton" DockPanel.Dock="Left" Content="APPS"
+                            Padding="16,7" Margin="0,0,8,0" ToolTip="Show all notebooks and launcher controls" />
+                    <Button x:Name="DesktopShortcutsButton" DockPanel.Dock="Right" Content="SHORTCUTS"
+                            Padding="12,7" Margin="8,0,0,0" ToolTip="Customize shortcuts" />
+                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                        <StackPanel x:Name="DesktopAppTabs" Orientation="Horizontal" />
+                    </ScrollViewer>
+                </DockPanel>
+                <TextBlock x:Name="DesktopStatusText" Grid.Row="1" Margin="2,5,0,0" FontSize="11"
+                           Foreground="#5E5952" Text="Apps · Start, open and manage notebooks"
+                           AutomationProperties.LiveSetting="Polite" />
+            </Grid>
+        </Border>
+        <Grid x:Name="DesktopSurface" Grid.Row="1">
+    <Grid x:Name="LauncherPanel" Background="{StaticResource PaperBrush}">
         <Grid.RowDefinitions>
             <RowDefinition Height="155" />
             <RowDefinition Height="*" />
@@ -479,5 +505,7 @@
                     Text="WORKER / IDLE" />
             </Grid>
         </Border>
+    </Grid>
+        </Grid>
     </Grid>
 </Window>

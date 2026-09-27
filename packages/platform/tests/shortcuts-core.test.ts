@@ -4,6 +4,8 @@ import test from "node:test";
 
 import {
   DEFAULT_SHORTCUT_SETTINGS,
+  isDesktopOnlyShortcutBinding,
+  isShortcutBindingAvailable,
   matchesShortcutBinding,
   normalizeShortcutBinding,
   parseShortcutBinding,
@@ -71,7 +73,29 @@ test("shortcut bindings normalize supported keys and modifier order", () => {
   });
 });
 
-test("shortcut bindings reject unsafe, uncapturable, and accidental bare keys", () => {
+test("browser-reserved bindings retain their values and require the desktop host", () => {
+  for (const binding of [
+    "Ctrl+W", "Ctrl+Shift+W", "Ctrl+T", "Ctrl+Shift+T", "Ctrl+L",
+    "Ctrl+N", "Ctrl+Shift+N", "Ctrl+Tab", "Ctrl+Shift+Tab",
+    "F5", "Ctrl+F5", "F6", "F11", "F12",
+  ]) {
+    assert.equal(normalizeShortcutBinding(binding.toLowerCase()), binding);
+    assert.equal(isDesktopOnlyShortcutBinding(binding), true);
+    assert.equal(isShortcutBindingAvailable(binding, false), false);
+    assert.equal(isShortcutBindingAvailable(binding, true), true);
+    const settings = parseShortcutSettings({
+      ...DEFAULT_SHORTCUT_SETTINGS,
+      bindings: { ...DEFAULT_SHORTCUT_SETTINGS.bindings, closeTab: binding },
+    });
+    assert.equal(settings.bindings.closeTab, binding);
+    assert.equal(settings.bindings.save, "Ctrl+S");
+  }
+  assert.equal(isDesktopOnlyShortcutBinding("Ctrl+S"), false);
+  assert.equal(isShortcutBindingAvailable("Ctrl+S", false), true);
+  assert.equal(isShortcutBindingAvailable(null, true), false);
+});
+
+test("shortcut bindings reject OS, fixed navigation, and accidental bare keys", () => {
   for (const binding of [
     "A",
     "Enter",
@@ -84,17 +108,13 @@ test("shortcut bindings reject unsafe, uncapturable, and accidental bare keys", 
     "Alt+Escape",
     "Alt+Space",
     "Ctrl+Escape",
-    "Ctrl+W",
-    "Ctrl+Shift+W",
-    "Ctrl+T",
-    "Ctrl+L",
-    "Ctrl+Shift+T",
-    "F5",
-    "Ctrl+F5",
-    "F6",
     "Shift+F6",
-    "F11",
-    "F12",
+    "Tab",
+    "Shift+Tab",
+    "Alt+Tab",
+    "Alt+Shift+Tab",
+    "Ctrl+Alt+Tab",
+    "Ctrl+Alt+Shift+Tab",
     "Ctrl+Alt+Delete",
     "Ctrl+Alt+ArrowUp",
     "Ctrl+Alt+ArrowDown",

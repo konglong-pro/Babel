@@ -806,6 +806,12 @@ function prepareDetachedReaderDocument(
   targetDocument.open();
   targetDocument.write("<!doctype html><html><head></head><body></body></html>");
   targetDocument.close();
+  // Replacing about:blank with document.write can bypass WebView2's document
+  // startup script. Carry the source window's keyboard context into its reader.
+  if ((sourceDocument.defaultView as (Window & { __BABEL_DESKTOP__?: boolean }) | null)
+    ?.__BABEL_DESKTOP__ === true) {
+    Object.defineProperty(popup, "__BABEL_DESKTOP__", { value: true });
+  }
   targetDocument.documentElement.lang = sourceDocument.documentElement.lang || "en";
   targetDocument.documentElement.className = sourceDocument.documentElement.className;
   targetDocument.head.replaceChildren();
