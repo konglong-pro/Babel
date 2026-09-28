@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
     [switch]$SmokeTest,
 
@@ -43,6 +43,9 @@ Add-Type -AssemblyName WindowsBase
 Add-Type -AssemblyName System.Data
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Windows.Forms
+
+. (Join-Path $PSScriptRoot 'Babel.Identity.ps1')
+[BabelLauncher.DesktopIdentity]::InitializeProcess()
 
 if ($null -eq ("BabelLauncher.GlobalHotkeyNativeMethods" -as [type])) {
     Add-Type -TypeDefinition @'
@@ -342,16 +345,21 @@ $expectedShortcutCommands = @(
 $shortcutDefinitions = @(Get-BabelShortcutDefinitions -Path $shortcutDefaultsPath)
 $actualShortcutCommands = @($shortcutDefinitions | ForEach-Object { [string]$_.Id })
 if (($actualShortcutCommands -join "|") -cne ($expectedShortcutCommands -join "|")) {
-    throw "Shortcut defaults must define the schema v4 commands in their registered order."
+    throw "Shortcut defaults must define the schema v5 commands in their registered order."
 }
 $shortcutDefaultBindings = Get-BabelDefaultShortcutBindings -Definitions $shortcutDefinitions
+$launcherShortcutDefinitions = @(Get-BabelLauncherShortcutDefinitions -Path $shortcutDefaultsPath)
 
 $shortcutControlNames = @(
     "LauncherHotkeyBox",
+    "ShortcutLayerBox",
+    "ShortcutLayerHint",
     "ShortcutGrid",
     "ShortcutErrorText",
     "ShortcutStatusText",
     "RestoreDefaultsButton",
+    "RestoreInheritanceButton",
+    "DisableShortcutButton",
     "CancelShortcutsButton",
     "SaveShortcutsButton"
 )
@@ -491,6 +499,8 @@ $script:ShortcutXamlPath = $shortcutXamlPath
 $script:ShortcutControlNames = @($shortcutControlNames)
 $script:ShortcutDefinitions = @($shortcutDefinitions)
 $script:ShortcutDefaultBindings = $shortcutDefaultBindings
+$script:LauncherShortcutDefinitions = @($launcherShortcutDefinitions)
+$script:LauncherShortcutBindings = (Read-BabelShortcutSettings -Definitions $shortcutDefinitions).Layers.launcher
 $script:RegisteredApps = $registeredApps
 $script:AppsById = @{}
 $script:RowsById = @{}
@@ -586,6 +596,7 @@ if ($script:AppsGrid.Items.Count -gt 0) {
 }
 
 $iconPath = Join-Path $PSScriptRoot "assets\Babel.ico"
+Set-BabelWindowIdentity -Window $script:Window
 if (Test-Path -LiteralPath $iconPath -PathType Leaf) {
     try {
         $iconUri = New-Object Uri($iconPath, [UriKind]::Absolute)
@@ -730,7 +741,9 @@ function Get-WpfShortcutKeyName {
 function ConvertFrom-WpfShortcutKeyEvent {
     param(
         [Parameter(Mandatory = $true)]
-        [Windows.Input.KeyEventArgs]$EventArgs
+        [Windows.Input.KeyEventArgs]$EventArgs,
+
+        [switch]$AllowBareKeys
     )
 
     $key = $EventArgs.Key
@@ -767,7 +780,7 @@ function ConvertFrom-WpfShortcutKeyEvent {
     }
     $parts += $keyName
 
-    return ConvertTo-BabelShortcutBinding -Binding ($parts -join "+")
+    return ConvertTo-BabelShortcutBinding -Binding ($parts -join "+") -AllowBareKeys:$AllowBareKeys
 }
 
 function Get-BabelShortcutDialogState {
@@ -786,244 +799,241 @@ function Get-BabelShortcutDialogState {
     return $dialogWindow.Tag
 }
 
+function Update-BabelShortcutDialogRows {
+    param([Parameter(Mandatory = $true)][object]$State)
+
+    $scope = [string]$State.CurrentLayer
+    $definitions = if ($scope -eq 'launcher') { $State.LauncherDefinitions } else { $State.Definitions }
+    $local = if ($scope -eq 'global') { $State.Bindings } else { $State.Layers[$scope] }
+    $resolved = Get-BabelEffectiveShortcutBindings -Bindings $State.Bindings -Layers $State.Layers -Scope $scope -IncludeOrigins
+    $effective = $resolved.Bindings
+    $defaults = if ($scope -eq 'launcher') { $State.DefaultLauncherBindings } else { $State.DefaultBindings }
+    $State.Table.Rows.Clear()
+    foreach ($definition in $definitions) {
+        $id = [string]$definition.Id
+        $row = $State.Table.NewRow()
+        $row.Id = $id
+        $row.Label = [string]$definition.Label
+        $row.Shortcut = [string]$effective[$id]
+        if (-not $local.Contains($id)) {
+            $origin = $resolved.Origins[$id]
+            $sourceLabel = switch ($origin.Scope) { 'app' { 'APP' }; 'global' { 'Global' }; default { $origin.Scope } }
+            $row.BindingState = if ($null -ne $origin.ClaimedBy) { "Key claimed in $sourceLabel" }
+                elseif ($null -eq $effective[$id]) { "Unbound from $sourceLabel" }
+                else { "Inherited: $sourceLabel" }
+        } elseif ($null -eq $local[$id]) {
+            $row.BindingState = 'Disabled'
+        } elseif ($scope -in @('global', 'launcher') -and $local[$id] -ceq $defaults[$id]) {
+            $row.BindingState = 'Default'
+        } else { $row.BindingState = 'Override' }
+        if ($null -ne $effective[$id] -and (Test-BabelDesktopOnlyShortcutBinding -Binding $effective[$id])) {
+            $row.BindingState += ' / desktop'
+        }
+        [void]$State.Table.Rows.Add($row)
+    }
+    $State.Controls.ShortcutGrid.Items.Refresh()
+    $selectedIndex = 0
+    for ($index = 0; $index -lt $State.Table.Rows.Count; $index++) {
+        if ($State.Table.Rows[$index].Id -ceq $State.SelectedCommand) { $selectedIndex = $index; break }
+    }
+    if ($State.Table.Rows.Count -gt 0) { $State.Controls.ShortcutGrid.SelectedIndex = $selectedIndex }
+    $State.Controls.RestoreInheritanceButton.IsEnabled = $scope -in @('app', 'edit', 'read')
+    $State.Controls.ShortcutLayerHint.Text = switch ($scope) {
+        'global' { 'Global defaults for notebook commands. Use Ctrl or Alt, Escape, or a safe function key.' }
+        'launcher' { 'Apps home commands are independent of notebook layers. Bare keys, Tab and Shift+Tab are supported.' }
+        'app' { 'APP inherits Global. An override can take a key from an inherited command; duplicates in APP are rejected.' }
+        'edit' { 'Edit inherits Global then APP. Single keys are supported; ordinary text entry still keeps its typing keys.' }
+        'read' { 'Read inherits Global then APP. Single keys are supported; Enter, Tab and Shift+Tab keep structural navigation.' }
+    }
+}
+
+function Set-BabelShortcutDialogLayer {
+    param([Parameter(Mandatory = $true)][object]$State,
+        [Parameter(Mandatory = $true)][Collections.IDictionary]$Bindings)
+
+    $scope = [string]$State.CurrentLayer
+    $definitions = if ($scope -eq 'launcher') { $State.LauncherDefinitions } else { $State.Definitions }
+    $canonical = ConvertTo-BabelShortcutBindingMap -Definitions $definitions -Bindings $Bindings -Scope $scope `
+        -Partial:($scope -in @('app', 'edit', 'read'))
+    $candidateLayers = [ordered]@{}
+    foreach ($key in $State.Layers.Keys) { $candidateLayers[$key] = $State.Layers[$key] }
+    $candidateBindings = $State.Bindings
+    if ($scope -eq 'global') { $candidateBindings = $canonical } else { $candidateLayers[$scope] = $canonical }
+    Assert-BabelShortcutHotkeyConflict -Bindings $candidateBindings -Layers $candidateLayers -LauncherBinding $State.LauncherBinding
+    $State.Bindings = $candidateBindings
+    $State.Layers = $candidateLayers
+    Update-BabelShortcutDialogRows -State $State
+}
+
+function Set-BabelShortcutDialogBinding {
+    param([Parameter(Mandatory = $true)][object]$State,
+        [Parameter(Mandatory = $true)][string]$CommandId,
+        [AllowNull()][string]$Binding,
+        [switch]$Inherit)
+
+    $scope = [string]$State.CurrentLayer
+    $local = if ($scope -eq 'global') { $State.Bindings } else { $State.Layers[$scope] }
+    $candidate = [ordered]@{}
+    foreach ($key in $local.Keys) { $candidate[$key] = $local[$key] }
+    if ($Inherit) {
+        if ($scope -notin @('app', 'edit', 'read')) { throw 'Only APP, Edit and Read can inherit a binding.' }
+        $candidate.Remove($CommandId)
+    } else {
+        $candidate[$CommandId] = if ([string]::IsNullOrWhiteSpace($Binding)) { $null } else { $Binding }
+    }
+    $State.SelectedCommand = $CommandId
+    Set-BabelShortcutDialogLayer -State $State -Bindings $candidate
+}
+
 function Show-BabelShortcutSettings {
     $settings = Read-BabelShortcutSettings -Definitions $script:ShortcutDefinitions
     $launcherSettings = Read-BabelLauncherHotkeySettings
     $shortcutWindow = Import-BabelWindow -Path $script:ShortcutXamlPath
     $shortcutControls = @{}
     foreach ($controlName in $script:ShortcutControlNames) {
-        $shortcutControls[$controlName] = Get-RequiredControl `
-            -Window $shortcutWindow `
-            -Name $controlName
+        $shortcutControls[$controlName] = Get-RequiredControl -Window $shortcutWindow -Name $controlName
     }
-
     $shortcutWindow.Owner = $script:Window
-    if ($null -ne $script:Window.Icon) {
-        $shortcutWindow.Icon = $script:Window.Icon
-    }
+    if ($null -ne $script:Window.Icon) { $shortcutWindow.Icon = $script:Window.Icon }
 
     $shortcutTable = New-Object System.Data.DataTable
-    [void]$shortcutTable.Columns.Add("Id", [string])
-    [void]$shortcutTable.Columns.Add("Label", [string])
-    [void]$shortcutTable.Columns.Add("Shortcut", [string])
-    foreach ($definition in $script:ShortcutDefinitions) {
-        $row = $shortcutTable.NewRow()
-        $row.Id = [string]$definition.Id
-        $row.Label = [string]$definition.Label
-        $row.Shortcut = [string]$settings.Bindings[$row.Id]
-        [void]$shortcutTable.Rows.Add($row)
-    }
+    foreach ($column in @('Id', 'Label', 'Shortcut', 'BindingState')) { [void]$shortcutTable.Columns.Add($column, [string]) }
     $shortcutControls.ShortcutGrid.ItemsSource = $shortcutTable.DefaultView
     $shortcutControls.LauncherHotkeyBox.Text = [string]$launcherSettings.Binding
-
     $state = [pscustomobject]@{
         Window = $shortcutWindow
         Controls = $shortcutControls
         Table = $shortcutTable
         Definitions = @($script:ShortcutDefinitions)
+        LauncherDefinitions = @($script:LauncherShortcutDefinitions)
         DefaultBindings = $script:ShortcutDefaultBindings
-        DefaultLauncherBinding = Get-BabelDefaultLauncherHotkeyBinding
+        DefaultLauncherBindings = Get-BabelDefaultShortcutBindings -Definitions $script:LauncherShortcutDefinitions
+        Bindings = $settings.Bindings
+        Layers = $settings.Layers
+        CurrentLayer = 'global'
+        SelectedCommand = ''
         LauncherBinding = [string]$launcherSettings.Binding
         Saved = $false
     }
     $shortcutWindow.Tag = $state
-    $settingsWarnings = @(
-        @(
-            [string]$settings.Warning,
-            [string]$launcherSettings.Warning
-        ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+    $shortcutControls.ShortcutLayerBox.DisplayMemberPath = 'Label'
+    $shortcutControls.ShortcutLayerBox.SelectedValuePath = 'Id'
+    $shortcutControls.ShortcutLayerBox.ItemsSource = @(
+        [pscustomobject]@{ Id = 'global'; Label = 'Global' },
+        [pscustomobject]@{ Id = 'launcher'; Label = 'Apps home' },
+        [pscustomobject]@{ Id = 'app'; Label = 'APP' },
+        [pscustomobject]@{ Id = 'edit'; Label = 'Edit' },
+        [pscustomobject]@{ Id = 'read'; Label = 'Read' }
     )
-    if ($settingsWarnings.Count -gt 0) {
-        $shortcutControls.ShortcutStatusText.Text = $settingsWarnings -join " "
-    }
+    $shortcutControls.ShortcutLayerBox.SelectedValue = 'global'
+    Update-BabelShortcutDialogRows -State $state
+    $settingsWarnings = @(@($settings.Warning, $launcherSettings.Warning) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+    if ($settingsWarnings.Count -gt 0) { $shortcutControls.ShortcutStatusText.Text = $settingsWarnings -join ' ' }
 
+    $shortcutControls.ShortcutLayerBox.Add_SelectionChanged({
+        param($sender, $eventArgs)
+        $dialogState = Get-BabelShortcutDialogState -Sender $sender
+        if ($null -eq $sender.SelectedValue) { return }
+        $dialogState.CurrentLayer = [string]$sender.SelectedValue
+        $dialogState.Controls.ShortcutErrorText.Text = ''
+        Update-BabelShortcutDialogRows -State $dialogState
+    })
     $shortcutWindow.Add_PreviewKeyDown({
         param($sender, $eventArgs)
-
         $focusedElement = [Windows.Input.Keyboard]::FocusedElement
-        if (
-            $null -eq $focusedElement -or
-            -not ($focusedElement -is [Windows.Controls.TextBox]) -or
-            @("LauncherHotkeyBox", "ShortcutCaptureBox") -notcontains $focusedElement.Name -or
-            [string]::IsNullOrWhiteSpace([string]$focusedElement.Tag)
-        ) {
-            return
-        }
-
+        if ($null -eq $focusedElement -or -not ($focusedElement -is [Windows.Controls.TextBox]) -or
+            @('LauncherHotkeyBox', 'ShortcutCaptureBox') -notcontains $focusedElement.Name -or
+            [string]::IsNullOrWhiteSpace([string]$focusedElement.Tag)) { return }
         $dialogState = Get-BabelShortcutDialogState -Sender $sender
         try {
-            $pressedKey = $eventArgs.Key
-            if ($pressedKey -eq [Windows.Input.Key]::System) {
-                $pressedKey = $eventArgs.SystemKey
-            }
-            $pressedModifiers = $eventArgs.KeyboardDevice.Modifiers
-            $isUnbindGesture = (
-                $focusedElement.Name -eq "ShortcutCaptureBox" -and
-                $pressedModifiers -eq [Windows.Input.ModifierKeys]::None -and
-                @([Windows.Input.Key]::Back, [Windows.Input.Key]::Delete) -contains $pressedKey
-            )
-            if ($isUnbindGesture) {
-                $commandId = [string]$focusedElement.Tag
-                $escapedCommandId = $commandId.Replace("'", "''")
-                $currentRows = @($dialogState.Table.Select("Id = '$escapedCommandId'"))
-                if ($currentRows.Count -ne 1) {
-                    throw "Could not find shortcut command '$commandId'."
-                }
-                $currentRows[0].Shortcut = ""
-                $dialogState.Controls.ShortcutGrid.Items.Refresh()
-                $dialogState.Controls.ShortcutErrorText.Text = ""
-                $dialogState.Controls.ShortcutStatusText.Text = "Command left unbound. Choose Save to apply the complete set."
-                return
-            }
-
-            $canonicalBinding = ConvertFrom-WpfShortcutKeyEvent -EventArgs $eventArgs
-            if ($focusedElement.Name -eq "LauncherHotkeyBox") {
+            $isLauncherToggle = $focusedElement.Name -eq 'LauncherHotkeyBox'
+            $canonicalBinding = ConvertFrom-WpfShortcutKeyEvent -EventArgs $eventArgs `
+                -AllowBareKeys:(-not $isLauncherToggle -and $dialogState.CurrentLayer -ne 'global')
+            if ($isLauncherToggle) {
                 [void](ConvertTo-BabelLauncherHotkeyRegistration -Binding $canonicalBinding)
-                foreach ($otherRow in $dialogState.Table.Rows) {
-                    if (
-                        -not [string]::IsNullOrWhiteSpace([string]$otherRow.Shortcut) -and
-                        [string]::Equals(
-                            [string]$otherRow.Shortcut,
-                            $canonicalBinding,
-                            [StringComparison]::OrdinalIgnoreCase
-                        )
-                    ) {
-                        throw "Hotkey '$canonicalBinding' is already assigned to the $($otherRow.Label) web command."
-                    }
-                }
+                Assert-BabelShortcutHotkeyConflict -Bindings $dialogState.Bindings -Layers $dialogState.Layers -LauncherBinding $canonicalBinding
                 $dialogState.LauncherBinding = $canonicalBinding
                 $dialogState.Controls.LauncherHotkeyBox.Text = $canonicalBinding
             } else {
-                $commandId = [string]$focusedElement.Tag
-                Assert-BabelShortcutCommandBindingOwnership `
-                    -CommandId $commandId `
-                    -Binding $canonicalBinding
-                if (
-                    [string]::Equals(
-                        [string]$dialogState.LauncherBinding,
-                        $canonicalBinding,
-                        [StringComparison]::OrdinalIgnoreCase
-                    )
-                ) {
-                    throw "Shortcut '$canonicalBinding' is already assigned to the launcher toggle."
-                }
-                foreach ($otherRow in $dialogState.Table.Rows) {
-                    if (
-                        [string]$otherRow.Id -ne $commandId -and
-                        -not [string]::IsNullOrWhiteSpace([string]$otherRow.Shortcut) -and
-                        [string]::Equals(
-                            [string]$otherRow.Shortcut,
-                            $canonicalBinding,
-                            [StringComparison]::OrdinalIgnoreCase
-                        )
-                    ) {
-                        throw "Shortcut '$canonicalBinding' is already assigned to $($otherRow.Label)."
-                    }
-                }
-
-                $escapedCommandId = $commandId.Replace("'", "''")
-                $currentRows = @($dialogState.Table.Select("Id = '$escapedCommandId'"))
-                if ($currentRows.Count -ne 1) {
-                    throw "Could not find shortcut command '$commandId'."
-                }
-                $currentRows[0].Shortcut = $canonicalBinding
-                $dialogState.Controls.ShortcutGrid.Items.Refresh()
+                Set-BabelShortcutDialogBinding -State $dialogState -CommandId ([string]$focusedElement.Tag) -Binding $canonicalBinding
             }
-            $dialogState.Controls.ShortcutErrorText.Text = ""
-            $dialogState.Controls.ShortcutStatusText.Text = "Shortcut captured. Choose Save to apply the complete set."
-        } catch {
-            $dialogState.Controls.ShortcutErrorText.Text = $_.Exception.Message
-        } finally {
-            $eventArgs.Handled = $true
-        }
+            $dialogState.Controls.ShortcutErrorText.Text = ''
+            $dialogState.Controls.ShortcutStatusText.Text = 'Shortcut captured in this layer. Save applies all layers.'
+        } catch { $dialogState.Controls.ShortcutErrorText.Text = $_.Exception.Message }
+        finally { $eventArgs.Handled = $true }
     })
-
+    $shortcutControls.RestoreInheritanceButton.Add_Click({
+        param($sender, $eventArgs)
+        $dialogState = Get-BabelShortcutDialogState -Sender $sender
+        $selected = $dialogState.Controls.ShortcutGrid.SelectedItem
+        if ($null -eq $selected) { return }
+        try {
+            Set-BabelShortcutDialogBinding -State $dialogState -CommandId ([string]$selected.Id) -Inherit
+            $dialogState.Controls.ShortcutErrorText.Text = ''
+            $dialogState.Controls.ShortcutStatusText.Text = 'Inheritance restored for this command. Choose Save to apply.'
+        } catch { $dialogState.Controls.ShortcutErrorText.Text = $_.Exception.Message }
+    })
+    $shortcutControls.DisableShortcutButton.Add_Click({
+        param($sender, $eventArgs)
+        $dialogState = Get-BabelShortcutDialogState -Sender $sender
+        $selected = $dialogState.Controls.ShortcutGrid.SelectedItem
+        if ($null -eq $selected) { return }
+        try {
+            Set-BabelShortcutDialogBinding -State $dialogState -CommandId ([string]$selected.Id) -Binding $null
+            $dialogState.Controls.ShortcutErrorText.Text = ''
+            $dialogState.Controls.ShortcutStatusText.Text = 'Command disabled in this layer. Choose Save to apply.'
+        } catch { $dialogState.Controls.ShortcutErrorText.Text = $_.Exception.Message }
+    })
     $shortcutControls.RestoreDefaultsButton.Add_Click({
         param($sender, $eventArgs)
-
         $dialogState = Get-BabelShortcutDialogState -Sender $sender
-        foreach ($row in $dialogState.Table.Rows) {
-            $row.Shortcut = [string]$dialogState.DefaultBindings[[string]$row.Id]
+        $defaults = switch ($dialogState.CurrentLayer) {
+            'global' { $dialogState.DefaultBindings }
+            'launcher' { $dialogState.DefaultLauncherBindings }
+            default { [ordered]@{} }
         }
-        $dialogState.LauncherBinding = [string]$dialogState.DefaultLauncherBinding
-        $dialogState.Controls.LauncherHotkeyBox.Text = [string]$dialogState.LauncherBinding
-        $dialogState.Controls.ShortcutGrid.Items.Refresh()
-        $dialogState.Controls.ShortcutErrorText.Text = ""
-        $dialogState.Controls.ShortcutStatusText.Text = "Defaults restored in this window. Choose Save to persist them."
+        try {
+            Set-BabelShortcutDialogLayer -State $dialogState -Bindings $defaults
+            $dialogState.Controls.ShortcutErrorText.Text = ''
+            $dialogState.Controls.ShortcutStatusText.Text = 'Defaults restored for this layer. Other layers and the launcher toggle are unchanged.'
+        } catch { $dialogState.Controls.ShortcutErrorText.Text = $_.Exception.Message }
     })
-
     $shortcutControls.CancelShortcutsButton.Add_Click({
         param($sender, $eventArgs)
-
-        $dialogState = Get-BabelShortcutDialogState -Sender $sender
-        $dialogState.Window.DialogResult = $false
+        (Get-BabelShortcutDialogState -Sender $sender).Window.DialogResult = $false
     })
-
     $shortcutControls.SaveShortcutsButton.Add_Click({
         param($sender, $eventArgs)
-
         $dialogState = Get-BabelShortcutDialogState -Sender $sender
         $candidate = $null
         try {
-            $bindings = [ordered]@{}
-            foreach ($row in $dialogState.Table.Rows) {
-                if ([string]::IsNullOrWhiteSpace([string]$row.Shortcut)) {
-                    $bindings[[string]$row.Id] = $null
-                } else {
-                    $bindings[[string]$row.Id] = [string]$row.Shortcut
-                }
-            }
-            $launcherRegistration = ConvertTo-BabelLauncherHotkeyRegistration `
-                -Binding ([string]$dialogState.LauncherBinding)
-            foreach ($row in $dialogState.Table.Rows) {
-                if (
-                    -not [string]::IsNullOrWhiteSpace([string]$row.Shortcut) -and
-                    [string]::Equals(
-                        [string]$row.Shortcut,
-                        [string]$launcherRegistration.Binding,
-                        [StringComparison]::OrdinalIgnoreCase
-                    )
-                ) {
-                    throw "Hotkey '$($launcherRegistration.Binding)' is already assigned to the $($row.Label) web command."
-                }
-            }
-
+            $bindings = ConvertTo-BabelShortcutBindingMap -Definitions $dialogState.Definitions -Bindings $dialogState.Bindings
+            $layers = ConvertTo-BabelShortcutLayers -Definitions $dialogState.Definitions -Layers $dialogState.Layers `
+                -LauncherDefinitions $dialogState.LauncherDefinitions
+            $launcherRegistration = ConvertTo-BabelLauncherHotkeyRegistration -Binding ([string]$dialogState.LauncherBinding)
+            Assert-BabelShortcutHotkeyConflict -Bindings $bindings -Layers $layers -LauncherBinding $launcherRegistration.Binding
             $candidate = Register-BabelGlobalHotkeyCandidate -Registration $launcherRegistration
-            $savedShortcutPath = Write-BabelShortcutSettings `
-                -Definitions $dialogState.Definitions `
-                -Bindings $bindings
-            $savedLauncherPath = Write-BabelLauncherHotkeySettings `
-                -Binding $launcherRegistration.Binding
+            $savedShortcutPath = Write-BabelShortcutSettings -Definitions $dialogState.Definitions -Bindings $bindings -Layers $layers
+            $savedLauncherPath = Write-BabelLauncherHotkeySettings -Binding $launcherRegistration.Binding
             Commit-BabelGlobalHotkeyCandidate -Candidate $candidate
+            $script:LauncherShortcutBindings = $layers.launcher
+            Update-BabelHomeShortcutHint
             if ($null -ne $script:DesktopHost) { $script:DesktopHost.RefreshShortcutSettings() }
             $dialogState.Saved = $true
-            $dialogState.Controls.ShortcutErrorText.Text = ""
-            $dialogState.Controls.ShortcutStatusText.Text = "Saved. Desktop views update immediately. Reload any separate browser pages."
-            [Windows.MessageBox]::Show(
-                $dialogState.Window,
-                "Launcher hotkey applied now: $($launcherRegistration.Binding)`r`n`r`nDesktop views update immediately. Reload any separate browser pages.`r`n`r`nLauncher setting:`r`n$savedLauncherPath`r`n`r`nCommand settings:`r`n$savedShortcutPath",
-                "Babel Shortcuts",
-                [Windows.MessageBoxButton]::OK,
-                [Windows.MessageBoxImage]::Information
-            ) | Out-Null
+            [Windows.MessageBox]::Show($dialogState.Window,
+                "Shortcuts saved for all layers. Desktop views update immediately; reload separate browser pages.`r`n`r`nLauncher setting:`r`n$savedLauncherPath`r`n`r`nCommand settings:`r`n$savedShortcutPath",
+                'Babel Shortcuts', [Windows.MessageBoxButton]::OK, [Windows.MessageBoxImage]::Information) | Out-Null
             $dialogState.Window.DialogResult = $true
         } catch {
             Cancel-BabelGlobalHotkeyCandidate -Candidate $candidate
             $dialogState.Controls.ShortcutErrorText.Text = $_.Exception.Message
         }
     })
-
     $script:ShortcutDialogWindow = $shortcutWindow
-    try {
-        [void]$shortcutWindow.ShowDialog()
-    } finally {
-        if ([object]::ReferenceEquals($script:ShortcutDialogWindow, $shortcutWindow)) {
-            $script:ShortcutDialogWindow = $null
-        }
-    }
+    try { [void]$shortcutWindow.ShowDialog() }
+    finally { if ([object]::ReferenceEquals($script:ShortcutDialogWindow, $shortcutWindow)) { $script:ShortcutDialogWindow = $null } }
     return [bool]$state.Saved
 }
-
 function Hide-BabelWindowToTray {
     if ($null -eq $script:NotifyIcon) {
         throw "The Babel notification-area icon is unavailable."
@@ -1065,8 +1075,26 @@ function Dispose-BabelTrayResources {
     }
 }
 
+function Update-BabelHomeShortcutHint {
+    if ($null -ne $script:DesktopHost -and -not $script:DesktopHost.IsHomeVisible) { return }
+    $open = if ($null -eq $script:LauncherShortcutBindings.openApp) { 'Unbound' } else { $script:LauncherShortcutBindings.openApp }
+    $next = if ($null -eq $script:LauncherShortcutBindings.focusNextPane) { 'Unbound' } else { $script:LauncherShortcutBindings.focusNextPane }
+    $controls.DesktopStatusText.Text = "Apps home · Open: $open · Next focus: $next"
+}
+
+function Move-BabelHomeFocus {
+    param([switch]$Previous)
+    $direction = if ($Previous) { [Windows.Input.FocusNavigationDirection]::Previous } else { [Windows.Input.FocusNavigationDirection]::Next }
+    [Windows.Input.KeyboardNavigation]::SetTabNavigation($script:Window, [Windows.Input.KeyboardNavigationMode]::Cycle)
+    $target = [Windows.Input.Keyboard]::FocusedElement -as [Windows.UIElement]
+    if ($null -eq $target) { $target = $script:Window }
+    $request = [Windows.Input.TraversalRequest]::new($direction)
+    if (-not $target.MoveFocus($request)) { Focus-BabelAppList }
+}
+
 function Focus-BabelAppList {
     if ($null -ne $script:DesktopHost) { $script:DesktopHost.ShowHome() }
+    Update-BabelHomeShortcutHint
     if ($script:AppsGrid.Items.Count -gt 0 -and $script:AppsGrid.SelectedIndex -lt 0) {
         $script:AppsGrid.SelectedIndex = 0
     }
@@ -2172,6 +2200,7 @@ function Open-AppIdentity {
         $script:DesktopHost = [BabelLauncher.DesktopHost]::new(
             $script:Window, $controls.DesktopSurface, $controls.LauncherPanel,
             $controls.DesktopAppTabs, $controls.DesktopStatusText, $userDataFolder, [string[]]$allowedOrigins)
+        $script:DesktopHost.ConfigureWindow = [Action[Windows.Window]]{ param($popup) Set-BabelWindowIdentity -Window $popup }
     }
     if (-not $script:Window.IsVisible -or $script:Window.WindowState -eq [Windows.WindowState]::Minimized) {
         Restore-BabelWindowFromTray
@@ -2866,90 +2895,63 @@ $script:AppsGrid.Add_SelectionChanged({
     Refresh-ButtonState
 })
 
+function Invoke-BabelHomeShortcut {
+    param([Parameter(Mandatory = $true)][string]$Command)
+    switch ($Command) {
+        'previousApp' { Move-BabelAppSelection -Delta -1 }
+        'nextApp' { Move-BabelAppSelection -Delta 1 }
+        'hideLauncher' { Hide-BabelWindowToTray }
+        'focusNextPane' { Move-BabelHomeFocus }
+        'focusPreviousPane' { Move-BabelHomeFocus -Previous }
+        'openApp' {
+            $app = Get-SelectedApp
+            if ($null -eq $app) { Set-UiStatus -Message 'Select a notebook first.'; return }
+            try { Open-BabelApp -App $app }
+            catch { Show-BabelOpenError -AppId $app.Id -Message $_.Exception.Message }
+        }
+        'stopApp' {
+            $app = Get-SelectedApp
+            if ($null -eq $app) { Set-UiStatus -Message 'Select a notebook first.'; return }
+            $workerState = Get-AppWorkerState -AppId $app.Id
+            if ($null -eq $workerState) {
+                Set-UiStatus -Message 'The selected notebook has no independent launcher worker to stop.'
+            } elseif ($workerState.StopRequested) {
+                Set-UiStatus -Message "Stop is already pending for $($app.Name)."
+            } else { Request-AppWorkerStop -AppId $app.Id }
+        }
+    }
+}
+
 $script:Window.Add_PreviewKeyDown({
     param($sender, $eventArgs)
 
-    # App keystrokes belong to its WebView; home navigation must never consume
-    # Escape, number keys or Delete while a notebook is active.
+    # App keystrokes belong to its WebView; only Apps home uses this layer.
     if ($null -ne $script:DesktopHost -and -not $script:DesktopHost.IsHomeVisible) { return }
-
-    $key = $eventArgs.Key
-    if ($key -eq [Windows.Input.Key]::System) {
-        $key = $eventArgs.SystemKey
-    }
-    $modifiers = $eventArgs.KeyboardDevice.Modifiers
-    $hasNoModifiers = $modifiers -eq [Windows.Input.ModifierKeys]::None
-
-    if (-not $hasNoModifiers) {
-        return
-    }
-
-    if ($key -eq [Windows.Input.Key]::Escape) {
-        try {
-            Hide-BabelWindowToTray
-        } catch {
-            Show-BabelError -Message $_.Exception.Message
-        }
+    if ($eventArgs.Key -in @([Windows.Input.Key]::ImeProcessed, [Windows.Input.Key]::DeadCharProcessed)) { return }
+    $binding = $null
+    try { $binding = ConvertFrom-WpfShortcutKeyEvent -EventArgs $eventArgs -AllowBareKeys }
+    catch { return }
+    $command = Get-BabelLauncherShortcutCommand -Bindings $script:LauncherShortcutBindings -Binding $binding
+    if ($null -ne $command) {
+        if ((Test-BabelEditableTextInputFocused) -and
+            $command -notin @('focusNextPane', 'focusPreviousPane') -and
+            -not ($command -eq 'hideLauncher' -and $binding -eq 'Escape')) { return }
         $eventArgs.Handled = $true
+        if ($eventArgs.IsRepeat -and $command -notin @('previousApp', 'nextApp', 'focusNextPane', 'focusPreviousPane')) { return }
+        try { Invoke-BabelHomeShortcut -Command $command }
+        catch { Show-BabelError -Message $_.Exception.Message }
         return
     }
-
-    if (Test-BabelEditableTextInputFocused) {
-        return
-    }
-
-    $selectionIndex = Get-BabelNumberSelectionIndex -Key $key
+    if ($eventArgs.KeyboardDevice.Modifiers -ne [Windows.Input.ModifierKeys]::None -or
+        (Test-BabelEditableTextInputFocused)) { return }
+    # A configured digit command takes priority over the fixed numbered selection.
+    $selectionIndex = Get-BabelNumberSelectionIndex -Key $eventArgs.Key
     if ($selectionIndex -ge 0) {
         Select-BabelAppByIndex -Index $selectionIndex
         $eventArgs.Handled = $true
-        return
-    }
-
-    if ($key -eq [Windows.Input.Key]::Up) {
-        Move-BabelAppSelection -Delta -1
-        $eventArgs.Handled = $true
-        return
-    }
-
-    if ($key -eq [Windows.Input.Key]::Down) {
-        Move-BabelAppSelection -Delta 1
-        $eventArgs.Handled = $true
-        return
-    }
-
-    if ($key -eq [Windows.Input.Key]::Return) {
-        $app = Get-SelectedApp
-        if ($null -eq $app) {
-            Set-UiStatus -Message "Select a notebook first."
-        } else {
-            try {
-                Open-BabelApp -App $app
-            } catch {
-                Show-BabelOpenError -AppId $app.Id -Message $_.Exception.Message
-            }
-        }
-        $eventArgs.Handled = $true
-        return
-    }
-
-    if ($key -eq [Windows.Input.Key]::Delete) {
-        $app = Get-SelectedApp
-        if ($null -eq $app) {
-            Set-UiStatus -Message "Select a notebook first."
-        } else {
-            $workerState = Get-AppWorkerState -AppId $app.Id
-            if ($null -eq $workerState) {
-                Set-UiStatus -Message "The selected notebook has no independent launcher worker to stop."
-            } elseif ($workerState.StopRequested) {
-                Set-UiStatus -Message "Stop is already pending for $($app.Name)."
-            } else {
-                Request-AppWorkerStop -AppId $app.Id
-            }
-        }
-        $eventArgs.Handled = $true
     }
 })
-
+Update-BabelHomeShortcutHint
 $timer = New-Object Windows.Threading.DispatcherTimer
 $timer.Interval = [TimeSpan]::FromSeconds($script:StatusPollIntervalSeconds)
 $timer.Add_Tick({

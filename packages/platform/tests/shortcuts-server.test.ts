@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -35,7 +35,7 @@ test("shortcut loader rereads valid settings and falls back for missing or inval
     assert.deepEqual(loadShortcutSettings({ path: settingsPath }), DEFAULT_SHORTCUT_SETTINGS);
 
     const changed = {
-      schemaVersion: 4,
+      ...DEFAULT_SHORTCUT_SETTINGS,
       bindings: { ...DEFAULT_SHORTCUT_SETTINGS.bindings, save: "Ctrl+Alt+S" },
     };
     writeFileSync(settingsPath, JSON.stringify(changed), "utf8");
@@ -47,6 +47,18 @@ test("shortcut loader rereads valid settings and falls back for missing or inval
     };
     writeFileSync(settingsPath, JSON.stringify(changedAgain), "utf8");
     assert.deepEqual(loadShortcutSettings({ path: settingsPath }), changedAgain);
+
+    const versionFour = JSON.stringify({ schemaVersion: 4, bindings: changedAgain.bindings });
+    writeFileSync(settingsPath, versionFour, "utf8");
+    assert.deepEqual(loadShortcutSettings({ path: settingsPath }), changedAgain);
+    assert.equal(readFileSync(settingsPath, "utf8"), versionFour);
+
+    const layered = {
+      ...changedAgain,
+      layers: { ...changedAgain.layers, read: { underlineSelection: "H", new: null } },
+    };
+    writeFileSync(settingsPath, JSON.stringify(layered), "utf8");
+    assert.deepEqual(loadShortcutSettings({ path: settingsPath }), layered);
 
     const legacy = {
       schemaVersion: 1,
@@ -63,7 +75,8 @@ test("shortcut loader rereads valid settings and falls back for missing or inval
     };
     writeFileSync(settingsPath, JSON.stringify(legacy), "utf8");
     assert.deepEqual(loadShortcutSettings({ path: settingsPath }), {
-      schemaVersion: 4,
+      schemaVersion: 5,
+      layers: DEFAULT_SHORTCUT_SETTINGS.layers,
       bindings: {
         save: "Ctrl+Alt+S",
         new: "Ctrl+Alt+N",

@@ -122,8 +122,8 @@ export function isPaneAvailable(pane: HTMLElement): boolean {
   if (elementOrAncestorMatches(pane, "[hidden], [inert], [aria-hidden='true']")) return false;
   if (typeof window === "undefined") return true;
   for (let current: HTMLElement | null = pane; current !== null; current = current.parentElement) {
-    const style = window.getComputedStyle(current);
-    if (style.display === "none" || style.visibility === "hidden") return false;
+    const style = current.ownerDocument.defaultView?.getComputedStyle(current);
+    if (style?.display === "none" || style?.visibility === "hidden") return false;
   }
   return true;
 }

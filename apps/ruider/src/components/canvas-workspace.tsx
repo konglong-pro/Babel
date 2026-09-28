@@ -353,7 +353,7 @@ export function CanvasWorkspace({
             <div className="canvas-welcome">
               <Image
                 className="canvas-welcome__mark"
-                src="/icon.svg"
+                src="/icon.png"
                 alt=""
                 width={156}
                 height={156}

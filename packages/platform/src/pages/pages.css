@@ -30,7 +30,7 @@
   .scratch-workspace
 ) {
   height: calc(
-    100dvh - var(--header-height, 52px) - var(--babel-page-tabs-height, 48px)
+    100dvh - var(--header-height, 52px) - var(--babel-page-tabs-height, 48px) - var(--babel-keyboard-status-height, 0rem)
   );
   min-height: 0;
 }

@@ -58,8 +58,8 @@ export interface PaneFocusContextValue {
 
 const PaneFocusContext = createContext<PaneFocusContextValue | null>(null);
 
-function availablePanes(): HTMLElement[] {
-  if (typeof document === "undefined") return [];
+function availablePanes(document: Document | null): HTMLElement[] {
+  if (document === null) return [];
   const activeFocusScope = Array.from(
     document.querySelectorAll<HTMLElement>(FOCUS_SCOPE_SELECTOR),
   ).filter(isPaneAvailable).at(-1) ?? null;
@@ -95,8 +95,10 @@ function defaultPaneFocusTarget(pane: HTMLElement): HTMLElement {
     "select:not(:disabled)",
   ];
   for (const selector of candidateSelectors) {
-    const target = pane.querySelector<HTMLElement>(selector);
-    if (target !== null && canReceivePaneFocus(target)) return target;
+    const target = Array.from(pane.querySelectorAll<HTMLElement>(selector)).find(
+      candidate => candidate.closest(PANE_SELECTOR) === pane && canReceivePaneFocus(candidate),
+    );
+    if (target !== undefined) return target;
   }
   if (!pane.hasAttribute("tabindex")) pane.tabIndex = -1;
   return pane;
@@ -104,64 +106,68 @@ function defaultPaneFocusTarget(pane: HTMLElement): HTMLElement {
 
 export interface PaneFocusProviderProps {
   readonly children?: ReactNode;
+  readonly ownerDocument?: Document;
 }
 
-export function PaneFocusProvider({ children }: PaneFocusProviderProps) {
+export function PaneFocusProvider({ children, ownerDocument }: PaneFocusProviderProps) {
+  const scopeDocument = ownerDocument ?? (typeof document === "undefined" ? null : document);
   const rememberedFocusRef = useRef(new WeakMap<HTMLElement, HTMLElement>());
   const lastPaneRef = useRef<HTMLElement | null>(null);
 
   const rememberFocus = useCallback((element?: HTMLElement | null) => {
     const target = element ?? (
-      typeof document === "undefined" ? null : document.activeElement as HTMLElement | null
+      scopeDocument?.activeElement as HTMLElement | null
     );
-    if (target === null || typeof target.closest !== "function") return;
+    if (target == null || typeof target.closest !== "function") return;
     const pane = target.closest<HTMLElement>(PANE_SELECTOR);
     if (pane === null) return;
     rememberedFocusRef.current.set(pane, target);
     lastPaneRef.current = pane;
-  }, []);
+  }, [scopeDocument]);
 
   useEffect(() => {
     const focusIn = (event: FocusEvent) => {
-      if (event.target instanceof HTMLElement) rememberFocus(event.target);
+      const target = event.target as HTMLElement | null;
+      if (target?.nodeType === 1) rememberFocus(target);
     };
-    document.addEventListener("focusin", focusIn, true);
-    return () => document.removeEventListener("focusin", focusIn, true);
-  }, [rememberFocus]);
+    scopeDocument?.addEventListener("focusin", focusIn, true);
+    return () => scopeDocument?.removeEventListener("focusin", focusIn, true);
+  }, [rememberFocus, scopeDocument]);
 
   const focusAvailablePane = useCallback((pane: HTMLElement): boolean => {
     const remembered = rememberedFocusRef.current.get(pane);
-    const target = remembered !== undefined && pane.contains(remembered) && canReceivePaneFocus(remembered)
+    const target = remembered !== undefined && remembered.closest(PANE_SELECTOR) === pane && canReceivePaneFocus(remembered)
       ? remembered
       : defaultPaneFocusTarget(pane);
     target.focus({ preventScroll: false });
-    if (document.activeElement !== target && target !== pane) {
+    if (scopeDocument?.activeElement !== target && target !== pane) {
       defaultPaneFocusTarget(pane).focus({ preventScroll: false });
     }
-    const focused = pane.contains(document.activeElement);
-    if (focused) rememberFocus(document.activeElement as HTMLElement);
+    const focused = pane.contains(scopeDocument?.activeElement ?? null);
+    if (focused) rememberFocus(scopeDocument?.activeElement as HTMLElement);
     return focused;
-  }, [rememberFocus]);
+  }, [rememberFocus, scopeDocument]);
 
   const focusPane = useCallback((paneId: string): boolean => {
-    const pane = availablePanes().find(
+    const pane = availablePanes(scopeDocument).find(
       (candidate) => candidate.dataset.babelPane === paneId,
     );
     return pane === undefined ? false : focusAvailablePane(pane);
-  }, [focusAvailablePane]);
+  }, [focusAvailablePane, scopeDocument]);
 
   const movePaneFocus = useCallback((direction: 1 | -1): boolean => {
-    const panes = availablePanes();
+    const panes = availablePanes(scopeDocument);
     if (panes.length === 0) return false;
-    const activeElement = document.activeElement;
-    let currentIndex = panes.findIndex((pane) => pane.contains(activeElement));
+    const activeElement = scopeDocument?.activeElement ?? null;
+    const activePane = activeElement?.closest<HTMLElement>(PANE_SELECTOR);
+    let currentIndex = activePane === undefined || activePane === null ? -1 : panes.indexOf(activePane);
     if (currentIndex < 0 && lastPaneRef.current !== null) {
       currentIndex = panes.indexOf(lastPaneRef.current);
     }
     const nextIndex = cyclicNavigationIndex(panes.length, currentIndex, direction);
     const pane = nextIndex === null ? undefined : panes[nextIndex];
     return pane === undefined ? false : focusAvailablePane(pane);
-  }, [focusAvailablePane]);
+  }, [focusAvailablePane, scopeDocument]);
 
   const value = useMemo<PaneFocusContextValue>(() => ({
     focusNextPane: () => movePaneFocus(1),

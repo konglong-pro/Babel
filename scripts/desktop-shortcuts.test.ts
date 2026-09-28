@@ -60,7 +60,7 @@ $results | ConvertTo-Json -Depth 5 -Compress
     assert.equal(documents.length, desktopBindings.length);
     for (const [index, document] of documents.entries()) {
       const settings = parseShortcutSettings(document);
-      assert.equal(settings.schemaVersion, 4);
+      assert.equal(settings.schemaVersion, 5);
       assert.equal(settings.bindings.closeTab, desktopBindings[index]);
       assert.equal(settings.bindings.save, "Ctrl+S");
     }

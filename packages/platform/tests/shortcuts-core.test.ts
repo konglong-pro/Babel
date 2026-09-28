@@ -4,12 +4,15 @@ import test from "node:test";
 
 import {
   DEFAULT_SHORTCUT_SETTINGS,
+  getDefaultShortcutSettings,
+  LAUNCHER_SHORTCUT_DEFINITIONS,
   isDesktopOnlyShortcutBinding,
   isShortcutBindingAvailable,
   matchesShortcutBinding,
   normalizeShortcutBinding,
   parseShortcutBinding,
   parseShortcutSettings,
+  resolveShortcutBindings,
   SHORTCUT_COMMANDS,
   SHORTCUT_DEFINITIONS,
   ShortcutValidationError,
@@ -21,15 +24,26 @@ test("shortcut definitions and checked-in defaults stay in lockstep", () => {
   ) as unknown;
 
   assert.deepEqual(defaultsDocument, {
-    schemaVersion: 4,
+    schemaVersion: 5,
     commands: SHORTCUT_DEFINITIONS,
+    launcherCommands: LAUNCHER_SHORTCUT_DEFINITIONS,
+    layers: DEFAULT_SHORTCUT_SETTINGS.layers,
   });
   assert.deepEqual(
     SHORTCUT_DEFINITIONS.map(({ command }) => command),
     SHORTCUT_COMMANDS,
   );
   assert.deepEqual(DEFAULT_SHORTCUT_SETTINGS, {
-    schemaVersion: 4,
+    schemaVersion: 5,
+    layers: {
+      app: {},
+      edit: {},
+      read: {},
+      launcher: {
+        previousApp: "ArrowUp", nextApp: "ArrowDown", openApp: "Enter", stopApp: "Delete",
+        hideLauncher: "Escape", focusNextPane: "Tab", focusPreviousPane: "Shift+Tab",
+      },
+    },
     bindings: {
       save: "Ctrl+S",
       new: "Ctrl+Alt+N",
@@ -130,9 +144,9 @@ test("shortcut bindings reject OS, fixed navigation, and accidental bare keys", 
   }
 });
 
-test("shortcut settings require exact current keys and accept unbound v4 commands", () => {
+test("shortcut settings require exact current keys and accept unbound commands", () => {
   const valid = {
-    schemaVersion: 4,
+    ...getDefaultShortcutSettings(),
     bindings: { ...DEFAULT_SHORTCUT_SETTINGS.bindings },
   };
   assert.deepEqual(parseShortcutSettings(valid), valid);
@@ -178,7 +192,7 @@ test("shortcut settings require exact current keys and accept unbound v4 command
       }),
     ShortcutValidationError,
   );
-  assert.throws(() => parseShortcutSettings({ ...valid, schemaVersion: 5 }), ShortcutValidationError);
+  assert.throws(() => parseShortcutSettings({ ...valid, schemaVersion: 6 }), ShortcutValidationError);
 });
 
 test("v1, v2, and v3 migrations preserve old bindings and leave conflicting new commands unbound", () => {
@@ -197,7 +211,8 @@ test("v1, v2, and v3 migrations preserve old bindings and leave conflicting new 
     },
   };
   assert.deepEqual(parseShortcutSettings(legacy), {
-    schemaVersion: 4,
+    schemaVersion: 5,
+    layers: DEFAULT_SHORTCUT_SETTINGS.layers,
     bindings: {
       save: "Ctrl+Alt+S",
       new: "Ctrl+Alt+N",
@@ -235,7 +250,8 @@ test("v1, v2, and v3 migrations preserve old bindings and leave conflicting new 
     },
   };
   assert.deepEqual(parseShortcutSettings(versionTwo), {
-    schemaVersion: 4,
+    schemaVersion: 5,
+    layers: DEFAULT_SHORTCUT_SETTINGS.layers,
     bindings: {
       ...versionTwo.bindings,
       underlineSelection: "Ctrl+Shift+U",
@@ -264,7 +280,7 @@ test("v1, v2, and v3 migrations preserve old bindings and leave conflicting new 
     )),
   };
   const migratedVersionThree = parseShortcutSettings(versionThree);
-  assert.equal(migratedVersionThree.schemaVersion, 4);
+  assert.equal(migratedVersionThree.schemaVersion, 5);
   assert.equal(migratedVersionThree.bindings.underlineSelection, "Ctrl+Shift+U");
   assert.equal(migratedVersionThree.bindings.removeUnderline, "Ctrl+Alt+U");
   const versionThreeConflict = {
@@ -330,6 +346,111 @@ test("v1, v2, and v3 migrations preserve old bindings and leave conflicting new 
       }),
     ShortcutValidationError,
   );
+});
+
+test("v4 migration preserves every binding and starts new layers with inheritance", () => {
+  const bindings = { ...DEFAULT_SHORTCUT_SETTINGS.bindings, save: "Ctrl+Shift+S", help: null };
+  const migrated = parseShortcutSettings({ schemaVersion: 4, bindings });
+  assert.equal(migrated.schemaVersion, 5);
+  assert.deepEqual(migrated.bindings, bindings);
+  assert.deepEqual(migrated.layers, DEFAULT_SHORTCUT_SETTINGS.layers);
+  assert.deepEqual(resolveShortcutBindings(migrated, "app"), bindings);
+  assert.deepEqual(resolveShortcutBindings(migrated, "edit"), bindings);
+  assert.deepEqual(resolveShortcutBindings(migrated, "read"), bindings);
+});
+
+test("mode layers inherit, disable, and shadow lower commands without changing source settings", () => {
+  const settings = parseShortcutSettings({
+    ...DEFAULT_SHORTCUT_SETTINGS,
+    layers: {
+      ...DEFAULT_SHORTCUT_SETTINGS.layers,
+      app: { new: "N", read: "Ctrl+S", edit: "E", help: null },
+      edit: { save: "N", edit: undefined },
+      read: { underlineSelection: "N", read: null },
+    },
+  });
+  const app = resolveShortcutBindings(settings, "app");
+  assert.equal(app.new, "N");
+  assert.equal(app.save, null);
+  assert.equal(app.read, "Ctrl+S");
+  assert.equal(app.help, null);
+  const edit = resolveShortcutBindings(settings, "edit");
+  assert.equal(edit.new, null);
+  assert.equal(edit.save, "N");
+  assert.equal(edit.edit, "E");
+  const read = resolveShortcutBindings(settings, "read");
+  assert.equal(read.underlineSelection, "N");
+  assert.equal(read.new, null);
+  assert.equal(read.read, null);
+  assert.equal(read.save, null);
+  assert.equal(settings.bindings.save, "Ctrl+S");
+  assert.equal(settings.layers.app.new, "N");
+  assert.deepEqual(settings.layers.edit, { save: "N" });
+
+  const swap = parseShortcutSettings({
+    ...DEFAULT_SHORTCUT_SETTINGS,
+    layers: { ...DEFAULT_SHORTCUT_SETTINGS.layers, app: { save: "Ctrl+F", search: "Ctrl+S" } },
+  });
+  assert.equal(resolveShortcutBindings(swap, "app").save, "Ctrl+F");
+  assert.equal(resolveShortcutBindings(swap, "app").search, "Ctrl+S");
+});
+
+test("mode layer validation allows contextual bare keys while retaining native focus and OS reservations", () => {
+  for (const binding of ["h", "Shift+h", "3", "Shift+3", "Delete", "ArrowDown"]) {
+    assert.equal(parseShortcutBinding(binding, true).binding, normalizeShortcutBinding(binding, true));
+    const settings = parseShortcutSettings({
+      ...DEFAULT_SHORTCUT_SETTINGS,
+      layers: { ...DEFAULT_SHORTCUT_SETTINGS.layers, read: { underlineSelection: binding } },
+    });
+    assert.equal(settings.layers.read.underlineSelection, normalizeShortcutBinding(binding, true));
+  }
+  for (const binding of ["Tab", "Shift+Tab", "Enter", "Shift+Enter", "Escape", "F2", "Alt+Tab", "Ctrl+Alt+Delete"]) {
+    assert.throws(() => parseShortcutSettings({
+      ...DEFAULT_SHORTCUT_SETTINGS,
+      layers: { ...DEFAULT_SHORTCUT_SETTINGS.layers, read: { underlineSelection: binding } },
+    }), ShortcutValidationError, binding);
+  }
+  for (const read of [{ new: "N", underlineSelection: "n" }, { unknown: "N" }, { help: 3 }]) {
+    assert.throws(() => parseShortcutSettings({
+      ...DEFAULT_SHORTCUT_SETTINGS,
+      layers: { ...DEFAULT_SHORTCUT_SETTINGS.layers, read },
+    }), ShortcutValidationError);
+  }
+  for (const layers of [{}, { ...DEFAULT_SHORTCUT_SETTINGS.layers, extra: {} }, { ...DEFAULT_SHORTCUT_SETTINGS.layers, read: null }]) {
+    assert.throws(() => parseShortcutSettings({ ...DEFAULT_SHORTCUT_SETTINGS, layers }), ShortcutValidationError);
+  }
+});
+
+test("launcher bindings are independent and validate all commands with unique assignments", () => {
+  const launcher = { ...DEFAULT_SHORTCUT_SETTINGS.layers.launcher, previousApp: "K", nextApp: "J", stopApp: null };
+  const settings = parseShortcutSettings({
+    ...DEFAULT_SHORTCUT_SETTINGS,
+    layers: { ...DEFAULT_SHORTCUT_SETTINGS.layers, launcher },
+  });
+  assert.deepEqual(settings.layers.launcher, launcher);
+  assert.deepEqual(resolveShortcutBindings(settings, "app"), DEFAULT_SHORTCUT_SETTINGS.bindings);
+  for (const invalid of [
+    { ...launcher, previousApp: "J" },
+    { ...launcher, previousApp: "Escape", hideLauncher: "Ctrl+Q" },
+    { ...launcher, openApp: "Alt+F4" },
+    { ...launcher, openApp: undefined },
+    { ...launcher, extra: "A" },
+    {},
+  ]) {
+    assert.throws(() => parseShortcutSettings({
+      ...DEFAULT_SHORTCUT_SETTINGS,
+      layers: { ...DEFAULT_SHORTCUT_SETTINGS.layers, launcher: invalid },
+    }), ShortcutValidationError);
+  }
+});
+
+test("keyboard matching supports mode keys and shifted number keys", () => {
+  assert.equal(matchesShortcutBinding({ key: "h" }, "H"), true);
+  assert.equal(matchesShortcutBinding({ key: "H", shiftKey: true }, "Shift+H"), true);
+  assert.equal(matchesShortcutBinding({ key: "H", shiftKey: true }, "H"), false);
+  assert.equal(matchesShortcutBinding({ key: "#", code: "Digit3", shiftKey: true }, "Shift+3"), true);
+  assert.equal(matchesShortcutBinding({ key: "#", code: "Digit3", shiftKey: true }, "3"), false);
+  assert.equal(isShortcutBindingAvailable("H", false), true);
 });
 
 test("keyboard matching is exact and ignores unsafe event states", () => {

@@ -17,6 +17,7 @@ if ($fixture.Scheme -ne 'http' -or -not $fixture.IsLoopback -or $fixture.UserInf
 }
 
 . (Join-Path $PSScriptRoot 'Babel.Desktop.ps1')
+. (Join-Path $PSScriptRoot 'Babel.Identity.ps1')
 Import-BabelDesktopRuntime
 $managedDirectory = Join-Path $PSScriptRoot '.webview2/1.0.3537.50/lib_manual/netcoreapp3.0'
 $references = @(Get-ChildItem -LiteralPath (Join-Path $PSHOME 'ref') -Filter '*.dll' |
@@ -38,7 +39,14 @@ $profilePath = Join-Path $temporaryRoot $profileName
 [void][IO.Directory]::CreateDirectory($profilePath)
 $smokeFailure = $null
 try {
-    [BabelLauncher.DesktopSmoke]::Run([BabelLauncher.DesktopHost], $FixtureOrigin, $profilePath)
+    $configureWindow = [Action[Windows.Window]]{
+        param($identityWindow)
+        Set-BabelWindowIdentity -Window $identityWindow
+        if ($null -eq $identityWindow.Icon) {
+            $identityWindow.Icon = [Windows.Media.Imaging.BitmapFrame]::Create([Uri](Join-Path $PSScriptRoot 'assets\Babel.ico'))
+        }
+    }
+    [BabelLauncher.DesktopSmoke]::Run([BabelLauncher.DesktopHost], $FixtureOrigin, $profilePath, $configureWindow)
 } catch {
     $smokeFailure = $_
 } finally {

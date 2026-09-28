@@ -1,4 +1,4 @@
-export const SHORTCUT_SCHEMA_VERSION = 4 as const;
+export const SHORTCUT_SCHEMA_VERSION = 5 as const;
 
 export const SHORTCUT_COMMANDS = [
   "save",
@@ -86,9 +86,27 @@ export type ShortcutBinding = string | null;
 
 export type ShortcutBindings = Readonly<Record<ShortcutCommand, ShortcutBinding>>;
 
+export type ShortcutMode = "app" | "edit" | "read";
+
+export const LAUNCHER_SHORTCUT_COMMANDS = [
+  "previousApp", "nextApp", "openApp", "stopApp", "hideLauncher",
+  "focusNextPane", "focusPreviousPane",
+] as const;
+
+export type LauncherShortcutCommand = (typeof LAUNCHER_SHORTCUT_COMMANDS)[number];
+export type LauncherBindings = Readonly<Record<LauncherShortcutCommand, ShortcutBinding>>;
+
+export interface ShortcutLayers {
+  readonly app: Partial<ShortcutBindings>;
+  readonly edit: Partial<ShortcutBindings>;
+  readonly read: Partial<ShortcutBindings>;
+  readonly launcher: LauncherBindings;
+}
+
 export interface ShortcutSettings {
   readonly schemaVersion: typeof SHORTCUT_SCHEMA_VERSION;
   readonly bindings: ShortcutBindings;
+  readonly layers: ShortcutLayers;
 }
 
 export interface ParsedShortcutBinding {
@@ -101,6 +119,7 @@ export interface ParsedShortcutBinding {
 
 export interface ShortcutKeyboardEventLike {
   readonly key: string;
+  readonly code?: string;
   readonly ctrlKey?: boolean;
   readonly altKey?: boolean;
   readonly shiftKey?: boolean;
@@ -178,6 +197,20 @@ export const SHORTCUT_DEFINITIONS: readonly ShortcutDefinition[] = Object.freeze
     label: "Keyboard Help",
     defaultBinding: "Ctrl+Alt+H",
   }),
+]);
+
+export const LAUNCHER_SHORTCUT_DEFINITIONS: readonly {
+  readonly command: LauncherShortcutCommand;
+  readonly label: string;
+  readonly defaultBinding: string;
+}[] = Object.freeze([
+  Object.freeze({ command: "previousApp", label: "Previous APP", defaultBinding: "ArrowUp" }),
+  Object.freeze({ command: "nextApp", label: "Next APP", defaultBinding: "ArrowDown" }),
+  Object.freeze({ command: "openApp", label: "Open APP", defaultBinding: "Enter" }),
+  Object.freeze({ command: "stopApp", label: "Stop APP", defaultBinding: "Delete" }),
+  Object.freeze({ command: "hideLauncher", label: "Hide Launcher", defaultBinding: "Escape" }),
+  Object.freeze({ command: "focusNextPane", label: "Focus Next Pane", defaultBinding: "Tab" }),
+  Object.freeze({ command: "focusPreviousPane", label: "Focus Previous Pane", defaultBinding: "Shift+Tab" }),
 ]);
 
 const COMMAND_SET = new Set<string>(SHORTCUT_COMMANDS);
@@ -287,15 +320,35 @@ function makeDefaultBindings(): Record<ShortcutCommand, ShortcutBinding> {
   ) as Record<ShortcutCommand, ShortcutBinding>;
 }
 
+function makeDefaultLayers(): ShortcutLayers {
+  return {
+    app: {},
+    edit: {},
+    read: {},
+    launcher: Object.fromEntries(
+      LAUNCHER_SHORTCUT_DEFINITIONS.map(({ command, defaultBinding }) => [command, defaultBinding]),
+    ) as Record<LauncherShortcutCommand, ShortcutBinding>,
+  };
+}
+
+const defaultLayers = makeDefaultLayers();
+
 export const DEFAULT_SHORTCUT_SETTINGS: ShortcutSettings = Object.freeze({
   schemaVersion: SHORTCUT_SCHEMA_VERSION,
   bindings: Object.freeze(makeDefaultBindings()),
+  layers: Object.freeze({
+    app: Object.freeze(defaultLayers.app),
+    edit: Object.freeze(defaultLayers.edit),
+    read: Object.freeze(defaultLayers.read),
+    launcher: Object.freeze(defaultLayers.launcher),
+  }),
 });
 
 export function getDefaultShortcutSettings(): ShortcutSettings {
   return {
     schemaVersion: SHORTCUT_SCHEMA_VERSION,
     bindings: { ...DEFAULT_SHORTCUT_SETTINGS.bindings },
+    layers: makeDefaultLayers(),
   };
 }
 
@@ -333,6 +386,7 @@ function normalizeKey(keyPart: string): ShortcutKey {
 function parseShortcutBindingInternal(
   value: string,
   allowLegacyFixedNavigationBindings = false,
+  allowBare = false,
 ): ParsedShortcutBinding {
   if (typeof value !== "string" || value.trim() === "") {
     throw new ShortcutValidationError("Shortcut binding must be a non-empty string.");
@@ -373,6 +427,7 @@ function parseShortcutBindingInternal(
   const isBareEscape = key === "Escape" && modifierSet.size === 0;
   const isBareFunctionKey = /^F([1-9]|1[0-2])$/.test(key) && modifierSet.size === 0;
   if (
+    !allowBare &&
     !isBareEscape &&
     !isBareFunctionKey &&
     !modifierSet.has("Ctrl") &&
@@ -407,16 +462,16 @@ function parseShortcutBindingInternal(
   };
 }
 
-export function parseShortcutBinding(value: string): ParsedShortcutBinding {
-  return parseShortcutBindingInternal(value);
+export function parseShortcutBinding(value: string, allowBare = false): ParsedShortcutBinding {
+  return parseShortcutBindingInternal(value, false, allowBare);
 }
 
-export function normalizeShortcutBinding(value: string): string {
-  return parseShortcutBinding(value).binding;
+export function normalizeShortcutBinding(value: string, allowBare = false): string {
+  return parseShortcutBinding(value, allowBare).binding;
 }
 
 export function isDesktopOnlyShortcutBinding(binding: string | null): boolean {
-  return binding !== null && DESKTOP_ONLY_BINDINGS.has(normalizeShortcutBinding(binding));
+  return binding !== null && DESKTOP_ONLY_BINDINGS.has(normalizeShortcutBinding(binding, true));
 }
 
 export function isShortcutBindingAvailable(binding: string | null, desktop: boolean): boolean {
@@ -431,22 +486,121 @@ function assertCommandBindingOwnership(command: ShortcutCommand, binding: string
   }
 }
 
+function parseModeLayer(value: unknown, mode: ShortcutMode): Partial<ShortcutBindings> {
+  if (!isRecord(value)) {
+    throw new ShortcutValidationError(`Shortcut layer ${mode} must be an object.`);
+  }
+  const bindings: Partial<Record<ShortcutCommand, ShortcutBinding>> = {};
+  const assigned = new Map<string, ShortcutCommand>();
+  for (const [command, rawBinding] of Object.entries(value)) {
+    if (!isShortcutCommand(command)) {
+      throw new ShortcutValidationError(`Unknown command ${command} in shortcut layer ${mode}.`);
+    }
+    if (rawBinding === undefined) continue;
+    if (rawBinding === null) {
+      bindings[command] = null;
+      continue;
+    }
+    if (typeof rawBinding !== "string") {
+      throw new ShortcutValidationError(`Shortcut binding for ${mode}.${command} must be a string or null.`);
+    }
+    const parsed = parseShortcutBinding(rawBinding, true);
+    if (!parsed.ctrlKey && !parsed.altKey && (parsed.key === "Tab" || parsed.key === "Enter")) {
+      throw new ShortcutValidationError(`Shortcut binding ${parsed.binding} is reserved for focus and native controls.`);
+    }
+    assertCommandBindingOwnership(command, parsed.binding);
+    const previous = assigned.get(parsed.binding);
+    if (previous !== undefined) {
+      throw new ShortcutValidationError(`Shortcut binding ${parsed.binding} is assigned to both ${previous} and ${command} in layer ${mode}.`);
+    }
+    assigned.set(parsed.binding, command);
+    bindings[command] = parsed.binding;
+  }
+  return bindings;
+}
+
+function parseLauncherBindings(value: unknown): LauncherBindings {
+  if (!isRecord(value)) {
+    throw new ShortcutValidationError("Launcher shortcut bindings must be an object.");
+  }
+  assertExactKeys(value, LAUNCHER_SHORTCUT_COMMANDS, "Launcher shortcut bindings");
+  const bindings = {} as Record<LauncherShortcutCommand, ShortcutBinding>;
+  const assigned = new Map<string, LauncherShortcutCommand>();
+  for (const command of LAUNCHER_SHORTCUT_COMMANDS) {
+    const rawBinding = value[command];
+    if (rawBinding === null) {
+      bindings[command] = null;
+      continue;
+    }
+    if (typeof rawBinding !== "string") {
+      throw new ShortcutValidationError(`Launcher shortcut binding for ${command} must be a string or null.`);
+    }
+    const binding = normalizeShortcutBinding(rawBinding, true);
+    if (binding === "Escape" && command !== "hideLauncher") {
+      throw new ShortcutValidationError("Launcher shortcut binding Escape is reserved for hideLauncher.");
+    }
+    const previous = assigned.get(binding);
+    if (previous !== undefined) {
+      throw new ShortcutValidationError(`Launcher shortcut binding ${binding} is assigned to both ${previous} and ${command}.`);
+    }
+    assigned.set(binding, command);
+    bindings[command] = binding;
+  }
+  return bindings;
+}
+
+function parseShortcutLayers(value: unknown): ShortcutLayers {
+  if (!isRecord(value)) {
+    throw new ShortcutValidationError("Shortcut layers must be an object.");
+  }
+  assertExactKeys(value, ["app", "edit", "read", "launcher"], "Shortcut layers");
+  return {
+    app: parseModeLayer(value.app, "app"),
+    edit: parseModeLayer(value.edit, "edit"),
+    read: parseModeLayer(value.read, "read"),
+    launcher: parseLauncherBindings(value.launcher),
+  };
+}
+
+function overlayBindings(base: ShortcutBindings, layer: Partial<ShortcutBindings>): ShortcutBindings {
+  const overriddenBindings = new Set(Object.values(layer).filter((binding) => binding != null));
+  return Object.fromEntries(SHORTCUT_COMMANDS.map((command) => {
+    const override = layer[command];
+    const inherited = base[command];
+    return [command, override !== undefined
+      ? override
+      : inherited !== null && overriddenBindings.has(inherited) ? null : inherited];
+  })) as Record<ShortcutCommand, ShortcutBinding>;
+}
+
+/** Resolve one mode, suppressing any lower command whose key was claimed by a higher layer. */
+export function resolveShortcutBindings(settings: ShortcutSettings, mode: ShortcutMode): ShortcutBindings {
+  const appBindings = overlayBindings(settings.bindings, settings.layers.app);
+  return mode === "app" ? appBindings : overlayBindings(appBindings, settings.layers[mode]);
+}
+
 export function parseShortcutSettings(value: unknown): ShortcutSettings {
   if (!isRecord(value)) {
     throw new ShortcutValidationError("Shortcut settings must be an object.");
   }
-  assertExactKeys(value, ["schemaVersion", "bindings"], "Shortcut settings");
-
   if (
     value.schemaVersion !== 1 &&
     value.schemaVersion !== 2 &&
     value.schemaVersion !== 3 &&
+    value.schemaVersion !== 4 &&
     value.schemaVersion !== SHORTCUT_SCHEMA_VERSION
   ) {
     throw new ShortcutValidationError(
       `Unsupported shortcut settings schema version: ${String(value.schemaVersion)}.`,
     );
   }
+  assertExactKeys(
+    value,
+    value.schemaVersion === SHORTCUT_SCHEMA_VERSION
+      ? ["schemaVersion", "bindings", "layers"]
+      : ["schemaVersion", "bindings"],
+    "Shortcut settings",
+  );
   if (!isRecord(value.bindings)) {
     throw new ShortcutValidationError("Shortcut bindings must be an object.");
   }
@@ -528,6 +682,9 @@ export function parseShortcutSettings(value: unknown): ShortcutSettings {
   return {
     schemaVersion: SHORTCUT_SCHEMA_VERSION,
     bindings: normalizedBindings,
+    layers: value.schemaVersion === SHORTCUT_SCHEMA_VERSION
+      ? parseShortcutLayers(value.layers)
+      : makeDefaultLayers(),
   };
 }
 
@@ -560,9 +717,14 @@ export function matchesShortcutBinding(
   if (shouldIgnoreShortcutEvent(event)) return false;
   if (binding === null) return false;
 
-  const parsed = typeof binding === "string" ? parseShortcutBinding(binding) : binding;
+  const parsed = typeof binding === "string" ? parseShortcutBinding(binding, true) : binding;
+  const eventKey = normalizeEventKey(event.key) ?? (
+    event.shiftKey === true && /^Digit[0-9]$/.test(event.code ?? "")
+      ? event.code!.slice(-1) as ShortcutKey
+      : undefined
+  );
   return (
-    normalizeEventKey(event.key) === parsed.key &&
+    eventKey === parsed.key &&
     (event.ctrlKey === true) === parsed.ctrlKey &&
     (event.altKey === true) === parsed.altKey &&
     (event.shiftKey === true) === parsed.shiftKey

@@ -17,7 +17,7 @@ namespace BabelLauncher
     {
         private static readonly List<string> passed = new List<string>();
 
-        public static string Run(Type hostType, string origin, string profile)
+        public static string Run(Type hostType, string origin, string profile, Action<Window> configureWindow)
         {
             passed.Clear();
             var window = new Window {
@@ -25,6 +25,8 @@ namespace BabelLauncher
                 ShowActivated = false, ShowInTaskbar = false, WindowStyle = WindowStyle.None,
                 Title = "Babel isolated desktop smoke test"
             };
+            configureWindow(window);
+            int configuredPopups = 0;
             var root = new DockPanel();
             var tabs = new StackPanel { Orientation = Orientation.Horizontal };
             var status = new TextBlock();
@@ -38,6 +40,12 @@ namespace BabelLauncher
             root.Children.Add(surface);
             window.Content = root;
             object host = Activator.CreateInstance(hostType, window, surface, home, tabs, status, profile, new[] { origin });
+            hostType.GetProperty("ConfigureWindow").SetValue(host, new Action<Window>(popup => {
+                Check(window.Dispatcher.CheckAccess(), "Popup identity callback left the WPF UI thread.");
+                Check(popup.Icon != null && popup.Icon == window.Icon, "Popup did not inherit the Babel window icon.");
+                configureWindow(popup);
+                configuredPopups++;
+            }));
             Exception failure = null;
             window.Loaded += async (sender, args) => {
                 try {
@@ -45,6 +53,7 @@ namespace BabelLauncher
                     if (await Task.WhenAny(verification, Task.Delay(45000)) != verification)
                         throw new TimeoutException("Desktop smoke test exceeded 45 seconds.");
                     await verification;
+                    Check(configuredPopups == 2, "The PowerShell identity callback did not configure both native popups.");
                 } catch (Exception error) { failure = error; }
                 finally {
                     ((IDisposable)host).Dispose();

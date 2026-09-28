@@ -75,7 +75,9 @@ function ConvertTo-BabelShortcutBinding {
     param(
         [Parameter(Mandatory = $true)]
         [AllowEmptyString()]
-        [string]$Binding
+        [string]$Binding,
+
+        [switch]$AllowBareKeys
     )
 
     $trimmedBinding = $Binding.Trim()
@@ -208,7 +210,8 @@ function ConvertTo-BabelShortcutBinding {
         -not $hasCtrl -and
         -not $hasAlt -and
         $canonicalBinding -ne "Escape" -and
-        -not $isBareFunctionKey
+        -not $isBareFunctionKey -and
+        -not $AllowBareKeys
     ) {
         throw "Shortcut '$canonicalBinding' must include Ctrl or Alt. Only Escape or a safe bare function key may omit them."
     }
@@ -219,7 +222,7 @@ function ConvertTo-BabelShortcutBinding {
 function Test-BabelDesktopOnlyShortcutBinding {
     param([Parameter(Mandatory = $true)][string]$Binding)
 
-    $canonicalBinding = ConvertTo-BabelShortcutBinding -Binding $Binding
+    $canonicalBinding = ConvertTo-BabelShortcutBinding -Binding $Binding -AllowBareKeys
     return @(
         "Ctrl+W", "Ctrl+Shift+W", "Ctrl+T", "Ctrl+Shift+T", "Ctrl+L",
         "Ctrl+N", "Ctrl+Shift+N", "Ctrl+Tab", "Ctrl+Shift+Tab",
@@ -299,11 +302,18 @@ function Assert-BabelShortcutCommandBindingOwnership {
         [string]$CommandId,
 
         [Parameter(Mandatory = $true)]
-        [string]$Binding
+        [string]$Binding,
+
+        [ValidateSet('global', 'app', 'edit', 'read', 'launcher')]
+        [string]$Scope = 'global'
     )
 
-    if ($Binding -eq "Escape" -and $CommandId -ne "cancel") {
-        throw "Shortcut 'Escape' is reserved for cancel and fixed navigation behavior, not '$CommandId'."
+    $escapeOwner = if ($Scope -eq 'launcher') { 'hideLauncher' } else { 'cancel' }
+    if ($Binding -eq "Escape" -and $CommandId -ne $escapeOwner) {
+        throw "Shortcut 'Escape' is reserved for $escapeOwner and fixed navigation behavior, not '$CommandId'."
+    }
+    if ($Scope -in @('app', 'edit', 'read') -and $Binding -in @('Enter', 'Shift+Enter', 'Tab', 'Shift+Tab')) {
+        throw "Shortcut '$Binding' is reserved for notebook structure and focus navigation."
     }
 }
 
@@ -313,7 +323,12 @@ function ConvertTo-BabelShortcutBindingMap {
         [object[]]$Definitions,
 
         [Parameter(Mandatory = $true)]
-        [Collections.IDictionary]$Bindings
+        [Collections.IDictionary]$Bindings,
+
+        [ValidateSet('global', 'app', 'edit', 'read', 'launcher')]
+        [string]$Scope = 'global',
+
+        [switch]$Partial
     )
 
     $knownIds = @{}
@@ -324,6 +339,7 @@ function ConvertTo-BabelShortcutBindingMap {
         $id = [string]$definition.Id
         $knownIds[$id] = $true
         $matchingBindingIds = @($Bindings.Keys | Where-Object { [string]$_ -ceq $id })
+        if ($Partial -and $matchingBindingIds.Count -eq 0) { continue }
         if ($matchingBindingIds.Count -ne 1) {
             throw "Shortcut settings are missing binding '$id'."
         }
@@ -337,8 +353,8 @@ function ConvertTo-BabelShortcutBindingMap {
             throw "Shortcut setting '$id' must be a string or null."
         }
 
-        $canonicalBinding = ConvertTo-BabelShortcutBinding -Binding ([string]$rawBinding)
-        Assert-BabelShortcutCommandBindingOwnership -CommandId $id -Binding $canonicalBinding
+        $canonicalBinding = ConvertTo-BabelShortcutBinding -Binding ([string]$rawBinding) -AllowBareKeys:($Scope -ne 'global')
+        Assert-BabelShortcutCommandBindingOwnership -CommandId $id -Binding $canonicalBinding -Scope $Scope
         $bindingKey = $canonicalBinding.ToUpperInvariant()
         if ($usedBindings.ContainsKey($bindingKey)) {
             throw "Shortcut '$canonicalBinding' is assigned to both '$($usedBindings[$bindingKey])' and '$id'."
@@ -360,7 +376,10 @@ function ConvertTo-BabelShortcutBindingMap {
 function Get-BabelShortcutDefinitions {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$Path
+        [string]$Path,
+
+        [ValidateSet('global', 'launcher')]
+        [string]$Scope = 'global'
     )
 
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
@@ -375,20 +394,20 @@ function Get-BabelShortcutDefinitions {
 
     Assert-BabelShortcutExactProperties `
         -InputObject $document `
-        -Names @("schemaVersion", "commands") `
+        -Names @("schemaVersion", "commands", "layers", "launcherCommands") `
         -Description "Shortcut defaults"
 
     if (-not (Test-BabelShortcutProperty -InputObject $document -Name "schemaVersion")) {
         throw "Shortcut defaults are missing schemaVersion."
     }
-    if (-not ($document.schemaVersion -is [int] -or $document.schemaVersion -is [long]) -or [long]$document.schemaVersion -ne 4) {
+    if (-not ($document.schemaVersion -is [int] -or $document.schemaVersion -is [long]) -or [long]$document.schemaVersion -ne 5) {
         throw "Unsupported shortcut defaults schemaVersion '$($document.schemaVersion)'."
     }
     if (-not (Test-BabelShortcutProperty -InputObject $document -Name "commands")) {
         throw "Shortcut defaults are missing commands."
     }
 
-    $commands = @($document.commands)
+    $commands = if ($Scope -eq 'launcher') { @($document.launcherCommands) } else { @($document.commands) }
     if ($commands.Count -eq 0) {
         throw "Shortcut defaults do not define any commands."
     }
@@ -427,7 +446,7 @@ function Get-BabelShortcutDefinitions {
         }
 
         $ids[$id] = $true
-        $defaultBindings[$id] = ConvertTo-BabelShortcutBinding -Binding ([string]$command.defaultBinding)
+        $defaultBindings[$id] = ConvertTo-BabelShortcutBinding -Binding ([string]$command.defaultBinding) -AllowBareKeys:($Scope -eq 'launcher')
         $definitions += [pscustomobject]@{
             Id = $id
             Label = $label
@@ -435,8 +454,123 @@ function Get-BabelShortcutDefinitions {
         }
     }
 
-    [void](ConvertTo-BabelShortcutBindingMap -Definitions $definitions -Bindings $defaultBindings)
+    [void](ConvertTo-BabelShortcutBindingMap -Definitions $definitions -Bindings $defaultBindings -Scope $Scope)
     return @($definitions)
+}
+
+function Get-BabelLauncherShortcutDefinitions {
+    param([string]$Path = (Join-Path $PSScriptRoot '../packages/platform/shortcuts.defaults.json'))
+    return @(Get-BabelShortcutDefinitions -Path $Path -Scope launcher)
+}
+
+function Get-BabelDefaultShortcutLayers {
+    param([object[]]$LauncherDefinitions = @(Get-BabelLauncherShortcutDefinitions))
+    return [ordered]@{
+        app = [ordered]@{}
+        edit = [ordered]@{}
+        read = [ordered]@{}
+        launcher = Get-BabelDefaultShortcutBindings -Definitions $LauncherDefinitions
+    }
+}
+
+function ConvertTo-BabelShortcutDictionary {
+    param([AllowNull()][object]$Value, [string]$Description)
+    if ($Value -is [Collections.IDictionary]) { return $Value }
+    if ($Value -isnot [Management.Automation.PSCustomObject]) { throw "$Description must be a JSON object." }
+    $result = [ordered]@{}
+    foreach ($property in $Value.PSObject.Properties) { $result[$property.Name] = $property.Value }
+    return $result
+}
+
+function ConvertTo-BabelShortcutLayers {
+    param(
+        [Parameter(Mandatory = $true)][object[]]$Definitions,
+        [Parameter(Mandatory = $true)][object]$Layers,
+        [object[]]$LauncherDefinitions = @(Get-BabelLauncherShortcutDefinitions)
+    )
+    $layerMap = ConvertTo-BabelShortcutDictionary -Value $Layers -Description 'Shortcut layers'
+    $expected = @('app', 'edit', 'read', 'launcher')
+    if ($layerMap.Count -ne 4 -or @($expected | Where-Object { @($layerMap.Keys) -cnotcontains $_ }).Count -gt 0) {
+        throw 'Shortcut layers must contain exactly: app, edit, read, launcher.'
+    }
+    $result = [ordered]@{}
+    foreach ($scope in $expected) {
+        $map = ConvertTo-BabelShortcutDictionary -Value $layerMap[$scope] -Description "Shortcut layer '$scope'"
+        $scopeDefinitions = if ($scope -eq 'launcher') { $LauncherDefinitions } else { $Definitions }
+        $result[$scope] = ConvertTo-BabelShortcutBindingMap -Definitions $scopeDefinitions -Bindings $map `
+            -Scope $scope -Partial:($scope -ne 'launcher')
+    }
+    return $result
+}
+
+function Get-BabelEffectiveShortcutBindings {
+    param(
+        [Parameter(Mandatory = $true)][Collections.IDictionary]$Bindings,
+        [Parameter(Mandatory = $true)][Collections.IDictionary]$Layers,
+        [ValidateSet('global', 'app', 'edit', 'read', 'launcher')][string]$Scope = 'global',
+        [switch]$IncludeOrigins
+    )
+    $result = [ordered]@{}
+    $origins = [ordered]@{}
+    if ($Scope -eq 'launcher') {
+        foreach ($key in $Layers.launcher.Keys) {
+            $result[$key] = $Layers.launcher[$key]
+            $origins[$key] = [pscustomobject]@{ Scope = 'launcher'; ClaimedBy = $null }
+        }
+        if ($IncludeOrigins) { return [pscustomobject]@{ Bindings = $result; Origins = $origins } }
+        return $result
+    }
+    foreach ($key in $Bindings.Keys) {
+        $result[$key] = $Bindings[$key]
+        $origins[$key] = [pscustomobject]@{ Scope = 'global'; ClaimedBy = $null }
+    }
+    $scopes = switch ($Scope) { 'app' { @('app') }; 'edit' { @('app', 'edit') }; 'read' { @('app', 'read') }; default { @() } }
+    foreach ($layerScope in $scopes) {
+        foreach ($key in $Layers[$layerScope].Keys) {
+            $binding = $Layers[$layerScope][$key]
+            if ($null -ne $binding) {
+                foreach ($other in @($result.Keys)) {
+                    if ($other -cne $key -and $result[$other] -ceq $binding) {
+                        $result[$other] = $null
+                        $origins[$other] = [pscustomobject]@{ Scope = $layerScope; ClaimedBy = $key }
+                    }
+                }
+            }
+            $result[$key] = $binding
+            $origins[$key] = [pscustomobject]@{ Scope = $layerScope; ClaimedBy = $null }
+        }
+    }
+    if ($IncludeOrigins) { return [pscustomobject]@{ Bindings = $result; Origins = $origins } }
+    return $result
+}
+
+function Assert-BabelShortcutHotkeyConflict {
+    param(
+        [Parameter(Mandatory = $true)][Collections.IDictionary]$Bindings,
+        [Parameter(Mandatory = $true)][Collections.IDictionary]$Layers,
+        [Parameter(Mandatory = $true)][string]$LauncherBinding
+    )
+    foreach ($scope in @('global', 'app', 'edit', 'read', 'launcher')) {
+        $effective = Get-BabelEffectiveShortcutBindings -Bindings $Bindings -Layers $Layers -Scope $scope
+        foreach ($key in $effective.Keys) {
+            if ($null -ne $effective[$key] -and [string]::Equals($effective[$key], $LauncherBinding, [StringComparison]::OrdinalIgnoreCase)) {
+                throw "Hotkey '$LauncherBinding' is already assigned to '$key' in the '$scope' layer."
+            }
+        }
+    }
+}
+
+function Get-BabelLauncherShortcutCommand {
+    param(
+        [Parameter(Mandatory = $true)][Collections.IDictionary]$Bindings,
+        [Parameter(Mandatory = $true)][string]$Binding
+    )
+    foreach ($command in $Bindings.Keys) {
+        if ($null -ne $Bindings[$command] -and [string]::Equals($Bindings[$command], $Binding, [StringComparison]::OrdinalIgnoreCase)) {
+            return [string]$command
+        }
+    }
+    return $null
 }
 
 function Get-BabelDefaultShortcutBindings {
@@ -491,11 +625,13 @@ function Read-BabelShortcutSettings {
     )
 
     $defaults = Get-BabelDefaultShortcutBindings -Definitions $Definitions
+    $defaultLayers = Get-BabelDefaultShortcutLayers
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
         $warningMessage = "Shortcut settings were not found at '$Path'. Using defaults."
         Write-Warning $warningMessage
         return [pscustomobject]@{
             Bindings = $defaults
+            Layers = $defaultLayers
             Warning = $warningMessage
             Source = "Defaults"
         }
@@ -503,10 +639,6 @@ function Read-BabelShortcutSettings {
 
     try {
         $document = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop | ConvertFrom-Json
-        Assert-BabelShortcutExactProperties `
-            -InputObject $document `
-            -Names @("schemaVersion", "bindings") `
-            -Description "Shortcut settings"
         if (-not (Test-BabelShortcutProperty -InputObject $document -Name "schemaVersion")) {
             throw "Shortcut settings are missing schemaVersion."
         }
@@ -516,11 +648,14 @@ function Read-BabelShortcutSettings {
                 [long]$document.schemaVersion -ne 1 -and
                 [long]$document.schemaVersion -ne 2 -and
                 [long]$document.schemaVersion -ne 3 -and
-                [long]$document.schemaVersion -ne 4
+                [long]$document.schemaVersion -ne 4 -and
+                [long]$document.schemaVersion -ne 5
             )
         ) {
             throw "Unsupported shortcut settings schemaVersion '$($document.schemaVersion)'."
         }
+        $settingsKeys = if ([long]$document.schemaVersion -eq 5) { @('schemaVersion', 'bindings', 'layers') } else { @('schemaVersion', 'bindings') }
+        Assert-BabelShortcutExactProperties -InputObject $document -Names $settingsKeys -Description 'Shortcut settings'
         if (-not (Test-BabelShortcutProperty -InputObject $document -Name "bindings")) {
             throw "Shortcut settings are missing bindings."
         }
@@ -653,9 +788,13 @@ function Read-BabelShortcutSettings {
         $canonicalBindings = ConvertTo-BabelShortcutBindingMap `
             -Definitions $Definitions `
             -Bindings $bindings
+        $canonicalLayers = if ([long]$document.schemaVersion -eq 5) {
+            ConvertTo-BabelShortcutLayers -Definitions $Definitions -Layers $document.layers
+        } else { $defaultLayers }
 
         return [pscustomobject]@{
             Bindings = $canonicalBindings
+            Layers = $canonicalLayers
             Warning = $null
             Source = "User"
         }
@@ -664,6 +803,7 @@ function Read-BabelShortcutSettings {
         Write-Warning $warningMessage
         return [pscustomobject]@{
             Bindings = $defaults
+            Layers = $defaultLayers
             Warning = $warningMessage
             Source = "Defaults"
         }
@@ -678,12 +818,16 @@ function Write-BabelShortcutSettings {
         [Parameter(Mandatory = $true)]
         [Collections.IDictionary]$Bindings,
 
-        [string]$Path = (Get-BabelShortcutSettingsPath)
+        [string]$Path = (Get-BabelShortcutSettingsPath),
+
+        [AllowNull()][Collections.IDictionary]$Layers = $null
     )
 
     $canonicalBindings = ConvertTo-BabelShortcutBindingMap `
         -Definitions $Definitions `
         -Bindings $Bindings
+    if ($null -eq $Layers) { $Layers = Get-BabelDefaultShortcutLayers }
+    $canonicalLayers = ConvertTo-BabelShortcutLayers -Definitions $Definitions -Layers $Layers
     $fullPath = [IO.Path]::GetFullPath($Path)
     $directory = [IO.Path]::GetDirectoryName($fullPath)
     if ([string]::IsNullOrWhiteSpace($directory)) {
@@ -694,10 +838,11 @@ function Write-BabelShortcutSettings {
     }
 
     $document = [ordered]@{
-        schemaVersion = 4
+        schemaVersion = 5
         bindings = $canonicalBindings
+        layers = $canonicalLayers
     }
-    $json = $document | ConvertTo-Json -Depth 4
+    $json = $document | ConvertTo-Json -Depth 6
     $operationId = [Guid]::NewGuid().ToString("N")
     $fileName = [IO.Path]::GetFileName($fullPath)
     $temporaryPath = Join-Path $directory ("." + $fileName + "." + $operationId + ".tmp")

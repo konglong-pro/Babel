@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "commands": [
     {
       "command": "save",
@@ -91,5 +91,56 @@
       "label": "Keyboard Help",
       "defaultBinding": "Ctrl+Alt+H"
     }
-  ]
+  ],
+  "launcherCommands": [
+    {
+      "command": "previousApp",
+      "label": "Previous APP",
+      "defaultBinding": "ArrowUp"
+    },
+    {
+      "command": "nextApp",
+      "label": "Next APP",
+      "defaultBinding": "ArrowDown"
+    },
+    {
+      "command": "openApp",
+      "label": "Open APP",
+      "defaultBinding": "Enter"
+    },
+    {
+      "command": "stopApp",
+      "label": "Stop APP",
+      "defaultBinding": "Delete"
+    },
+    {
+      "command": "hideLauncher",
+      "label": "Hide Launcher",
+      "defaultBinding": "Escape"
+    },
+    {
+      "command": "focusNextPane",
+      "label": "Focus Next Pane",
+      "defaultBinding": "Tab"
+    },
+    {
+      "command": "focusPreviousPane",
+      "label": "Focus Previous Pane",
+      "defaultBinding": "Shift+Tab"
+    }
+  ],
+  "layers": {
+    "app": {},
+    "edit": {},
+    "read": {},
+    "launcher": {
+      "previousApp": "ArrowUp",
+      "nextApp": "ArrowDown",
+      "openApp": "Enter",
+      "stopApp": "Delete",
+      "hideLauncher": "Escape",
+      "focusNextPane": "Tab",
+      "focusPreviousPane": "Shift+Tab"
+    }
+  }
 }

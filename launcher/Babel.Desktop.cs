@@ -48,6 +48,7 @@ namespace BabelLauncher
         public int OpenCount { get { return notebooks.Count; } }
         public string[] OpenIds { get { return notebooks.Keys.ToArray(); } }
         public int ReadyCount { get { return notebooks.Values.Count(n => n.Status == "Ready"); } }
+        public Action<Window> ConfigureWindow { get; set; }
 
         public DesktopHost(Window window, Panel surface, FrameworkElement home,
             Panel tabs, TextBlock status, string userDataFolder, string[] allowedOrigins)
@@ -184,13 +185,20 @@ namespace BabelLauncher
                     AllowBlank = blank, Surface = new Grid()
                 };
                 child.PopupWindow = new Window {
-                    Title = "Babel · " + parent.Name, Owner = window, Content = child.Surface,
+                    Title = "Babel · " + parent.Name, Owner = window, Content = child.Surface, Icon = window.Icon,
                     Width = Math.Min(1240, SystemParameters.WorkArea.Width),
                     Height = Math.Min(900, SystemParameters.WorkArea.Height), MinWidth = 640, MinHeight = 480,
                     WindowStartupLocation = WindowStartupLocation.CenterOwner,
                     ShowInTaskbar = window.ShowInTaskbar, ShowActivated = window.ShowActivated, Opacity = window.Opacity
                 };
                 var popup = child;
+                if (ConfigureWindow != null) ConfigureWindow(child.PopupWindow);
+                child.PopupWindow.Activated += (sender, eventArgs) => {
+                    // Keep the popup's source APP visible without moving keyboard
+                    // focus away from its reader/editor window.
+                    if (!disposed && !checkingClose && !popup.Disposed)
+                        SelectSourceNotebook(popup, false);
+                };
                 child.PopupWindow.Closing += async (sender, eventArgs) => {
                     if (popup.Disposed || closeApproved) return;
                     eventArgs.Cancel = true;
@@ -247,7 +255,7 @@ namespace BabelLauncher
             if (active == notebook) status.Text = notebook.Name + " · " + message;
         }
 
-        private void Select(Notebook notebook)
+        private void Select(Notebook notebook, bool focusView = true)
         {
             if (notebook.Disposed || disposed) return;
             if (notebook.PopupWindow != null) { notebook.PopupWindow.Activate(); return; }
@@ -260,7 +268,18 @@ namespace BabelLauncher
             }
             window.Title = "Babel · " + notebook.Name;
             status.Text = notebook.Name + " · " + notebook.Status;
-            notebook.View.Focus();
+            if (focusView) notebook.View.Focus();
+        }
+
+        private void SelectSourceNotebook(Notebook popup, bool focusView)
+        {
+            Notebook source = popup;
+            while (source.ParentId != null) {
+                Notebook parent;
+                if (!notebooks.TryGetValue(source.ParentId, out parent)) return;
+                source = parent;
+            }
+            if (!source.Disposed && source != popup) Select(source, focusView);
         }
 
         public void ShowHome()
@@ -270,7 +289,7 @@ namespace BabelLauncher
             foreach (var item in notebooks.Values.Where(n => n.PopupWindow == null)) item.Surface.Visibility = Visibility.Collapsed;
             home.Visibility = Visibility.Visible;
             window.Title = "Babel";
-            status.Text = "Apps · Start, open and manage notebooks";
+            status.Text = "Apps home · Start, open and manage notebooks";
         }
 
         public async void RefreshShortcutSettings()
@@ -341,6 +360,7 @@ namespace BabelLauncher
                     foreach (var item in affected.Reverse()) Remove(item);
                 }, System.Windows.Threading.DispatcherPriority.Background);
             } finally { checkingClose = false; SetInteractionEnabled(true); }
+            if (notebook.PopupWindow != null) SelectSourceNotebook(notebook, true);
         }
 
         private Notebook[] DescendantsAndSelf(Notebook notebook)

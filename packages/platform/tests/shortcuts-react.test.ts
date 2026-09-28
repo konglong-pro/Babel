@@ -229,7 +229,8 @@ test("shortcut provider renders an accessible built-in command palette", () => {
   assert.match(markup, /<li role="presentation"><button[^>]+role="option"/);
   assert.match(markup, /aria-label="Commands, actions, and titles"/);
   assert.match(markup, />Keyboard Help</);
-  assert.match(markup, />Ready mode</);
+  assert.match(markup, />APP mode · APP</);
+  assert.match(markup, /data-babel-keyboard-status=""/);
   assert.match(markup, />Quick Open</);
 });
 

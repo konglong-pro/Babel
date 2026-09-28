@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { ShortcutProvider, executeShortcutSourceCommand } from "@babel-apps/platform/shortcuts/react";
 
 export interface DetachedEditorRect {
   left: number;
@@ -65,7 +66,7 @@ body.babel-detached-editor-window {
   grid-template-rows: auto minmax(0, 1fr);
   gap: 1rem;
   width: 100%;
-  height: 100vh;
+  height: calc(100vh - var(--babel-keyboard-status-height, 0rem));
   min-height: 0;
   padding: clamp(1.5rem, 4vw, 4rem);
 }
@@ -255,11 +256,7 @@ function DetachedEditorWindowInstance({
   const [host, setHost] = useState<DetachedEditorHost | null>(() => peekPreparedHost(windowKey));
   const hostRef = useRef<DetachedEditorHost | null>(host);
   const closeTimerRef = useRef<number | null>(null);
-  const onSaveRef = useRef(onSave);
-
-  useEffect(() => {
-    onSaveRef.current = onSave;
-  }, [onSave]);
+  const launcherRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     hostRef.current = host;
@@ -287,24 +284,9 @@ function DetachedEditorWindowInstance({
       if (hostRef.current?.root === host.root) hostRef.current = null;
       setHost((current) => current?.root === host.root ? null : current);
     };
-    const saveFromShortcut = (event: KeyboardEvent) => {
-      if (
-        event.key.toLowerCase() !== "s" ||
-        (!event.ctrlKey && !event.metaKey) ||
-        event.altKey ||
-        event.shiftKey ||
-        event.repeat ||
-        event.isComposing
-      ) return;
-      const save = onSaveRef.current;
-      if (save === undefined) return;
-      event.preventDefault();
-      save();
-    };
     const interval = window.setInterval(forgetClosedWindow, 500);
     try {
       popup.addEventListener("pagehide", forgetClosedWindow);
-      popup.addEventListener("keydown", saveFromShortcut);
       popup.requestAnimationFrame(() => host.root.querySelector("textarea")?.focus());
     } catch {
       forgetClosedWindow();
@@ -313,7 +295,6 @@ function DetachedEditorWindowInstance({
       window.clearInterval(interval);
       try {
         popup.removeEventListener("pagehide", forgetClosedWindow);
-        popup.removeEventListener("keydown", saveFromShortcut);
       } catch {
         // A user can navigate the popup cross-origin before React cleans up.
       }
@@ -360,7 +341,7 @@ function DetachedEditorWindowInstance({
 
   return (
     <>
-      <section className="babel-detached-editor-launcher" aria-label={`${label} editor`}>
+      <section ref={launcherRef} className="babel-detached-editor-launcher" aria-label={`${label} editor`}>
         <div>
           <strong>{label}</strong>
           <p className="muted" aria-live="polite">
@@ -374,7 +355,9 @@ function DetachedEditorWindowInstance({
         </button>
       </section>
       {isOpen ? createPortal(
-        <>
+        <ShortcutProvider ownerDocument={host.root.ownerDocument} fixedMode="edit"
+          onReturnToApp={() => { executeShortcutSourceCommand(launcherRef.current, "app"); host.popup.close(); }}
+          onReadSource={() => executeShortcutSourceCommand(launcherRef.current, "read")}>
           <div className="babel-detached-editor-toolbar" role="toolbar" aria-label="Editor actions">
             <strong>{label}</strong>
             {onSave === undefined ? null : (
@@ -390,7 +373,7 @@ function DetachedEditorWindowInstance({
             )}
           </div>
           {children}
-        </>,
+        </ShortcutProvider>,
         host.root,
       ) : null}
     </>
@@ -452,6 +435,9 @@ function prepareDetachedEditorDocument(
   targetDocument.open();
   targetDocument.write("<!doctype html><html><head></head><body></body></html>");
   targetDocument.close();
+  if ((sourceDocument.defaultView as (Window & { __BABEL_DESKTOP__?: boolean }) | null)?.__BABEL_DESKTOP__ === true) {
+    Object.defineProperty(popup, "__BABEL_DESKTOP__", { value: true });
+  }
   targetDocument.documentElement.lang = sourceDocument.documentElement.lang || "en";
   targetDocument.documentElement.className = sourceDocument.documentElement.className;
   targetDocument.head.replaceChildren();
@@ -469,7 +455,7 @@ function prepareDetachedEditorDocument(
   base.href = sourceDocument.baseURI;
   targetDocument.head.append(base);
 
-  for (const sourceNode of sourceDocument.head.querySelectorAll('link[rel="stylesheet"], style')) {
+  for (const sourceNode of sourceDocument.head.querySelectorAll('link[rel="stylesheet"], style, link[rel~="icon"], link[rel="apple-touch-icon"]')) {
     const clone = sourceNode.cloneNode(true);
     if (clone.nodeName === "LINK" && sourceNode instanceof HTMLLinkElement) {
       (clone as HTMLLinkElement).href = sourceNode.href;
@@ -491,6 +477,8 @@ function prepareDetachedEditorDocument(
 
   const root = targetDocument.createElement("main");
   root.className = "babel-detached-editor-root";
+  root.dataset.babelPane = "detail";
+  root.dataset.babelMode = "edit";
   root.tabIndex = -1;
   targetDocument.body.append(root);
   return root;

@@ -17,6 +17,7 @@ import {
   executeShortcutCommand,
   handleShortcutKeyDown,
   useShortcutBinding,
+  useShortcutDocument,
 } from "@babel-apps/platform/shortcuts/react";
 import type { ShortcutBindings } from "@babel-apps/platform/shortcuts/core";
 
@@ -200,6 +201,7 @@ export function ReaderAnnotationLayer({
   const registryPrefix = `babel-reader-underline-${instanceId}`;
   const underlineBinding = useShortcutBinding("underlineSelection");
   const removeBinding = useShortcutBinding("removeUnderline");
+  const shortcutDocument = useShortcutDocument();
   const bodyContainerRef = useRef<HTMLDivElement>(null);
   const pickerInputRef = useRef<HTMLInputElement>(null);
   const positionedRef = useRef<PositionedUnderline[]>([]);
@@ -234,12 +236,12 @@ export function ReaderAnnotationLayer({
 
   useEffect(() => {
     const root = bodyContainerRef.current;
-    if (root === null) return;
+    if (root === null || root.ownerDocument === shortcutDocument) return;
     return subscribeDetachedReaderAnnotationShortcuts(root, window, {
       underlineSelection: underlineBinding,
       removeUnderline: removeBinding,
     });
-  }, [underlineBinding, removeBinding]);
+  }, [underlineBinding, removeBinding, shortcutDocument]);
 
   useEffect(() => {
     if (linkingId !== null) pickerInputRef.current?.focus();

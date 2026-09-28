@@ -3,10 +3,10 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     x:Name="BabelShortcutsWindow"
     Title="Babel Shortcuts"
-    Width="720"
-    Height="720"
-    MinWidth="620"
-    MinHeight="640"
+    Width="900"
+    Height="800"
+    MinWidth="800"
+    MinHeight="720"
     WindowStartupLocation="CenterOwner"
     ResizeMode="CanResize"
     ShowInTaskbar="False"
@@ -16,7 +16,7 @@
     UseLayoutRounding="True"
     SnapsToDevicePixels="True"
     TextOptions.TextFormattingMode="Display"
-    AutomationProperties.Name="Babel global shortcut settings">
+    AutomationProperties.Name="Babel layered shortcut settings">
     <Window.Resources>
         <Style x:Key="ShortcutButtonStyle" TargetType="Button">
             <Setter Property="MinWidth" Value="112" />
@@ -100,7 +100,7 @@
                 FontFamily="Arial"
                 FontSize="11"
                 FontWeight="Bold"
-                Text="G  L  O  B  A  L    S  H  O  R  T  C  U  T  S" />
+                Text="S  H  O  R  T  C  U  T    L  A  Y  E  R  S" />
             <TextBlock
                 Margin="0,8,0,0"
                 Foreground="#1D1B18"
@@ -116,7 +116,7 @@
             Foreground="#5E5952"
             FontSize="12"
             TextWrapping="Wrap"
-            Text="Select a shortcut field, then press the complete key combination. Press Backspace or Delete without modifiers to leave an application command unbound. The launcher hotkey is system-wide; application commands apply inside Babel notebooks." />
+            Text="Choose a layer, select a shortcut field, then press the complete key combination. Use the row buttons to inherit or disable a command. The launcher toggle is system-wide; other commands apply only in their selected context." />
 
         <Border
             Grid.Row="2"
@@ -163,14 +163,16 @@
             </Grid>
         </Border>
 
-        <TextBlock
-            Grid.Row="3"
-            Margin="1,0,0,7"
-            Foreground="#777068"
-            FontFamily="Arial"
-            FontSize="11"
-            FontWeight="Bold"
-            Text="WEB APPLICATION COMMANDS" />
+        <StackPanel Grid.Row="3" Margin="1,0,0,10">
+            <DockPanel>
+                <TextBlock Text="COMMAND LAYER" Foreground="#777068" FontWeight="Bold"
+                           FontSize="11" VerticalAlignment="Center" Margin="0,0,14,0" />
+                <ComboBox x:Name="ShortcutLayerBox" Width="190" HorizontalAlignment="Left"
+                          Padding="9,5" AutomationProperties.Name="Shortcut layer" />
+            </DockPanel>
+            <TextBlock x:Name="ShortcutLayerHint" Margin="0,7,0,0" Foreground="#5E5952"
+                       FontSize="12" TextWrapping="Wrap" />
+        </StackPanel>
 
         <Border
             Grid.Row="4"
@@ -193,10 +195,10 @@
                 SelectionMode="Single"
                 SelectionUnit="FullRow"
                 GridLinesVisibility="None"
-                AutomationProperties.Name="Global shortcut command list">
+                AutomationProperties.Name="Commands in the selected shortcut layer">
                 <DataGrid.Columns>
                     <DataGridTextColumn Header="COMMAND" Binding="{Binding Label}" Width="*" />
-                    <DataGridTemplateColumn Header="SHORTCUT" Width="250">
+                    <DataGridTemplateColumn Header="EFFECTIVE SHORTCUT" Width="230">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                                 <Grid>
@@ -213,7 +215,7 @@
                                         FontFamily="Consolas"
                                         FontWeight="Bold"
                                         AutomationProperties.Name="{Binding Label, StringFormat={}{0} shortcut}"
-                                        AutomationProperties.HelpText="Focus this field and press a complete shortcut, or press Backspace or Delete to leave it unbound" />
+                                        AutomationProperties.HelpText="Focus this field and press a complete shortcut; use Disable to leave it unbound" />
                                     <TextBlock
                                         Margin="10,0,0,0"
                                         VerticalAlignment="Center"
@@ -238,11 +240,20 @@
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>
+                    <DataGridTextColumn Header="STATE" Binding="{Binding BindingState}" Width="180" />
                 </DataGrid.Columns>
             </DataGrid>
         </Border>
 
         <StackPanel Grid.Row="5" Margin="0,12,0,14">
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,7">
+                <Button x:Name="RestoreInheritanceButton" Content="RESTORE INHERITANCE"
+                        Margin="0" Style="{StaticResource ShortcutButtonStyle}"
+                        AutomationProperties.Name="Restore selected command inheritance" />
+                <Button x:Name="DisableShortcutButton" Content="DISABLE COMMAND"
+                        Style="{StaticResource ShortcutButtonStyle}"
+                        AutomationProperties.Name="Disable selected command in this layer" />
+            </StackPanel>
             <TextBlock
                 x:Name="ShortcutErrorText"
                 MinHeight="18"
@@ -271,9 +282,9 @@
                 Grid.Column="0"
                 HorizontalAlignment="Left"
                 Margin="0"
-                Content="RESTORE DEFAULTS"
+                Content="RESTORE LAYER DEFAULTS"
                 Style="{StaticResource ShortcutButtonStyle}"
-                AutomationProperties.Name="Restore default shortcuts" />
+                AutomationProperties.Name="Restore defaults for the selected layer" />
             <StackPanel Grid.Column="1" Orientation="Horizontal">
                 <Button
                     x:Name="CancelShortcutsButton"
@@ -287,7 +298,7 @@
                     IsDefault="True"
                     Background="#FFF19A"
                     Style="{StaticResource ShortcutButtonStyle}"
-                    AutomationProperties.Name="Save global shortcuts" />
+                    AutomationProperties.Name="Save all shortcut layers" />
             </StackPanel>
         </Grid>
     </Grid>

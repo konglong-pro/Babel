@@ -176,6 +176,11 @@ open as separate WebView2 windows owned by Babel, preserving their source view.
 Closing an app tab checks for unsaved changes and closes its related popups; it
 does not stop that app's worker. External web links open in the system browser.
 
+The launcher, tray, settings dialog, and detached windows share the Babel icon;
+all notebook favicons and the scaffold use the same artwork. Native windows use
+the `Babel.Desktop` AppUserModelID and a Babel relaunch target so Windows groups
+and pins them under Babel with its icon.
+
 On a new checkout, prepare the desktop components once:
 
 ```powershell
@@ -205,15 +210,16 @@ stops all workers owned by that launcher.
 While the launcher process is running, the global `Ctrl+Alt+B` hotkey toggles
 the window: it restores and focuses the notebook table when hidden or behind
 another app, and returns the launcher to the tray when it is already in front.
-After restoring, use `1`-`9` or `0` (the tenth row) to select a notebook,
-Up/Down to move, Enter to `OPEN`, Delete to stop the selected independent
-worker, and Escape to return to the tray. A keyboard `OPEN` activates the app's
-desktop view after its health identity passes. Errors keep the window visible.
+After restoring, the default Apps home bindings are Up/Down to move, Enter to
+`OPEN`, Delete to stop the selected independent worker, Escape to return to the
+tray, and Tab/Shift+Tab to move focus. Use `1`-`9` or `0` (the tenth row) to select
+a notebook; a configured digit command takes priority. A keyboard `OPEN` activates
+the app's desktop view after its health identity passes. Errors keep the window visible.
 These home navigation keys apply only on `APPS`; inside a notebook, Escape and
 other keys remain available to that app.
 The `OPEN`, `STOP SELECTED`, and `MINIMIZE TO TRAY` buttons remain clickable,
-but they no longer expose O/T/M access keys; their only window-level keyboard
-commands are Enter, Delete, and Escape respectively.
+but they no longer expose O/T/M access keys. Their default window-level bindings
+are Enter, Delete, and Escape respectively, configurable in `SHORTCUTS`.
 
 Closing the desktop window with its X checks every open view for unsaved or
 pending edits before stopping its managed workers and exiting. Exit also
@@ -228,24 +234,33 @@ already included with Windows:
 npm.cmd run launcher:build
 ```
 
-`SHORTCUTS` configures both the launcher toggle and web application commands.
-The launcher binding is stored independently in
-`%LOCALAPPDATA%\Babel\launcher.json`; the 18 schema-v4 notebook command overrides
-remain in `%LOCALAPPDATA%\Babel\shortcuts.json`. Both files are outside the
+`SHORTCUTS` configures the system-wide launcher toggle and five command layers:
+
+| Layer | Applies to | Inherits |
+| --- | --- | --- |
+| Global | The 18 notebook commands below | Built-in defaults |
+| Apps home | APP selection, opening, stopping, hiding, and focus | Independent home defaults |
+| APP | Browsing every notebook | Global |
+| Edit | Editing content | Global, then APP |
+| Read | Reading content | Global, then APP |
+
+The system-wide launcher binding is stored independently in
+`%LOCALAPPDATA%\Babel\launcher.json`; schema-v5 notebook and Apps home bindings
+live in `%LOCALAPPDATA%\Babel\shortcuts.json`. Both files are outside the
 public repository and the private notebook-data repository. A changed launcher
 binding is registered immediately; if Windows reports that the combination is
 already in use, Babel keeps the previous binding and settings. Saving notebook
 commands updates open desktop views immediately, including detached reader
 underline shortcuts. Reload any notebook pages open separately in a browser.
 
-The schema-v4 defaults remain:
+The Global defaults remain:
 
 | Command | Default binding | Purpose |
 | --- | --- | --- |
 | `save` | `Ctrl+S` | Save the active editor |
 | `new` | `Ctrl+Alt+N` | Create a document |
 | `edit` | `Ctrl+Alt+E` | Enter edit mode |
-| `read` | `Ctrl+R` | Return to read mode |
+| `read` | `Ctrl+R` | Open or focus the reading view |
 | `confirm` | `Ctrl+Enter` | Confirm the active edit or dialog |
 | `cancel` | `Escape` | Coordinate the progressive Escape chain |
 | `search` | `Ctrl+F` | Search the current notebook |
@@ -261,12 +276,29 @@ The schema-v4 defaults remain:
 | `quickOpen` | `Ctrl+Alt+P` | Open the palette directly in title-only mode |
 | `help` | `Ctrl+Alt+H` | Show the complete keyboard-help overlay |
 
-Each schema-v4 binding is either a shortcut string or `null`. Schema v1, v2, and v3
-files remain readable. Migration preserves every existing user binding first,
-then adds each new default only when that combination is free. A conflicting
-new command becomes `null` rather than displacing the old binding; the launcher
-displays it as `Unbound`, where it can be reassigned or left unbound. No existing
-default or user assignment changes merely by opening the desktop shell.
+Schema v5 keeps the complete Global map in `bindings`, with `app`, `edit`, `read`,
+and `launcher` maps in `layers`. Global and Apps home assign each command a
+shortcut string or `null` to disable it. In APP, Edit, and Read, an omitted command
+inherits its binding; a shortcut string overrides it; `null` disables it. The settings
+table shows the effective binding and its source, with controls to restore
+inheritance or disable the selected command. Duplicate keys within a layer are
+rejected. A higher layer can reuse a lower layer's key for a different command,
+which suppresses the lower command in that context. Edit and Read can reuse keys
+independently. Disabling an override in a later layer does not revive a command
+already suppressed in APP.
+
+Schema v1–v4 files remain readable and retain their existing valid bindings.
+Migration adds missing commands only when their default key is free; conflicting
+new commands become unbound. New APP, Edit, and Read layers start with inheritance,
+and Apps home receives its defaults. Opening Babel does not rewrite the file;
+saving in `SHORTCUTS` writes schema v5.
+
+Global bindings require Ctrl or Alt, bare Escape, or a safe bare function key.
+APP, Edit, and Read also accept single letters, digits, and Shift combinations.
+These text keys run commands only outside text inputs; normal typing, selection,
+clipboard actions, undo, and IME composition retain their input behavior. Bare
+Enter, Shift+Enter, Tab, and Shift+Tab remain reserved for native controls in
+notebooks. Apps home supports those keys in its independent layer.
 
 The desktop shell disables WebView2's browser accelerator commands. Notebook
 commands can additionally use `Ctrl+W`, `Ctrl+Shift+W`, `Ctrl+T`, `Ctrl+Shift+T`,
@@ -283,19 +315,28 @@ reordering keys `Ctrl+Alt+ArrowUp` and `Ctrl+Alt+ArrowDown` remain reserved.
 Bare `Escape` belongs to Cancel and fixed navigation and cannot be assigned to
 an unrelated command.
 
-Web notebooks use a Ready/Edit keyboard model. Focused folder and document
-trees expose `tree`/`treeitem` semantics with a roving tab stop. Up/Down moves
-through visible nodes, Left/Right collapses or expands, Enter selects or opens,
-F2 renames a folder or opens a document directly in edit mode, and typed letters
-jump by title. Document trees also support Home, End, PageUp, and PageDown.
+The keyboard bar shows the current APP, Edit, or Read mode, the focused pane, and
+whether a text input is active. **Browse** focuses the document list, **Edit**
+opens or focuses the editor, and **Read** opens or focuses the reading view.
+Detached editors and readers keep their corresponding mode and inherit the same
+live settings; returning to Browse activates their source notebook's list.
+**Focus** moves to the next pane, and **Keys** shows the bindings for the current
+mode. Opening help or the command palette preserves the mode it was opened from.
+
+Focused folder and document trees expose `tree`/`treeitem` semantics with a
+roving tab stop. Up/Down moves through visible nodes, Left/Right collapses or
+expands, Enter selects or opens,
+F2 renames a folder or opens a document directly in edit mode, and unassigned
+letters jump by title. Configured mode keys take priority over tree navigation and type-ahead.
+Document trees also support Home, End, PageUp, and PageDown.
 Flat search and palette results use `listbox` semantics with Up/Down,
 Home/End/PageUp/PageDown, Enter, and type-ahead. The tab strip exposes
 `tablist`/`tab` semantics: Left/Right moves its roving focus and Enter activates
 the focused tab.
 
 `Ctrl+F6` and `Ctrl+Shift+F6` cycle the available folder tree, document tree,
-tab strip, and detail pane, skipping hidden or absent panes and remembering the
-last focused control in each. Bare `F6` can be assigned inside the desktop shell;
+tab strip, detail pane, and keyboard bar, skipping hidden or absent panes and
+remembering the last focused control in each. Bare `F6` can be assigned inside the desktop shell;
 ordinary browser pages leave it to the browser.
 Keyboard reordering uses `Ctrl+Alt+ArrowUp` and `Ctrl+Alt+ArrowDown`, rather
 than unmodified arrow keys; visible hints and `aria-keyshortcuts` expose the new

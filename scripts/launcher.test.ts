@@ -398,8 +398,8 @@ test("shared platform changes invalidate application builds", () => {
   );
 });
 
-test("the launcher edits the shared schema v4 shortcut contract", () => {
-  assert.equal(shortcutDefaults.schemaVersion, 4);
+test("the launcher edits the shared schema v5 shortcut contract", () => {
+  assert.equal(shortcutDefaults.schemaVersion, 5);
   assert.deepEqual(
     shortcutDefaults.commands?.map(({ command, defaultBinding }) => [command, defaultBinding]),
     [
@@ -432,6 +432,10 @@ test("the launcher edits the shared schema v4 shortcut contract", () => {
     "RestoreDefaultsButton",
     "CancelShortcutsButton",
     "SaveShortcutsButton",
+    "ShortcutLayerBox",
+    "ShortcutLayerHint",
+    "RestoreInheritanceButton",
+    "DisableShortcutButton",
   ]) {
     assert.match(shortcutsXamlSource, new RegExp(`x:Name=["']${controlName}["']`, "i"));
   }
@@ -443,10 +447,10 @@ test("the launcher edits the shared schema v4 shortcut contract", () => {
   assert.match(guiSource, /Read-BabelLauncherHotkeySettings/i);
   assert.match(guiSource, /Write-BabelLauncherHotkeySettings/i);
   assert.match(guiSource, /DesktopHost\.RefreshShortcutSettings\(\)/);
-  assert.match(guiSource, /reload any separate browser pages/i);
+  assert.match(guiSource, /reload separate browser pages/i);
   assert.match(shortcutsXamlSource, /Text=["']Unbound["']/i);
-  assert.match(shortcutsXamlSource, /Backspace or Delete/i);
-  assert.match(guiSource, /isUnbindGesture/i);
+  assert.match(shortcutsXamlSource, /RESTORE INHERITANCE/i);
+  assert.match(guiSource, /Set-BabelShortcutDialogBinding/i);
 });
 
 test("the launcher owns one configurable global toggle hotkey", () => {
@@ -489,8 +493,8 @@ test("the visible launcher supports the complete keyboard loop", () => {
   assert.match(guiSource, /\^D\(\[0-9\]\)\$/i);
   assert.match(guiSource, /\^NumPad\(\[0-9\]\)\$/i);
   assert.match(guiSource, /\$number\s+-eq\s+0[\s\S]{0,80}return\s+9/i);
-  assert.match(guiSource, /\[Windows\.Input\.Key\]::Up[\s\S]{0,180}Move-BabelAppSelection\s+-Delta\s+-1/i);
-  assert.match(guiSource, /\[Windows\.Input\.Key\]::Down[\s\S]{0,180}Move-BabelAppSelection\s+-Delta\s+1/i);
+  assert.match(guiSource, /'previousApp'[\s\S]{0,100}Move-BabelAppSelection\s+-Delta\s+-1/i);
+  assert.match(guiSource, /'nextApp'[\s\S]{0,100}Move-BabelAppSelection\s+-Delta\s+1/i);
   assert.match(guiSource, /focusedElement\s+-is\s+\[Windows\.Controls\.Primitives\.TextBoxBase\]/i);
   assert.match(guiSource, /-not\s+\[bool\]\$focusedElement\.IsReadOnly/i);
   assert.doesNotMatch(
@@ -498,10 +502,12 @@ test("the visible launcher supports the complete keyboard loop", () => {
     /\$script:AppsGrid\.IsKeyboardFocusWithin/i,
     "window keyboard commands must not depend on a delayed DataGrid focus transition",
   );
-  assert.match(guiSource, /\[Windows\.Input\.Key\]::Return[\s\S]{0,520}Open-BabelApp\s+-App\s+\$app/i);
+  assert.match(guiSource, /'openApp'[\s\S]{0,520}Open-BabelApp\s+-App\s+\$app/i);
   assert.match(guiSource, /\$script:Window\.Add_PreviewKeyDown[\s\S]{0,400}DesktopHost\.IsHomeVisible/);
-  assert.match(guiSource, /\[Windows\.Input\.Key\]::Delete[\s\S]{0,520}Get-AppWorkerState\s+-AppId\s+\$app\.Id[\s\S]{0,520}Request-AppWorkerStop/i);
-  assert.match(guiSource, /\[Windows\.Input\.Key\]::Escape[\s\S]{0,240}Hide-BabelWindowToTray/i);
+  assert.match(guiSource, /'stopApp'[\s\S]{0,520}Get-AppWorkerState\s+-AppId\s+\$app\.Id[\s\S]{0,520}Request-AppWorkerStop/i);
+  assert.match(guiSource, /'hideLauncher'[\s\S]{0,100}Hide-BabelWindowToTray/i);
+  assert.match(guiSource, /Get-BabelLauncherShortcutCommand[\s\S]{0,1300}Get-BabelNumberSelectionIndex/i);
+  assert.match(guiSource, /SetTabNavigation\([\s\S]{0,150}::Cycle/i);
 
   const focusSource =
     guiSource.match(/function\s+Focus-BabelAppList\b([\s\S]*?)function\s+[A-Za-z]/i)?.[1] ?? "";
@@ -559,7 +565,7 @@ test("shortcut settings are normalized, validated, and replaced atomically", () 
   ]) {
     assert.match(shortcutsHelperSource, new RegExp(`"${keyName}"`));
   }
-  assert.match(shortcutsHelperSource, /schemaVersion\s*=\s*4[\s\S]{0,100}bindings/i);
+  assert.match(shortcutsHelperSource, /schemaVersion\s*=\s*5[\s\S]{0,100}bindings/i);
   assert.match(shortcutsHelperSource, /migratedBindings[\s\S]{0,900}\$null/i);
   assert.match(shortcutsHelperSource, /Write-Warning/i, "missing or invalid user settings must warn");
   assert.match(shortcutsHelperSource, /Text\.UTF8Encoding\(\$false\)/i, "settings must use UTF-8 without a BOM");
@@ -670,11 +676,11 @@ if (
 [void](Write-BabelShortcutSettings -Definitions $definitions -Bindings $legacyReorderLoaded.Bindings -Path $legacyReorderSettingsPath)
 $legacyReorderRoundTrip = Get-Content -LiteralPath $legacyReorderSettingsPath -Raw | ConvertFrom-Json
 if (
-    [int]$legacyReorderRoundTrip.schemaVersion -ne 4 -or
+    [int]$legacyReorderRoundTrip.schemaVersion -ne 5 -or
     $null -ne $legacyReorderRoundTrip.bindings.read -or
     $legacyReorderRoundTrip.bindings.save -ne "Ctrl+Alt+S"
 ) {
-    throw "The migrated fixed-reorder binding did not round-trip as schema v4 null."
+    throw "The migrated fixed-reorder binding did not round-trip as schema v5 null."
 }
 [IO.File]::Delete($legacyReorderSettingsPath)
 $versionThreeSettingsPath = "$settingsPath.version-three"
@@ -813,7 +819,7 @@ Write-Output "Babel shortcut replacement test passed."
         schemaVersion?: number;
         bindings?: Record<string, string | null>;
       };
-      assert.equal(savedSettings.schemaVersion, 4);
+      assert.equal(savedSettings.schemaVersion, 5);
       assert.equal(savedSettings.bindings?.save, "Ctrl+Alt+S");
       assert.equal(savedSettings.bindings?.read, "Ctrl+R");
       assert.equal(savedSettings.bindings?.commandPalette, "Ctrl+Alt+P");
@@ -943,7 +949,7 @@ test(
     );
 
     assert.match(stdout, /Babel GUI smoke test passed/i);
-    assert.match(stdout, /7 shortcut control\(s\)/i);
+    assert.match(stdout, /11 shortcut control\(s\)/i);
     assert.match(stdout, /18 shortcut command\(s\)/i);
   },
 );

@@ -34,6 +34,7 @@ import remarkGfm from "remark-gfm";
 import { KatexFormula } from "@babel-apps/katex/react";
 import { CanvasPreview } from "@babel-apps/platform/canvas/react";
 import { usePageDeckPageContext, useWorkspaceProcessActive } from "@babel-apps/platform/pages/react";
+import { ShortcutProvider, executeShortcutSourceCommand } from "@babel-apps/platform/shortcuts/react";
 import { subscribeCanvasEmbed, type CanvasEmbedSnapshot } from "./canvas-embeds";
 import {
   type CanvasSummary,
@@ -772,17 +773,17 @@ html {
 }
 
 body.babel-detached-reader-window {
-  min-height: 100vh;
+  min-height: calc(100vh - var(--babel-keyboard-status-height, 0rem));
   overflow: auto;
 }
 
 .babel-detached-reader-root {
   width: 100%;
-  min-height: 100vh;
+  min-height: calc(100vh - var(--babel-keyboard-status-height, 0rem));
   padding: clamp(1.25rem, 4vw, 4rem);
 }
 
-.babel-detached-reader-root > * {
+.babel-detached-reader-root > :not(.babel-keyboard-status, dialog) {
   width: min(1160px, 100%);
   margin-inline: auto;
 }
@@ -830,7 +831,7 @@ function prepareDetachedReaderDocument(
   targetDocument.head.append(base);
 
   for (const sourceNode of sourceDocument.head.querySelectorAll(
-    'link[rel="stylesheet"], style',
+    'link[rel="stylesheet"], link[rel~="icon"], link[rel="apple-touch-icon"], style',
   )) {
     const clone = sourceNode.cloneNode(true);
     if (clone.nodeName === "LINK" && sourceNode instanceof HTMLLinkElement) {
@@ -853,6 +854,8 @@ function prepareDetachedReaderDocument(
 
   const root = targetDocument.createElement("main");
   root.className = "babel-detached-reader-root";
+  root.dataset.babelPane = "detail";
+  root.dataset.babelMode = "read";
   root.tabIndex = -1;
   targetDocument.body.append(root);
   return root;
@@ -1027,11 +1030,11 @@ function DetachedReaderWindowInstance({
 
   function readerButton(
     className = buttonClassName,
-    ref?: RefObject<HTMLButtonElement | null>,
+    attachSourceRef = false,
   ) {
     return (
       <button
-        ref={ref}
+        ref={attachSourceRef ? fallbackButtonRef : undefined}
         className={className}
         data-babel-command="read"
         type="button"
@@ -1052,16 +1055,21 @@ function DetachedReaderWindowInstance({
   return (
     <>
       {buttonPortalTargetId === undefined
-        ? readerButton()
+        ? readerButton(buttonClassName, true)
         : (
             <>
               {buttonPortalTarget !== null && sourceCanPortal
                 ? createPortal(readerButton(), buttonPortalTarget)
                 : null}
-              {readerButton(fallbackButtonClassName, fallbackButtonRef)}
+              {readerButton(fallbackButtonClassName, true)}
             </>
           )}
-      {host === null ? null : createPortal(<ReaderImageZoom>{readerContent}</ReaderImageZoom>, host.root, portalKey)}
+      {host === null ? null : createPortal(
+        <ShortcutProvider ownerDocument={host.root.ownerDocument} fixedMode="read"
+          onReturnToApp={() => { executeShortcutSourceCommand(fallbackButtonRef.current, "app"); host.popup.close(); }}
+          onEditSource={() => executeShortcutSourceCommand(fallbackButtonRef.current, "edit")}>
+          <ReaderImageZoom>{readerContent}</ReaderImageZoom>
+        </ShortcutProvider>, host.root, portalKey)}
     </>
   );
 }

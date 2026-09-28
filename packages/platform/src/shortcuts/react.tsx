@@ -22,19 +22,27 @@ import {
   isShortcutBindingAvailable,
   matchesShortcutBinding,
   parseShortcutSettings,
+  resolveShortcutBindings,
   SHORTCUT_DEFINITIONS,
   shouldIgnoreShortcutEvent,
   type ShortcutCommand,
   type ShortcutBindings,
   type ShortcutKeyboardEventLike,
   type ShortcutSettings,
+  type ShortcutMode,
 } from "./core";
+import { focusModeContent, focusNotebookList, getKeyboardContext, isKeyboardInput, type KeyboardContext } from "./context";
 import { PaneFocusProvider } from "../navigation/react";
 import { useWorkspaceProcessActive } from "../pages/react";
 
 export interface ShortcutProviderProps {
   readonly children: ReactNode;
   readonly endpoint?: string;
+  readonly ownerDocument?: Document;
+  readonly fixedMode?: ShortcutMode;
+  readonly onReturnToApp?: () => void;
+  readonly onEditSource?: () => boolean;
+  readonly onReadSource?: () => boolean;
 }
 
 export interface CommandPaletteAction {
@@ -106,6 +114,12 @@ interface PaletteResult {
 
 const PaletteRegistrationContext = createContext<PaletteRegistrationContextValue | null>(null);
 const ShortcutBindingsContext = createContext<ShortcutBindings>(DEFAULT_SHORTCUT_SETTINGS.bindings);
+const ShortcutSettingsContext = createContext<ShortcutSettings>(DEFAULT_SHORTCUT_SETTINGS);
+const ShortcutDocumentContext = createContext<Document | null>(null);
+
+export function useShortcutDocument(): Document | null {
+  return useContext(ShortcutDocumentContext);
+}
 
 const EDITABLE_SELECTOR = [
   "input:not([type='hidden'])",
@@ -133,7 +147,7 @@ function isVisible(element: HTMLElement): boolean {
     return false;
   }
 
-  const style = window.getComputedStyle(element);
+  const style = element.ownerDocument.defaultView!.getComputedStyle(element);
   return (
     style.display !== "none" &&
     style.visibility !== "hidden" &&
@@ -149,7 +163,7 @@ function isEnabled(element: HTMLElement): boolean {
 }
 
 function isEditable(element: Element | null): element is HTMLElement {
-  return element instanceof HTMLElement && element.matches(EDITABLE_SELECTOR) && isEnabled(element);
+  return element !== null && element.nodeType === 1 && element.matches(EDITABLE_SELECTOR) && isEnabled(element as HTMLElement);
 }
 
 function getActiveDialog(document: Document): HTMLDialogElement | null {
@@ -177,7 +191,7 @@ function isCommandAdapterCandidate(element: HTMLElement): boolean {
     ancestor !== null;
     ancestor = ancestor.parentElement
   ) {
-    const style = window.getComputedStyle(ancestor);
+    const style = ancestor.ownerDocument.defaultView!.getComputedStyle(ancestor);
     if (style.display === "none" || style.visibility === "hidden") return false;
   }
   return true;
@@ -256,6 +270,9 @@ export function executeShortcutCommand(
   if (adapter === null) return false;
 
   try {
+    // Move focus out of the navigation/mode controls before changing a page's
+    // form state. If Edit opens a detached window, that window keeps focus.
+    if (command === "edit" || command === "read") adapter.focus({ preventScroll: true });
     if (command === "search") {
       const searchTarget = findSearchTarget(adapter);
       if (searchTarget === null) return false;
@@ -273,6 +290,32 @@ export function executeShortcutCommand(
   } catch {
     return false;
   }
+}
+
+/** A reader can belong to a background page; activate that page before editing. */
+export function executeShortcutSourceCommand(anchor: HTMLElement | null, command: ShortcutMode): boolean {
+  if (anchor === null || !anchor.isConnected) return false;
+  const document = anchor.ownerDocument;
+  const view = document.defaultView;
+  if (view === null) return false;
+  const page = anchor.closest<HTMLElement>("[data-page-key]");
+  if (page !== null && page.hidden) {
+    const tab = Array.from(document.querySelectorAll<HTMLElement>("[role='tab'][aria-controls]"))
+      .find(candidate => candidate.getAttribute("aria-controls") === page.id);
+    if (tab === undefined) return false;
+    tab.click();
+  }
+  view.focus();
+  view.requestAnimationFrame(() => {
+    if (!anchor.isConnected || anchor.closest("[hidden], [inert], [aria-hidden='true']")) return;
+    if (command === "app") { focusNotebookList(document); return; }
+    const container = page ?? anchor.closest<HTMLElement>("[data-babel-pane='detail']");
+    const adapter = container === null ? undefined : Array.from(container.querySelectorAll<HTMLElement>(`[data-babel-command='${command}']`))
+      .find(candidate => isCommandAdapterCandidate(candidate) && isEnabled(candidate));
+    if (adapter !== undefined) adapter.click();
+    else focusModeContent(document, command);
+  });
+  return true;
 }
 
 function closeDialogWithCancelEvent(dialog: HTMLDialogElement): void {
@@ -376,6 +419,7 @@ export function useShortcutBinding(command: ShortcutCommand): string | null {
 function withoutKeyRepeat(event: ShortcutKeyboardEventLike): ShortcutKeyboardEventLike {
   return {
     key: event.key,
+    code: event.code,
     ctrlKey: event.ctrlKey,
     altKey: event.altKey,
     shiftKey: event.shiftKey,
@@ -402,16 +446,18 @@ export function handleShortcutKeyDown(
   editable: boolean,
   desktop: boolean,
   execute: () => boolean,
+  reserve = desktop,
 ): boolean {
   if (!isShortcutBindingAvailable(binding, desktop)) return false;
   if (!matchesShortcutBinding(withoutKeyRepeat(event), binding)) return false;
-  if (!commandAllowedFromEditable(command, editable) || (editable && isNativeEditingKey(event))) {
+  const textKey = !event.ctrlKey && !event.altKey && event.key !== "Escape" && !/^F\d+$/u.test(event.key);
+  if (!commandAllowedFromEditable(command, editable) || (editable && (textKey || isNativeEditingKey(event)))) {
     return false;
   }
-  if (event.repeat === true && !desktop && command !== "read") return false;
+  if (event.repeat === true && !reserve && command !== "read") return false;
 
   const handled = event.repeat !== true && execute();
-  if (!handled && !desktop && command !== "read") return false;
+  if (!handled && !reserve && command !== "read") return false;
   event.preventDefault();
   event.stopPropagation();
   return true;
@@ -459,14 +505,74 @@ export function subscribeShortcutSettings(
   };
 }
 
-function eventComesFromEditable(event: KeyboardEvent): boolean {
-  const target = event.target instanceof Element ? event.target : window.document.activeElement;
-  const targetEditable = target?.closest<HTMLElement>(EDITABLE_SELECTOR) ?? null;
-  if (targetEditable !== null && isEnabled(targetEditable)) return true;
+function eventComesFromEditable(event: KeyboardEvent, document: Document): boolean {
+  const target = event.target as Element | null;
+  return isKeyboardInput(target?.nodeType === 1 ? target : null) || isKeyboardInput(document.activeElement);
+}
 
-  const activeElement = window.document.activeElement;
-  const activeEditable = activeElement?.closest<HTMLElement>(EDITABLE_SELECTOR) ?? null;
-  return activeEditable !== null && isEnabled(activeEditable);
+function useKeyboardContext(document: Document | undefined, fixedMode?: ShortcutMode): KeyboardContext {
+  const [context, setContext] = useState<KeyboardContext>({ mode: fixedMode ?? "app", focus: "APP", input: false });
+  useEffect(() => {
+    const view = document?.defaultView;
+    if (!document || !view) return;
+    let frame = 0;
+    let disposed = false;
+    const update = () => {
+      if (disposed) return;
+      const next = getKeyboardContext(document, fixedMode);
+      setContext(previous => previous.mode === next.mode && previous.focus === next.focus && previous.input === next.input
+        ? previous : next);
+    };
+    const schedule = () => {
+      if (frame !== 0) return;
+      frame = view.requestAnimationFrame(() => { frame = 0; update(); });
+    };
+    const observer = new view.MutationObserver(schedule);
+    // A background WebView can change activeElement without focusin. Recheck
+    // when it regains focus and after command clicks have changed focus/state.
+    const afterClick = () => view.queueMicrotask(update);
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true,
+      attributeFilter: ["hidden", "inert", "aria-hidden", "data-babel-mode", "data-active", "disabled", "class"] });
+    document.addEventListener("focusin", update, true);
+    document.addEventListener("click", afterClick);
+    view.addEventListener("focus", update);
+    schedule();
+    return () => {
+      disposed = true;
+      observer.disconnect();
+      document.removeEventListener("focusin", update, true);
+      document.removeEventListener("click", afterClick);
+      view.removeEventListener("focus", update);
+      view.cancelAnimationFrame(frame);
+    };
+  }, [document, fixedMode]);
+  return context;
+}
+
+const MODE_LABELS = { app: "APP", edit: "Edit", read: "Read" } as const;
+
+function KeyboardModeBar({ context, bindings, onMode, onFocus, onHelp }: {
+  context: KeyboardContext;
+  bindings: ShortcutBindings;
+  onMode: (mode: ShortcutMode) => void;
+  onFocus: () => void;
+  onHelp: () => void;
+}) {
+  return <aside className="babel-keyboard-status" aria-label="Keyboard controls" data-babel-keyboard-status=""
+    data-babel-pane="keyboard" data-babel-mode={context.mode} tabIndex={-1}>
+    <span role="status" aria-live="polite"><strong>{MODE_LABELS[context.mode]}</strong> · {context.focus}{context.input ? " · Typing" : ""}</span>
+    <div role="group" aria-label="Switch keyboard mode">
+      {(["app", "edit", "read"] as const).map(mode => <button key={mode} type="button"
+        aria-pressed={context.mode === mode} onMouseDown={event => event.preventDefault()} onClick={() => onMode(mode)}
+        title={mode === "app" ? "Focus the document list" : `${MODE_LABELS[mode]} · ${bindings[mode === "edit" ? "edit" : "read"] ?? "Unbound"}`}>
+        {mode === "app" ? "Browse" : MODE_LABELS[mode]}
+      </button>)}
+    </div>
+    <button type="button" onMouseDown={event => event.preventDefault()} onClick={onFocus}
+      title={`Next pane · ${bindings.focusNextPane ?? "Unbound"}`}>Focus</button>
+    <button type="button" onMouseDown={event => event.preventDefault()} onClick={onHelp}
+      title={`Keyboard help · ${bindings.help ?? "Unbound"}`}>Keys</button>
+  </aside>;
 }
 
 function settlePaletteAction(
@@ -577,11 +683,19 @@ export function useCommandPaletteItemSource(source: CommandPaletteItemSource): v
   }, [context, processActive, registeredSource]);
 }
 
-export function ShortcutProvider({ children, endpoint = "/api/shortcuts" }: ShortcutProviderProps) {
-  const [settings, setSettings] = useState<ShortcutSettings>(DEFAULT_SHORTCUT_SETTINGS);
+export function ShortcutProvider({ children, endpoint = "/api/shortcuts", ownerDocument, fixedMode,
+  onReturnToApp, onEditSource, onReadSource }: ShortcutProviderProps) {
+  const window = ownerDocument?.defaultView ?? globalThis.window;
+  const scopeDocument = ownerDocument ?? (typeof window === "undefined" ? undefined : window.document);
+  const parentSettings = useContext(ShortcutSettingsContext);
+  const [localSettings, setSettings] = useState<ShortcutSettings>(DEFAULT_SHORTCUT_SETTINGS);
+  const settings = ownerDocument === undefined ? localSettings : parentSettings;
+  const keyboardContext = useKeyboardContext(scopeDocument, fixedMode);
+  const bindings = useMemo(() => resolveShortcutBindings(settings, keyboardContext.mode), [settings, keyboardContext.mode]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteMode, setPaletteMode] = useState<PaletteMode>("universal");
   const [helpOpen, setHelpOpen] = useState(false);
+  const [dialogMode, setDialogMode] = useState<ShortcutMode>(fixedMode ?? "app");
   const [filter, setFilter] = useState("");
   const [selectedResult, setSelectedResult] = useState(0);
   const [availability, setAvailability] = useState(getInitialAvailability);
@@ -680,6 +794,12 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts" }: Shor
       return true;
     }
     const nextAvailability = getAvailabilitySnapshot(window.document);
+    if (onEditSource !== undefined || fixedMode === "edit") nextAvailability.edit = true;
+    if (onReadSource !== undefined || fixedMode === "read") nextAvailability.read = true;
+    if (onReturnToApp !== undefined || window.document.querySelector("[data-babel-pane='items'], [data-babel-pane='tree'], [data-babel-pane='tabs']")) nextAvailability.cancel = true;
+    const contextMode = getKeyboardContext(window.document, fixedMode).mode;
+    dialog.dataset.babelMode = contextMode;
+    setDialogMode(contextMode);
     try {
       dialog.showModal();
     } catch {
@@ -703,6 +823,9 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts" }: Shor
       dialog.focus();
       return true;
     }
+    const mode = getKeyboardContext(window.document, fixedMode).mode;
+    dialog.dataset.babelMode = mode;
+    setDialogMode(mode);
     try {
       dialog.showModal();
     } catch {
@@ -711,6 +834,29 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts" }: Shor
     setHelpOpen(true);
     window.requestAnimationFrame(() => dialog.focus());
     return true;
+  };
+
+  const executeContextCommand = (command: ShortcutCommand): boolean => {
+    if (getActiveDialog(window.document) === null) {
+      if (command === "edit" && onEditSource !== undefined) return onEditSource();
+      if (command === "read" && onReadSource !== undefined) return onReadSource();
+      if ((command === "edit" || command === "read") && command === fixedMode) return focusModeContent(window.document, command);
+    }
+    if (command === "cancel") {
+      if (executeCancelLadder(window.document)) return true;
+      if (onReturnToApp !== undefined) { onReturnToApp(); return true; }
+      return focusNotebookList(window.document);
+    }
+    return executeShortcutCommand(command, window.document);
+  };
+
+  const changeMode = (mode: ShortcutMode) => {
+    if (mode === "app") {
+      if (onReturnToApp !== undefined) onReturnToApp();
+      else focusNotebookList(window.document);
+      return;
+    }
+    executeContextCommand(mode === "edit" ? "edit" : "read");
   };
 
   const runPaletteCommand = (command: ShortcutCommand): boolean => {
@@ -730,13 +876,12 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts" }: Shor
       return openHelp();
     }
     const closed = closePalette();
-    const handled = command === "cancel"
-      ? executeCancelLadder()
-      : executeShortcutCommand(command);
+    const handled = executeContextCommand(command);
     return handled || closed;
   };
 
-  useEffect(() => subscribeShortcutSettings(endpoint, window, setSettings), [endpoint]);
+  useEffect(() => ownerDocument === undefined
+    ? subscribeShortcutSettings(endpoint, window, setSettings) : undefined, [endpoint, ownerDocument, window]);
 
   useEffect(() => {
     const includeItems = paletteMode === "items" || filter.trim() !== "";
@@ -804,7 +949,7 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts" }: Shor
       window.clearTimeout(timer);
       for (const controller of controllers) controller.abort();
     };
-  }, [filter, itemSourceRegistry, paletteMode, paletteOpen]);
+  }, [filter, itemSourceRegistry, paletteMode, paletteOpen, window]);
 
   const paletteResults: readonly PaletteResult[] = (() => {
     const results: PaletteResult[] = [];
@@ -815,10 +960,10 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts" }: Shor
           key: `command:${definition.command}`,
           kind: "command",
           label: definition.label,
-          description: isDesktopOnlyShortcutBinding(settings.bindings[definition.command])
+          description: isDesktopOnlyShortcutBinding(bindings[definition.command])
             ? "Command · Shortcut requires Babel desktop"
             : "Command",
-          binding: settings.bindings[definition.command],
+          binding: bindings[definition.command],
           available: availability[definition.command],
           command: definition.command,
         });
@@ -902,7 +1047,9 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts" }: Shor
   const onWindowKeyDown = useEffectEvent((event: KeyboardEvent) => {
     if (shouldIgnoreShortcutEvent(withoutKeyRepeat(event))) return;
     const desktop = (window as Window & { __BABEL_DESKTOP__?: boolean }).__BABEL_DESKTOP__ === true;
-    const editable = eventComesFromEditable(event);
+    const editable = eventComesFromEditable(event, window.document);
+    const currentMode = getKeyboardContext(window.document, fixedMode).mode;
+    const currentBindings = resolveShortcutBindings(settings, currentMode);
 
     const bareEscape =
       (event.key === "Escape" || event.key === "Esc") &&
@@ -914,8 +1061,8 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts" }: Shor
         ? closePalette()
         : helpOpen
           ? closeHelp()
-          : executeCancelLadder();
-      if (handled || (desktop && settings.bindings.cancel === "Escape")) {
+          : executeContextCommand("cancel");
+      if (handled || (desktop && currentBindings.cancel === "Escape")) {
         event.preventDefault();
         event.stopPropagation();
       }
@@ -923,27 +1070,39 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts" }: Shor
     }
 
     for (const { command } of SHORTCUT_DEFINITIONS) {
-      const binding = settings.bindings[command];
+      const binding = currentBindings[command];
       if (handleShortcutKeyDown(event, command, binding, editable, desktop, () => {
         if (command === "commandPalette") return openPalette("universal");
         if (command === "quickOpen") return openPalette("items");
         if (command === "help") return openHelp();
-        if (command === "cancel") return executeCancelLadder();
+        if (command === "cancel") return executeContextCommand("cancel");
         if (command === "search" && paletteOpen) {
           searchRef.current?.focus();
           searchRef.current?.select();
           return searchRef.current !== null;
         }
-        return executeShortcutCommand(command);
-      })) return;
+        return executeContextCommand(command);
+      }, desktop || Object.hasOwn(settings.layers.app, command) ||
+        (currentMode !== "app" && Object.hasOwn(settings.layers[currentMode], command)))) return;
     }
   });
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => onWindowKeyDown(event);
+    // Mode keys take precedence over tree navigation/type-ahead. Dialogs and text
+    // inputs retain first refusal; modifier shortcuts keep their existing order.
+    const onModeKey = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.altKey || event.metaKey || event.key === "Escape" ||
+        getActiveDialog(window.document) !== null || eventComesFromEditable(event, window.document)) return;
+      onWindowKeyDown(event);
+    };
+    window.addEventListener("keydown", onModeKey, true);
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+    return () => {
+      window.removeEventListener("keydown", onModeKey, true);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [window]);
 
   const handlePaletteCancel = (event: SyntheticEvent<HTMLDialogElement, Event>) => {
     event.preventDefault();
@@ -1000,15 +1159,22 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts" }: Shor
     if (selectedOption !== null && typeof selectedOption.scrollIntoView === "function") {
       selectedOption.scrollIntoView({ block: "nearest" });
     }
-  }, [paletteOpen, selectedOptionId]);
+  }, [paletteOpen, selectedOptionId, window]);
 
   return (
-    <ShortcutBindingsContext.Provider value={settings.bindings}>
+    <ShortcutSettingsContext.Provider value={settings}>
+    <ShortcutDocumentContext.Provider value={scopeDocument ?? null}>
+    <ShortcutBindingsContext.Provider value={bindings}>
     <PaletteRegistrationContext.Provider value={registrationContext}>
-      <PaneFocusProvider>{children}</PaneFocusProvider>
+      <PaneFocusProvider ownerDocument={ownerDocument}>
+        {children}
+        <KeyboardModeBar context={keyboardContext} bindings={bindings} onMode={changeMode}
+          onFocus={() => executeContextCommand("focusNextPane")} onHelp={openHelp} />
+      </PaneFocusProvider>
       <dialog
         ref={dialogRef}
         className="babel-command-palette"
+        data-babel-mode={dialogMode}
         aria-labelledby={titleId}
         data-state={paletteOpen ? "open" : "closed"}
         onCancel={handlePaletteCancel}
@@ -1083,6 +1249,7 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts" }: Shor
       <dialog
         ref={helpDialogRef}
         className="babel-shortcut-help"
+        data-babel-mode={dialogMode}
         aria-labelledby={helpTitleId}
         data-state={helpOpen ? "open" : "closed"}
         onCancel={handleHelpCancel}
@@ -1095,16 +1262,16 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts" }: Shor
           </button>
         </div>
         <section aria-labelledby={`${helpTitleId}-navigation`}>
-          <h3 id={`${helpTitleId}-navigation`}>Ready mode</h3>
+          <h3 id={`${helpTitleId}-navigation`}>{MODE_LABELS[keyboardContext.mode]} mode · {keyboardContext.focus}</h3>
           <dl className="babel-shortcut-help__grid">
-            <div><dt>Panels</dt><dd><kbd>{settings.bindings.focusNextPane ?? "Unbound"}</kbd> / <kbd>{settings.bindings.focusPreviousPane ?? "Unbound"}</kbd></dd></div>
-            <div><dt>Tree</dt><dd><kbd>\u2191</kbd>/<kbd>\u2193</kbd>, <kbd>Home</kbd>/<kbd>End</kbd>, <kbd>PageUp</kbd>/<kbd>PageDown</kbd> move; <kbd>\u2190</kbd>/<kbd>\u2192</kbd> collapse or expand</dd></div>
-            <div><dt>Flat lists</dt><dd><kbd>\u2191</kbd>/<kbd>\u2193</kbd>, <kbd>Home</kbd>/<kbd>End</kbd>, <kbd>PageUp</kbd>/<kbd>PageDown</kbd>; type to jump</dd></div>
+            <div><dt>Panels</dt><dd><kbd>{bindings.focusNextPane ?? "Unbound"}</kbd> / <kbd>{bindings.focusPreviousPane ?? "Unbound"}</kbd></dd></div>
+            <div><dt>Tree</dt><dd><kbd>↑</kbd>/<kbd>↓</kbd>, <kbd>Home</kbd>/<kbd>End</kbd>, <kbd>PageUp</kbd>/<kbd>PageDown</kbd> move; <kbd>←</kbd>/<kbd>→</kbd> collapse or expand</dd></div>
+            <div><dt>Flat lists</dt><dd><kbd>↑</kbd>/<kbd>↓</kbd>, <kbd>Home</kbd>/<kbd>End</kbd>, <kbd>PageUp</kbd>/<kbd>PageDown</kbd>; type to jump</dd></div>
             <div><dt>Open / edit</dt><dd><kbd>Enter</kbd> / <kbd>F2</kbd></dd></div>
-            <div><dt>Tabs</dt><dd><kbd>\u2190</kbd>/<kbd>\u2192</kbd> move, <kbd>Enter</kbd> activate</dd></div>
-            <div><dt>Palette</dt><dd><kbd>\u2191</kbd>/<kbd>\u2193</kbd> select, <kbd>Enter</kbd> run or open</dd></div>
+            <div><dt>Tabs</dt><dd><kbd>←</kbd>/<kbd>→</kbd> move, <kbd>Enter</kbd> activate</dd></div>
+            <div><dt>Palette</dt><dd><kbd>↑</kbd>/<kbd>↓</kbd> select, <kbd>Enter</kbd> run or open</dd></div>
             <div><dt>Back</dt><dd><kbd>Escape</kbd> leaves edit, then reader, then list</dd></div>
-            <div><dt>Reorder</dt><dd><kbd>Ctrl+Alt+\u2191</kbd> / <kbd>Ctrl+Alt+\u2193</kbd></dd></div>
+            <div><dt>Reorder</dt><dd><kbd>Ctrl+Alt+↑</kbd> / <kbd>Ctrl+Alt+↓</kbd></dd></div>
           </dl>
         </section>
         <section aria-labelledby={`${helpTitleId}-commands`}>
@@ -1114,8 +1281,8 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts" }: Shor
               <div key={command}>
                 <dt>{label}</dt>
                 <dd>
-                  <kbd>{settings.bindings[command] ?? "Unbound"}</kbd>
-                  {isDesktopOnlyShortcutBinding(settings.bindings[command]) ? " · Desktop only" : null}
+                  <kbd>{bindings[command] ?? "Unbound"}</kbd>
+                  {isDesktopOnlyShortcutBinding(bindings[command]) ? " · Desktop only" : null}
                 </dd>
               </div>
             ))}
@@ -1124,5 +1291,7 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts" }: Shor
       </dialog>
     </PaletteRegistrationContext.Provider>
     </ShortcutBindingsContext.Provider>
+    </ShortcutDocumentContext.Provider>
+    </ShortcutSettingsContext.Provider>
   );
 }

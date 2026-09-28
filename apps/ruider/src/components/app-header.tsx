@@ -50,7 +50,7 @@ export function AppHeader() {
   return (
     <header className="app-header">
       <Link className="brand" href="/canvases" aria-label="Ruider canvases home" onClick={(event) => visit(event, "/canvases")}>
-        <Image className="brand-logo" src="/icon.svg" alt="" width={38} height={38} priority />
+        <Image className="brand-logo" src="/icon.png" alt="" width={38} height={38} priority />
         <span className="brand-copy">
           <strong>Ruider</strong>
           <span>Make a mess. Find the thread.</span>
