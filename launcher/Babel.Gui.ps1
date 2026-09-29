@@ -345,7 +345,7 @@ $expectedShortcutCommands = @(
 $shortcutDefinitions = @(Get-BabelShortcutDefinitions -Path $shortcutDefaultsPath)
 $actualShortcutCommands = @($shortcutDefinitions | ForEach-Object { [string]$_.Id })
 if (($actualShortcutCommands -join "|") -cne ($expectedShortcutCommands -join "|")) {
-    throw "Shortcut defaults must define the schema v5 commands in their registered order."
+    throw "Shortcut defaults must define the schema v6 commands in their registered order."
 }
 $shortcutDefaultBindings = Get-BabelDefaultShortcutBindings -Definitions $shortcutDefinitions
 $launcherShortcutDefinitions = @(Get-BabelLauncherShortcutDefinitions -Path $shortcutDefaultsPath)
@@ -354,6 +354,10 @@ $shortcutControlNames = @(
     "LauncherHotkeyBox",
     "ShortcutLayerBox",
     "ShortcutLayerHint",
+    "ShortcutRecordingModeBox",
+    "RecordShortcutAgainButton",
+    "ApplyShortcutSequenceButton",
+    "ShortcutRecordingPreview",
     "ShortcutGrid",
     "ShortcutErrorText",
     "ShortcutStatusText",
@@ -384,6 +388,7 @@ $requiredControlNames = @(
     "DesktopHomeButton",
     "DesktopShortcutsButton",
     "DesktopStatusText",
+    "DesktopBrandLogo",
     "BrandLogo",
     "AppsGrid",
     "OpenSelectedButton",
@@ -417,8 +422,22 @@ try {
     $brandLogoBitmap.EndInit()
     $brandLogoBitmap.Freeze()
     $controls.BrandLogo.Source = $brandLogoBitmap
+    $controls.DesktopBrandLogo.Source = $brandLogoBitmap
 } catch {
     throw "Could not load Babel brand logo: $($_.Exception.Message)"
+}
+
+$script:AppLogoImages = @{}
+foreach ($app in $registeredApps) {
+    $appLogoPath = Join-Path $PSScriptRoot "assets/apps/$($app.Id).png"
+    if (-not (Test-Path -LiteralPath $appLogoPath -PathType Leaf)) { continue }
+    $appLogoBitmap = [Windows.Media.Imaging.BitmapImage]::new()
+    $appLogoBitmap.BeginInit()
+    $appLogoBitmap.CacheOption = [Windows.Media.Imaging.BitmapCacheOption]::OnLoad
+    $appLogoBitmap.UriSource = [Uri]::new($appLogoPath, [UriKind]::Absolute)
+    $appLogoBitmap.EndInit()
+    $appLogoBitmap.Freeze()
+    $script:AppLogoImages[$app.Id] = $appLogoBitmap
 }
 
 if ($SmokeTest) {
@@ -501,6 +520,8 @@ $script:ShortcutDefinitions = @($shortcutDefinitions)
 $script:ShortcutDefaultBindings = $shortcutDefaultBindings
 $script:LauncherShortcutDefinitions = @($launcherShortcutDefinitions)
 $script:LauncherShortcutBindings = (Read-BabelShortcutSettings -Definitions $shortcutDefinitions).Layers.launcher
+$script:HomeShortcutSequence = New-BabelShortcutSequenceState
+$script:HomeShortcutSequenceTimer = $null
 $script:RegisteredApps = $registeredApps
 $script:AppsById = @{}
 $script:RowsById = @{}
@@ -576,6 +597,7 @@ $script:WmHotkey = [uint32]0x0312
 $appTable = New-Object System.Data.DataTable
 [void]$appTable.Columns.Add("Id", [string])
 [void]$appTable.Columns.Add("Name", [string])
+[void]$appTable.Columns.Add("Logo", [Windows.Media.ImageSource])
 [void]$appTable.Columns.Add("Port", [int])
 [void]$appTable.Columns.Add("Status", [string])
 
@@ -583,6 +605,7 @@ foreach ($app in $script:RegisteredApps) {
     $row = $appTable.NewRow()
     $row.Id = $app.Id
     $row.Name = $app.Name
+    if ($script:AppLogoImages.ContainsKey($app.Id)) { $row.Logo = $script:AppLogoImages[$app.Id] }
     $row.Port = $app.Port
     $row.Status = "Stopped"
     [void]$appTable.Rows.Add($row)
@@ -859,6 +882,7 @@ function Set-BabelShortcutDialogLayer {
     foreach ($key in $State.Layers.Keys) { $candidateLayers[$key] = $State.Layers[$key] }
     $candidateBindings = $State.Bindings
     if ($scope -eq 'global') { $candidateBindings = $canonical } else { $candidateLayers[$scope] = $canonical }
+    Assert-BabelEffectiveShortcutPrefixes -Bindings $candidateBindings -Layers $candidateLayers
     Assert-BabelShortcutHotkeyConflict -Bindings $candidateBindings -Layers $candidateLayers -LauncherBinding $State.LauncherBinding
     $State.Bindings = $candidateBindings
     $State.Layers = $candidateLayers
@@ -885,7 +909,56 @@ function Set-BabelShortcutDialogBinding {
     Set-BabelShortcutDialogLayer -State $State -Bindings $candidate
 }
 
+function Reset-BabelShortcutRecording {
+    param([Parameter(Mandatory = $true)][object]$State)
+    $State.RecordingCommand = ''
+    $State.RecordingStrokes = @()
+    $State.Controls.ApplyShortcutSequenceButton.IsEnabled = $false
+    $State.Controls.ShortcutRecordingPreview.Text = if ($State.RecordingMode -eq 'sequence') {
+        'Sequence: focus a command field, press and release 2–4 steps, then Apply sequence. Record again clears the steps.'
+    } else { 'Single: focus a command field and press one key combination.' }
+}
+
+function Add-BabelShortcutRecordingStroke {
+    param([Parameter(Mandatory = $true)][object]$State,
+        [Parameter(Mandatory = $true)][string]$CommandId,
+        [Parameter(Mandatory = $true)][string]$Stroke)
+    if ($State.RecordingCommand -cne $CommandId) { Reset-BabelShortcutRecording -State $State }
+    if ($State.RecordingStrokes.Count -ge 4) { throw 'Four steps are already recorded. Apply sequence or choose Record again.' }
+    $candidate = (@($State.RecordingStrokes) + $Stroke) -join ' '
+    $canonical = ConvertTo-BabelShortcutBinding -Binding $candidate -AllowBareKeys:($State.CurrentLayer -ne 'global')
+    # Escape must stay available to cancel capture, even before a second step.
+    if (($Stroke -split '\+')[-1] -eq 'Escape') { throw 'Escape cancels recording and cannot be a sequence step.' }
+    Assert-BabelShortcutCommandBindingOwnership -CommandId $CommandId -Binding $canonical -Scope $State.CurrentLayer
+    $State.RecordingCommand = $CommandId
+    $State.SelectedCommand = $CommandId
+    $State.RecordingStrokes = @($canonical.Split(' '))
+    $State.Controls.ApplyShortcutSequenceButton.IsEnabled = $State.RecordingStrokes.Count -ge 2
+    $State.Controls.ShortcutRecordingPreview.Text = 'Recorded: ' + ($State.RecordingStrokes -join ' → ') +
+        "  ($($State.RecordingStrokes.Count)/4). Apply sequence to keep these steps."
+}
+
+function Apply-BabelShortcutRecording {
+    param([Parameter(Mandatory = $true)][object]$State)
+    if ($State.RecordingStrokes.Count -lt 2) { throw 'Record at least two steps before applying a sequence.' }
+    Set-BabelShortcutDialogBinding -State $State -CommandId $State.RecordingCommand -Binding ($State.RecordingStrokes -join ' ')
+    Reset-BabelShortcutRecording -State $State
+    $State.Controls.ShortcutStatusText.Text = 'Sequence applied to this layer. Save applies all layers.'
+}
+
+function Find-BabelShortcutCaptureField {
+    param([Windows.DependencyObject]$Root, [string]$CommandId)
+    if ($null -eq $Root) { return $null }
+    if ($Root -is [Windows.Controls.TextBox] -and $Root.Name -eq 'ShortcutCaptureBox' -and [string]$Root.Tag -ceq $CommandId) { return $Root }
+    for ($index = 0; $index -lt [Windows.Media.VisualTreeHelper]::GetChildrenCount($Root); $index++) {
+        $found = Find-BabelShortcutCaptureField -Root ([Windows.Media.VisualTreeHelper]::GetChild($Root, $index)) -CommandId $CommandId
+        if ($null -ne $found) { return $found }
+    }
+    return $null
+}
+
 function Show-BabelShortcutSettings {
+    Reset-BabelHomeShortcutSequence
     $settings = Read-BabelShortcutSettings -Definitions $script:ShortcutDefinitions
     $launcherSettings = Read-BabelLauncherHotkeySettings
     $shortcutWindow = Import-BabelWindow -Path $script:ShortcutXamlPath
@@ -914,8 +987,18 @@ function Show-BabelShortcutSettings {
         SelectedCommand = ''
         LauncherBinding = [string]$launcherSettings.Binding
         Saved = $false
+        RecordingMode = 'single'
+        RecordingCommand = ''
+        RecordingStrokes = @()
     }
     $shortcutWindow.Tag = $state
+    $shortcutControls.ShortcutRecordingModeBox.DisplayMemberPath = 'Label'
+    $shortcutControls.ShortcutRecordingModeBox.SelectedValuePath = 'Id'
+    $shortcutControls.ShortcutRecordingModeBox.ItemsSource = @(
+        [pscustomobject]@{ Id = 'single'; Label = 'Single' },
+        [pscustomobject]@{ Id = 'sequence'; Label = 'Sequence' }
+    )
+    $shortcutControls.ShortcutRecordingModeBox.SelectedValue = 'single'
     $shortcutControls.ShortcutLayerBox.DisplayMemberPath = 'Label'
     $shortcutControls.ShortcutLayerBox.SelectedValuePath = 'Id'
     $shortcutControls.ShortcutLayerBox.ItemsSource = @(
@@ -935,6 +1018,7 @@ function Show-BabelShortcutSettings {
         $dialogState = Get-BabelShortcutDialogState -Sender $sender
         if ($null -eq $sender.SelectedValue) { return }
         $dialogState.CurrentLayer = [string]$sender.SelectedValue
+        Reset-BabelShortcutRecording -State $dialogState
         $dialogState.Controls.ShortcutErrorText.Text = ''
         Update-BabelShortcutDialogRows -State $dialogState
     })
@@ -945,22 +1029,72 @@ function Show-BabelShortcutSettings {
             @('LauncherHotkeyBox', 'ShortcutCaptureBox') -notcontains $focusedElement.Name -or
             [string]::IsNullOrWhiteSpace([string]$focusedElement.Tag)) { return }
         $dialogState = Get-BabelShortcutDialogState -Sender $sender
+        if ($eventArgs.Key -in @([Windows.Input.Key]::LeftCtrl, [Windows.Input.Key]::RightCtrl,
+            [Windows.Input.Key]::LeftShift, [Windows.Input.Key]::RightShift,
+            [Windows.Input.Key]::LeftAlt, [Windows.Input.Key]::RightAlt) -or
+            ($eventArgs.Key -eq [Windows.Input.Key]::System -and $eventArgs.SystemKey -in @([Windows.Input.Key]::LeftAlt, [Windows.Input.Key]::RightAlt))) { return }
+        if ($eventArgs.IsRepeat) { $eventArgs.Handled = $true; return }
         try {
             $isLauncherToggle = $focusedElement.Name -eq 'LauncherHotkeyBox'
+            $isSequence = -not $isLauncherToggle -and $dialogState.RecordingMode -eq 'sequence'
+            if ($isSequence -and $eventArgs.Key -eq [Windows.Input.Key]::Escape) {
+                Reset-BabelShortcutRecording -State $dialogState
+                $dialogState.Controls.ShortcutStatusText.Text = 'Sequence recording cancelled.'
+                return
+            }
+            $hasTail = $isSequence -and $dialogState.RecordingCommand -ceq [string]$focusedElement.Tag -and $dialogState.RecordingStrokes.Count -gt 0
             $canonicalBinding = ConvertFrom-WpfShortcutKeyEvent -EventArgs $eventArgs `
-                -AllowBareKeys:(-not $isLauncherToggle -and $dialogState.CurrentLayer -ne 'global')
+                -AllowBareKeys:(-not $isLauncherToggle -and ($dialogState.CurrentLayer -ne 'global' -or $hasTail))
             if ($isLauncherToggle) {
                 [void](ConvertTo-BabelLauncherHotkeyRegistration -Binding $canonicalBinding)
                 Assert-BabelShortcutHotkeyConflict -Bindings $dialogState.Bindings -Layers $dialogState.Layers -LauncherBinding $canonicalBinding
                 $dialogState.LauncherBinding = $canonicalBinding
                 $dialogState.Controls.LauncherHotkeyBox.Text = $canonicalBinding
+            } elseif ($isSequence) {
+                Add-BabelShortcutRecordingStroke -State $dialogState -CommandId ([string]$focusedElement.Tag) -Stroke $canonicalBinding
             } else {
                 Set-BabelShortcutDialogBinding -State $dialogState -CommandId ([string]$focusedElement.Tag) -Binding $canonicalBinding
             }
             $dialogState.Controls.ShortcutErrorText.Text = ''
-            $dialogState.Controls.ShortcutStatusText.Text = 'Shortcut captured in this layer. Save applies all layers.'
+            $dialogState.Controls.ShortcutStatusText.Text = if ($isSequence) { 'Release the keys before the next step. Choose Apply sequence when finished.' }
+                else { 'Shortcut captured in this layer. Save applies all layers.' }
         } catch { $dialogState.Controls.ShortcutErrorText.Text = $_.Exception.Message }
         finally { $eventArgs.Handled = $true }
+    })
+    $shortcutControls.ShortcutRecordingModeBox.Add_SelectionChanged({
+        param($sender, $eventArgs)
+        $dialogState = Get-BabelShortcutDialogState -Sender $sender
+        if ($null -eq $sender.SelectedValue) { return }
+        $dialogState.RecordingMode = [string]$sender.SelectedValue
+        Reset-BabelShortcutRecording -State $dialogState
+    })
+    $shortcutControls.ShortcutGrid.Add_SelectionChanged({
+        param($sender, $eventArgs)
+        $dialogState = Get-BabelShortcutDialogState -Sender $sender
+        if ($null -eq $sender.SelectedItem) { return }
+        $id = [string]$sender.SelectedItem.Id
+        if ($dialogState.RecordingCommand -and $dialogState.RecordingCommand -cne $id) { Reset-BabelShortcutRecording -State $dialogState }
+        $dialogState.SelectedCommand = $id
+    })
+    $shortcutControls.RecordShortcutAgainButton.Add_Click({
+        param($sender, $eventArgs)
+        $dialogState = Get-BabelShortcutDialogState -Sender $sender
+        Reset-BabelShortcutRecording -State $dialogState
+        $selected = $dialogState.Controls.ShortcutGrid.SelectedItem
+        if ($null -eq $selected) { return }
+        $dialogState.Controls.ShortcutGrid.ScrollIntoView($selected)
+        $dialogState.Controls.ShortcutGrid.UpdateLayout()
+        $field = Find-BabelShortcutCaptureField -Root $dialogState.Controls.ShortcutGrid -CommandId ([string]$selected.Id)
+        if ($null -ne $field) { [void]$field.Focus() }
+        $dialogState.Controls.ShortcutErrorText.Text = ''
+    })
+    $shortcutControls.ApplyShortcutSequenceButton.Add_Click({
+        param($sender, $eventArgs)
+        $dialogState = Get-BabelShortcutDialogState -Sender $sender
+        try {
+            Apply-BabelShortcutRecording -State $dialogState
+            $dialogState.Controls.ShortcutErrorText.Text = ''
+        } catch { $dialogState.Controls.ShortcutErrorText.Text = $_.Exception.Message }
     })
     $shortcutControls.RestoreInheritanceButton.Add_Click({
         param($sender, $eventArgs)
@@ -968,6 +1102,7 @@ function Show-BabelShortcutSettings {
         $selected = $dialogState.Controls.ShortcutGrid.SelectedItem
         if ($null -eq $selected) { return }
         try {
+            Reset-BabelShortcutRecording -State $dialogState
             Set-BabelShortcutDialogBinding -State $dialogState -CommandId ([string]$selected.Id) -Inherit
             $dialogState.Controls.ShortcutErrorText.Text = ''
             $dialogState.Controls.ShortcutStatusText.Text = 'Inheritance restored for this command. Choose Save to apply.'
@@ -979,6 +1114,7 @@ function Show-BabelShortcutSettings {
         $selected = $dialogState.Controls.ShortcutGrid.SelectedItem
         if ($null -eq $selected) { return }
         try {
+            Reset-BabelShortcutRecording -State $dialogState
             Set-BabelShortcutDialogBinding -State $dialogState -CommandId ([string]$selected.Id) -Binding $null
             $dialogState.Controls.ShortcutErrorText.Text = ''
             $dialogState.Controls.ShortcutStatusText.Text = 'Command disabled in this layer. Choose Save to apply.'
@@ -993,6 +1129,7 @@ function Show-BabelShortcutSettings {
             default { [ordered]@{} }
         }
         try {
+            Reset-BabelShortcutRecording -State $dialogState
             Set-BabelShortcutDialogLayer -State $dialogState -Bindings $defaults
             $dialogState.Controls.ShortcutErrorText.Text = ''
             $dialogState.Controls.ShortcutStatusText.Text = 'Defaults restored for this layer. Other layers and the launcher toggle are unchanged.'
@@ -1007,6 +1144,7 @@ function Show-BabelShortcutSettings {
         $dialogState = Get-BabelShortcutDialogState -Sender $sender
         $candidate = $null
         try {
+            if ($dialogState.RecordingStrokes.Count -gt 0) { throw 'Apply the recorded sequence or choose Record again to discard it before saving.' }
             $bindings = ConvertTo-BabelShortcutBindingMap -Definitions $dialogState.Definitions -Bindings $dialogState.Bindings
             $layers = ConvertTo-BabelShortcutLayers -Definitions $dialogState.Definitions -Layers $dialogState.Layers `
                 -LauncherDefinitions $dialogState.LauncherDefinitions
@@ -1017,6 +1155,7 @@ function Show-BabelShortcutSettings {
             $savedLauncherPath = Write-BabelLauncherHotkeySettings -Binding $launcherRegistration.Binding
             Commit-BabelGlobalHotkeyCandidate -Candidate $candidate
             $script:LauncherShortcutBindings = $layers.launcher
+            Reset-BabelHomeShortcutSequence
             Update-BabelHomeShortcutHint
             if ($null -ne $script:DesktopHost) { $script:DesktopHost.RefreshShortcutSettings() }
             $dialogState.Saved = $true
@@ -1077,9 +1216,20 @@ function Dispose-BabelTrayResources {
 
 function Update-BabelHomeShortcutHint {
     if ($null -ne $script:DesktopHost -and -not $script:DesktopHost.IsHomeVisible) { return }
+    if ($script:HomeShortcutSequence.Pending) {
+        $pending = $script:HomeShortcutSequence.Pending.Replace(' ', ' → ')
+        $controls.DesktopStatusText.Text = "Apps home · $pending → … · Esc cancels · 1.5 s per step"
+        return
+    }
     $open = if ($null -eq $script:LauncherShortcutBindings.openApp) { 'Unbound' } else { $script:LauncherShortcutBindings.openApp }
     $next = if ($null -eq $script:LauncherShortcutBindings.focusNextPane) { 'Unbound' } else { $script:LauncherShortcutBindings.focusNextPane }
     $controls.DesktopStatusText.Text = "Apps home · Open: $open · Next focus: $next"
+}
+
+function Reset-BabelHomeShortcutSequence {
+    Reset-BabelShortcutSequenceState -State $script:HomeShortcutSequence
+    if ($null -ne $script:HomeShortcutSequenceTimer) { $script:HomeShortcutSequenceTimer.Stop() }
+    Update-BabelHomeShortcutHint
 }
 
 function Move-BabelHomeFocus {
@@ -2193,6 +2343,7 @@ function Open-AppIdentity {
         [pscustomobject]$App
     )
 
+    Reset-BabelHomeShortcutSequence
     if ($null -eq $script:DesktopHost) {
         Import-BabelDesktopRuntime
         $userDataFolder = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Babel/Desktop/WebView2'
@@ -2201,6 +2352,7 @@ function Open-AppIdentity {
             $script:Window, $controls.DesktopSurface, $controls.LauncherPanel,
             $controls.DesktopAppTabs, $controls.DesktopStatusText, $userDataFolder, [string[]]$allowedOrigins)
         $script:DesktopHost.ConfigureWindow = [Action[Windows.Window]]{ param($popup) Set-BabelWindowIdentity -Window $popup }
+        $script:DesktopHost.ResolveAppLogo = [Func[string, Windows.Media.ImageSource]]{ param($id) $script:AppLogoImages[$id] }
     }
     if (-not $script:Window.IsVisible -or $script:Window.WindowState -eq [Windows.WindowState]::Minimized) {
         Restore-BabelWindowFromTray
@@ -2922,21 +3074,51 @@ function Invoke-BabelHomeShortcut {
     }
 }
 
-$script:Window.Add_PreviewKeyDown({
-    param($sender, $eventArgs)
-
+function Invoke-BabelHomeShortcutKeyEvent {
+    param([Parameter(Mandatory = $true)][object]$EventArgs)
     # App keystrokes belong to its WebView; only Apps home uses this layer.
-    if ($null -ne $script:DesktopHost -and -not $script:DesktopHost.IsHomeVisible) { return }
-    if ($eventArgs.Key -in @([Windows.Input.Key]::ImeProcessed, [Windows.Input.Key]::DeadCharProcessed)) { return }
+    if ($null -ne $script:DesktopHost -and -not $script:DesktopHost.IsHomeVisible) { Reset-BabelHomeShortcutSequence; return }
+    if ($eventArgs.Key -in @([Windows.Input.Key]::ImeProcessed, [Windows.Input.Key]::DeadCharProcessed)) {
+        Reset-BabelHomeShortcutSequence
+        return
+    }
+    # Pressing/releasing a modifier between steps does not cancel the sequence.
+    $key = if ($eventArgs.Key -eq [Windows.Input.Key]::System) { $eventArgs.SystemKey } else { $eventArgs.Key }
+    if ($key -in @([Windows.Input.Key]::LWin, [Windows.Input.Key]::RWin) -or
+        ($eventArgs.KeyboardDevice.Modifiers -band [Windows.Input.ModifierKeys]::Windows) -ne [Windows.Input.ModifierKeys]::None) {
+        Reset-BabelHomeShortcutSequence
+        return
+    }
+    if ($key -in @([Windows.Input.Key]::LeftCtrl, [Windows.Input.Key]::RightCtrl,
+        [Windows.Input.Key]::LeftShift, [Windows.Input.Key]::RightShift,
+        [Windows.Input.Key]::LeftAlt, [Windows.Input.Key]::RightAlt)) { return }
     $binding = $null
     try { $binding = ConvertFrom-WpfShortcutKeyEvent -EventArgs $eventArgs -AllowBareKeys }
-    catch { return }
-    $command = Get-BabelLauncherShortcutCommand -Bindings $script:LauncherShortcutBindings -Binding $binding
-    if ($null -ne $command) {
-        if ((Test-BabelEditableTextInputFocused) -and
+    catch {
+        if ($script:HomeShortcutSequence.Pending) {
+            $eventArgs.Handled = $true
+            Reset-BabelHomeShortcutSequence
+        }
+        return
+    }
+    if (Test-BabelEditableTextInputFocused) {
+        Reset-BabelHomeShortcutSequence
+        $command = Get-BabelLauncherShortcutCommand -Bindings $script:LauncherShortcutBindings -Binding $binding
+        if ($null -eq $command -or (
             $command -notin @('focusNextPane', 'focusPreviousPane') -and
-            -not ($command -eq 'hideLauncher' -and $binding -eq 'Escape')) { return }
+            -not ($command -eq 'hideLauncher' -and $binding -eq 'Escape'))) { return }
+    }
+    $step = Step-BabelShortcutSequence -State $script:HomeShortcutSequence `
+        -Bindings $script:LauncherShortcutBindings -Binding $binding -IsRepeat:$eventArgs.IsRepeat
+    if ($step.Consumed) {
         $eventArgs.Handled = $true
+        if ($step.Status -eq 'pending') {
+            $script:HomeShortcutSequenceTimer.Stop()
+            $script:HomeShortcutSequenceTimer.Start()
+        } elseif (-not $step.Pending) { $script:HomeShortcutSequenceTimer.Stop() }
+        Update-BabelHomeShortcutHint
+        $command = $step.Command
+        if ($null -eq $command) { return }
         if ($eventArgs.IsRepeat -and $command -notin @('previousApp', 'nextApp', 'focusNextPane', 'focusPreviousPane')) { return }
         try { Invoke-BabelHomeShortcut -Command $command }
         catch { Show-BabelError -Message $_.Exception.Message }
@@ -2950,6 +3132,17 @@ $script:Window.Add_PreviewKeyDown({
         Select-BabelAppByIndex -Index $selectionIndex
         $eventArgs.Handled = $true
     }
+}
+
+$script:HomeShortcutSequenceTimer = [Windows.Threading.DispatcherTimer]::new()
+$script:HomeShortcutSequenceTimer.Interval = [TimeSpan]::FromMilliseconds(1500)
+$script:HomeShortcutSequenceTimer.Add_Tick({ Reset-BabelHomeShortcutSequence })
+$script:Window.Add_Deactivated({ Reset-BabelHomeShortcutSequence })
+$script:Window.Add_PreviewGotKeyboardFocus({ Reset-BabelHomeShortcutSequence })
+$script:Window.Add_PreviewMouseDown({ Reset-BabelHomeShortcutSequence })
+$script:Window.Add_PreviewKeyDown({
+    param($sender, $eventArgs)
+    Invoke-BabelHomeShortcutKeyEvent -EventArgs $eventArgs
 })
 Update-BabelHomeShortcutHint
 $timer = New-Object Windows.Threading.DispatcherTimer
@@ -2974,6 +3167,7 @@ $timer.Add_Tick({
 $script:Window.Add_Closing({
     param($sender, $eventArgs)
 
+    Reset-BabelHomeShortcutSequence
     if ($null -ne $script:DesktopHost -and -not $script:DesktopHost.RequestWindowClose()) {
         $eventArgs.Cancel = $true
         return

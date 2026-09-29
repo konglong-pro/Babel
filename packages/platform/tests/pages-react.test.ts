@@ -26,13 +26,16 @@ function PageContextProbe() {
   });
 }
 
-test("page tabs reserve viewport height through mounted process wrappers", () => {
+test("workspace shell reserves header, optional tabs and keyboard controls in normal flow", () => {
   const styles = readFileSync(new URL("../src/pages/pages.css", import.meta.url), "utf8");
 
   assert.match(
     styles,
-    /\.babel-page-tabs \+ main > \.babel-workspace-process > :is\([\s\S]*?\.entries-workspace[\s\S]*?\) \{[\s\S]*?100dvh - var\(--header-height, 52px\) - var\(--babel-page-tabs-height, 48px\)/,
+    /body:has\(> main#main-content\) \{[^}]*display: flex;[^}]*height: 100dvh;/,
   );
+  assert.match(styles, /> :is\(\.app-header, \.babel-page-tabs, \.babel-keyboard-status\) \{\s*flex: none;/);
+  assert.match(styles, /main#main-content > \.babel-workspace-process > :is\([\s\S]*?\.entries-workspace[\s\S]*?\) \{\s*flex: 1;\s*height: 100%;/);
+  assert.doesNotMatch(styles, /\.babel-page-tabs \+ main/);
 });
 
 test("page tabs and kept-alive panels expose the active session accessibly", () => {

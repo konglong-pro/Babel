@@ -8,15 +8,14 @@ import { promisify } from "node:util";
 const root = path.resolve(import.meta.dirname, "..");
 const execFileAsync = promisify(execFile);
 
-test("every notebook and the scaffold use the existing Babel icon bytes", async () => {
-  const icon = await readFile(path.join(root, "launcher/assets/Babel.png"));
+test("notebooks retain their own SVG branding and one favicon source", async () => {
   const apps = await readdir(path.join(root, "apps"), { withFileTypes: true });
   const appDirectories = apps.filter(entry => entry.isDirectory()).map(entry => `apps/${entry.name}`);
   appDirectories.push("templates/mirror-app");
   for (const app of appDirectories) {
     const directory = path.join(root, app, "src/app");
-    assert.deepEqual(await readFile(path.join(directory, "icon.png")), icon, `${app} must use Babel's icon`);
-    assert.equal((await readdir(directory)).includes("icon.svg"), false, `${app} must not advertise a second icon`);
+    assert.match(await readFile(path.join(directory, "icon.svg"), "utf8"), /<svg\b/, `${app} must supply its own mark`);
+    assert.equal((await readdir(directory)).includes("icon.png"), false, `${app} must not advertise a second icon`);
   }
 });
 

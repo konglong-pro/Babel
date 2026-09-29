@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 
@@ -40,6 +41,8 @@ namespace BabelLauncher
             root.Children.Add(surface);
             window.Content = root;
             object host = Activator.CreateInstance(hostType, window, surface, home, tabs, status, profile, new[] { origin });
+            var fixtureLogo = new DrawingImage();
+            hostType.GetProperty("ResolveAppLogo").SetValue(host, new Func<string, ImageSource>(id => fixtureLogo));
             hostType.GetProperty("ConfigureWindow").SetValue(host, new Action<Window>(popup => {
                 Check(window.Dispatcher.CheckAccess(), "Popup identity callback left the WPF UI thread.");
                 Check(popup.Icon != null && popup.Icon == window.Icon, "Popup did not inherit the Babel window icon.");
@@ -49,7 +52,7 @@ namespace BabelLauncher
             Exception failure = null;
             window.Loaded += async (sender, args) => {
                 try {
-                    Task verification = VerifyAsync(hostType, host, origin);
+                    Task verification = VerifyAsync(hostType, host, origin, tabs, fixtureLogo);
                     if (await Task.WhenAny(verification, Task.Delay(45000)) != verification)
                         throw new TimeoutException("Desktop smoke test exceeded 45 seconds.");
                     await verification;
@@ -111,7 +114,7 @@ namespace BabelLauncher
             return (bool)type.GetMethod(name).Invoke(null, args);
         }
 
-        private static async Task VerifyAsync(Type type, object host, string origin)
+        private static async Task VerifyAsync(Type type, object host, string origin, Panel tabs, ImageSource fixtureLogo)
         {
             Check(Policy(type, "IsNotebookAddress", origin + "/one", origin), "Local fixture origin must be accepted.");
             foreach (string forbidden in new[] { "file:///C:/test.html", "javascript:alert(1)", "https://example.invalid/", "http://127.0.0.1:1/", "http://user@" + new Uri(origin).Authority + "/" }) {
@@ -139,9 +142,23 @@ namespace BabelLauncher
             var second = (WebView2)Invoke(host, "GetView", "two");
             Check(!Object.ReferenceEquals(first, second), "Notebooks share one view instance.");
             Check(await Script(second, "window.fixtureState") == "0", "Notebook script state leaked between views.");
+            Check(tabs.Children.Count == 2, "The notebook tab strip does not match the open views.");
+            var firstTab = (Border)tabs.Children[0];
+            var secondTab = (Border)tabs.Children[1];
+            var firstActions = (StackPanel)firstTab.Child;
+            var selectFirst = (Button)firstActions.Children[0];
+            var firstBrand = (StackPanel)selectFirst.Content;
+            Check(((Image)firstBrand.Children[0]).Source == fixtureLogo &&
+                ((TextBlock)firstBrand.Children[1]).Text == "One", "A notebook tab lost its own logo or readable name.");
+            Check(System.Windows.Automation.AutomationProperties.GetName(selectFirst) == "Switch to One" &&
+                System.Windows.Automation.AutomationProperties.GetName((Button)firstActions.Children[1]) == "Close One view",
+                "Notebook switching and closing require separate accessible names.");
+            Check(firstTab.Tag == null && (string)secondTab.Tag == "active", "The active APP tab is not reflected in its visual state.");
             Invoke(host, "ShowHome");
             Check(Property<bool>(host, "IsHomeVisible"), "Home did not become visible.");
-            Invoke(host, "OpenNotebook", "one", "One", origin + "/one");
+            Check(firstTab.Tag == null && secondTab.Tag == null, "Returning home left an APP tab selected.");
+            selectFirst.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check((string)firstTab.Tag == "active" && secondTab.Tag == null, "Clicking the branded tab did not select its APP.");
             Check(Property<int>(host, "OpenCount") == 2, "Switching recreated a notebook.");
             Check(Object.ReferenceEquals(first, Invoke(host, "GetView", "one")), "Switching replaced the original WebView.");
             Check(await Script(first, "window.fixtureState") == "42", "Switching lost page state.");

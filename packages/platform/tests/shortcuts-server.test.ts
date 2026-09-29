@@ -75,7 +75,7 @@ test("shortcut loader rereads valid settings and falls back for missing or inval
     };
     writeFileSync(settingsPath, JSON.stringify(legacy), "utf8");
     assert.deepEqual(loadShortcutSettings({ path: settingsPath }), {
-      schemaVersion: 5,
+      schemaVersion: 6,
       layers: DEFAULT_SHORTCUT_SETTINGS.layers,
       bindings: {
         save: "Ctrl+Alt+S",
@@ -127,4 +127,42 @@ test("shortcut response disables caching", async () => {
   assert.equal(response.headers.get("cache-control"), "no-store");
   assert.equal(response.headers.get("content-type"), "application/json");
   assert.deepEqual(await response.json(), DEFAULT_SHORTCUT_SETTINGS);
+});
+
+test("shortcut loader migrates v5 layers in memory and serves validated v6 sequences", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "babel-shortcut-sequences-"));
+  const settingsPath = join(directory, "shortcuts.json");
+  try {
+    const legacy = {
+      ...DEFAULT_SHORTCUT_SETTINGS,
+      schemaVersion: 5,
+      layers: { ...DEFAULT_SHORTCUT_SETTINGS.layers, read: { underlineSelection: "H", new: null } },
+    };
+    const source = JSON.stringify(legacy);
+    writeFileSync(settingsPath, source, "utf8");
+    assert.deepEqual(loadShortcutSettings({ path: settingsPath }), { ...legacy, schemaVersion: 6 });
+    assert.equal(readFileSync(settingsPath, "utf8"), source);
+
+    const sequences = {
+      ...DEFAULT_SHORTCUT_SETTINGS,
+      bindings: { ...DEFAULT_SHORTCUT_SETTINGS.bindings, save: "Ctrl+Q S" },
+      layers: {
+        ...DEFAULT_SHORTCUT_SETTINGS.layers,
+        read: { underlineSelection: "G H", removeUnderline: "G U" },
+        launcher: { ...DEFAULT_SHORTCUT_SETTINGS.layers.launcher, nextApp: "G J" },
+      },
+    };
+    writeFileSync(settingsPath, JSON.stringify(sequences), "utf8");
+    const loaded = loadShortcutSettings({ path: settingsPath });
+    assert.deepEqual(loaded, sequences);
+    assert.deepEqual(await shortcutSettingsResponse(loaded).json(), sequences);
+
+    writeFileSync(settingsPath, JSON.stringify({
+      ...sequences,
+      layers: { ...sequences.layers, read: { underlineSelection: "Ctrl+Q" } },
+    }), "utf8");
+    assert.deepEqual(loadShortcutSettings({ path: settingsPath }), DEFAULT_SHORTCUT_SETTINGS);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

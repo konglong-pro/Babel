@@ -21,7 +21,7 @@ namespace BabelLauncher
             public string Name;
             public Uri Address;
             public Grid Surface;
-            public StackPanel Header;
+            public Border Header;
             public Button SelectButton;
             public WebView2 View;
             public Window PopupWindow;
@@ -49,6 +49,7 @@ namespace BabelLauncher
         public string[] OpenIds { get { return notebooks.Keys.ToArray(); } }
         public int ReadyCount { get { return notebooks.Values.Count(n => n.Status == "Ready"); } }
         public Action<Window> ConfigureWindow { get; set; }
+        public Func<string, ImageSource> ResolveAppLogo { get; set; }
 
         public DesktopHost(Window window, Panel surface, FrameworkElement home,
             Panel tabs, TextBlock status, string userDataFolder, string[] allowedOrigins)
@@ -90,14 +91,35 @@ namespace BabelLauncher
                 throw new InvalidOperationException("Only registered local notebooks can open inside Babel.");
 
             var notebook = new Notebook { Id = id, Name = name, Address = uri, Surface = new Grid() };
-            notebook.Header = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 6, 0) };
-            notebook.SelectButton = new Button { Content = name, Padding = new Thickness(14, 7, 14, 7), ToolTip = "Switch to " + name };
+            notebook.Header = new Border { Margin = new Thickness(0, 0, 6, 0) };
+            var tabStyle = window.TryFindResource("DesktopAppTabStyle") as Style;
+            if (tabStyle != null) notebook.Header.Style = tabStyle;
+            var brand = new StackPanel { Orientation = Orientation.Horizontal };
+            var logo = ResolveAppLogo == null ? null : ResolveAppLogo(id);
+            if (logo != null) brand.Children.Add(new Image {
+                Source = logo, Width = 24, Height = 24, Stretch = Stretch.Uniform, Margin = new Thickness(0, 0, 8, 0)
+            });
+            brand.Children.Add(new TextBlock {
+                Text = name, MaxWidth = 160, TextWrapping = TextWrapping.NoWrap,
+                TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center
+            });
+            notebook.SelectButton = new Button {
+                Content = brand, Padding = new Thickness(12, 6, 10, 6), ToolTip = "Switch to " + name,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            var selectStyle = window.TryFindResource("DesktopTabButtonStyle") as Style;
+            if (selectStyle != null) notebook.SelectButton.Style = selectStyle;
+            System.Windows.Automation.AutomationProperties.SetName(notebook.SelectButton, "Switch to " + name);
             notebook.SelectButton.Click += (sender, args) => Select(notebook);
-            var close = new Button { Content = "×", Padding = new Thickness(8, 7, 8, 7), ToolTip = "Close " + name + " view" };
+            var close = new Button { Content = "×", ToolTip = "Close " + name + " view", VerticalAlignment = VerticalAlignment.Center };
+            var closeStyle = window.TryFindResource("DesktopTabCloseButtonStyle") as Style;
+            if (closeStyle != null) close.Style = closeStyle;
             System.Windows.Automation.AutomationProperties.SetName(close, "Close " + name + " view");
             close.Click += async (sender, args) => await CloseNotebookAsync(notebook);
-            notebook.Header.Children.Add(notebook.SelectButton);
-            notebook.Header.Children.Add(close);
+            var tabContent = new StackPanel { Orientation = Orientation.Horizontal };
+            tabContent.Children.Add(notebook.SelectButton);
+            tabContent.Children.Add(close);
+            notebook.Header.Child = tabContent;
             tabs.Children.Add(notebook.Header);
             surface.Children.Add(notebook.Surface);
             notebooks.Add(id, notebook);
@@ -261,11 +283,19 @@ namespace BabelLauncher
             if (notebook.PopupWindow != null) { notebook.PopupWindow.Activate(); return; }
             active = notebook;
             home.Visibility = Visibility.Collapsed;
+            var homeButton = window.FindName("DesktopHomeButton") as Button;
+            if (homeButton != null) homeButton.Tag = null;
             foreach (var item in notebooks.Values) {
                 if (item.PopupWindow != null) continue;
                 item.Surface.Visibility = item == notebook ? Visibility.Visible : Visibility.Collapsed;
-                item.SelectButton.FontWeight = item == notebook ? FontWeights.Bold : FontWeights.Normal;
+                item.Header.Tag = item == notebook ? "active" : null;
+                item.SelectButton.Tag = item == notebook ? "active" : null;
             }
+            // Selecting an offscreen tab must reveal it in a crowded tab strip.
+            notebook.Header.BringIntoView();
+            notebook.Header.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, new Action(() => {
+                if (!disposed && !notebook.Disposed && active == notebook) notebook.Header.BringIntoView();
+            }));
             window.Title = "Babel · " + notebook.Name;
             status.Text = notebook.Name + " · " + notebook.Status;
             if (focusView) notebook.View.Focus();
@@ -286,7 +316,13 @@ namespace BabelLauncher
         {
             if (disposed) return;
             active = null;
-            foreach (var item in notebooks.Values.Where(n => n.PopupWindow == null)) item.Surface.Visibility = Visibility.Collapsed;
+            foreach (var item in notebooks.Values.Where(n => n.PopupWindow == null)) {
+                item.Surface.Visibility = Visibility.Collapsed;
+                item.Header.Tag = null;
+                item.SelectButton.Tag = null;
+            }
+            var homeButton = window.FindName("DesktopHomeButton") as Button;
+            if (homeButton != null) homeButton.Tag = "active";
             home.Visibility = Visibility.Visible;
             window.Title = "Babel";
             status.Text = "Apps home · Start, open and manage notebooks";

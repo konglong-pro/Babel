@@ -33,12 +33,43 @@ namespace BabelLauncher
                         if (DateTime.UtcNow >= deadline) throw new TimeoutException("Keyboard fixture did not initialize.");
                         await Task.Delay(100);
                     }
-                    string main = await Evaluate(view, "window.runModeFixture()");
-                    await Evaluate(view, "window.openModeFixture('read'); 'opened'");
-                    await Evaluate(view, "window.openModeFixture('edit'); 'opened'");
-                    string popups = await Evaluate(view, "window.runPopupModeFixture()");
+                    string main;
+                    string popups;
+                    string sequences;
+                    WebView2[] sequencePopups = Array.Empty<WebView2>();
+                    // This offscreen fixture checks DOM shortcut routing, not physical keyboard
+                    // delivery. A parallel native test can take foreground focus; Chromium then
+                    // changes activeElement without delivering focusin for element.focus().
+                    // Keep fixture documents active through the DOM checks only. Do not dispatch
+                    // synthetic focusin events or alter production focus handling to hide that race.
+                    await view.CoreWebView2.CallDevToolsProtocolMethodAsync(
+                        "Emulation.setFocusEmulationEnabled", "{\"enabled\":true}");
+                    try {
+                        main = await Evaluate(view, "window.runModeFixture()");
+                        await Evaluate(view, "window.openModeFixture('read'); 'opened'");
+                        await Evaluate(view, "window.openModeFixture('edit'); 'opened'");
+                        popups = await Evaluate(view, "window.runPopupModeFixture()");
+                        sequencePopups = ((string[])hostType.GetProperty("OpenIds").GetValue(host))
+                            .Where(id => id.StartsWith("fixture:"))
+                            .Select(id => (WebView2)hostType.GetMethod("GetView").Invoke(host, new object[] { id }))
+                            .ToArray();
+                        foreach (var popup in sequencePopups) {
+                            await popup.CoreWebView2.CallDevToolsProtocolMethodAsync(
+                                "Emulation.setFocusEmulationEnabled", "{\"enabled\":true}");
+                        }
+                        sequences = await Evaluate(view, "window.runSequenceFixture()");
+                    } finally {
+                        foreach (var popup in sequencePopups) {
+                            await popup.CoreWebView2.CallDevToolsProtocolMethodAsync(
+                                "Emulation.setFocusEmulationEnabled", "{\"enabled\":false}");
+                        }
+                        await view.CoreWebView2.CallDevToolsProtocolMethodAsync(
+                            "Emulation.setFocusEmulationEnabled", "{\"enabled\":false}");
+                    }
+                    // Native source selection and focus ownership remain independently checked
+                    // after emulation is disabled.
                     string sourceReturn = await VerifySourceReturn(hostType, host, window, view, origin);
-                    result = String.Join(Environment.NewLine, (main + "\n" + popups + "\n" + sourceReturn).Split('\n').Select(line => "PASS " + line));
+                    result = String.Join(Environment.NewLine, (main + "\n" + popups + "\n" + sequences + "\n" + sourceReturn).Split('\n').Select(line => "PASS " + line));
                 } catch (Exception error) { failure = error; }
                 finally { ((IDisposable)host).Dispose(); window.Close(); }
             };

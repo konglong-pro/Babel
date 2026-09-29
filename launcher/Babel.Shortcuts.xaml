@@ -116,7 +116,7 @@
             Foreground="#5E5952"
             FontSize="12"
             TextWrapping="Wrap"
-            Text="Choose a layer, select a shortcut field, then press the complete key combination. Use the row buttons to inherit or disable a command. The launcher toggle is system-wide; other commands apply only in their selected context." />
+            Text="Choose a layer and focus a shortcut field. Single captures one combination; Sequence records 2–4 steps, then Apply sequence confirms them. The system-wide launcher toggle always uses one combination." />
 
         <Border
             Grid.Row="2"
@@ -172,6 +172,19 @@
             </DockPanel>
             <TextBlock x:Name="ShortcutLayerHint" Margin="0,7,0,0" Foreground="#5E5952"
                        FontSize="12" TextWrapping="Wrap" />
+            <WrapPanel Margin="0,9,0,0">
+                <TextBlock Text="RECORD" Foreground="#777068" FontWeight="Bold" FontSize="11"
+                           VerticalAlignment="Center" Margin="0,0,10,0" />
+                <ComboBox x:Name="ShortcutRecordingModeBox" Width="118" VerticalAlignment="Center" Padding="7,5"
+                          AutomationProperties.Name="Shortcut recording mode" />
+                <Button x:Name="RecordShortcutAgainButton" Content="RECORD AGAIN" Style="{StaticResource ShortcutButtonStyle}"
+                        AutomationProperties.Name="Clear recorded steps and record the selected command again" />
+                <Button x:Name="ApplyShortcutSequenceButton" Content="APPLY SEQUENCE" Style="{StaticResource ShortcutButtonStyle}"
+                        IsEnabled="False" AutomationProperties.Name="Apply the recorded sequence to the selected command" />
+            </WrapPanel>
+            <TextBlock x:Name="ShortcutRecordingPreview" Margin="0,7,0,0" Foreground="#5E5952"
+                       FontSize="12" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"
+                       Text="Single: press one combination. Sequence: press and release each step in order." />
         </StackPanel>
 
         <Border
@@ -206,6 +219,7 @@
                                         x:Name="ShortcutCaptureBox"
                                         Tag="{Binding Id}"
                                         Text="{Binding Shortcut}"
+                                        ToolTip="{Binding Shortcut}"
                                         IsReadOnly="True"
                                         Cursor="Hand"
                                         Padding="9,5"
@@ -215,7 +229,7 @@
                                         FontFamily="Consolas"
                                         FontWeight="Bold"
                                         AutomationProperties.Name="{Binding Label, StringFormat={}{0} shortcut}"
-                                        AutomationProperties.HelpText="Focus this field and press a complete shortcut; use Disable to leave it unbound" />
+                                        AutomationProperties.HelpText="Focus this field and press a combination. In Sequence mode, record each step then choose Apply sequence. Use Disable to leave it unbound." />
                                     <TextBlock
                                         Margin="10,0,0,0"
                                         VerticalAlignment="Center"

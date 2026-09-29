@@ -179,12 +179,31 @@ body:has(.babel-keyboard-status) { padding-bottom: var(--babel-keyboard-status-h
   white-space: nowrap;
   padding: 0.3rem 0.45rem;
   border-top: 1px solid var(--line, #c9c7c1);
-  background: var(--background, #faf8f1);
-  color: var(--foreground, #242721);
-  box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
+  background: var(--paper, var(--background, #faf8f1));
+  color: var(--ink, var(--foreground, #242721));
   font: 12px/1.4 ui-monospace, monospace;
 }
 .babel-keyboard-status > * { flex-shrink: 0; }
+.babel-shortcut-sequence {
+  display: block;
+  padding: 0.2rem 0.45rem;
+  border: 1px solid var(--line, #809b61);
+  border-radius: 0.25rem;
+  background: var(--paper, var(--background, #faf8f1));
+  color: var(--ink, var(--foreground, #242721));
+  font: 12px/1.5 ui-monospace, monospace;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.babel-keyboard-status .babel-shortcut-sequence {
+  position: fixed;
+  z-index: 41;
+  inset: auto 0.45rem calc(var(--babel-keyboard-status-height) + 0.4rem) auto;
+  max-width: min(40rem, calc(100vw - 1rem));
+  max-height: 30vh;
+  overflow: auto;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
+}
 .babel-keyboard-status [role='group'] { display: flex; gap: 0.15rem; }
 .babel-keyboard-status button {
   min-height: 24px;
@@ -194,6 +213,9 @@ body:has(.babel-keyboard-status) { padding-bottom: var(--babel-keyboard-status-h
   background: transparent;
   color: inherit;
   font: inherit;
+  letter-spacing: normal;
+  text-transform: none;
+  box-shadow: none;
   cursor: pointer;
 }
 .babel-keyboard-status button[aria-pressed='true'] {
@@ -202,7 +224,7 @@ body:has(.babel-keyboard-status) { padding-bottom: var(--babel-keyboard-status-h
   border-color: #809b61;
 }
 .babel-keyboard-status button:focus-visible { outline: 2px solid #54753b; outline-offset: 1px; }
-[data-babel-pane='detail'] { scroll-padding-bottom: 3.5rem; }
+[data-babel-pane='detail'] { scroll-padding-bottom: 1rem; }
 @media (max-width: 520px) { .babel-keyboard-status { justify-content: flex-start; } }
 @media print {
   :root { --babel-keyboard-status-height: 0rem; }

@@ -1,3 +1,43 @@
+/* Let the shell allocate the remaining space from actual header/tab heights.
+   Empty libraries have no tab strip; neither state may cover the last row. */
+body:has(> main#main-content) {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  padding-bottom: 0;
+}
+
+body:has(> main#main-content) > :is(.app-header, .babel-page-tabs, .babel-keyboard-status) {
+  flex: none;
+}
+
+body:has(> main#main-content) > .babel-keyboard-status {
+  position: relative;
+  inset: auto;
+}
+
+body > main#main-content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+main#main-content > .babel-workspace-process[data-active] {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+main#main-content > :is(.search-page, .scratch-page),
+main#main-content > .babel-workspace-process > :is(.search-page, .scratch-page) {
+  min-height: 100%;
+}
+
 .babel-page-tabs {
   --babel-page-tabs-height: 48px;
 
@@ -6,14 +46,14 @@
   height: var(--babel-page-tabs-height);
   min-width: 0;
   border-bottom: 1px solid color-mix(in srgb, currentColor 18%, transparent);
-  background: color-mix(in srgb, Canvas 94%, transparent);
-  color: CanvasText;
+  background: var(--paper, Canvas);
+  color: var(--ink, CanvasText);
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: thin;
 }
 
-.babel-page-tabs + main > :is(
+main#main-content > :is(
   .notes-workspace,
   .entries-workspace,
   .archive-workspace,
@@ -21,7 +61,7 @@
   .canvas-workspace,
   .scratch-workspace
 ),
-.babel-page-tabs + main > .babel-workspace-process > :is(
+main#main-content > .babel-workspace-process > :is(
   .notes-workspace,
   .entries-workspace,
   .archive-workspace,
@@ -29,9 +69,8 @@
   .canvas-workspace,
   .scratch-workspace
 ) {
-  height: calc(
-    100dvh - var(--header-height, 52px) - var(--babel-page-tabs-height, 48px) - var(--babel-keyboard-status-height, 0rem)
-  );
+  flex: 1;
+  height: 100%;
   min-height: 0;
 }
 
@@ -58,14 +97,18 @@
 
 .babel-page-tabs li:has(.babel-page-tab[data-active]) {
   border-color: color-mix(in srgb, currentColor 18%, transparent);
-  background: Canvas;
+  background: var(--paper-raised, Canvas);
 }
 
 .babel-page-tab,
 .babel-page-tab__close {
+  min-height: 0;
   border: 0;
   background: transparent;
   color: inherit;
+  font: inherit;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 .babel-page-tab {
@@ -203,4 +246,26 @@
 }
 .babel-workspace-process[data-active] {
   display: contents;
+}
+
+/* The archive notebooks stack panes into a scrolling page on smaller screens. */
+@media (max-width: 1100px) {
+  main#main-content > .archive-workspace,
+  main#main-content > .babel-workspace-process > .archive-workspace {
+    flex: none;
+    height: auto;
+    min-height: 100%;
+  }
+}
+
+@media print {
+  body:has(> main#main-content) {
+    display: block;
+    height: auto;
+    overflow: visible;
+  }
+
+  body > main#main-content {
+    overflow: visible;
+  }
 }

@@ -398,8 +398,8 @@ test("shared platform changes invalidate application builds", () => {
   );
 });
 
-test("the launcher edits the shared schema v5 shortcut contract", () => {
-  assert.equal(shortcutDefaults.schemaVersion, 5);
+test("the launcher edits the shared schema v6 shortcut contract", () => {
+  assert.equal(shortcutDefaults.schemaVersion, 6);
   assert.deepEqual(
     shortcutDefaults.commands?.map(({ command, defaultBinding }) => [command, defaultBinding]),
     [
@@ -436,6 +436,10 @@ test("the launcher edits the shared schema v5 shortcut contract", () => {
     "ShortcutLayerHint",
     "RestoreInheritanceButton",
     "DisableShortcutButton",
+    "ShortcutRecordingModeBox",
+    "RecordShortcutAgainButton",
+    "ApplyShortcutSequenceButton",
+    "ShortcutRecordingPreview",
   ]) {
     assert.match(shortcutsXamlSource, new RegExp(`x:Name=["']${controlName}["']`, "i"));
   }
@@ -503,10 +507,11 @@ test("the visible launcher supports the complete keyboard loop", () => {
     "window keyboard commands must not depend on a delayed DataGrid focus transition",
   );
   assert.match(guiSource, /'openApp'[\s\S]{0,520}Open-BabelApp\s+-App\s+\$app/i);
-  assert.match(guiSource, /\$script:Window\.Add_PreviewKeyDown[\s\S]{0,400}DesktopHost\.IsHomeVisible/);
+  assert.match(guiSource, /\$script:Window\.Add_PreviewKeyDown[\s\S]{0,180}Invoke-BabelHomeShortcutKeyEvent/);
+  assert.match(guiSource, /function Invoke-BabelHomeShortcutKeyEvent[\s\S]{0,400}DesktopHost\.IsHomeVisible/);
   assert.match(guiSource, /'stopApp'[\s\S]{0,520}Get-AppWorkerState\s+-AppId\s+\$app\.Id[\s\S]{0,520}Request-AppWorkerStop/i);
   assert.match(guiSource, /'hideLauncher'[\s\S]{0,100}Hide-BabelWindowToTray/i);
-  assert.match(guiSource, /Get-BabelLauncherShortcutCommand[\s\S]{0,1300}Get-BabelNumberSelectionIndex/i);
+  assert.match(guiSource, /Step-BabelShortcutSequence[\s\S]{0,1800}Get-BabelNumberSelectionIndex/i);
   assert.match(guiSource, /SetTabNavigation\([\s\S]{0,150}::Cycle/i);
 
   const focusSource =
@@ -565,7 +570,7 @@ test("shortcut settings are normalized, validated, and replaced atomically", () 
   ]) {
     assert.match(shortcutsHelperSource, new RegExp(`"${keyName}"`));
   }
-  assert.match(shortcutsHelperSource, /schemaVersion\s*=\s*5[\s\S]{0,100}bindings/i);
+  assert.match(shortcutsHelperSource, /schemaVersion\s*=\s*6[\s\S]{0,100}bindings/i);
   assert.match(shortcutsHelperSource, /migratedBindings[\s\S]{0,900}\$null/i);
   assert.match(shortcutsHelperSource, /Write-Warning/i, "missing or invalid user settings must warn");
   assert.match(shortcutsHelperSource, /Text\.UTF8Encoding\(\$false\)/i, "settings must use UTF-8 without a BOM");
@@ -676,11 +681,11 @@ if (
 [void](Write-BabelShortcutSettings -Definitions $definitions -Bindings $legacyReorderLoaded.Bindings -Path $legacyReorderSettingsPath)
 $legacyReorderRoundTrip = Get-Content -LiteralPath $legacyReorderSettingsPath -Raw | ConvertFrom-Json
 if (
-    [int]$legacyReorderRoundTrip.schemaVersion -ne 5 -or
+    [int]$legacyReorderRoundTrip.schemaVersion -ne 6 -or
     $null -ne $legacyReorderRoundTrip.bindings.read -or
     $legacyReorderRoundTrip.bindings.save -ne "Ctrl+Alt+S"
 ) {
-    throw "The migrated fixed-reorder binding did not round-trip as schema v5 null."
+    throw "The migrated fixed-reorder binding did not round-trip as schema v6 null."
 }
 [IO.File]::Delete($legacyReorderSettingsPath)
 $versionThreeSettingsPath = "$settingsPath.version-three"
@@ -819,7 +824,7 @@ Write-Output "Babel shortcut replacement test passed."
         schemaVersion?: number;
         bindings?: Record<string, string | null>;
       };
-      assert.equal(savedSettings.schemaVersion, 5);
+      assert.equal(savedSettings.schemaVersion, 6);
       assert.equal(savedSettings.bindings?.save, "Ctrl+Alt+S");
       assert.equal(savedSettings.bindings?.read, "Ctrl+R");
       assert.equal(savedSettings.bindings?.commandPalette, "Ctrl+Alt+P");
@@ -949,7 +954,7 @@ test(
     );
 
     assert.match(stdout, /Babel GUI smoke test passed/i);
-    assert.match(stdout, /11 shortcut control\(s\)/i);
+    assert.match(stdout, /15 shortcut control\(s\)/i);
     assert.match(stdout, /18 shortcut command\(s\)/i);
   },
 );

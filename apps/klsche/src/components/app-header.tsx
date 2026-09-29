@@ -55,7 +55,7 @@ export function AppHeader() {
   return (
     <header className="app-header">
       <Link className="brand" href="/notes" aria-label="KLsche writing studio home" onClick={visitHome}>
-        <Image className="brand-logo" src="/icon.png" alt="" width={48} height={48} priority />
+        <Image className="brand-logo" src="/icon.svg" alt="" width={48} height={48} priority />
         <span className="brand-copy">
           <strong>KLsche</strong>
           <small>Draft / Shape / Rewrite</small>

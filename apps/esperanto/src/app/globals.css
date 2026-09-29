@@ -1961,3 +1961,20 @@ a {
     font-size: 0.55rem;
   }
 }
+
+@media (max-width: 420px) {
+  .brand {
+    gap: 0.5rem;
+  }
+
+  .app-nav a {
+    padding-inline: 0.3rem;
+    letter-spacing: 0.025em;
+  }
+
+  .brand-mark {
+    width: 36px;
+    height: 36px;
+    flex-basis: 36px;
+  }
+}

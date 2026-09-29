@@ -178,7 +178,7 @@ a {
   top: 0;
   z-index: 30;
   display: grid;
-  grid-template-columns: minmax(150px, 1fr) auto minmax(300px, 520px);
+  grid-template-columns: minmax(150px, 1fr) auto minmax(0, 520px);
   align-items: center;
   gap: 1.5rem;
   height: var(--header-height);
@@ -240,6 +240,7 @@ a {
 
 .global-search {
   display: grid;
+  min-width: 0;
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
@@ -1971,7 +1972,8 @@ a {
   }
 
   .unit-tabs a {
-    min-width: 78px;
+    min-width: 0;
+    padding-inline: 0.375rem;
   }
 
   .global-search {

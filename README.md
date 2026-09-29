@@ -163,7 +163,7 @@ before launching or backing up the new application.
 
 Double-click `launcher\Babel.exe` to open Babel's independent desktop window.
 The existing `Babel.vbs` and `Babel.lnk` entries remain available as fallbacks.
-The `APPS` home reads `babel.apps.json` and lists each notebook as `Stopped`,
+The `Babel` home reads `babel.apps.json` and lists each notebook as `Stopped`,
 `Starting`, `Ready`, `Unhealthy`, or `External`. Choose `OPEN`: a stopped notebook
 gets its own worker, then Babel waits for its health endpoint to report the
 registered app identity before opening `identityPath` in an embedded WebView2
@@ -171,13 +171,15 @@ view. A healthy notebook that is already running opens immediately; an unrelated
 or unhealthy listener on the registered port is never opened or stopped.
 
 Each open app has a tab in the desktop shell. Switching app tabs or returning to
-`APPS` preserves the views and their in-memory state. Reader and search popups
+`Babel` home preserves the views and their in-memory state. Reader and search popups
 open as separate WebView2 windows owned by Babel, preserving their source view.
 Closing an app tab checks for unsaved changes and closes its related popups; it
 does not stop that app's worker. External web links open in the system browser.
 
-The launcher, tray, settings dialog, and detached windows share the Babel icon;
-all notebook favicons and the scaffold use the same artwork. Native windows use
+The launcher, tray, settings dialog, and detached windows share the Babel icon.
+The home tab shows the Babel book and name; notebook tabs, the application list,
+and notebook favicons show each app's own logo. The scaffold retains its editable
+app mark. Native windows use
 the `Babel.Desktop` AppUserModelID and a Babel relaunch target so Windows groups
 and pins them under Babel with its icon.
 
@@ -215,7 +217,7 @@ After restoring, the default Apps home bindings are Up/Down to move, Enter to
 tray, and Tab/Shift+Tab to move focus. Use `1`-`9` or `0` (the tenth row) to select
 a notebook; a configured digit command takes priority. A keyboard `OPEN` activates
 the app's desktop view after its health identity passes. Errors keep the window visible.
-These home navigation keys apply only on `APPS`; inside a notebook, Escape and
+These home navigation keys apply only on the `Babel` home; inside a notebook, Escape and
 other keys remain available to that app.
 The `OPEN`, `STOP SELECTED`, and `MINIMIZE TO TRAY` buttons remain clickable,
 but they no longer expose O/T/M access keys. Their default window-level bindings
@@ -223,7 +225,7 @@ are Enter, Delete, and Escape respectively, configurable in `SHORTCUTS`.
 
 Closing the desktop window with its X checks every open view for unsaved or
 pending edits before stopping its managed workers and exiting. Exit also
-unregisters the global hotkey. Use Escape on `APPS` or `MINIMIZE TO TRAY` when
+unregisters the global hotkey. Use Escape on the `Babel` home or `MINIMIZE TO TRAY` when
 you want to leave the views, workers, and hotkey available.
 
 `Babel.exe` is a small Windows-native wrapper around `Babel.Gui.ps1`; it does not
@@ -245,7 +247,7 @@ npm.cmd run launcher:build
 | Read | Reading content | Global, then APP |
 
 The system-wide launcher binding is stored independently in
-`%LOCALAPPDATA%\Babel\launcher.json`; schema-v5 notebook and Apps home bindings
+`%LOCALAPPDATA%\Babel\launcher.json`; schema-v6 notebook and Apps home bindings
 live in `%LOCALAPPDATA%\Babel\shortcuts.json`. Both files are outside the
 public repository and the private notebook-data repository. A changed launcher
 binding is registered immediately; if Windows reports that the combination is
@@ -276,7 +278,7 @@ The Global defaults remain:
 | `quickOpen` | `Ctrl+Alt+P` | Open the palette directly in title-only mode |
 | `help` | `Ctrl+Alt+H` | Show the complete keyboard-help overlay |
 
-Schema v5 keeps the complete Global map in `bindings`, with `app`, `edit`, `read`,
+Schema v6 keeps the complete Global map in `bindings`, with `app`, `edit`, `read`,
 and `launcher` maps in `layers`. Global and Apps home assign each command a
 shortcut string or `null` to disable it. In APP, Edit, and Read, an omitted command
 inherits its binding; a shortcut string overrides it; `null` disables it. The settings
@@ -287,11 +289,35 @@ which suppresses the lower command in that context. Edit and Read can reuse keys
 independently. Disabling an override in a later layer does not revive a command
 already suppressed in APP.
 
-Schema v1–v4 files remain readable and retain their existing valid bindings.
+Schema v1–v5 files remain readable and retain their existing valid bindings.
 Migration adds missing commands only when their default key is free; conflicting
 new commands become unbound. New APP, Edit, and Read layers start with inheritance,
 and Apps home receives its defaults. Opening Babel does not rewrite the file;
-saving in `SHORTCUTS` writes schema v5.
+saving in `SHORTCUTS` writes schema v6. Existing v5 layer assignments are preserved.
+
+### Key sequences
+
+Each command can use one combination or a sequence of 2–4 combinations, such as
+`G G` in APP/Read or `Ctrl+J U` in Global. In `SHORTCUTS`, choose a layer and
+**Sequence**, focus a command's shortcut field, then press and release each step.
+Choose **APPLY SEQUENCE** and **SAVE**. **RECORD AGAIN** clears the unfinished
+recording; **Single** returns to recording one combination. Existing bindings are
+kept until a new recording is applied and saved.
+
+After the first step, the status bar shows the pending keys. Each next step has
+1.5 seconds; Escape, a wrong key, changing focus/mode, or leaving the window cancels
+the sequence. A wrong continuation is consumed, so it cannot accidentally run a
+different command. Holding a key does not advance a sequence. Text inputs and IME
+composition retain their normal typing behavior. Main views, detached editors and
+readers, and Apps home support sequences with their own active layers.
+
+Settings store steps separated by ordinary spaces (`"G G"`, `"Ctrl+J U"`). The
+first step follows its layer's usual key restrictions; later steps may be bare
+keys. Escape cannot be a sequence step. A complete command cannot also be a prefix
+of another command in the same effective layer: for example, rebind or disable the
+default `Ctrl+K` palette command before assigning `Ctrl+K C`. Different sequences
+may share an unfinished prefix, and exact higher-layer overrides still work.
+The system-wide launcher toggle remains a single combination.
 
 Global bindings require Ctrl or Alt, bare Escape, or a safe bare function key.
 APP, Edit, and Read also accept single letters, digits, and Shift combinations.

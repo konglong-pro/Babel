@@ -160,6 +160,72 @@
             <Setter Property="VerticalContentAlignment" Value="Center" />
             <Setter Property="FocusVisualStyle" Value="{x:Null}" />
         </Style>
+
+        <Style x:Key="DesktopTabButtonStyle" TargetType="Button">
+            <Setter Property="Height" Value="40" />
+            <Setter Property="Padding" Value="12,6" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="#262A23" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome" CornerRadius="6"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="#E8EBDD" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="#DAE4C9" />
+                            </Trigger>
+                            <Trigger Property="Tag" Value="active">
+                                <Setter TargetName="Chrome" Property="Background" Value="#EEF3E5" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="#527F35" />
+                                <Setter TargetName="Chrome" Property="BorderThickness" Value="2" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.45" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="DesktopTabCloseButtonStyle" TargetType="Button" BasedOn="{StaticResource DesktopTabButtonStyle}">
+            <Setter Property="Width" Value="30" />
+            <Setter Property="Height" Value="30" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0,0,4,0" />
+            <Setter Property="FontSize" Value="18" />
+            <Setter Property="FontWeight" Value="Normal" />
+            <Setter Property="Foreground" Value="#666B61" />
+        </Style>
+        <Style x:Key="DesktopAppTabStyle" TargetType="Border">
+            <Setter Property="Background" Value="#FAF9F3" />
+            <Setter Property="BorderBrush" Value="#DCDDD3" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Margin" Value="0,0,6,0" />
+            <Style.Triggers>
+                <Trigger Property="Tag" Value="active">
+                    <Setter Property="Background" Value="#EEF3E5" />
+                    <Setter Property="BorderBrush" Value="#8FA775" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
     </Window.Resources>
 
     <Grid>
@@ -167,42 +233,57 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
-        <Border Grid.Row="0" Padding="10,8" BorderBrush="#D8D1C4" BorderThickness="0,0,0,1">
+        <Border Grid.Row="0" Padding="10,6" Background="#F8F8F1" BorderBrush="#D8DCCF" BorderThickness="0,0,0,1">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <DockPanel>
-                    <Button x:Name="DesktopHomeButton" DockPanel.Dock="Left" Content="APPS"
-                            Padding="16,7" Margin="0,0,8,0" ToolTip="Show all notebooks and launcher controls" />
-                    <Button x:Name="DesktopShortcutsButton" DockPanel.Dock="Right" Content="SHORTCUTS"
-                            Padding="12,7" Margin="8,0,0,0" ToolTip="Customize shortcuts" />
-                    <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Button x:Name="DesktopHomeButton" Grid.Column="0" Style="{StaticResource DesktopTabButtonStyle}"
+                            Tag="active" Margin="0,0,10,0" Padding="10,5" ToolTip="Babel · All notebooks"
+                            AutomationProperties.Name="Babel home">
+                        <StackPanel Orientation="Horizontal">
+                            <Image x:Name="DesktopBrandLogo" Width="32" Height="28" Margin="0,0,8,0" Stretch="Uniform" />
+                            <TextBlock Text="Babel" Foreground="#91AC6C" FontSize="18" FontWeight="Bold" VerticalAlignment="Center" TextWrapping="NoWrap" />
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="DesktopShortcutsButton" Grid.Column="2" Content="Shortcuts"
+                            Style="{StaticResource DesktopTabButtonStyle}" Margin="8,0,0,0"
+                            Foreground="#666B61" ToolTip="Customize shortcuts" />
+                    <ScrollViewer x:Name="DesktopTabScroller" Grid.Column="1"
+                                  HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                                  CanContentScroll="False" Focusable="False">
                         <StackPanel x:Name="DesktopAppTabs" Orientation="Horizontal" />
                     </ScrollViewer>
-                </DockPanel>
-                <TextBlock x:Name="DesktopStatusText" Grid.Row="1" Margin="2,5,0,0" FontSize="11"
+                </Grid>
+                <TextBlock x:Name="DesktopStatusText" Grid.Row="1" Margin="4,3,0,0" FontSize="11"
                            Foreground="#5E5952" Text="Apps · Start, open and manage notebooks"
+                           TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
                            AutomationProperties.LiveSetting="Polite" />
             </Grid>
         </Border>
         <Grid x:Name="DesktopSurface" Grid.Row="1">
     <Grid x:Name="LauncherPanel" Background="{StaticResource PaperBrush}">
         <Grid.RowDefinitions>
-            <RowDefinition Height="155" />
+            <RowDefinition Height="120" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="132" />
+            <RowDefinition Height="96" />
             <RowDefinition Height="42" />
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0" Margin="34,24,34,14">
+        <Grid Grid.Row="0" Margin="34,16,34,10">
             <StackPanel>
                 <StackPanel Orientation="Horizontal">
                     <Image
                         x:Name="BrandLogo"
-                        Width="42"
-                        Height="42"
+                        Width="38"
+                        Height="34"
                         Margin="0,0,12,0"
                         Stretch="Uniform"
                         AutomationProperties.Name="Babel green book logo" />
@@ -215,7 +296,7 @@
                         Text="Babel" />
                 </StackPanel>
 
-                <StackPanel Margin="0,12,0,0">
+                <StackPanel Margin="0,8,0,0">
                     <StackPanel.Effect>
                         <DropShadowEffect
                             Color="#1D1B18"
@@ -227,9 +308,9 @@
                     <TextBlock
                         Foreground="#FFF19A"
                         FontFamily="Arial Black"
-                        FontSize="42"
+                        FontSize="36"
                         FontWeight="Black"
-                        LineHeight="43"
+                        LineHeight="40"
                         Text="Attention Iteration" />
                 </StackPanel>
 
@@ -292,9 +373,18 @@
                         AutomationProperties.Name="Registered application list"
                         AutomationProperties.HelpText="Use the arrow keys to select an application">
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="APPLICATION" Binding="{Binding Name}" Width="260" />
-                            <DataGridTextColumn Header="PORT" Binding="{Binding Port}" Width="90" />
-                            <DataGridTemplateColumn Header="STATUS" Width="150">
+                            <DataGridTemplateColumn Header="APPLICATION" Width="*" MinWidth="160">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Image Source="{Binding Logo}" Width="26" Height="26" Margin="0,0,10,0" Stretch="Uniform" />
+                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" VerticalAlignment="Center" TextWrapping="NoWrap" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="PORT" Binding="{Binding Port}" Width="70" />
+                            <DataGridTemplateColumn Header="STATUS" Width="115">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate>
                                         <Border
@@ -478,8 +568,8 @@
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
-                    <Ellipse Width="8" Height="8" Margin="0,0,10,0" Fill="#FFF19A" />
+                <DockPanel VerticalAlignment="Center" Margin="0,0,16,0">
+                    <Ellipse DockPanel.Dock="Left" Width="8" Height="8" Margin="0,0,10,0" Fill="#FFF19A" />
                     <TextBlock
                         x:Name="StatusText"
                         VerticalAlignment="Center"
@@ -490,10 +580,11 @@
                         TextTrimming="CharacterEllipsis"
                         ToolTip="{Binding RelativeSource={RelativeSource Self}, Path=Text}"
                         Text="Loading the application registry..." />
-                </StackPanel>
+                </DockPanel>
                 <TextBlock
                     x:Name="WorkerText"
                     Grid.Column="1"
+                    MaxWidth="260"
                     VerticalAlignment="Center"
                     Foreground="White"
                     FontFamily="Consolas"

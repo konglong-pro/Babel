@@ -21,6 +21,7 @@ import {
   isDesktopOnlyShortcutBinding,
   isShortcutBindingAvailable,
   matchesShortcutBinding,
+  parseShortcutSequence,
   parseShortcutSettings,
   resolveShortcutBindings,
   SHORTCUT_DEFINITIONS,
@@ -30,6 +31,7 @@ import {
   type ShortcutKeyboardEventLike,
   type ShortcutSettings,
   type ShortcutMode,
+  type ParsedShortcutBinding,
 } from "./core";
 import { focusModeContent, focusNotebookList, getKeyboardContext, isKeyboardInput, type KeyboardContext } from "./context";
 import { PaneFocusProvider } from "../navigation/react";
@@ -79,6 +81,24 @@ export interface CommandPaletteItemSource {
 interface ShortcutKeyDownEventLike extends ShortcutKeyboardEventLike {
   preventDefault(): void;
   stopPropagation(): void;
+}
+
+const SEQUENCE_TIMEOUT_MS = 1500;
+interface PendingShortcutSequence {
+  candidates: { command: ShortcutCommand; label: string; steps: ParsedShortcutBinding[] }[];
+  index: number;
+  prefix: string;
+  expiresAt: number;
+  settings: ShortcutSettings;
+  mode: ShortcutMode;
+  focus: Element | null;
+  dialog: HTMLDialogElement | null;
+  page: Element | null;
+}
+
+function ShortcutSequenceHint({ text }: { text: string }) {
+  return text ? <span className="babel-shortcut-sequence" data-babel-shortcut-sequence=""
+    role="status" aria-live="polite" aria-atomic="true">{text}</span> : null;
 }
 
 interface PaletteRegistrationContextValue {
@@ -551,9 +571,10 @@ function useKeyboardContext(document: Document | undefined, fixedMode?: Shortcut
 
 const MODE_LABELS = { app: "APP", edit: "Edit", read: "Read" } as const;
 
-function KeyboardModeBar({ context, bindings, onMode, onFocus, onHelp }: {
+function KeyboardModeBar({ context, bindings, sequenceHint, onMode, onFocus, onHelp }: {
   context: KeyboardContext;
   bindings: ShortcutBindings;
+  sequenceHint: string;
   onMode: (mode: ShortcutMode) => void;
   onFocus: () => void;
   onHelp: () => void;
@@ -561,6 +582,7 @@ function KeyboardModeBar({ context, bindings, onMode, onFocus, onHelp }: {
   return <aside className="babel-keyboard-status" aria-label="Keyboard controls" data-babel-keyboard-status=""
     data-babel-pane="keyboard" data-babel-mode={context.mode} tabIndex={-1}>
     <span role="status" aria-live="polite"><strong>{MODE_LABELS[context.mode]}</strong> · {context.focus}{context.input ? " · Typing" : ""}</span>
+    <ShortcutSequenceHint text={sequenceHint} />
     <div role="group" aria-label="Switch keyboard mode">
       {(["app", "edit", "read"] as const).map(mode => <button key={mode} type="button"
         aria-pressed={context.mode === mode} onMouseDown={event => event.preventDefault()} onClick={() => onMode(mode)}
@@ -692,6 +714,16 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts", ownerD
   const settings = ownerDocument === undefined ? localSettings : parentSettings;
   const keyboardContext = useKeyboardContext(scopeDocument, fixedMode);
   const bindings = useMemo(() => resolveShortcutBindings(settings, keyboardContext.mode), [settings, keyboardContext.mode]);
+  const pendingSequence = useRef<PendingShortcutSequence | null>(null);
+  const sequenceTimer = useRef<number | undefined>(undefined);
+  const [sequenceHint, setSequenceHint] = useState("");
+  const resetSequence = useCallback(() => {
+    window.clearTimeout(sequenceTimer.current);
+    sequenceTimer.current = undefined;
+    if (pendingSequence.current === null) return;
+    pendingSequence.current = null;
+    setSequenceHint("");
+  }, [window]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteMode, setPaletteMode] = useState<PaletteMode>("universal");
   const [helpOpen, setHelpOpen] = useState(false);
@@ -1044,18 +1076,100 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts", ownerD
     return settlePaletteAction(result.run) || closed;
   };
 
-  const onWindowKeyDown = useEffectEvent((event: KeyboardEvent) => {
-    if (shouldIgnoreShortcutEvent(withoutKeyRepeat(event))) return;
+  const sequenceContextIsCurrent = (pending: PendingShortcutSequence): boolean =>
+    pending.settings === settings && pending.mode === getKeyboardContext(window.document, fixedMode).mode &&
+    pending.focus === window.document.activeElement && pending.dialog === getActiveDialog(window.document) &&
+    pending.page === window.document.querySelector(".babel-page-deck__page[data-active]");
+
+  const checkSequenceContext = useEffectEvent(() => {
+    if (pendingSequence.current !== null && !sequenceContextIsCurrent(pendingSequence.current)) resetSequence();
+  });
+
+  const waitForSequence = (pending: PendingShortcutSequence) => {
+    window.clearTimeout(sequenceTimer.current);
+    pendingSequence.current = pending;
+    const choices = pending.candidates.map(({ label, steps }) =>
+      `${steps.slice(pending.index).map(step => step.binding).join(" ")} · ${label}`);
+    setSequenceHint(`${pending.prefix} … → ${choices.join(" / ")} · Esc cancels · 1.5 s`);
+    sequenceTimer.current = window.setTimeout(resetSequence, SEQUENCE_TIMEOUT_MS);
+  };
+
+  const onWindowKeyDown = useEffectEvent((event: KeyboardEvent, sequencesOnly = false) => {
+    if (shouldIgnoreShortcutEvent(withoutKeyRepeat(event))) {
+      resetSequence();
+      return;
+    }
+    // Modifier keydown events occur between strokes when a chord is released or
+    // started. They neither advance nor cancel the sequence.
+    if (["Control", "Alt", "Shift", "Meta"].includes(event.key)) return;
     const desktop = (window as Window & { __BABEL_DESKTOP__?: boolean }).__BABEL_DESKTOP__ === true;
     const editable = eventComesFromEditable(event, window.document);
     const currentMode = getKeyboardContext(window.document, fixedMode).mode;
     const currentBindings = resolveShortcutBindings(settings, currentMode);
-
+    const consume = () => { event.preventDefault(); event.stopPropagation(); };
+    const runCommand = (command: ShortcutCommand): boolean => {
+      if (command === "commandPalette") return openPalette("universal");
+      if (command === "quickOpen") return openPalette("items");
+      if (command === "help") return openHelp();
+      if (command === "search" && paletteOpen) {
+        searchRef.current?.focus();
+        searchRef.current?.select();
+        return searchRef.current !== null;
+      }
+      return executeContextCommand(command);
+    };
     const bareEscape =
       (event.key === "Escape" || event.key === "Esc") &&
       event.ctrlKey !== true &&
       event.altKey !== true &&
       event.shiftKey !== true;
+
+    let pending = pendingSequence.current;
+    if (pending !== null && (!sequenceContextIsCurrent(pending) || Date.now() >= pending.expiresAt)) {
+      resetSequence();
+      pending = null;
+    }
+    if (pending !== null) {
+      if (bareEscape) { resetSequence(); consume(); return; }
+      // Copy/paste, cursor movement and undo remain native even after a prefix.
+      if (editable && isNativeEditingKey(event)) { resetSequence(); return; }
+      if (event.repeat) { consume(); return; }
+      const candidates = pending.candidates.filter(({ command, steps }) =>
+        commandAllowedFromEditable(command, editable) && matchesShortcutBinding(event, steps[pending.index]));
+      consume();
+      if (candidates.length === 0) { resetSequence(); return; }
+      const completed = candidates.find(({ steps }) => steps.length === pending.index + 1);
+      if (completed !== undefined) {
+        resetSequence();
+        runCommand(completed.command);
+      } else {
+        waitForSequence({ ...pending, candidates, index: pending.index + 1,
+          prefix: `${pending.prefix} ${candidates[0].steps[pending.index].binding}`,
+          expiresAt: Date.now() + SEQUENCE_TIMEOUT_MS });
+      }
+      return;
+    }
+
+    const textKey = !event.ctrlKey && !event.altKey && !/^F\d+$/u.test(event.key);
+    if (!bareEscape && !(editable && (textKey || isNativeEditingKey(event)))) {
+      const candidates = SHORTCUT_DEFINITIONS.flatMap(({ command, label }) => {
+        const binding = currentBindings[command];
+        if (binding === null || !isShortcutBindingAvailable(binding, desktop) ||
+          !commandAllowedFromEditable(command, editable)) return [];
+        const steps = parseShortcutSequence(binding, true);
+        return steps.length > 1 && matchesShortcutBinding(withoutKeyRepeat(event), steps[0])
+          ? [{ command, label, steps }] : [];
+      });
+      if (candidates.length > 0) {
+        consume();
+        if (!event.repeat) waitForSequence({ candidates, index: 1, prefix: candidates[0].steps[0].binding,
+          expiresAt: Date.now() + SEQUENCE_TIMEOUT_MS, settings, mode: currentMode,
+          focus: window.document.activeElement, dialog: getActiveDialog(window.document),
+          page: window.document.querySelector(".babel-page-deck__page[data-active]") });
+        return;
+      }
+    }
+    if (sequencesOnly) return;
     if (bareEscape) {
       const handled = event.repeat === true ? false : paletteOpen
         ? closePalette()
@@ -1071,38 +1185,53 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts", ownerD
 
     for (const { command } of SHORTCUT_DEFINITIONS) {
       const binding = currentBindings[command];
-      if (handleShortcutKeyDown(event, command, binding, editable, desktop, () => {
-        if (command === "commandPalette") return openPalette("universal");
-        if (command === "quickOpen") return openPalette("items");
-        if (command === "help") return openHelp();
-        if (command === "cancel") return executeContextCommand("cancel");
-        if (command === "search" && paletteOpen) {
-          searchRef.current?.focus();
-          searchRef.current?.select();
-          return searchRef.current !== null;
-        }
-        return executeContextCommand(command);
-      }, desktop || Object.hasOwn(settings.layers.app, command) ||
+      if (handleShortcutKeyDown(event, command, binding, editable, desktop, () => runCommand(command),
+        desktop || Object.hasOwn(settings.layers.app, command) ||
         (currentMode !== "app" && Object.hasOwn(settings.layers[currentMode], command)))) return;
     }
   });
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => onWindowKeyDown(event);
-    // Mode keys take precedence over tree navigation/type-ahead. Dialogs and text
-    // inputs retain first refusal; modifier shortcuts keep their existing order.
+    // Capture prefixes and their tails before local navigation handlers. Single
+    // modifier shortcuts retain their existing bubbling order.
     const onModeKey = (event: KeyboardEvent) => {
-      if (event.ctrlKey || event.altKey || event.metaKey || event.key === "Escape" ||
-        getActiveDialog(window.document) !== null || eventComesFromEditable(event, window.document)) return;
-      onWindowKeyDown(event);
+      const sequencesOnly = Boolean(event.ctrlKey || event.altKey || event.metaKey || event.key === "Escape" ||
+        getActiveDialog(window.document) !== null || eventComesFromEditable(event, window.document));
+      onWindowKeyDown(event, sequencesOnly);
     };
+    const observer = new window.MutationObserver(checkSequenceContext);
+    observer.observe(window.document.body, { subtree: true, childList: true, attributes: true,
+      attributeFilter: ["open", "hidden", "inert", "aria-hidden", "data-babel-mode", "data-active", "class"] });
     window.addEventListener("keydown", onModeKey, true);
     window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("blur", resetSequence);
+    window.addEventListener("pagehide", resetSequence);
+    window.document.addEventListener("focusin", resetSequence, true);
+    window.document.addEventListener("pointerdown", resetSequence, true);
+    window.document.addEventListener("compositionstart", resetSequence, true);
+    window.document.addEventListener("visibilitychange", resetSequence);
+    window.addEventListener("babel:shortcuts-changed", resetSequence);
     return () => {
       window.removeEventListener("keydown", onModeKey, true);
       window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("blur", resetSequence);
+      window.removeEventListener("pagehide", resetSequence);
+      window.document.removeEventListener("focusin", resetSequence, true);
+      window.document.removeEventListener("pointerdown", resetSequence, true);
+      window.document.removeEventListener("compositionstart", resetSequence, true);
+      window.document.removeEventListener("visibilitychange", resetSequence);
+      window.removeEventListener("babel:shortcuts-changed", resetSequence);
+      observer.disconnect();
+      window.clearTimeout(sequenceTimer.current);
+      pendingSequence.current = null;
     };
-  }, [window]);
+  }, [window, resetSequence]);
+
+  useEffect(() => {
+    // Detached documents inherit settings without receiving the parent's event.
+    window.queueMicrotask(checkSequenceContext);
+  }, [settings, window]);
 
   const handlePaletteCancel = (event: SyntheticEvent<HTMLDialogElement, Event>) => {
     event.preventDefault();
@@ -1168,7 +1297,7 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts", ownerD
     <PaletteRegistrationContext.Provider value={registrationContext}>
       <PaneFocusProvider ownerDocument={ownerDocument}>
         {children}
-        <KeyboardModeBar context={keyboardContext} bindings={bindings} onMode={changeMode}
+        <KeyboardModeBar context={keyboardContext} bindings={bindings} sequenceHint={paletteOpen || helpOpen ? "" : sequenceHint} onMode={changeMode}
           onFocus={() => executeContextCommand("focusNextPane")} onHelp={openHelp} />
       </PaneFocusProvider>
       <dialog
@@ -1186,6 +1315,7 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts", ownerD
             {"\u00d7"}
           </button>
         </div>
+        <ShortcutSequenceHint text={sequenceHint} />
         <label id={searchLabelId} htmlFor={`${searchLabelId}-input`}>
           {paletteMode === "items" ? "Search titles" : "Search commands and titles"}
         </label>
@@ -1261,6 +1391,7 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts", ownerD
             {"\u00d7"}
           </button>
         </div>
+        <ShortcutSequenceHint text={sequenceHint} />
         <section aria-labelledby={`${helpTitleId}-navigation`}>
           <h3 id={`${helpTitleId}-navigation`}>{MODE_LABELS[keyboardContext.mode]} mode · {keyboardContext.focus}</h3>
           <dl className="babel-shortcut-help__grid">
@@ -1272,6 +1403,7 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts", ownerD
             <div><dt>Palette</dt><dd><kbd>↑</kbd>/<kbd>↓</kbd> select, <kbd>Enter</kbd> run or open</dd></div>
             <div><dt>Back</dt><dd><kbd>Escape</kbd> leaves edit, then reader, then list</dd></div>
             <div><dt>Reorder</dt><dd><kbd>Ctrl+Alt+↑</kbd> / <kbd>Ctrl+Alt+↓</kbd></dd></div>
+            <div><dt>Key sequences</dt><dd>Press each step in order, within 1.5 seconds. <kbd>Escape</kbd> cancels a pending sequence. Configure up to 4 steps in Babel Shortcuts.</dd></div>
           </dl>
         </section>
         <section aria-labelledby={`${helpTitleId}-commands`}>

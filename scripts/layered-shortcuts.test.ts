@@ -96,7 +96,7 @@ foreach ($scope in @('app', 'edit', 'read', 'launcher')) {
       resolved: Record<"app" | "edit" | "read", unknown>;
     };
     const settings = parseShortcutSettings(result.settings);
-    assert.equal(settings.schemaVersion, 5);
+    assert.equal(settings.schemaVersion, 6);
     assert.equal(settings.bindings.cancel, "Ctrl+Q");
     assert.equal(settings.bindings.help, null);
     assert.equal(settings.layers.launcher.openApp, "1");
