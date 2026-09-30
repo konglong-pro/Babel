@@ -1,0 +1,1 @@
+export { searchEntries } from "./entries";

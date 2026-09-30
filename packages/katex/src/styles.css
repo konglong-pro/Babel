@@ -1,0 +1,24 @@
+@import "katex/dist/katex.min.css";
+
+.katex-formula-inline {
+  font-size: 0.96em;
+}
+
+.katex-formula-block {
+  font-size: 1.15em;
+}
+
+.katex-formula-block > .katex-display {
+  width: max-content;
+  min-width: 100%;
+  margin: 0;
+}
+
+.katex-formula-block > .katex-display > .katex {
+  display: block;
+  text-align: center;
+}
+
+.katex-formula-error {
+  color: var(--danger, #b42318);
+}

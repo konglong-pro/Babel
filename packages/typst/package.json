@@ -1,0 +1,27 @@
+{
+  "name": "@babel-apps/typst",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./core": "./src/core.ts",
+    "./react": "./src/react.tsx",
+    "./reference": "./src/reference.ts"
+  },
+  "scripts": {
+    "assets:sync": "tsx scripts/sync-public-assets.ts",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit --incremental false",
+    "test": "tsx --test tests/*.test.ts",
+    "check": "npm run lint && npm run typecheck && npm run test"
+  },
+  "dependencies": {
+    "@myriaddreamin/typst.ts": "0.7.0",
+    "@myriaddreamin/typst-ts-renderer": "0.7.0",
+    "@myriaddreamin/typst-ts-web-compiler": "0.7.0",
+    "react": "^19.2.7"
+  },
+  "devDependencies": {
+    "react-dom": "^19.2.7"
+  }
+}

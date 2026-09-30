@@ -1,0 +1,25 @@
+{
+  "name": "@babel-apps/katex",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./core": "./src/core.ts",
+    "./react": "./src/react.tsx",
+    "./reference": "./src/reference.ts",
+    "./styles.css": "./src/styles.css"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit --incremental false",
+    "test": "tsx --test tests/*.test.ts",
+    "check": "npm run lint && npm run typecheck && npm run test"
+  },
+  "dependencies": {
+    "katex": "0.16.22",
+    "react": "^19.2.7"
+  },
+  "devDependencies": {
+    "react-dom": "^19.2.7"
+  }
+}

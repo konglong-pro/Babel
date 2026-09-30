@@ -1,0 +1,310 @@
+{
+  "schemaVersion": 7,
+  "commands": [
+    {
+      "command": "save",
+      "label": "Save",
+      "defaultBinding": "Ctrl+S"
+    },
+    {
+      "command": "new",
+      "label": "New",
+      "defaultBinding": "Ctrl+Alt+N"
+    },
+    {
+      "command": "edit",
+      "label": "Edit",
+      "defaultBinding": "Ctrl+Alt+E"
+    },
+    {
+      "command": "read",
+      "label": "Read",
+      "defaultBinding": "Ctrl+R"
+    },
+    {
+      "command": "confirm",
+      "label": "Confirm",
+      "defaultBinding": "Ctrl+Enter"
+    },
+    {
+      "command": "cancel",
+      "label": "Cancel",
+      "defaultBinding": "Escape"
+    },
+    {
+      "command": "search",
+      "label": "Search",
+      "defaultBinding": "Ctrl+F"
+    },
+    {
+      "command": "delete",
+      "label": "Delete",
+      "defaultBinding": "Ctrl+Delete"
+    },
+    {
+      "command": "underlineSelection",
+      "label": "Underline Selection",
+      "defaultBinding": "Ctrl+Shift+U"
+    },
+    {
+      "command": "removeUnderline",
+      "label": "Remove Underline",
+      "defaultBinding": "Ctrl+Alt+U"
+    },
+    {
+      "command": "commandPalette",
+      "label": "Command Palette",
+      "defaultBinding": "Ctrl+K"
+    },
+    {
+      "command": "focusNextPane",
+      "label": "Focus Next Pane",
+      "defaultBinding": "Ctrl+F6"
+    },
+    {
+      "command": "focusPreviousPane",
+      "label": "Focus Previous Pane",
+      "defaultBinding": "Ctrl+Shift+F6"
+    },
+    {
+      "command": "nextTab",
+      "label": "Next Tab",
+      "defaultBinding": "Ctrl+Alt+ArrowRight"
+    },
+    {
+      "command": "previousTab",
+      "label": "Previous Tab",
+      "defaultBinding": "Ctrl+Alt+ArrowLeft"
+    },
+    {
+      "command": "closeTab",
+      "label": "Close Tab",
+      "defaultBinding": "Ctrl+W"
+    },
+    {
+      "command": "quickOpen",
+      "label": "Quick Open",
+      "defaultBinding": "Ctrl+Alt+P"
+    },
+    {
+      "command": "help",
+      "label": "Keyboard Help",
+      "defaultBinding": "Ctrl+Alt+H"
+    },
+    {
+      "command": "selectApp1",
+      "label": "Switch to APP 1",
+      "defaultBinding": "Ctrl+1"
+    },
+    {
+      "command": "selectApp2",
+      "label": "Switch to APP 2",
+      "defaultBinding": "Ctrl+2"
+    },
+    {
+      "command": "selectApp3",
+      "label": "Switch to APP 3",
+      "defaultBinding": "Ctrl+3"
+    },
+    {
+      "command": "selectApp4",
+      "label": "Switch to APP 4",
+      "defaultBinding": "Ctrl+4"
+    },
+    {
+      "command": "selectApp5",
+      "label": "Switch to APP 5",
+      "defaultBinding": "Ctrl+5"
+    },
+    {
+      "command": "selectApp6",
+      "label": "Switch to APP 6",
+      "defaultBinding": "Ctrl+6"
+    },
+    {
+      "command": "selectApp7",
+      "label": "Switch to APP 7",
+      "defaultBinding": "Ctrl+7"
+    },
+    {
+      "command": "selectApp8",
+      "label": "Switch to APP 8",
+      "defaultBinding": "Ctrl+8"
+    },
+    {
+      "command": "selectApp9",
+      "label": "Switch to APP 9",
+      "defaultBinding": "Ctrl+9"
+    },
+    {
+      "command": "selectApp10",
+      "label": "Switch to APP 10",
+      "defaultBinding": "Ctrl+0"
+    },
+    {
+      "command": "nextAppTab",
+      "label": "Next APP Tab",
+      "defaultBinding": "Ctrl+Tab"
+    },
+    {
+      "command": "previousAppTab",
+      "label": "Previous APP Tab",
+      "defaultBinding": "Ctrl+Shift+Tab"
+    },
+    {
+      "command": "closeAppTab",
+      "label": "Close APP Tab",
+      "defaultBinding": "Ctrl+Shift+W"
+    },
+    {
+      "command": "appHome",
+      "label": "Babel Home",
+      "defaultBinding": "Alt+Home"
+    },
+    {
+      "command": "selectTab1",
+      "label": "Switch to Note Tab 1",
+      "defaultBinding": "Ctrl+Alt+1"
+    },
+    {
+      "command": "selectTab2",
+      "label": "Switch to Note Tab 2",
+      "defaultBinding": "Ctrl+Alt+2"
+    },
+    {
+      "command": "selectTab3",
+      "label": "Switch to Note Tab 3",
+      "defaultBinding": "Ctrl+Alt+3"
+    },
+    {
+      "command": "selectTab4",
+      "label": "Switch to Note Tab 4",
+      "defaultBinding": "Ctrl+Alt+4"
+    },
+    {
+      "command": "selectTab5",
+      "label": "Switch to Note Tab 5",
+      "defaultBinding": "Ctrl+Alt+5"
+    },
+    {
+      "command": "selectTab6",
+      "label": "Switch to Note Tab 6",
+      "defaultBinding": "Ctrl+Alt+6"
+    },
+    {
+      "command": "selectTab7",
+      "label": "Switch to Note Tab 7",
+      "defaultBinding": "Ctrl+Alt+7"
+    },
+    {
+      "command": "selectTab8",
+      "label": "Switch to Note Tab 8",
+      "defaultBinding": "Ctrl+Alt+8"
+    },
+    {
+      "command": "selectTab9",
+      "label": "Switch to Note Tab 9",
+      "defaultBinding": "Ctrl+Alt+9"
+    },
+    {
+      "command": "selectTab10",
+      "label": "Switch to Note Tab 10",
+      "defaultBinding": "Ctrl+Alt+0"
+    },
+    {
+      "command": "reopenTab",
+      "label": "Reopen Closed Note Tab",
+      "defaultBinding": "Ctrl+Shift+T"
+    },
+    {
+      "command": "historyBack",
+      "label": "Previous Visited Note",
+      "defaultBinding": "Alt+ArrowLeft"
+    },
+    {
+      "command": "historyForward",
+      "label": "Next Visited Note",
+      "defaultBinding": "Alt+ArrowRight"
+    },
+    {
+      "command": "saveAndRead",
+      "label": "Save and Read",
+      "defaultBinding": "Ctrl+Shift+Enter"
+    },
+    {
+      "command": "focusFolders",
+      "label": "Focus Folders",
+      "defaultBinding": null
+    },
+    {
+      "command": "focusDocuments",
+      "label": "Focus Documents",
+      "defaultBinding": null
+    },
+    {
+      "command": "focusContent",
+      "label": "Focus Content",
+      "defaultBinding": null
+    }
+  ],
+  "launcherCommands": [
+    {
+      "command": "previousApp",
+      "label": "Previous APP",
+      "defaultBinding": "ArrowUp"
+    },
+    {
+      "command": "nextApp",
+      "label": "Next APP",
+      "defaultBinding": "ArrowDown"
+    },
+    {
+      "command": "openApp",
+      "label": "Open APP",
+      "defaultBinding": "Enter"
+    },
+    {
+      "command": "stopApp",
+      "label": "Stop APP",
+      "defaultBinding": "Delete"
+    },
+    {
+      "command": "hideLauncher",
+      "label": "Hide Launcher",
+      "defaultBinding": "Escape"
+    },
+    {
+      "command": "focusNextPane",
+      "label": "Focus Next Pane",
+      "defaultBinding": "Tab"
+    },
+    {
+      "command": "focusPreviousPane",
+      "label": "Focus Previous Pane",
+      "defaultBinding": "Shift+Tab"
+    }
+  ],
+  "layers": {
+    "app": {
+      "focusFolders": "G F",
+      "focusDocuments": "G L",
+      "focusContent": "G C"
+    },
+    "edit": {
+      "saveAndRead": "Ctrl+Enter",
+      "focusFolders": null,
+      "focusDocuments": null,
+      "focusContent": null
+    },
+    "read": {},
+    "launcher": {
+      "previousApp": "ArrowUp",
+      "nextApp": "ArrowDown",
+      "openApp": "Enter",
+      "stopApp": "Delete",
+      "hideLauncher": "Escape",
+      "focusNextPane": "Tab",
+      "focusPreviousPane": "Shift+Tab"
+    }
+  }
+}

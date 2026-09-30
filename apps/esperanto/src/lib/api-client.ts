@@ -1,7 +1,10 @@
 import type {
+  BacklinkDto,
   FolderDto,
   NoteDetailDto,
   NoteSummaryDto,
+  NoteTemplateDto,
+  NoteTitleDto,
   SearchResultsDto,
 } from "@/lib/types";
 
@@ -76,7 +79,7 @@ export function createFolder(input: {
 
 export function updateFolder(
   id: number,
-  input: { name?: string; parentId?: number | null },
+  input: { name?: string; parentId?: number | null; position?: number },
 ): Promise<FolderDto> {
   return request(`/api/folders/${id}`, {
     method: "PATCH",
@@ -97,8 +100,20 @@ export function getNote(id: number): Promise<NoteDetailDto> {
   return request(`/api/notes/${id}`);
 }
 
+export function listBacklinks(id: number): Promise<BacklinkDto[]> {
+  return request(`/api/notes/${id}/backlinks`);
+}
+
+export function listNoteTitles(
+  query: string,
+  signal?: AbortSignal,
+): Promise<NoteTitleDto[]> {
+  return request(`/api/notes/titles?q=${encodeURIComponent(query)}&limit=20`, { signal });
+}
+
 export interface NoteInput {
   folderId: number;
+  parentId: number | null;
   title: string;
   contentMd: string;
   tags: string[];
@@ -143,10 +158,56 @@ export function updateNote(
   });
 }
 
+export function moveNote(id: number, folderId: number): Promise<NoteDetailDto> {
+  const formData = new FormData();
+  formData.set("payload", JSON.stringify({ folderId }));
+  return request(`/api/notes/${id}`, { method: "PATCH", body: formData });
+}
+
+export function reorderNote(id: number, position: number): Promise<NoteDetailDto> {
+  const formData = new FormData();
+  formData.set("payload", JSON.stringify({ position }));
+  return request(`/api/notes/${id}`, { method: "PATCH", body: formData });
+}
+
 export function deleteNote(id: number): Promise<void> {
   return request(`/api/notes/${id}`, { method: "DELETE" });
 }
 
-export function searchNotes(query: string): Promise<SearchResultsDto> {
-  return request(`/api/search?q=${encodeURIComponent(query)}`);
+export function listNoteTemplates(): Promise<NoteTemplateDto[]> {
+  return request("/api/templates");
+}
+
+export function createNoteTemplate(input: {
+  name: string;
+  contentMd: string;
+}): Promise<NoteTemplateDto> {
+  return request("/api/templates", {
+    method: "POST",
+    ...jsonBody(input),
+  });
+}
+
+export function updateNoteTemplate(
+  id: number,
+  input: { name?: string; contentMd?: string },
+): Promise<NoteTemplateDto> {
+  return request(`/api/templates/${id}`, {
+    method: "PATCH",
+    ...jsonBody(input),
+  });
+}
+
+export function deleteNoteTemplate(id: number): Promise<void> {
+  return request(`/api/templates/${id}`, { method: "DELETE" });
+}
+
+export function searchNotes(
+  query: string,
+  options: { limit?: number; offset?: number } = {},
+): Promise<SearchResultsDto> {
+  const params = new URLSearchParams({ q: query });
+  if (options.limit !== undefined) params.set("limit", String(options.limit));
+  if (options.offset !== undefined) params.set("offset", String(options.offset));
+  return request(`/api/search?${params}`);
 }

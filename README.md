@@ -1,27 +1,30 @@
 # Babel
 
-Babel is a local-first monorepo for three independent notebook applications:
-ReTex, Esperanto, and Vali. The application code is intended for a public GitHub
-repository. User data lives in the nested, independent, private `data/` Git
-repository and is never tracked by the public repository.
+Babel is a local-first monorepo for independently registered notebook
+applications. The application code is intended for a public GitHub repository.
+User data lives in the nested, independent, private `data/` Git repository and
+is never tracked by the public repository.
 
 ## Layout
 
 ```text
-apps/             ReTex, Esperanto, and Vali workspaces
+apps/             registered application workspaces
 packages/config/  shared TypeScript and ESLint baselines
+packages/platform/ shared page-session, shortcut, HTTP, and SQLite infrastructure
+templates/        source templates for new application workspaces
 launcher/         registry-driven Windows launcher
-scripts/          registry validation and private-data backup
+scripts/          scaffolding, registry validation, and private-data backup
 babel.apps.json   launcher and app-registration source of truth
 data/             private nested repository (not part of public Babel Git)
 ```
 
-Ports are assigned in `babel.apps.json`: ReTex 3000, Esperanto 3001, and Vali
-3002. New applications take the next free port starting at 3003.
+Ports are assigned in `babel.apps.json`. New applications take the smallest free
+port in the registry's 3000-3999 range.
 
 ## Install and verify
 
-Use Node.js 22.13 or newer, but lower than Node.js 23.
+Use Node.js 24.0 or newer, but lower than Node.js 25.
+On Windows, install PowerShell 7 and ensure `pwsh.exe` is on PATH.
 
 ```powershell
 npm.cmd install
@@ -29,39 +32,435 @@ npm.cmd run git:setup
 npm.cmd run check
 ```
 
-The full check validates the registry, then runs every workspace's lint,
-typecheck, tests, and production build.
+The full check validates the registry, tests the root scripts, then runs every
+workspace's declared check.
+
+`npm.cmd run benchmark:search:smoke` checks every application's and the template's
+search results, including dense ASCII and CJK short queries. It also guards the
+8 KiB occurrence-counting/highlighting case against quadratic regressions.
+`npm.cmd run benchmark:search:all` uses 10,000 records per application. The timing
+limits are generous CI regression guards, not interactive latency targets.
 
 For development, run one application at a time:
 
 ```powershell
-npm.cmd run dev:retex
-npm.cmd run dev:esperanto
-npm.cmd run dev:vali
+npm.cmd run dev -w @babel-apps/<id>
 ```
+
+Existing applications also expose root shortcuts such as
+`npm.cmd run dev:retex`.
+
+## Convert documents during import
+
+Every APP and the new-APP template includes **Import → Import document as
+Markdown** beside the existing Markdown file/folder imports. Choose a DOCX,
+PPTX, XLSX, XLS, text PDF, HTML, TXT, CSV, JSON, XML or EPUB file, review and edit
+the converted Markdown, then open a draft. Select its folder and tags in the
+normal editor and save when ready. ReTex/Matter import into Knowledge; Neum
+imports into its knowledge entries.
+
+Install the optional local converter once, with Python 3.10–3.13 and `uv` on
+PATH:
+
+```powershell
+npm.cmd run import:setup
+npm.cmd run import:test
+```
+
+The setup uses the approved
+[MarkItDown fork](https://github.com/konglong-pro/markitdown) at commit
+`a51f725d7ff4cdfe3bb6ad2ce2c04d98bf5f1f00` (`0.1.6b2`), with locked Python
+dependencies and only the document/Office/PDF extras. Its isolated environment
+is `.runtime/markitdown/`; it does not change the system Python packages.
+Conversion runs locally, without network requests, cloud services, LLMs or SDK
+plugins. The APPs remain usable without the optional converter. A trusted
+deployment can set `BABEL_MARKITDOWN_PYTHON` to another environment containing
+the same pinned SDK.
+
+Source files are limited to 50 MiB, converted Markdown to 10 MiB, and conversion
+to two minutes. Cancel aborts conversion and removes the temporary source.
+Scanned PDFs require OCR first. Images are omitted with a review warning;
+complex tables, layouts and math can require correction or manual images.
+JSON and XML are preserved in labeled code blocks so readers show their data
+and tags literally.
+
+**Keep the original file** is optional and off by default. Its download link is
+added to the draft; the source is written only when the draft is saved with that
+link still present. Originals are immutable files under the current APP's
+configured upload directory, in `documents/`. They are included in private-data
+backups and remain there if a save fails or the note/link is later deleted;
+retries reuse the same original. Markdown exchange exports carry the link, not
+the source bytes. No database schema change is required.
+
+## Open pages
+
+Folder fields support searching by name or full path and browsing an expandable
+tree. Children appear directly below their parent, in the same sibling order as
+the sidebar. Use the arrow keys to navigate/expand, Enter to select, and Escape
+to close. Search results show parent paths to distinguish same-name folders.
+
+Drag a saved note from the content list onto a sidebar folder to move it. The
+destination highlights while dragging; dropping between sibling notes reorders
+them. A move follows each notebook's existing subtree rules, appends to the
+destination, and preserves content and images. Save or close dirty pages and
+child drafts before moving their subtree. Editors with Folder fields also
+support location changes using the keyboard.
+
+Each notebook keeps document pages in an app-level tab strip. Opening another
+note, entry, exercise, reflection, or canvas preserves the mounted read/edit
+state of the pages already open in that workspace. Selecting the same saved
+document focuses its existing tab; new unsaved drafts receive temporary,
+non-restorable identities until their first save.
+
+Tabs can be reordered by dragging. Closing a dirty or saving page offers Save,
+Discard, and Cancel, and clean saved tabs are restored for the browser session.
+The page-session substrate lives in `packages/platform/`; each application owns
+its document loading, editor state, save behavior, routes, and conflict rules.
+
+Canvases autosave after a 500 ms editing pause. Discard cancels unsent saves and
+waits for an already-running save before closing; closing never submits another
+copy of the discarded edit. It does not undo earlier completed autosaves.
+Embedded canvases share refresh requests, and inactive pages stop refreshing
+unless their content remains visible in a detached reader.
+
+In a **Read** window, click a Markdown image (or focus it and press Enter/Space)
+to open the image viewer. Use the zoom buttons or mouse wheel, drag to pan,
+choose **100%** for original size or **Fit** to fit the window, and press Escape
+to close. Zoom affects only the reading view, including live draft images; it
+does not change the note or attachment. All apps and the scaffold inherit this
+behavior from the shared reader.
+
+## Canvas controls
+
+All notebook canvases and the application scaffold use the same tools. In the
+active canvas, `Ctrl+Shift+1` through `Ctrl+Shift+8` select **Select**, **Hand**,
+**Pen**, **Eraser**, **Text**, **Rectangle**, **Ellipse**, and **Arrow**, in that
+order. The toolbar and the `Ctrl+K` command palette show the canvas shortcuts.
+`Ctrl+Z` undoes an edit; `Ctrl+Y` redoes it. Inputs keep their normal text-editing
+shortcuts, including `Ctrl+X` to cut.
+
+Drag empty space with Select to box-select, and hold Shift to add or remove
+objects from the selection. Selected objects can move or resize together. Hold
+Space to pan temporarily without changing tools; **Fit all** and **Fit selection**
+bring content back into view. View changes do not occupy undo history, and each
+drawing, move, resize, erasing gesture, or text-editing session is one undo step.
+
+Text has no card background: click to start typing and double-click existing text
+to edit it. Tool properties remember color, stroke width, fill, and text settings
+as appropriate. Eraser cuts freehand strokes locally and removes other touched
+objects. Arrow endpoints attach to objects and follow them when they move or
+resize.
+
+Paste a PNG, JPEG, or WebP image with `Ctrl+V` while the canvas is active. Large
+clipboard images are scaled down before insertion. Images are stored inline in
+the scene, up to 2 MiB per image. The complete saved scene
+remains limited to 5 MiB and 2,000 elements.
+
+## Import Markdown folders
+
+The **Import** menu keeps the single-file draft flow and adds **Import Markdown
+folder**. Folder import recursively discovers strict UTF-8 `.md` files, then
+opens a metadata-only review window before anything is written. The selected
+root directory is not created in the notebook; its subdirectories map to nested
+destination folders. Each row can change its Title, Folder, Parent page, and
+Tags. Source files are never renamed or modified.
+
+Titles must be unique across the application's complete document namespace
+after NFC normalization, whitespace trimming/collapsing, and case folding. A
+conflicting title must be changed in the review window; Babel does not silently append a suffix. Existing sibling
+folders are reused only when the match is unambiguous. Parent pages may target
+an existing document or another reviewed document in the same destination
+folder, and cyclic parent relationships are rejected.
+
+Only referenced local PNG, JPEG, WebP, and GIF files inside the selected root
+are imported. Remote images remain remote. Relative Markdown document links and
+unambiguous wikilinks are rewritten to reviewed final titles; ambiguous
+wikilinks can be assigned explicitly or preserved unchanged. The client
+preflights the whole batch, uploads files sequentially to a temporary session,
+and the server revalidates and commits the database and managed images as one
+operation. Cancelled, failed, and expired sessions are cleaned up.
+
+A folder batch accepts at most 1,000 Markdown files, 250 MiB of Markdown, and
+1 GiB of referenced images. Each document keeps the normal 10 MiB Markdown,
+50-image, 10 MiB-per-image, and 100 MiB document-plus-images limits. The six
+mirror Notes workspaces and Vali Notes import notes; Neum imports Knowledge
+entries only; ReTex and Matter import Knowledge items only. On success the
+workspace refreshes, reports a summary, and opens the first imported document.
+
+## Add a mirror application
+
+From the Babel root, pass a safe ASCII display name:
+
+```powershell
+npm.cmd run new-app -- "My Notes"
+```
+
+The command copies `templates/mirror-app`, renders its app tokens, assigns the
+smallest free registered port, adds `dev:<id>`, updates `babel.apps.json` and the
+npm lockfile, then validates the registry. It does not create private data or run
+schema migrations. Provision the registered database and upload paths explicitly
+before launching or backing up the new application.
 
 ## Launcher
 
-Double-click `launcher\Babel.vbs` or `launcher\Babel.lnk` to open the WPF control
-panel. It reads `babel.apps.json` dynamically, shows each registered app and
-port, and can start the selected app, start all apps, stop the session cleanly,
-open the selected page, or run a readiness verification.
+Double-click `launcher\Babel.exe` to open Babel's independent desktop window.
+The existing `Babel.vbs` and `Babel.lnk` entries remain available as fallbacks.
+The `Babel` home reads `babel.apps.json` and lists each notebook as `Stopped`,
+`Starting`, `Ready`, `Unhealthy`, or `External`. Choose `OPEN`: a stopped notebook
+gets its own worker, then Babel waits for its health endpoint to report the
+registered app identity before opening `identityPath` in an embedded WebView2
+view. A healthy notebook that is already running opens immediately; an unrelated
+or unhealthy listener on the registered port is never opened or stopped.
+
+Each open app has a tab in the desktop shell. Switching app tabs or returning to
+`Babel` home preserves the views and their in-memory state. Reader and search popups
+open as separate WebView2 windows owned by Babel, preserving their source view.
+Closing an app tab checks for unsaved changes and closes its related popups; it
+does not stop that app's worker. External web links open in the system browser.
+
+The launcher, tray, settings dialog, and detached windows share the Babel icon.
+The home tab shows the Babel book and name; notebook tabs, the application list,
+and notebook favicons show each app's own logo. The scaffold retains its editable
+app mark. Native windows use
+the `Babel.Desktop` AppUserModelID and a Babel relaunch target so Windows groups
+and pins them under Babel with its icon.
+
+On a new checkout, prepare the desktop components once:
+
+```powershell
+npm.cmd run launcher:setup
+```
+
+Setup downloads the pinned Microsoft.Web.WebView2 SDK `1.0.3537.50` from NuGet,
+verifies its hashes, and installs it under the ignored `launcher/.webview2/`
+directory. Microsoft Edge WebView2 Evergreen Runtime must already be installed
+on Windows; setup does not install or change that system runtime. No .NET SDK is
+required. WebView2 profiles are stored in
+`%LOCALAPPDATA%\Babel\Desktop\WebView2`, outside the public repository and private
+`data/` repository. Notebook data continues to use its registered database paths.
+
+`START ALL` uses one aggregate CLI worker for every notebook that still needs to
+start and is available after independent workers are stopped; that aggregate
+session is stopped only by `STOP ALL`. `STOP SELECTED`
+applies only to an independent worker created by `OPEN`. `VERIFY ALL`, shortcut
+settings, and the bounded session log remain in the command-panel interface.
+The native launcher starts PowerShell 7 with console creation disabled, while notebook
+processes use detached Windows process creation, so hidden console-host processes
+do not remain resident.
+`MINIMIZE TO TRAY` hides the launcher without stopping its workers. The tray
+menu lists every notebook; choosing one follows the same start, identity-check,
+and open flow. Tray `Exit` checks open views for unsaved edits, then gracefully
+stops all workers owned by that launcher.
+While the launcher process is running, the global `Ctrl+Alt+B` hotkey toggles
+the window: it restores and focuses the notebook table when hidden or behind
+another app, and returns the launcher to the tray when it is already in front.
+After restoring, the default Apps home bindings are Up/Down to move, Enter to
+`OPEN`, Delete to stop the selected independent worker, Escape to return to the
+tray, and Tab/Shift+Tab to move focus. Use `1`-`9` or `0` (the tenth row) to select
+a notebook; a configured digit command takes priority. A keyboard `OPEN` activates
+the app's desktop view after its health identity passes. Errors keep the window visible.
+These home navigation keys apply only on the `Babel` home; inside a notebook, Escape and
+other keys remain available to that app.
+The `OPEN`, `STOP SELECTED`, and `MINIMIZE TO TRAY` buttons remain clickable,
+but they no longer expose O/T/M access keys. Their default window-level bindings
+are Enter, Delete, and Escape respectively, configurable in `SHORTCUTS`.
+
+Closing the desktop window with its X checks every open view for unsaved or
+pending edits before stopping its managed workers and exiting. Exit also
+unregisters the global hotkey. Use Escape on the `Babel` home or `MINIMIZE TO TRAY` when
+you want to leave the views, workers, and hotkey available.
+
+`Babel.exe` is a small Windows-native wrapper around `Babel.Gui.ps1`; it does not
+duplicate launcher behavior. It runs PowerShell 7 in a hidden STA process. Rebuild it with the Windows .NET Framework compiler
+already included with Windows:
+
+```powershell
+npm.cmd run launcher:build
+```
+
+`SHORTCUTS` configures the system-wide launcher toggle and five command layers:
+
+| Layer | Applies to | Inherits |
+| --- | --- | --- |
+| Global | Notebook commands and desktop APP tabs | Built-in defaults |
+| Apps home | APP selection, opening, stopping, hiding, and focus | Independent home defaults |
+| APP | Browsing every notebook | Global |
+| Edit | Editing content | Global, then APP |
+| Read | Reading content | Global, then APP |
+
+The system-wide launcher binding is stored independently in
+`%LOCALAPPDATA%\Babel\launcher.json`; schema-v7 notebook and Apps home bindings
+live in `%LOCALAPPDATA%\Babel\shortcuts.json`. Both files are outside the
+public repository and the private notebook-data repository. A changed launcher
+binding is registered immediately; if Windows reports that the combination is
+already in use, Babel keeps the previous binding and settings. Saving notebook
+commands updates open desktop views immediately, including detached reader
+underline shortcuts. Reload any notebook pages open separately in a browser.
+
+The Global defaults are:
+
+| Command | Default binding | Purpose |
+| --- | --- | --- |
+| `save` | `Ctrl+S` | Save the active editor |
+| `new` | `Ctrl+Alt+N` | Create a document |
+| `edit` | `Ctrl+Alt+E` | Enter edit mode |
+| `read` | `Ctrl+R` | Open or focus the reading view |
+| `confirm` | `Ctrl+Enter` | Confirm the active edit or dialog |
+| `cancel` | `Escape` | Coordinate the progressive Escape chain |
+| `search` | `Ctrl+F` | Search the current notebook |
+| `delete` | `Ctrl+Delete` | Request deletion through the existing confirmation flow |
+| `underlineSelection` | `Ctrl+Shift+U` | Underline selected reader text in the last chosen color |
+| `removeUnderline` | `Ctrl+Alt+U` | Remove the underline matching the selection, or the active line |
+| `commandPalette` | `Ctrl+K` | Search commands, actions, and document titles |
+| `focusNextPane` | `Ctrl+F6` | Focus the next available pane |
+| `focusPreviousPane` | `Ctrl+Shift+F6` | Focus the previous available pane |
+| `nextTab` | `Ctrl+Alt+ArrowRight` | Activate the next tab cyclically |
+| `previousTab` | `Ctrl+Alt+ArrowLeft` | Activate the previous tab cyclically |
+| `closeTab` | `Ctrl+W` | Close the active note tab through its dirty-state flow |
+| `quickOpen` | `Ctrl+Alt+P` | Open the palette directly in title-only mode |
+| `help` | `Ctrl+Alt+H` | Show the complete keyboard-help overlay |
+| `selectApp1` … `selectApp10` | `Ctrl+1` … `Ctrl+9`, `Ctrl+0` | Switch to an open APP by its left-to-right tab position |
+| `nextAppTab` / `previousAppTab` | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Cycle open APP tabs |
+| `closeAppTab` | `Ctrl+Shift+W` | Close the current APP view after checking unsaved edits |
+| `appHome` | `Alt+Home` | Show Babel home |
+| `selectTab1` … `selectTab10` | `Ctrl+Alt+1` … `Ctrl+Alt+9`, `Ctrl+Alt+0` | Switch to an open note tab by position |
+| `reopenTab` | `Ctrl+Shift+T` | Reopen the most recently closed saved note |
+| `historyBack` / `historyForward` | `Alt+ArrowLeft` / `Alt+ArrowRight` | Traverse visits to still-open notes in this APP |
+| `saveAndRead` | `Ctrl+Shift+Enter`; `Ctrl+Enter` in Edit | Save successfully, then leave editing |
+| `focusFolders` / `focusDocuments` / `focusContent` | `G F` / `G L` / `G C` in APP and Read | Focus folders, document list, or content |
+
+APP and note tab badges show their positional number; `0` means the tenth tab.
+An index without an open tab does nothing. APP switching excludes detached windows
+and Babel home. Reopening and visit history last for the current APP session;
+reopening does not recover discarded draft text or deleted notes. Escape cancels
+a pending key sequence or dialog first, then leaves editing or reading. A dirty
+editor offers **Save and read**, **Discard changes**, or **Keep editing**. A failed
+save keeps the editor open. In a dialog, `Ctrl+Enter` retains its confirmation role.
+
+Schema v7 keeps the complete Global map in `bindings`, with `app`, `edit`, `read`,
+and `launcher` maps in `layers`. Global and Apps home assign each command a
+shortcut string or `null` to disable it. In APP, Edit, and Read, an omitted command
+inherits its binding; a shortcut string overrides it; `null` disables it. The settings
+table shows the effective binding and its source, with controls to restore
+inheritance or disable the selected command. Duplicate keys within a layer are
+rejected. A higher layer can reuse a lower layer's key for a different command,
+which suppresses the lower command in that context. Edit and Read can reuse keys
+independently. Disabling an override in a later layer does not revive a command
+already suppressed in APP.
+
+Schema v1–v6 files remain readable and retain their existing custom bindings.
+Migration adds missing commands only when their default key is free; conflicting
+new commands become unbound. Pane-focus and save-and-read defaults are added only
+when compatible with existing layers. The old default `Ctrl+Alt+W` becomes
+`Ctrl+W` when that key is free. Opening Babel does not rewrite the file;
+saving in `SHORTCUTS` writes schema v7. Existing layer assignments are preserved.
+
+### Key sequences
+
+Each command can use one combination or a sequence of 2–4 combinations, such as
+`G G` in APP/Read or `Ctrl+J U` in Global. In `SHORTCUTS`, choose a layer and
+**Sequence**, focus a command's shortcut field, then press and release each step.
+Choose **APPLY SEQUENCE** and **SAVE**. **RECORD AGAIN** clears the unfinished
+recording; **Single** returns to recording one combination. Existing bindings are
+kept until a new recording is applied and saved.
+
+After the first step, the status bar shows the pending keys. Each next step has
+1.5 seconds; Escape, a wrong key, changing focus/mode, or leaving the window cancels
+the sequence. A wrong continuation is consumed, so it cannot accidentally run a
+different command. Holding a key does not advance a sequence. Text inputs and IME
+composition retain their normal typing behavior. Main views, detached editors and
+readers, and Apps home support sequences with their own active layers.
+
+Settings store steps separated by ordinary spaces (`"G G"`, `"Ctrl+J U"`). The
+first step follows its layer's usual key restrictions; later steps may be bare
+keys. Escape cannot be a sequence step. A complete command cannot also be a prefix
+of another command in the same effective layer: for example, rebind or disable the
+default `Ctrl+K` palette command before assigning `Ctrl+K C`. Different sequences
+may share an unfinished prefix, and exact higher-layer overrides still work.
+The system-wide launcher toggle remains a single combination.
+
+Global bindings require Ctrl or Alt, bare Escape, or a safe bare function key.
+APP, Edit, and Read also accept single letters, digits, and Shift combinations.
+These text keys run commands only outside text inputs; normal typing, selection,
+clipboard actions, undo, and IME composition retain their input behavior. Bare
+Enter, Shift+Enter, Tab, and Shift+Tab remain reserved for native controls in
+notebooks. Apps home supports those keys in its independent layer.
+
+The desktop shell disables WebView2's browser accelerator commands. Notebook
+commands can additionally use `Ctrl+W`, `Ctrl+Shift+W`, `Ctrl+T`, `Ctrl+Shift+T`,
+`Ctrl+L`, `Ctrl+N`, `Ctrl+Shift+N`, `Ctrl+Tab`, `Ctrl+Shift+Tab`, `F5`, `Ctrl+F5`,
+`F6`, `F11`, `F12`, `Ctrl+0`–`Ctrl+9`, `Alt+Home`, and `Alt+ArrowLeft/Right`.
+These bindings are marked desktop-only in keyboard help;
+ordinary browser pages load the same settings but do not execute those bindings.
+They cannot be assigned to the global launcher hotkey. In the desktop shell, a
+matching command also consumes its key when temporarily unavailable in the
+current context. Text inputs keep clipboard, undo, text navigation, and IME behavior.
+
+Other safe bare function keys remain accepted. The fixed `F2` key, Windows
+combinations such as `Alt+Tab`, `Alt+F4`, and `Ctrl+Alt+Delete`, and structural
+reordering keys `Ctrl+Alt+ArrowUp` and `Ctrl+Alt+ArrowDown` remain reserved.
+Bare `Escape` belongs to Cancel and fixed navigation and cannot be assigned to
+an unrelated command.
+
+The keyboard bar shows the current APP, Edit, or Read mode, the focused pane, and
+whether a text input is active. **Browse** focuses the document list, **Edit**
+opens or focuses the editor, and **Read** opens or focuses the reading view.
+Detached editors and readers keep their corresponding mode and inherit the same
+live settings; returning to Browse activates their source notebook's list.
+**Focus** moves to the next pane, and **Keys** shows the bindings for the current
+mode. Opening help or the command palette preserves the mode it was opened from.
+
+Focused folder and document trees expose `tree`/`treeitem` semantics with a
+roving tab stop. Up/Down moves through visible nodes, Left/Right collapses or
+expands, Enter selects or opens,
+F2 renames a folder or opens a document directly in edit mode, and unassigned
+letters jump by title. Configured mode keys take priority over tree navigation and type-ahead.
+Document trees also support Home, End, PageUp, and PageDown.
+Flat search and palette results use `listbox` semantics with Up/Down,
+Home/End/PageUp/PageDown, Enter, and type-ahead. The tab strip exposes
+`tablist`/`tab` semantics: Left/Right moves its roving focus and Enter activates
+the focused tab.
+
+`Ctrl+F6` and `Ctrl+Shift+F6` cycle the available folder tree, document tree,
+tab strip, detail pane, and keyboard bar, skipping hidden or absent panes and
+remembering the last focused control in each. Bare `F6` can be assigned inside the desktop shell;
+ordinary browser pages leave it to the browser.
+Keyboard reordering uses `Ctrl+Alt+ArrowUp` and `Ctrl+Alt+ArrowDown`, rather
+than unmodified arrow keys; visible hints and `aria-keyshortcuts` expose the new
+combination.
+
+Escape unwinds one level at a time. The topmost dialog, command palette, or help
+overlay gets first refusal; otherwise Escape leaves the editor for its read
+view, then leaves the read view for the document tree. Existing dirty-edit and
+discard confirmations still apply. `Ctrl+K` searches registered commands,
+explicit semantic actions, and document or entry titles in one list, while
+`Ctrl+Alt+P` restricts results to titles. Applications explicitly register
+stable actions such as Import, Edit Templates, and New subnote. This semantic
+coverage does not expose structural or transient controls such as disclosure
+arrows, Back, Dismiss, or dialog Cancel, and dangerous actions continue through
+their existing confirmation dialogs.
 
 The command-line launcher remains available for scripts and recovery work:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launcher\Babel.ps1 -Selection All
+pwsh.exe -NoProfile -ExecutionPolicy Bypass -File .\launcher\Babel.ps1 -Selection All
 ```
 
 For a non-interactive readiness and clean-shutdown check:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\launcher\Babel.ps1 -Selection All -NoBrowser -VerifyAndExit
+pwsh.exe -NoProfile -ExecutionPolicy Bypass -File .\launcher\Babel.ps1 -Selection All -NoBrowser -VerifyAndExit
 ```
+
+`npm.cmd run test:scripts` also includes an isolated test using actual WebView2
+controls. That smoke test runs on Windows when the pinned SDK is installed;
+otherwise it reports a skip. It uses fixture pages and a temporary profile.
 
 The launcher refuses to create or migrate missing user data. Every path in an
 application's `requiredDataPaths` must already exist. Closing the WPF window
-sends a stop signal to its managed CLI worker before the window exits.
+sends a stop signal to its managed CLI worker before the window exits. The
+worker selects a Node.js runtime compatible with the root `engines.node` range
+from PATH or fnm's default alias and reports the selected runtime in the log.
 
 ## Restore on a new machine
 

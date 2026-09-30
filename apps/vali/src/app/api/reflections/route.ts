@@ -1,9 +1,10 @@
-import { handleRoute } from "@/lib/http/errors";
-import { getValiVault } from "@/lib/vali/runtime";
+import { NextResponse } from "next/server";
+
+import { handleApi } from "@/lib/http/errors";
+import { listReflections } from "@/lib/repositories";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
-export async function GET(): Promise<Response> {
-  return handleRoute(() => Response.json(getValiVault().reflections.listDates()));
+export function GET(): Promise<Response> {
+  return handleApi(() => NextResponse.json(listReflections()));
 }

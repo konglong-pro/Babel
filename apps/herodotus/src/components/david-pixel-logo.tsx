@@ -1,0 +1,28 @@
+interface DavidPixelLogoProps {
+  className?: string;
+}
+
+export function DavidPixelLogo({ className }: DavidPixelLogoProps) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 40 40"
+      shapeRendering="crispEdges"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        fill="#0b0b0d"
+        d="M11 3h4V1h5v2h4V1h5v2h3v4h3v3h2v8h-3v7h-4v4h-4v2h7v2h4v6H3v-6h4v-2h7v-3h-3v-4H8v-7H5V9h3V6h3V3Z"
+      />
+      <path
+        fill="#fff"
+        d="M14 9h11v2h5v4h3v3h-3v5h-3v4h-4v2h-6v-3h-3v-5h-2v-8h2V9Zm1 20h11v3h6v2h3v3H5v-3h4v-2h6v-3Z"
+      />
+      <path
+        fill="#0b0b0d"
+        d="M10 7h7v2h4v3h-4v2h-3v3h-4V7Zm11 7h7v2h-2v2h-3v-2h-2v-2Zm7 3h3v5h-2v2h-5v-2h3v-5Zm-8 7h7v2h-7v-2Zm-7-5h3v4h-3v-4Z"
+      />
+    </svg>
+  );
+}

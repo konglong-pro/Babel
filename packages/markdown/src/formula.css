@@ -1,0 +1,9 @@
+@import "@babel-apps/katex/styles.css";
+
+.babel-formula-block {
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}

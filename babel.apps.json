@@ -6,17 +6,17 @@
       "id": "retex",
       "workspace": "apps/retex",
       "port": 3000,
-      "healthPath": "/api/folders?type=knowledge",
+      "healthPath": "/api/health",
       "identityPath": "/knowledge",
       "identityText": "ReTex",
       "readyTimeoutSeconds": 60,
       "env": {
         "RETEX_DATABASE_PATH": "data/retex/sqlite.db",
-        "RETEX_UPLOAD_DIRECTORY": "data/retex/uploads/exercises"
+        "RETEX_NOTE_UPLOAD_DIRECTORY": "data/retex/uploads/notes"
       },
       "requiredDataPaths": [
         "data/retex/sqlite.db",
-        "data/retex/uploads/exercises"
+        "data/retex/uploads/notes"
       ]
     },
     {
@@ -24,7 +24,7 @@
       "id": "esperanto",
       "workspace": "apps/esperanto",
       "port": 3001,
-      "healthPath": "/api/folders",
+      "healthPath": "/api/health",
       "identityPath": "/notes",
       "identityText": "Esperanto",
       "readyTimeoutSeconds": 60,
@@ -43,14 +43,142 @@
       "workspace": "apps/vali",
       "port": 3002,
       "healthPath": "/api/health",
-      "identityPath": "/",
+      "identityPath": "/notes",
       "identityText": "Vali",
       "readyTimeoutSeconds": 60,
       "env": {
-        "VALI_DATABASE_PATH": "data/vali/sqlite.db"
+        "VALI_DATABASE_PATH": "data/vali/sqlite.db",
+        "VALI_UPLOAD_DIRECTORY": "data/vali/uploads/notes"
       },
       "requiredDataPaths": [
-        "data/vali/sqlite.db"
+        "data/vali/sqlite.db",
+        "data/vali/uploads/notes"
+      ]
+    },
+    {
+      "name": "Neum",
+      "id": "neum",
+      "workspace": "apps/neum",
+      "port": 3003,
+      "healthPath": "/api/health",
+      "identityPath": "/knowledge",
+      "identityText": "Neum",
+      "readyTimeoutSeconds": 60,
+      "env": {
+        "NEUM_DATABASE_PATH": "data/neum/sqlite.db",
+        "NEUM_UPLOAD_DIRECTORY": "data/neum/uploads/entries"
+      },
+      "requiredDataPaths": [
+        "data/neum/sqlite.db",
+        "data/neum/uploads/entries"
+      ]
+    },
+    {
+      "name": "Herodotus",
+      "id": "herodotus",
+      "workspace": "apps/herodotus",
+      "port": 3004,
+      "healthPath": "/api/health",
+      "identityPath": "/notes",
+      "identityText": "Herodotus",
+      "readyTimeoutSeconds": 60,
+      "env": {
+        "HERODOTUS_DATABASE_PATH": "data/herodotus/sqlite.db",
+        "HERODOTUS_UPLOAD_DIRECTORY": "data/herodotus/uploads/notes"
+      },
+      "requiredDataPaths": [
+        "data/herodotus/sqlite.db",
+        "data/herodotus/uploads/notes"
+      ]
+    },
+    {
+      "name": "Leviathan",
+      "id": "leviathan",
+      "workspace": "apps/leviathan",
+      "port": 3005,
+      "healthPath": "/api/health",
+      "identityPath": "/notes",
+      "identityText": "Leviathan",
+      "readyTimeoutSeconds": 60,
+      "env": {
+        "LEVIATHAN_DATABASE_PATH": "data/leviathan/sqlite.db",
+        "LEVIATHAN_UPLOAD_DIRECTORY": "data/leviathan/uploads/notes"
+      },
+      "requiredDataPaths": [
+        "data/leviathan/sqlite.db",
+        "data/leviathan/uploads/notes"
+      ]
+    },
+    {
+      "name": "KLsche",
+      "id": "klsche",
+      "workspace": "apps/klsche",
+      "port": 3006,
+      "healthPath": "/api/health",
+      "identityPath": "/notes",
+      "identityText": "KLsche",
+      "readyTimeoutSeconds": 60,
+      "env": {
+        "KLSCHE_DATABASE_PATH": "data/klsche/sqlite.db",
+        "KLSCHE_UPLOAD_DIRECTORY": "data/klsche/uploads/notes"
+      },
+      "requiredDataPaths": [
+        "data/klsche/sqlite.db",
+        "data/klsche/uploads/notes"
+      ]
+    },
+    {
+      "name": "Ruider",
+      "id": "ruider",
+      "workspace": "apps/ruider",
+      "port": 3007,
+      "healthPath": "/api/health",
+      "identityPath": "/canvases",
+      "identityText": "Ruider",
+      "readyTimeoutSeconds": 60,
+      "env": {
+        "RUIDER_DATABASE_PATH": "data/ruider/sqlite.db",
+        "RUIDER_UPLOAD_DIRECTORY": "data/ruider/uploads/notes"
+      },
+      "requiredDataPaths": [
+        "data/ruider/sqlite.db",
+        "data/ruider/uploads/notes"
+      ]
+    },
+    {
+      "name": "Matter",
+      "id": "matter",
+      "workspace": "apps/matter",
+      "port": 3008,
+      "healthPath": "/api/health",
+      "identityPath": "/knowledge",
+      "identityText": "Matter",
+      "readyTimeoutSeconds": 60,
+      "env": {
+        "MATTER_DATABASE_PATH": "data/matter/sqlite.db",
+        "MATTER_NOTE_UPLOAD_DIRECTORY": "data/matter/uploads/notes"
+      },
+      "requiredDataPaths": [
+        "data/matter/sqlite.db",
+        "data/matter/uploads/notes"
+      ]
+    },
+    {
+      "name": "Bio",
+      "id": "bio",
+      "workspace": "apps/bio",
+      "port": 3009,
+      "healthPath": "/api/health",
+      "identityPath": "/notes",
+      "identityText": "Bio",
+      "readyTimeoutSeconds": 60,
+      "env": {
+        "BIO_DATABASE_PATH": "data/bio/sqlite.db",
+        "BIO_UPLOAD_DIRECTORY": "data/bio/uploads/notes"
+      },
+      "requiredDataPaths": [
+        "data/bio/sqlite.db",
+        "data/bio/uploads/notes"
       ]
     }
   ]

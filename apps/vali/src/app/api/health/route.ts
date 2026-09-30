@@ -1,25 +1,22 @@
-import {
-  assertDatabaseConnectionReady,
-  assertDatabaseFileReady,
-} from "@/lib/db/client";
-import { valiDatabasePath } from "@/lib/db/paths";
-import { getInitializedValiDatabase } from "@/lib/vali/runtime";
+import { assertAppDatabaseReady } from "@/lib/db/readiness";
 
-export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export function GET(): Response {
+export async function GET(): Promise<Response> {
   try {
-    const initializedDatabase = getInitializedValiDatabase();
-    if (initializedDatabase) {
-      assertDatabaseConnectionReady(initializedDatabase);
-    } else {
-      assertDatabaseFileReady(valiDatabasePath());
-    }
-    return Response.json({ id: "vali", status: "ok", schemaVersion: 1 });
-  } catch {
+    assertAppDatabaseReady();
+    const { ensureNoteImageStorageRecovered } = await import("@/lib/storage");
+    await ensureNoteImageStorageRecovered();
+    return Response.json({ status: "ok", app: "Vali" });
+  } catch (error) {
+    console.error("Vali health check failed", error);
     return Response.json(
-      { id: "vali", status: "error", schemaVersion: 1 },
+      {
+        error: {
+          code: "SERVICE_UNAVAILABLE",
+          message: "Vali storage is unavailable or requires migration.",
+        },
+      },
       { status: 503 },
     );
   }

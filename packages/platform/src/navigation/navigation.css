@@ -1,0 +1,12 @@
+[data-babel-pane]:focus-visible,
+[data-babel-pane] :is([role="treeitem"], [role="option"], [role="tab"]):focus-visible {
+  outline: 2px solid Highlight;
+  outline-offset: 2px;
+}
+
+@media (forced-colors: active) {
+  [data-babel-pane]:focus-visible,
+  [data-babel-pane] :is([role="treeitem"], [role="option"], [role="tab"]):focus-visible {
+    outline-color: Highlight;
+  }
+}

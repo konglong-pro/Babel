@@ -1,0 +1,12 @@
+[project]
+name = "babel-markitdown-runtime"
+version = "1.0.0"
+description = "Pinned local document conversion SDK for Babel"
+requires-python = ">=3.10,<3.14"
+dependencies = ["markitdown[docx,pptx,xlsx,xls,pdf]"]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+markitdown = { git = "https://github.com/konglong-pro/markitdown.git", rev = "a51f725d7ff4cdfe3bb6ad2ce2c04d98bf5f1f00", subdirectory = "packages/markitdown" }
