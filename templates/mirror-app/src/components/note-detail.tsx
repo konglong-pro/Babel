@@ -1,5 +1,9 @@
 "use client";
 
+import { saveWithImportedOriginal } from "@babel-apps/platform/imports/document-client";
+
+import { EditorExitActions, submittedForReading } from "@babel-apps/platform/shortcuts/react";
+
 import { FolderPicker } from "@babel-apps/platform/folders/picker";
 
 import type { Wikilink } from "@babel-apps/markdown/core";
@@ -209,8 +213,8 @@ interface NoteDetailProps {
   loading?: boolean;
   onEdit: () => void;
   onCreateSubnote: () => void;
-  onCancel: () => void;
-  onSaved: (detail: NoteDetailDto) => Promise<void> | void;
+  onCancel: (discardConfirmed?: boolean) => void;
+  onSaved: (detail: NoteDetailDto, readAfterSave?: boolean) => Promise<void> | void;
   onDeleted: () => Promise<void> | void;
   onNavigateNote: (id: number, folderId?: number) => void;
   onCreateLinkedNote: (underlineId: number) => void;
@@ -478,8 +482,8 @@ interface NoteFormProps {
   folders: FolderDto[];
   notes: NoteSummaryDto[];
   templates: NoteTemplateDto[];
-  onCancel: () => void;
-  onSaved: (detail: NoteDetailDto) => Promise<void> | void;
+  onCancel: (discardConfirmed?: boolean) => void;
+  onSaved: (detail: NoteDetailDto, readAfterSave?: boolean) => Promise<void> | void;
   onDirtyChange: (dirty: boolean) => void;
   onPendingChange: (pending: boolean) => void;
   onRegisterSave: (action: (() => void) | null) => void;
@@ -629,6 +633,7 @@ function NoteForm({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const readAfterSave = submittedForReading(event);
     if (pendingRef.current) return;
     if (folderId === null) {
       setError("Select a folder before saving this note.");
@@ -653,9 +658,13 @@ function NoteForm({
         contentMd: content,
         tags: parseTags(tags),
       };
-      const saved = detail
-        ? await updateNote(detail.id, input, stagedImages)
-        : await createNote(input, stagedImages);
+      const saved = await saveWithImportedOriginal(
+        input.contentMd,
+        importDraft?.originalDocument,
+        (contentMd) => detail
+          ? updateNote(detail.id, { ...input, contentMd }, stagedImages)
+          : createNote({ ...input, contentMd }, stagedImages),
+      );
       if (
         !mountedRef.current ||
         submissionGenerationRef.current !== submissionGeneration
@@ -671,7 +680,7 @@ function NoteForm({
       setFolderId(saved.folderId);
       setParentId(saved.parentId);
       onDirtyChange(false);
-      await onSaved(saved);
+      await onSaved(saved, readAfterSave);
     } catch (caught) {
       if (
         mountedRef.current &&
@@ -802,6 +811,7 @@ function NoteForm({
   return (
     <section className="detail-panel form-view" data-babel-pane="detail" tabIndex={-1}>
       <form ref={formRef} onSubmit={submit}>
+        <EditorExitActions dirty={dirty} pending={pending} formRef={formRef} onDiscard={() => onCancel(true)} />
         <header className="document-header form-header">
           <div>
             <DetachedReaderWindow
@@ -838,7 +848,7 @@ function NoteForm({
             </h1>
           </div>
           <div className="document-actions">
-            <button data-babel-command="cancel" type="button" disabled={pending} onClick={onCancel}>Cancel</button>
+            <button data-babel-command="cancel" type="button" disabled={pending} onClick={() => onCancel()}>Cancel</button>
             <button
               data-babel-command="save"
               className="primary-button"

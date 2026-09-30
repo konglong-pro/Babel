@@ -64,6 +64,99 @@ export interface SerializedPageSessions {
   readonly pages: readonly PageSessionDescriptor[];
 }
 
+/** Navigation remembers identities only; editor contents stay in mounted sessions. */
+export interface PageNavigationState {
+  readonly sessions: PageSessionsState;
+  readonly visits: readonly string[];
+  readonly visitIndex: number;
+  readonly closedPages: readonly PageSessionDescriptor[];
+}
+
+export type PageNavigationAction = PageSessionsAction
+  | { readonly type: "close-tab"; readonly key: string }
+  | { readonly type: "close-other-tabs"; readonly key: string }
+  | { readonly type: "reopen-tab" }
+  | { readonly type: "visit-history"; readonly direction: -1 | 1 };
+
+export function createPageNavigationState(sessions: PageSessionsState): PageNavigationState {
+  return {
+    sessions,
+    visits: sessions.activeKey === null ? [] : [sessions.activeKey],
+    visitIndex: sessions.activeKey === null ? -1 : 0,
+    closedPages: [],
+  };
+}
+
+export function pageHistoryTarget(
+  state: PageNavigationState,
+  direction: -1 | 1,
+): { readonly page: PageSessionDescriptor; readonly index: number } | null {
+  for (
+    let index = state.visitIndex + direction;
+    index >= 0 && index < state.visits.length;
+    index += direction
+  ) {
+    const page = state.sessions.pages.find((candidate) => candidate.key === state.visits[index]);
+    if (page !== undefined && page.key !== state.sessions.activeKey) return { page, index };
+  }
+  return null;
+}
+
+export function pageNavigationReducer(
+  state: PageNavigationState,
+  action: PageNavigationAction,
+): PageNavigationState {
+  if (action.type === "restore") return createPageNavigationState(action.state);
+  if (action.type === "visit-history") {
+    const target = pageHistoryTarget(state, action.direction);
+    return target === null ? state : {
+      ...state,
+      sessions: pageSessionsReducer(state.sessions, { type: "activate", key: target.page.key }),
+      visitIndex: target.index,
+    };
+  }
+  let closedPages = state.closedPages;
+  let sessionAction: PageSessionsAction;
+  if (action.type === "reopen-tab") {
+    const page = closedPages.at(-1);
+    if (page === undefined) return state;
+    closedPages = closedPages.slice(0, -1);
+    sessionAction = { type: "open", page };
+  } else if (action.type === "close-tab" || action.type === "close-other-tabs") {
+    const target = state.sessions.pages.find((page) => page.key === action.key);
+    const closing = state.sessions.pages.filter((page) => action.type === "close-tab"
+      ? page.key === action.key
+      : target !== undefined && page.key !== target.key && pagesShareScope(page, target));
+    const saved = closing.filter((page) => page.restorable !== false).map((page) => ({
+      key: page.key,
+      kind: page.kind,
+      title: page.title,
+      href: page.href,
+      ...(page.scope === undefined ? {} : { scope: page.scope }),
+      dirty: false,
+      pending: false,
+    }));
+    const closedKeys = new Set(closing.map((page) => page.key));
+    closedPages = [...closedPages.filter((page) => !closedKeys.has(page.key)), ...saved].slice(-30);
+    sessionAction = { type: action.type === "close-tab" ? "close" : "close-others", key: action.key };
+  } else {
+    sessionAction = action;
+    // Programmatic closes include deletion and draft cancellation, not tab closure.
+    if (action.type === "close") closedPages = closedPages.filter((page) => page.key !== action.key);
+  }
+  const sessions = pageSessionsReducer(state.sessions, sessionAction);
+  closedPages = closedPages.filter((page) => !sessions.pages.some((open) => open.key === page.key));
+  let visits = action.type === "rekey"
+    ? state.visits.map((key) => key === action.key ? action.page.key : key)
+    : state.visits;
+  let visitIndex = state.visitIndex;
+  if (sessions.activeKey !== null && sessions.activeKey !== visits[visitIndex]) {
+    visits = [...visits.slice(0, visitIndex + 1), sessions.activeKey].slice(-100);
+    visitIndex = visits.length - 1;
+  }
+  return { sessions, visits, visitIndex, closedPages };
+}
+
 export function createPageSessionsState(
   pages: readonly PageSessionDescriptor[] = [],
   activeKey?: string | null,

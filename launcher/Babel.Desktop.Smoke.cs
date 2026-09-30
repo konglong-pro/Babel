@@ -98,6 +98,23 @@ namespace BabelLauncher
             return view.ExecuteScriptAsync(script);
         }
 
+        private static async Task PostMessages(WebView2 view, string script)
+        {
+            // An inert marker follows messages on the same WebView queue, so
+            // rejection assertions do not depend on an arbitrary sleep.
+            string marker = "fixture:messages:" + Guid.NewGuid().ToString("N");
+            var received = new TaskCompletionSource<bool>();
+            EventHandler<CoreWebView2WebMessageReceivedEventArgs> handler = (sender, args) => {
+                try { if (args.TryGetWebMessageAsString() == marker) received.TrySetResult(true); }
+                catch (ArgumentException) { }
+            };
+            view.CoreWebView2.WebMessageReceived += handler;
+            try {
+                await Script(view, script + ";chrome.webview.postMessage('" + marker + "')");
+                await WaitAsync(() => Task.FromResult(received.Task.IsCompleted), "Fixture message marker was not delivered.");
+            } finally { view.CoreWebView2.WebMessageReceived -= handler; }
+        }
+
         private static async Task Evaluate(WebView2 view, string script, bool userGesture = false)
         {
             string result = await view.CoreWebView2.CallDevToolsProtocolMethodAsync("Runtime.evaluate",
@@ -133,7 +150,8 @@ namespace BabelLauncher
             var first = (WebView2)Invoke(host, "GetView", "one");
             Check(await Script(first, "window.earlyDesktop") == "true", "Desktop flag was unavailable to the initial page script.");
             Check(!first.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled, "Browser accelerators remain enabled.");
-            Check(!first.CoreWebView2.Settings.AreHostObjectsAllowed && !first.CoreWebView2.Settings.IsWebMessageEnabled, "A native page bridge remains enabled.");
+            Check(!first.CoreWebView2.Settings.AreHostObjectsAllowed && first.CoreWebView2.Settings.IsWebMessageEnabled, "The constrained navigation bridge is unavailable or host objects were exposed.");
+            Check(await Script(first, "window.__BABEL_DESKTOP_APP_COMMANDS__") == "true", "Main APP command capability is missing.");
             await Script(first, "window.fixtureState = 42");
             passed.Add("real WebView initialization and isolated native settings");
 
@@ -163,6 +181,36 @@ namespace BabelLauncher
             Check(Object.ReferenceEquals(first, Invoke(host, "GetView", "one")), "Switching replaced the original WebView.");
             Check(await Script(first, "window.fixtureState") == "42", "Switching lost page state.");
             passed.Add("independent notebook instances and state-preserving switching");
+
+            Check(((TextBlock)firstBrand.Children[2]).Text == "1", "First APP ordinal is missing.");
+            Check(((TextBlock)((StackPanel)((Button)((StackPanel)secondTab.Child).Children[0]).Content).Children[2]).Text == "2", "Second APP ordinal is missing.");
+            foreach (string command in new[] { null, "", "openFile", "selectApp0", "selectApp01", "selectApp11", "selectTab1", "selectApp2 " })
+                Check(!(bool)Invoke(host, "ExecuteAppCommand", command), "Unknown native command was accepted: " + command);
+            Check(Policy(type, "IsAppNavigationCommand", "selectApp10"), "The tenth APP command is missing.");
+            await PostMessages(first, "chrome.webview.postMessage({command:'selectApp2'}); chrome.webview.postMessage('babel:command:openFile'); chrome.webview.postMessage('selectApp2')");
+            Check(Property<string>(host, "ActiveAppId") == "one", "Malformed or unknown messages changed the active APP.");
+            await PostMessages(second, "chrome.webview.postMessage('babel:command:selectApp2')");
+            Check(Property<string>(host, "ActiveAppId") == "one", "A background APP changed the active view.");
+            await Evaluate(first, "new Promise(resolve => {const frame=document.createElement('iframe');frame.src='/frame';frame.onload=()=>{frame.contentWindow.chrome.webview.postMessage('babel:command:selectApp2');resolve()};document.body.append(frame)})");
+            await PostMessages(first, "void 0");
+            Check(Property<string>(host, "ActiveAppId") == "one", "An iframe message changed the active APP.");
+            await PostMessages(first, "chrome.webview.postMessage('babel:command:selectApp2')");
+            await WaitAsync(() => Task.FromResult(Property<string>(host, "ActiveAppId") == "two"), "APP command message did not switch to the second APP.");
+            await Script(second, "chrome.webview.postMessage('babel:command:appHome')");
+            await WaitAsync(() => Task.FromResult(Property<bool>(host, "IsHomeVisible")), "APP command message did not return home.");
+            Invoke(host, "ExecuteAppCommand", "previousAppTab");
+            Check(Property<string>(host, "ActiveAppId") == "two", "Previous APP from home did not select the last APP.");
+            Invoke(host, "ExecuteAppCommand", "nextAppTab");
+            Check(Property<string>(host, "ActiveAppId") == "one", "APP tab cycling did not wrap.");
+            Invoke(host, "ExecuteAppCommand", "selectApp10");
+            Check(Property<string>(host, "ActiveAppId") == "one", "Missing APP position changed selection.");
+            Invoke(host, "OpenNotebook", "temporary", "Temporary", origin + "/temporary");
+            await WaitAsync(() => Task.FromResult(Property<int>(host, "ReadyCount") == 3), "Temporary APP did not load.");
+            await Script((WebView2)Invoke(host, "GetView", "temporary"), "chrome.webview.postMessage('babel:command:closeAppTab')");
+            await WaitAsync(() => Task.FromResult(Property<int>(host, "OpenCount") == 2), "Close APP command did not close the clean APP.");
+            Invoke(host, "ExecuteAppCommand", "selectApp1");
+            Check(Property<string>(host, "ActiveAppId") == "one", "Closing a tab corrupted APP positions.");
+            passed.Add("allowlisted APP navigation bridge, tab positions and clean close");
 
             Invoke(host, "RefreshShortcutSettings");
             await WaitAsync(async () => await Script(first, "window.shortcutEvents") == "1" && await Script(second, "window.shortcutEvents") == "1", "Shortcut changes did not reach both live pages.");
@@ -227,9 +275,13 @@ namespace BabelLauncher
             foreach (string id in Property<string[]>(host, "OpenIds")) {
                 var view = (WebView2)Invoke(host, "GetView", id);
                 Check(!view.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled &&
-                    !view.CoreWebView2.Settings.AreHostObjectsAllowed && !view.CoreWebView2.Settings.IsWebMessageEnabled,
-                    "A popup retained browser accelerators or a native message bridge.");
+                    !view.CoreWebView2.Settings.AreHostObjectsAllowed && view.CoreWebView2.Settings.IsWebMessageEnabled == !id.Contains(":"),
+                    "APP and popup native bridge policies differ from their capabilities.");
+                if (id.Contains(":")) Check(await Script(view, "window.__BABEL_DESKTOP_APP_COMMANDS__ === true") == "false", "Popup inherited APP command capability.");
             }
+            Invoke(host, "ExecuteAppCommand", "selectApp2");
+            Check(Property<string>(host, "ActiveAppId") == "two", "Popup occupied an APP shortcut position.");
+            Invoke(host, "ExecuteAppCommand", "selectApp1");
             Check(readerDesktopFlag, "Detached reader desktop flag is missing after document.write (reader DOM, getComputedStyle, selection and native settings all passed).");
         }
     }

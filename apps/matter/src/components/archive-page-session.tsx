@@ -163,10 +163,10 @@ export function ArchivePageSession({
     };
   }, [itemId, pageKey, reloadVersion, type, updatePage]);
 
-  async function handleSaved(saved: ArchiveDetail) {
+  async function handleSaved(saved: ArchiveDetail, readAfterSave = false) {
     setDetail(saved);
     setBacklinks(emptyBacklinks());
-    setMode(archiveModeAfterSave(itemId));
+    setMode(readAfterSave ? "view" : archiveModeAfterSave(itemId));
     setDirty(false);
     setLoadError("");
     const nextPage = savedArchivePage(type, saved);
@@ -216,8 +216,8 @@ export function ArchivePageSession({
     }
   }
 
-  function cancelEditing() {
-    if (dirty && !window.confirm("Discard your unsaved changes?")) return;
+  function cancelEditing(discardConfirmed = false) {
+    if (!discardConfirmed && dirty && !window.confirm("Discard your unsaved changes?")) return;
     setDirty(false);
     if (itemId === null) {
       closePage(pageKey);

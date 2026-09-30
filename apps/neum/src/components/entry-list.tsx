@@ -1,5 +1,8 @@
 "use client";
 
+import { DocumentImportAction } from "@babel-apps/platform/imports/document-react";
+import type { ImportedOriginalDocument } from "@babel-apps/platform/imports/document-core";
+
 import { type ChangeEvent, useMemo, useRef, useState } from "react";
 import { NewContentMenu } from "@babel-apps/platform/canvas/react";
 
@@ -35,7 +38,7 @@ interface EntryListProps {
   onEdit?: (id: number) => void;
   onReorder?: (id: number, position: number) => Promise<void> | void;
   onLoadMore: () => Promise<void>;
-  onImport?: (file: File) => Promise<void> | void;
+  onImport?: (file: File, original?: ImportedOriginalDocument) => Promise<void> | void;
   onImportFolder?: (files: File[]) => Promise<void> | void;
   onCreate: () => void;
   onCreateChild: (parentId: number) => void;
@@ -184,6 +187,7 @@ export function EntryList({
   onBack,
 }: EntryListProps) {
   const importInputRef = useRef<HTMLInputElement>(null);
+  const documentImportOpenRef = useRef<(() => void) | null>(null);
   const folderImportInputRef = useRef<HTMLInputElement>(null);
   const importMenuRef = useRef<HTMLDetailsElement>(null);
   const unitLabel = entryUnitLabel(kind);
@@ -278,6 +282,14 @@ export function EntryList({
       run: () => importInputRef.current?.click(),
     },
     {
+      id: "entry.importDocument",
+      label: "Convert file to Markdown",
+      keywords: ["import", "document", "pdf", "word", "excel", "powerpoint", "markitdown"],
+      group: "Entries",
+      available: kind === "knowledge" && Boolean(onImport) && selectedFolderId !== null,
+      run: () => documentImportOpenRef.current?.(),
+    },
+    {
       id: "entry.importFolder",
       label: "Import Markdown folder",
       group: "Entries",
@@ -306,7 +318,7 @@ export function EntryList({
   function chooseMarkdown(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (file && onImport) void onImport(file);
+    if (file && onImport) void Promise.resolve(onImport(file)).catch(() => undefined);
   }
 
   function chooseMarkdownFolder(event: ChangeEvent<HTMLInputElement>) {
@@ -380,6 +392,14 @@ export function EntryList({
                   >
                     Import Markdown file
                   </button>
+                  <DocumentImportAction
+                    onImport={onImport}
+                    disabled={selectedFolderId === null}
+                    registerOpen={(open) => { documentImportOpenRef.current = open; }}
+                    onOpen={() => {
+                      if (importMenuRef.current) importMenuRef.current.open = false;
+                    }}
+                  />
                   <button
                     type="button"
                     onClick={() => {

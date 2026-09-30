@@ -68,6 +68,19 @@ export function focusNotebookList(document: Document): boolean {
   return false;
 }
 
+/** Focus a named visible pane without changing its document or editing state. */
+export function focusNamedPane(document: Document, id: "tree" | "items" | "detail"): boolean {
+  const pane = Array.from(document.querySelectorAll<HTMLElement>(`[data-babel-pane='${id}']`)).find(isKeyboardVisible);
+  if (pane === undefined) return false;
+  const target = Array.from(pane.querySelectorAll<HTMLElement>(
+    id === "detail" ? "textarea:not(:disabled), [contenteditable='true'], .markdown-body" :
+      "[tabindex='0'], button:not(:disabled), input:not(:disabled), a[href]",
+  )).find(isKeyboardVisible) ?? pane;
+  if (!target.hasAttribute("tabindex") && (target === pane || target.matches(".markdown-body"))) target.tabIndex = -1;
+  target.focus();
+  return document.activeElement === target;
+}
+
 export function focusModeContent(document: Document, mode: "edit" | "read"): boolean {
   const selector = mode === "edit" ? "textarea, [contenteditable='true'], input:not([type='hidden'])" : ".markdown-body";
   const panes = Array.from(document.querySelectorAll<HTMLElement>("[data-babel-pane='detail']")).filter(isKeyboardVisible);

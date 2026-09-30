@@ -29,6 +29,8 @@ $bindings = Get-BabelDefaultShortcutBindings -Definitions $definitions
 $path = Join-Path $env:BABEL_TEST_DIRECTORY "shortcuts.json"
 $results = @()
 foreach ($binding in ($env:BABEL_TEST_DESKTOP_BINDINGS | ConvertFrom-Json)) {
+    $bindings = Get-BabelDefaultShortcutBindings -Definitions $definitions
+    foreach ($key in @($bindings.Keys)) { if ($bindings[$key] -eq $binding) { $bindings[$key] = $null } }
     $bindings["closeTab"] = $binding
     [void](Write-BabelShortcutSettings -Definitions $definitions -Bindings $bindings -Path $path)
     $loaded = Read-BabelShortcutSettings -Definitions $definitions -Path $path
@@ -60,7 +62,7 @@ $results | ConvertTo-Json -Depth 5 -Compress
     assert.equal(documents.length, desktopBindings.length);
     for (const [index, document] of documents.entries()) {
       const settings = parseShortcutSettings(document);
-      assert.equal(settings.schemaVersion, 6);
+      assert.equal(settings.schemaVersion, 7);
       assert.equal(settings.bindings.closeTab, desktopBindings[index]);
       assert.equal(settings.bindings.save, "Ctrl+S");
     }

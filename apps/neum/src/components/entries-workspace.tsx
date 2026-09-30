@@ -1,5 +1,7 @@
 "use client";
 
+import type { ImportedOriginalDocument } from "@babel-apps/platform/imports/document-core";
+
 import { FolderMoveProvider } from "@babel-apps/platform/folders/move-react";
 import { entrySubtreeIds } from "@/components/entry-tree-state";
 
@@ -581,15 +583,16 @@ export function EntriesWorkspace({
     }
   }
 
-  async function handleImportMarkdown(file: File) {
+  async function handleImportMarkdown(file: File, original?: ImportedOriginalDocument) {
     if (selectedFolderId === null) return;
     if (file.size > ENTRY_NOTES_MAX_BYTES) {
       setError("Markdown files must not exceed 10 MB.");
-      return;
+      throw new Error("Markdown files must not exceed 10 MB.");
     }
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const importDraft: MarkdownImportDraft = parseMarkdownImport(file.name, bytes);
+      importDraft.originalDocument = original;
       openDraft({
         kind,
         folderId: selectedFolderId,
@@ -599,6 +602,7 @@ export function EntriesWorkspace({
       });
     } catch (caught) {
       setError(getErrorMessage(caught));
+      throw caught;
     }
   }
 

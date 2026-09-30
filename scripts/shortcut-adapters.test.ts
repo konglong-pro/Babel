@@ -66,7 +66,7 @@ test("every registered app and the mirror template expose the global shortcut se
     readonly schemaVersion: number;
     readonly commands: ReadonlyArray<{ readonly command: string }>;
   };
-  assert.equal(defaults.schemaVersion, 6, "layered key sequences require schema v6");
+  assert.equal(defaults.schemaVersion, 7, "layered key sequences require schema v7");
   const configuredCommands = new Set(defaults.commands.map(({ command }) => command));
   for (const command of requiredNavigationCommands) {
     assert.ok(

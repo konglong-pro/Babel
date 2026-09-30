@@ -63,7 +63,7 @@ test("desktop host runs isolated fixture pages in actual WebView2 controls", { s
       path.join(root, "launcher/Test-BabelDesktop.ps1"), "-FixtureOrigin", `http://127.0.0.1:${address.port}`,
     ], { timeout: 58_000 });
     assert.equal(stderr, "");
-    assert.equal((stdout.match(/^PASS /gm) ?? []).length, 9, stdout);
+    assert.equal((stdout.match(/^PASS /gm) ?? []).length, 10, stdout);
     context.diagnostic("Native accelerator settings verified; physical keyboard delivery was not tested. CDP key injection was not delivered by the fixture runtime.");
   } finally {
     server.closeAllConnections();

@@ -1,5 +1,7 @@
 "use client";
 
+import { EditorExitActions, submittedForReading } from "@babel-apps/platform/shortcuts/react";
+
 import type { Wikilink } from "@babel-apps/markdown/core";
 import {
   DetachedEditorWindow,
@@ -234,8 +236,8 @@ interface ExerciseDetailProps {
   searchFocus: ArchiveSearchFocus | null;
   loading?: boolean;
   onEdit: () => void;
-  onCancel: () => void;
-  onSaved: (detail: ExerciseDetailDto) => void;
+  onCancel: (discardConfirmed?: boolean) => void;
+  onSaved: (detail: ExerciseDetailDto, readAfterSave?: boolean) => void;
   onDeleted: () => void;
   onNavigateEntity: (
     kind: LinkEntityKind,
@@ -555,8 +557,8 @@ interface ExerciseFormProps {
   draftKey: string | number;
   detail: ExerciseDetailDto | null;
   folderId: number | null;
-  onCancel: () => void;
-  onSaved: (detail: ExerciseDetailDto) => void;
+  onCancel: (discardConfirmed?: boolean) => void;
+  onSaved: (detail: ExerciseDetailDto, readAfterSave?: boolean) => void;
   resolveWikilink: (titleKey: string) => ResolvedWikilink | null;
   onNavigateWikilink: (target: ResolvedWikilink) => void;
   onCreateKnowledgeWikilink: (title: string) => void;
@@ -683,6 +685,7 @@ function ExerciseForm({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const readAfterSave = submittedForReading(event);
     if (pending) return;
     if (folderId === null) {
       setError("Select a folder first.");
@@ -718,7 +721,7 @@ function ExerciseForm({
       setSolution(saved.solutionMd);
       setKnowledgeIds(saved.relatedKnowledge.map((item) => item.id));
       onDirtyChange?.(false);
-      onSaved(saved);
+      onSaved(saved, readAfterSave);
     } catch (caught) {
       setError(getErrorMessage(caught));
     } finally {
@@ -777,6 +780,7 @@ function ExerciseForm({
   return (
     <section className="detail-panel form-view" data-babel-pane="detail" tabIndex={-1}>
       <form ref={formRef} onSubmit={submit} aria-busy={pending}>
+        <EditorExitActions dirty={dirty} pending={pending} formRef={formRef} onDiscard={() => onCancel(true)} />
         <fieldset className="form-controls" disabled={pending}>
         <header className="document-header">
           <div>
@@ -811,7 +815,7 @@ function ExerciseForm({
             <h1>{detail ? detail.title : "Archive a Classic Problem"}</h1>
           </div>
           <div className="document-actions">
-            <button data-babel-command="cancel" type="button" onClick={onCancel}>
+            <button data-babel-command="cancel" type="button" disabled={pending} onClick={() => onCancel()}>
               Cancel
             </button>
             <button

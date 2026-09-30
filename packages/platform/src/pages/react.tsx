@@ -16,9 +16,11 @@ import {
 } from "react";
 
 import {
+  createPageNavigationState,
   createPageSessionsState,
+  pageHistoryTarget,
+  pageNavigationReducer,
   pagesShareScope,
-  pageSessionsReducer,
   parsePageSessions,
   serializePageSessions,
   type PageSessionDescriptor,
@@ -36,6 +38,11 @@ export interface OpenPageOptions {
 
 export interface PageSessionsContextValue extends PageSessionsState {
   readonly pendingNavigationKey: string | null;
+  readonly lastClosedPage: PageSessionDescriptor | null;
+  readonly previousVisitedPage: PageSessionDescriptor | null;
+  readonly nextVisitedPage: PageSessionDescriptor | null;
+  reopenPage(): void;
+  visitPageHistory(direction: -1 | 1): void;
   openPage(page: PageSessionDescriptor, options?: OpenPageOptions): void;
   activatePage(key: string | null): void;
   beginPageNavigation(key: string): void;
@@ -113,10 +120,11 @@ export function PageSessionProvider({
   storageKey,
   onActivePageChange,
 }: PageSessionProviderProps) {
-  const [state, dispatch] = useReducer(
-    pageSessionsReducer,
-    createPageSessionsState(initialPages, initialActiveKey),
+  const [navigation, dispatch] = useReducer(
+    pageNavigationReducer,
+    createPageNavigationState(createPageSessionsState(initialPages, initialActiveKey)),
   );
+  const state = navigation.sessions;
   const [pendingClose, setPendingClose] = useState<PendingClose | null>(null);
   const [pendingNavigationKey, setPendingNavigationKey] = useState<string | null>(null);
   const [closePending, setClosePending] = useState(false);
@@ -131,12 +139,14 @@ export function PageSessionProvider({
 
   const completePageNavigation = useCallback((key?: string) => {
     if (key !== undefined && pendingNavigationKeyRef.current !== key) return;
+    const completedKey = pendingNavigationKeyRef.current;
     pendingNavigationKeyRef.current = null;
     if (pendingNavigationTimerRef.current !== null) {
       clearTimeout(pendingNavigationTimerRef.current);
       pendingNavigationTimerRef.current = null;
     }
     setPendingNavigationKey(null);
+    if (completedKey !== null) schedulePagePanelFocus(completedKey);
   }, []);
   const beginPageNavigation = useCallback((key: string) => {
     if (pendingNavigationTimerRef.current !== null) {
@@ -237,22 +247,30 @@ export function PageSessionProvider({
     lifecycleRef.current.delete(key);
     if (lifecycle !== undefined) lifecycleRef.current.set(page.key, lifecycle);
     dispatch({ type: "rekey", key, page });
+    setPendingClose((pending) => pending?.key === key
+      ? { ...pending, key: page.key }
+      : pending);
   }, []);
   const closePage = useCallback((key: string) => {
     lifecycleRef.current.delete(key);
     dispatch({ type: "close", key });
   }, []);
+  const reopenPage = useCallback(() => dispatch({ type: "reopen-tab" }), []);
+  const visitPageHistory = useCallback((direction: -1 | 1) => {
+    dispatch({ type: "visit-history", direction });
+  }, []);
   const requestClosePage = useCallback((key: string) => {
     const page = state.pages.find((candidate) => candidate.key === key);
     if (page === undefined) return;
     if (!page.dirty && !page.pending) {
-      closePage(key);
+      lifecycleRef.current.delete(key);
+      dispatch({ type: "close-tab", key });
       schedulePagePanelFocus();
       return;
     }
     setCloseError("");
     setPendingClose({ key, others: false });
-  }, [closePage, state.pages]);
+  }, [state.pages]);
   const requestCloseOtherPages = useCallback((key: string) => {
     const otherPages = otherPagesInScope(state.pages, key);
     const protectedPages = otherPages.filter((page) => page.dirty || page.pending);
@@ -260,7 +278,7 @@ export function PageSessionProvider({
       for (const page of otherPages) {
         lifecycleRef.current.delete(page.key);
       }
-      dispatch({ type: "close-others", key });
+      dispatch({ type: "close-other-tabs", key });
       return;
     }
     setCloseError("");
@@ -284,10 +302,10 @@ export function PageSessionProvider({
       for (const page of otherPagesInScope(state.pages, pending.key)) {
         lifecycleRef.current.delete(page.key);
       }
-      dispatch({ type: "close-others", key: pending.key });
+      dispatch({ type: "close-other-tabs", key: pending.key });
     } else {
       lifecycleRef.current.delete(pending.key);
-      dispatch({ type: "close", key: pending.key });
+      dispatch({ type: "close-tab", key: pending.key });
     }
     setPendingClose(null);
     schedulePagePanelFocus();
@@ -353,6 +371,11 @@ export function PageSessionProvider({
   const context = useMemo<PageSessionsContextValue>(() => ({
     ...state,
     pendingNavigationKey,
+    lastClosedPage: navigation.closedPages.at(-1) ?? null,
+    previousVisitedPage: pageHistoryTarget(navigation, -1)?.page ?? null,
+    nextVisitedPage: pageHistoryTarget(navigation, 1)?.page ?? null,
+    reopenPage,
+    visitPageHistory,
     openPage,
     activatePage,
     beginPageNavigation,
@@ -371,15 +394,18 @@ export function PageSessionProvider({
     closePage,
     completePageNavigation,
     movePage,
+    navigation,
     openPage,
     pendingNavigationKey,
     registerLifecycle,
+    reopenPage,
     rekeyPage,
     requestCloseOtherPages,
     requestClosePage,
     setPageStatus,
     state,
     updatePage,
+    visitPageHistory,
   ]);
 
   const pendingClosePage = pendingClose === null
@@ -884,9 +910,13 @@ export interface UsePageTabCommandsOptions {
 
 export interface PageTabCommandController {
   activateTab(key: string): boolean;
+  selectTab(index: number): boolean;
   nextTab(): boolean;
   previousTab(): boolean;
   closeTab(): boolean;
+  reopenTab(): boolean;
+  historyBack(): boolean;
+  historyForward(): boolean;
 }
 
 export function usePageTabCommands({
@@ -899,37 +929,51 @@ export function usePageTabCommands({
     beginPageNavigation,
     completePageNavigation,
     requestClosePage,
+    lastClosedPage,
+    previousVisitedPage,
+    nextVisitedPage,
+    reopenPage,
+    visitPageHistory,
   } = usePageSessions();
 
-  const activateTab = useCallback((key: string): boolean => {
-    const page = pages.find((candidate) => candidate.key === key);
-    if (page === undefined) return false;
+  const navigatePage = useCallback((
+    page: PageSessionDescriptor,
+    activate: () => void,
+  ): boolean => {
     const target = new URL(page.href, window.location.origin);
+    if (target.origin !== window.location.origin) return false;
     if (target.pathname !== window.location.pathname) {
-      if (onNavigate !== undefined) beginPageNavigation(page.key);
-      activatePage(page.key);
+      // Route adapters keep other processes and their unsaved editors mounted.
+      if (onNavigate === undefined) return false;
+      beginPageNavigation(page.key);
+      activate();
       const href = `${target.pathname}${target.search}${target.hash}`;
-      if (onNavigate === undefined) {
-        window.location.assign(href);
-      } else {
-        try {
-          onNavigate(href);
-        } catch (error) {
-          completePageNavigation(page.key);
-          throw error;
-        }
+      try {
+        onNavigate(href);
+      } catch (error) {
+        completePageNavigation(page.key);
+        throw error;
       }
       return true;
     }
-    activatePage(page.key);
+    activate();
     return true;
   }, [
-    activatePage,
     beginPageNavigation,
     completePageNavigation,
     onNavigate,
-    pages,
   ]);
+  const activateTab = useCallback((key: string): boolean => {
+    const page = pages.find((candidate) => candidate.key === key);
+    return page !== undefined && navigatePage(page, () => activatePage(page.key));
+  }, [activatePage, navigatePage, pages]);
+
+  const selectTab = useCallback((index: number): boolean => {
+    const page = pages[index];
+    if (page === undefined || !activateTab(page.key)) return false;
+    schedulePagePanelFocus(page.key);
+    return true;
+  }, [activateTab, pages]);
 
   const adjacentTab = useCallback((direction: 1 | -1): boolean => {
     if (pages.length === 0) return false;
@@ -949,12 +993,29 @@ export function usePageTabCommands({
     return true;
   }, [activeKey, pages, requestClosePage]);
 
+  const reopenTab = useCallback((): boolean => {
+    if (lastClosedPage === null || !navigatePage(lastClosedPage, reopenPage)) return false;
+    schedulePagePanelFocus(lastClosedPage.key);
+    return true;
+  }, [lastClosedPage, navigatePage, reopenPage]);
+
+  const visitHistory = useCallback((direction: -1 | 1): boolean => {
+    const page = direction === -1 ? previousVisitedPage : nextVisitedPage;
+    if (page === null || !navigatePage(page, () => visitPageHistory(direction))) return false;
+    schedulePagePanelFocus(page.key);
+    return true;
+  }, [navigatePage, nextVisitedPage, previousVisitedPage, visitPageHistory]);
+
   return useMemo(() => ({
     activateTab,
+    selectTab,
     nextTab: () => adjacentTab(1),
     previousTab: () => adjacentTab(-1),
     closeTab,
-  }), [activateTab, adjacentTab, closeTab]);
+    reopenTab,
+    historyBack: () => visitHistory(-1),
+    historyForward: () => visitHistory(1),
+  }), [activateTab, adjacentTab, closeTab, reopenTab, selectTab, visitHistory]);
 }
 
 function pageTabDomId(key: string): string {
@@ -973,9 +1034,9 @@ function schedulePagePanelFocus(pageKey?: string): void {
     const preferredPanel = pageKey === undefined
       ? null
       : document.getElementById(pagePanelDomId(pageKey));
-    const panel = preferredPanel?.matches(":not([hidden]):not([inert])") === true
-      ? preferredPanel
-      : document.querySelector<HTMLElement>(".babel-page-deck__page[data-active]");
+    const panel = pageKey === undefined
+      ? document.querySelector<HTMLElement>(".babel-page-deck__page[data-active]")
+      : preferredPanel;
     const target = panel?.querySelector<HTMLElement>("[data-babel-pane='detail']") ?? panel;
     if (
       target === null ||
@@ -1010,6 +1071,9 @@ export function PageTabs({
     requestClosePage,
     requestCloseOtherPages,
     movePage,
+    lastClosedPage,
+    previousVisitedPage,
+    nextVisitedPage,
   } = usePageSessions();
   const tabCommands = usePageTabCommands({ onNavigate });
   const dragKeyRef = useRef<string | null>(null);
@@ -1024,7 +1088,6 @@ export function PageTabs({
     storedFocusedKey,
     tablistHasFocus,
   );
-  if (pages.length === 0) return null;
 
   const drop = (event: DragEvent<HTMLLIElement>, toIndex: number) => {
     event.preventDefault();
@@ -1041,6 +1104,8 @@ export function PageTabs({
   };
 
   return (
+    <>
+    {pages.length === 0 ? null : (
     <nav
       className={`babel-page-tabs ${className}`.trim()}
       aria-label={label}
@@ -1111,6 +1176,11 @@ export function PageTabs({
                 onClick={() => tabCommands.activateTab(page.key)}
                 onDoubleClick={() => requestCloseOtherPages(page.key)}
               >
+                {index < 10 ? (
+                  <span className="babel-page-tab__number" aria-hidden="true">
+                    {index === 9 ? "0" : index + 1}
+                  </span>
+                ) : null}
                 <span className="babel-page-tab__kind">{page.kind}</span>
                 <span className="babel-page-tab__title">{page.title}</span>
                 {page.pending ? (
@@ -1135,11 +1205,14 @@ export function PageTabs({
           );
         })}
       </ul>
+    </nav>
+    )}
       <button
         hidden
         type="button"
         data-babel-command-adapter=""
         data-babel-command="nextTab"
+        disabled={pages.length === 0}
         onClick={tabCommands.nextTab}
       />
       <button
@@ -1147,6 +1220,7 @@ export function PageTabs({
         type="button"
         data-babel-command-adapter=""
         data-babel-command="previousTab"
+        disabled={pages.length === 0}
         onClick={tabCommands.previousTab}
       />
       <button
@@ -1154,9 +1228,45 @@ export function PageTabs({
         type="button"
         data-babel-command-adapter=""
         data-babel-command="closeTab"
+        disabled={activeKey === null}
         onClick={tabCommands.closeTab}
       />
-    </nav>
+      {Array.from({ length: 10 }, (_, index) => (
+        <button
+          key={index}
+          hidden
+          type="button"
+          data-babel-command-adapter=""
+          data-babel-command={`selectTab${index + 1}`}
+          disabled={pages[index] === undefined}
+          onClick={() => tabCommands.selectTab(index)}
+        />
+      ))}
+      <button
+        hidden
+        type="button"
+        data-babel-command-adapter=""
+        data-babel-command="reopenTab"
+        disabled={lastClosedPage === null}
+        onClick={tabCommands.reopenTab}
+      />
+      <button
+        hidden
+        type="button"
+        data-babel-command-adapter=""
+        data-babel-command="historyBack"
+        disabled={previousVisitedPage === null}
+        onClick={tabCommands.historyBack}
+      />
+      <button
+        hidden
+        type="button"
+        data-babel-command-adapter=""
+        data-babel-command="historyForward"
+        disabled={nextVisitedPage === null}
+        onClick={tabCommands.historyForward}
+      />
+    </>
   );
 }
 

@@ -1,3 +1,5 @@
+import type { ImportedOriginalDocument } from "@babel-apps/platform/imports/document-core";
+
 import {
   NOTE_CONTENT_MAX_BYTES,
   NOTE_NEW_IMAGE_MAX_COUNT,
@@ -40,6 +42,7 @@ export interface MarkdownImportDraft {
   title: string;
   contentMd: string;
   imageReferences: ImportedImageReference[];
+  originalDocument?: ImportedOriginalDocument;
 }
 
 export interface ImportedImageMatch<TFile extends { name: string }> {

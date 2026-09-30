@@ -1,4 +1,4 @@
-export const SHORTCUT_SCHEMA_VERSION = 6 as const;
+export const SHORTCUT_SCHEMA_VERSION = 7 as const;
 
 export const SHORTCUT_COMMANDS = [
   "save",
@@ -19,6 +19,13 @@ export const SHORTCUT_COMMANDS = [
   "closeTab",
   "quickOpen",
   "help",
+  "selectApp1", "selectApp2", "selectApp3", "selectApp4", "selectApp5",
+  "selectApp6", "selectApp7", "selectApp8", "selectApp9", "selectApp10",
+  "nextAppTab", "previousAppTab", "closeAppTab", "appHome",
+  "selectTab1", "selectTab2", "selectTab3", "selectTab4", "selectTab5",
+  "selectTab6", "selectTab7", "selectTab8", "selectTab9", "selectTab10",
+  "reopenTab", "historyBack", "historyForward", "saveAndRead",
+  "focusFolders", "focusDocuments", "focusContent",
 ] as const;
 
 export type ShortcutCommand = (typeof SHORTCUT_COMMANDS)[number];
@@ -79,7 +86,7 @@ export type ShortcutKey =
 export interface ShortcutDefinition {
   readonly command: ShortcutCommand;
   readonly label: string;
-  readonly defaultBinding: string;
+  readonly defaultBinding: string | null;
 }
 
 export type ShortcutBinding = string | null;
@@ -185,7 +192,7 @@ export const SHORTCUT_DEFINITIONS: readonly ShortcutDefinition[] = Object.freeze
   Object.freeze({
     command: "closeTab",
     label: "Close Tab",
-    defaultBinding: "Ctrl+Alt+W",
+    defaultBinding: "Ctrl+W",
   }),
   Object.freeze({
     command: "quickOpen",
@@ -197,6 +204,27 @@ export const SHORTCUT_DEFINITIONS: readonly ShortcutDefinition[] = Object.freeze
     label: "Keyboard Help",
     defaultBinding: "Ctrl+Alt+H",
   }),
+  ...Array.from({ length: 10 }, (_, index) => Object.freeze({
+    command: `selectApp${index + 1}` as ShortcutCommand,
+    label: `Switch to APP ${index + 1}`,
+    defaultBinding: `Ctrl+${(index + 1) % 10}`,
+  })),
+  Object.freeze({ command: "nextAppTab", label: "Next APP Tab", defaultBinding: "Ctrl+Tab" }),
+  Object.freeze({ command: "previousAppTab", label: "Previous APP Tab", defaultBinding: "Ctrl+Shift+Tab" }),
+  Object.freeze({ command: "closeAppTab", label: "Close APP Tab", defaultBinding: "Ctrl+Shift+W" }),
+  Object.freeze({ command: "appHome", label: "Babel Home", defaultBinding: "Alt+Home" }),
+  ...Array.from({ length: 10 }, (_, index) => Object.freeze({
+    command: `selectTab${index + 1}` as ShortcutCommand,
+    label: `Switch to Note Tab ${index + 1}`,
+    defaultBinding: `Ctrl+Alt+${(index + 1) % 10}`,
+  })),
+  Object.freeze({ command: "reopenTab", label: "Reopen Closed Note Tab", defaultBinding: "Ctrl+Shift+T" }),
+  Object.freeze({ command: "historyBack", label: "Previous Visited Note", defaultBinding: "Alt+ArrowLeft" }),
+  Object.freeze({ command: "historyForward", label: "Next Visited Note", defaultBinding: "Alt+ArrowRight" }),
+  Object.freeze({ command: "saveAndRead", label: "Save and Read", defaultBinding: "Ctrl+Shift+Enter" }),
+  Object.freeze({ command: "focusFolders", label: "Focus Folders", defaultBinding: null }),
+  Object.freeze({ command: "focusDocuments", label: "Focus Documents", defaultBinding: null }),
+  Object.freeze({ command: "focusContent", label: "Focus Content", defaultBinding: null }),
 ]);
 
 export const LAUNCHER_SHORTCUT_DEFINITIONS: readonly {
@@ -214,6 +242,9 @@ export const LAUNCHER_SHORTCUT_DEFINITIONS: readonly {
 ]);
 
 const COMMAND_SET = new Set<string>(SHORTCUT_COMMANDS);
+export const LEGACY_SHORTCUT_COMMANDS = SHORTCUT_COMMANDS.slice(0, 18);
+export const DESKTOP_SHORTCUT_COMMANDS = SHORTCUT_COMMANDS.filter(command =>
+  /^selectApp\d+$/.test(command) || ["nextAppTab", "previousAppTab", "closeAppTab", "appHome"].includes(command));
 const VERSION_ONE_SHORTCUT_COMMANDS = [
   "save",
   "new",
@@ -294,6 +325,10 @@ const EXACT_DANGEROUS_BINDINGS = new Set([
   "F2",
 ]);
 const DESKTOP_ONLY_BINDINGS = new Set([
+  ...Array.from({ length: 10 }, (_, index) => `Ctrl+${index}`),
+  "Alt+Home",
+  "Alt+ArrowLeft",
+  "Alt+ArrowRight",
   "Ctrl+W",
   "Ctrl+Shift+W",
   "Ctrl+T",
@@ -322,8 +357,8 @@ function makeDefaultBindings(): Record<ShortcutCommand, ShortcutBinding> {
 
 function makeDefaultLayers(): ShortcutLayers {
   return {
-    app: {},
-    edit: {},
+    app: { focusFolders: "G F", focusDocuments: "G L", focusContent: "G C" },
+    edit: { saveAndRead: "Ctrl+Enter", focusFolders: null, focusDocuments: null, focusContent: null },
     read: {},
     launcher: Object.fromEntries(
       LAUNCHER_SHORTCUT_DEFINITIONS.map(({ command, defaultBinding }) => [command, defaultBinding]),
@@ -636,6 +671,7 @@ export function parseShortcutSettings(value: unknown): ShortcutSettings {
     value.schemaVersion !== 3 &&
     value.schemaVersion !== 4 &&
     value.schemaVersion !== 5 &&
+    value.schemaVersion !== 6 &&
     value.schemaVersion !== SHORTCUT_SCHEMA_VERSION
   ) {
     throw new ShortcutValidationError(
@@ -659,7 +695,7 @@ export function parseShortcutSettings(value: unknown): ShortcutSettings {
         ? VERSION_TWO_SHORTCUT_COMMANDS
         : value.schemaVersion === 3
           ? VERSION_THREE_SHORTCUT_COMMANDS
-          : SHORTCUT_COMMANDS;
+          : value.schemaVersion < 7 ? LEGACY_SHORTCUT_COMMANDS : SHORTCUT_COMMANDS;
   assertExactKeys(value.bindings, sourceCommands, "Shortcut bindings");
 
   const sourceBindings = new Map<ShortcutCommand, ShortcutBinding>();
@@ -678,7 +714,7 @@ export function parseShortcutSettings(value: unknown): ShortcutSettings {
       );
     }
 
-    const binding = value.schemaVersion === SHORTCUT_SCHEMA_VERSION
+    const binding = value.schemaVersion >= 6
       ? normalizeShortcutBinding(rawBinding)
       : parseShortcutBindingInternal(rawBinding, value.schemaVersion < 3).binding;
     if (
@@ -707,6 +743,28 @@ export function parseShortcutSettings(value: unknown): ShortcutSettings {
     sourceBindings.set(command, binding);
   }
 
+  const layers = value.schemaVersion >= 5
+    ? parseShortcutLayers(value.layers, value.schemaVersion >= 6)
+    : { app: {}, edit: {}, read: {}, launcher: makeDefaultLayers().launcher };
+  if (value.schemaVersion < 7) {
+    for (const mode of ["app", "edit", "read"] as const) {
+      if (Object.keys(layers[mode]).some(command => !LEGACY_SHORTCUT_COMMANDS.includes(command as ShortcutCommand))) {
+        throw new ShortcutValidationError(`New navigation commands require schemaVersion 7 (${mode}).`);
+      }
+    }
+  }
+  const existingModeBindings = [layers.app, layers.edit, layers.read];
+  const conflictsWithModes = (binding: string, excluded: readonly ShortcutCommand[] = []) =>
+    existingModeBindings.some(layer => Object.entries(layer).some(([command, assigned]) =>
+      assigned != null && !excluded.includes(command as ShortcutCommand) && shortcutBindingsConflict(assigned, binding)));
+  // Upgrade the previous default only when its replacement is free. Custom
+  // bindings, disabled commands, and keys claimed in any mode remain intact.
+  if (value.schemaVersion < 7 && sourceBindings.get("closeTab") === "Ctrl+Alt+W" &&
+      findConflictingCommand(assignedBindings, "Ctrl+W") === undefined && !conflictsWithModes("Ctrl+W", ["closeTab"])) {
+    sourceBindings.set("closeTab", "Ctrl+W");
+    assignedBindings.delete("Ctrl+Alt+W");
+    assignedBindings.set("Ctrl+W", "closeTab");
+  }
   const normalizedBindings = {} as Record<ShortcutCommand, ShortcutBinding>;
   for (const command of SHORTCUT_COMMANDS) {
     if (sourceBindings.has(command)) {
@@ -714,10 +772,10 @@ export function parseShortcutSettings(value: unknown): ShortcutSettings {
       continue;
     }
 
-    const defaultBinding = normalizeShortcutBinding(
-      SHORTCUT_DEFINITIONS.find((definition) => definition.command === command)!.defaultBinding,
-    );
-    if (findConflictingCommand(assignedBindings, defaultBinding) !== undefined) {
+    const rawDefault = SHORTCUT_DEFINITIONS.find((definition) => definition.command === command)!.defaultBinding;
+    const defaultBinding = rawDefault === null ? null : normalizeShortcutBinding(rawDefault);
+    if (defaultBinding === null || findConflictingCommand(assignedBindings, defaultBinding) !== undefined ||
+        conflictsWithModes(defaultBinding)) {
       normalizedBindings[command] = null;
       continue;
     }
@@ -729,10 +787,25 @@ export function parseShortcutSettings(value: unknown): ShortcutSettings {
   const settings: ShortcutSettings = {
     schemaVersion: SHORTCUT_SCHEMA_VERSION,
     bindings: normalizedBindings,
-    layers: value.schemaVersion >= 5
-      ? parseShortcutLayers(value.layers, value.schemaVersion === SHORTCUT_SCHEMA_VERSION)
-      : makeDefaultLayers(),
+    layers,
   };
+  if (value.schemaVersion < 7) {
+    const appLayer = layers.app as Partial<Record<ShortcutCommand, ShortcutBinding>>;
+    const editLayer = layers.edit as Partial<Record<ShortcutCommand, ShortcutBinding>>;
+    for (const [command, binding] of Object.entries(makeDefaultLayers().app)) {
+      if (binding == null || conflictsWithModes(binding) ||
+          findConflictingCommand(assignedBindings, binding) !== undefined) continue;
+      appLayer[command as ShortcutCommand] = binding;
+      editLayer[command as ShortcutCommand] = null;
+    }
+    const editBindings = resolveShortcutBindings(settings, "edit");
+    if (editBindings.confirm === "Ctrl+Enter" && !conflictsWithModes("Ctrl+Enter", ["confirm"]) &&
+        Object.entries(normalizedBindings).every(([command, binding]) =>
+          command === "confirm" || command === "saveAndRead" || binding === null ||
+          !shortcutBindingsConflict(binding, "Ctrl+Enter"))) {
+      editLayer.saveAndRead = "Ctrl+Enter";
+    }
+  }
   for (const mode of ["app", "edit", "read"] as const) {
     const assigned = new Map<string, ShortcutCommand>();
     const effective = resolveShortcutBindings(settings, mode);

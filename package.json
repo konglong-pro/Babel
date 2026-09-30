@@ -15,6 +15,8 @@
     "registry:check": "tsx scripts/check-registry.ts",
     "test:scripts": "tsx --test scripts/*.test.ts",
     "template:check": "npm run check --prefix templates/mirror-app",
+    "import:setup": "pwsh.exe -NoProfile -ExecutionPolicy Bypass -File scripts/markitdown/setup.ps1",
+    "import:test": "pwsh.exe -NoProfile -ExecutionPolicy Bypass -File scripts/markitdown/tests.ps1",
     "benchmark:search:all": "tsx scripts/search-text-benchmark.ts && npm run --silent benchmark:search --workspaces --if-present",
     "benchmark:search:smoke": "tsx scripts/search-text-benchmark.ts && npm run --silent benchmark:search --workspaces --if-present -- --smoke && npm run --silent benchmark:search --prefix templates/mirror-app -- --smoke",
     "new-app": "tsx scripts/new-app.ts",

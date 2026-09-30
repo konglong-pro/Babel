@@ -5,14 +5,15 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 
 namespace BabelLauncher
 {
-    // The shell hosts only registered notebooks. It exposes no native object or
-    // message handler to document content; existing app HTTP APIs own all data.
+    // The shell hosts registered notebooks. Its message bridge accepts only
+    // allowlisted APP navigation commands; existing HTTP APIs own all data.
     public sealed class DesktopHost : IDisposable
     {
         private sealed class Notebook
@@ -23,6 +24,7 @@ namespace BabelLauncher
             public Grid Surface;
             public Border Header;
             public Button SelectButton;
+            public TextBlock Ordinal;
             public WebView2 View;
             public Window PopupWindow;
             public string ParentId;
@@ -39,17 +41,60 @@ namespace BabelLauncher
         private readonly string userDataFolder;
         private readonly HashSet<string> origins;
         private readonly Dictionary<string, Notebook> notebooks = new Dictionary<string, Notebook>();
+        private readonly List<Notebook> appTabs = new List<Notebook>();
         private Notebook active;
         private bool disposed;
         private bool checkingClose;
         private bool closeApproved;
 
         public bool IsHomeVisible { get { return active == null; } }
+        public bool IsWebContentFocused { get { return active != null && active.View.IsKeyboardFocusWithin; } }
+        public string ActiveAppId { get { return active == null ? null : active.Id; } }
         public int OpenCount { get { return notebooks.Count; } }
         public string[] OpenIds { get { return notebooks.Keys.ToArray(); } }
         public int ReadyCount { get { return notebooks.Values.Count(n => n.Status == "Ready"); } }
         public Action<Window> ConfigureWindow { get; set; }
         public Func<string, ImageSource> ResolveAppLogo { get; set; }
+        public Action HomeRequested { get; set; }
+
+        public static bool IsAppNavigationCommand(string command)
+        {
+            if (command == "nextAppTab" || command == "previousAppTab" || command == "closeAppTab" || command == "appHome") return true;
+            return Enumerable.Range(1, 10).Any(index => command == "selectApp" + index);
+        }
+
+        public bool ExecuteAppCommand(string command)
+        {
+            if (!IsAppNavigationCommand(command)) return false;
+            if (disposed || closeApproved || checkingClose) return true;
+            if (command == "appHome") {
+                ShowHome();
+                if (HomeRequested != null) HomeRequested();
+                else home.MoveFocus(new TraversalRequest(FocusNavigationDirection.First));
+                return true;
+            }
+            if (command == "closeAppTab") {
+                if (active != null) _ = CloseNotebookAsync(active);
+                return true;
+            }
+            if (appTabs.Count == 0) return true;
+            int index;
+            if (command.StartsWith("selectApp", StringComparison.Ordinal)) index = Int32.Parse(command.Substring(9)) - 1;
+            else {
+                index = appTabs.IndexOf(active);
+                index = command == "nextAppTab" ? (index + 1) % appTabs.Count : (index < 0 ? appTabs.Count - 1 : (index + appTabs.Count - 1) % appTabs.Count);
+            }
+            if (index >= 0 && index < appTabs.Count) Select(appTabs[index]);
+            return true;
+        }
+
+        private void RefreshAppOrdinals()
+        {
+            for (int index = 0; index < appTabs.Count; index++) {
+                appTabs[index].Ordinal.Text = index == 9 ? "0" : (index + 1).ToString();
+                appTabs[index].Ordinal.ToolTip = "APP " + (index + 1);
+            }
+        }
 
         public DesktopHost(Window window, Panel surface, FrameworkElement home,
             Panel tabs, TextBlock status, string userDataFolder, string[] allowedOrigins)
@@ -103,6 +148,10 @@ namespace BabelLauncher
                 Text = name, MaxWidth = 160, TextWrapping = TextWrapping.NoWrap,
                 TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center
             });
+            notebook.Ordinal = new TextBlock {
+                FontSize = 11, Opacity = 0.6, Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center
+            };
+            brand.Children.Add(notebook.Ordinal);
             notebook.SelectButton = new Button {
                 Content = brand, Padding = new Thickness(12, 6, 10, 6), ToolTip = "Switch to " + name,
                 VerticalAlignment = VerticalAlignment.Center
@@ -123,6 +172,8 @@ namespace BabelLauncher
             tabs.Children.Add(notebook.Header);
             surface.Children.Add(notebook.Surface);
             notebooks.Add(id, notebook);
+            appTabs.Add(notebook);
+            RefreshAppOrdinals();
             CreateView(notebook);
             Select(notebook);
             _ = InitializeNotebookAsync(notebook);
@@ -148,15 +199,27 @@ namespace BabelLauncher
                 var core = view.CoreWebView2;
                 core.Settings.AreBrowserAcceleratorKeysEnabled = false;
                 core.Settings.AreHostObjectsAllowed = false;
-                core.Settings.IsWebMessageEnabled = false;
+                core.Settings.IsWebMessageEnabled = notebook.PopupWindow == null;
                 core.Settings.IsStatusBarEnabled = false;
                 string origin = notebook.Address.GetLeftPart(UriPartial.Authority);
                 // Origin is validated as a loopback HTTP authority, not document text.
                 await core.AddScriptToExecuteOnDocumentCreatedAsync(
                     "if (window.top === window && (location.origin === '" + origin + "'" +
                     (notebook.AllowBlank ? " || location.href === 'about:blank'" : "") + ")) {" +
-                    "Object.defineProperty(window, '__BABEL_DESKTOP__', {value: true}); }");
+                    "Object.defineProperty(window, '__BABEL_DESKTOP__', {value: true});" +
+                    (notebook.PopupWindow == null ? "Object.defineProperty(window, '__BABEL_DESKTOP_APP_COMMANDS__', {value: true});" : "") + " }");
                 if (disposed || notebook.Disposed || notebook.View != view) return false;
+                if (notebook.PopupWindow == null) core.WebMessageReceived += (sender, args) => {
+                    // This Core event receives top-level document messages. Frame
+                    // messages have separate CoreWebView2Frame events, not wired here.
+                    if (disposed || notebook.Disposed || notebook.View != view || active != notebook ||
+                        !IsNotebookAddress(args.Source, origin) || !IsNotebookAddress(core.Source, origin)) return;
+                    string message;
+                    try { message = args.TryGetWebMessageAsString(); } catch (ArgumentException) { return; }
+                    const string prefix = "babel:command:";
+                    if (message != null && message.StartsWith(prefix, StringComparison.Ordinal))
+                        ExecuteAppCommand(message.Substring(prefix.Length));
+                };
                 core.NavigationStarting += (sender, args) => {
                     if (IsNotebookAddress(args.Uri, origin) || (notebook.AllowBlank && args.Uri == "about:blank")) return;
                     args.Cancel = true;
@@ -275,6 +338,11 @@ namespace BabelLauncher
         {
             notebook.Status = message;
             if (active == notebook) status.Text = notebook.Name + " · " + message;
+        }
+
+        public void RefreshStatus()
+        {
+            if (active != null) SetStatus(active, active.Status);
         }
 
         private void Select(Notebook notebook, bool focusView = true)
@@ -449,6 +517,8 @@ namespace BabelLauncher
                 tabs.Children.Remove(notebook.Header);
             }
             notebooks.Remove(notebook.Id);
+            appTabs.Remove(notebook);
+            RefreshAppOrdinals();
             if (active == notebook) ShowHome();
         }
 

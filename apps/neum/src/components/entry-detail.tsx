@@ -1,5 +1,9 @@
 "use client";
 
+import { saveWithImportedOriginal } from "@babel-apps/platform/imports/document-client";
+
+import { EditorExitActions, submittedForReading } from "@babel-apps/platform/shortcuts/react";
+
 import { FolderPicker } from "@babel-apps/platform/folders/picker";
 
 import type { Wikilink } from "@babel-apps/markdown/core";
@@ -276,8 +280,8 @@ interface EntryDetailProps {
   loading?: boolean;
   onEdit: () => void;
   onCreateSubnote: () => void;
-  onCancel: () => void;
-  onSaved: (detail: EntryDetailDto) => Promise<void> | void;
+  onCancel: (discardConfirmed?: boolean) => void;
+  onSaved: (detail: EntryDetailDto, readAfterSave?: boolean) => Promise<void> | void;
   onDeleted: () => Promise<void> | void;
   onNavigateEntry: (
     id: number,
@@ -586,8 +590,8 @@ interface EntryFormProps {
   initialParentId: number | null;
   folders: FolderDto[];
   entries: readonly EntrySummaryDto[];
-  onCancel: () => void;
-  onSaved: (detail: EntryDetailDto) => Promise<void> | void;
+  onCancel: (discardConfirmed?: boolean) => void;
+  onSaved: (detail: EntryDetailDto, readAfterSave?: boolean) => Promise<void> | void;
   onDirtyChange: (dirty: boolean) => void;
   onRegisterSave: (action: (() => void) | null) => void;
   resolveWikilink: (titleKey: string) => ResolvedWikilink | null;
@@ -740,6 +744,7 @@ function EntryForm({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const readAfterSave = submittedForReading(event);
     if (pending) return;
     if (folderId === null) {
       setError("Select a folder before saving this entry.");
@@ -768,9 +773,13 @@ function EntryForm({
         filename: kind === "snippet" && filename.trim() ? filename.trim() : null,
         tags: parseTags(tags),
       };
-      const saved = detail
-        ? await updateEntry(detail.id, detail.version, input, stagedImages)
-        : await createEntry(input, stagedImages);
+      const saved = await saveWithImportedOriginal(
+        input.notesMd,
+        importDraft?.originalDocument,
+        (notesMd) => detail
+          ? updateEntry(detail.id, detail.version, { ...input, notesMd }, stagedImages)
+          : createEntry({ ...input, notesMd }, stagedImages),
+      );
       for (const image of stagedRef.current) URL.revokeObjectURL(image.previewUrl);
       stagedRef.current = [];
       setStagedImages([]);
@@ -783,7 +792,7 @@ function EntryForm({
       setFolderId(saved.folderId);
       setParentId(saved.parentId);
       onDirtyChange(false);
-      await onSaved(saved);
+      await onSaved(saved, readAfterSave);
     } catch (caught) {
       setError(getErrorMessage(caught));
     } finally {
@@ -860,6 +869,7 @@ function EntryForm({
   return (
     <section className="detail-panel form-view" data-babel-pane="detail" tabIndex={-1}>
       <form ref={formRef} onSubmit={submit}>
+        <EditorExitActions dirty={dirty} pending={pending} formRef={formRef} onDiscard={() => onCancel(true)} />
         <header className="document-header form-header">
           <div>
             <DetachedReaderWindow
@@ -899,7 +909,7 @@ function EntryForm({
             </h1>
           </div>
           <div className="document-actions">
-            <button data-babel-command="cancel" type="button" onClick={onCancel}>Cancel</button>
+            <button data-babel-command="cancel" type="button" disabled={pending} onClick={() => onCancel()}>Cancel</button>
             <button
               data-babel-command="save"
               className="primary-button"

@@ -5,6 +5,7 @@ import {
   MarkdownRenderer,
   OutlinePanel,
 } from "@babel-apps/markdown/react";
+import { EditorExitActions, submittedForReading } from "@babel-apps/platform/shortcuts/react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type FormEvent, useEffect, useRef, useState } from "react";
@@ -55,6 +56,7 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState(true);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const dirty = content !== savedContent;
@@ -127,6 +129,7 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const readAfterSave = submittedForReading(event);
     if (savingRef.current) return;
     savingRef.current = true;
     setSaving(true);
@@ -136,6 +139,7 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
       const scratch = await saveScratch(exerciseId, content);
       setSavedContent(content);
       setUpdatedAt(scratch.updatedAt);
+      if (readAfterSave) setEditing(false);
       setMessage("Scratch saved. Previous content was replaced.");
     } catch (caught) {
       setError(getErrorMessage(caught));
@@ -312,7 +316,7 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
           >
             Clear
           </ConfirmButton>
-          <button
+          {editing ? <button
             data-babel-command="save"
             className="primary-button"
             type="button"
@@ -320,12 +324,14 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
             onClick={() => formRef.current?.requestSubmit()}
           >
             {saving ? "Saving…" : "Save Scratch"}
-          </button>
+          </button> : <button type="button" data-babel-command="edit" onClick={() => setEditing(true)}>Edit Scratch</button>}
           <div id={readerTriggerId} className="reader-trigger-slot" />
         </div>
       </header>
 
       <form ref={formRef} data-dirty={dirty} onSubmit={submit}>
+        {editing ? <EditorExitActions dirty={dirty} pending={saving} formRef={formRef}
+          onDiscard={() => { setContent(savedContent); setEditing(false); }} /> : null}
         <div className="status-line" aria-live="polite">
           {error ? <span className="form-error">{error}</span> : message}
         </div>
@@ -341,9 +347,9 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
               defaultWikilinkKind="knowledge"
             />
           </section>
-          <section className="scratch-editor" aria-label="Temporary work editor">
+          <section className="scratch-editor" aria-label={editing ? "Temporary work editor" : "Saved temporary work"}>
             <div className="editor-outline-layout">
-              <MarkdownEditor
+              {editing ? <MarkdownEditor
                 label="Work It Out Again"
                 name="contentMd"
                 value={content}
@@ -355,10 +361,12 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
                 placeholder="Start from scratch. This space always holds only your current derivation…"
                 textareaRef={textareaRef}
                 headingIdPrefix={SCRATCH_HEADING_ID_PREFIX}
-              />
+              /> : <MarkdownRenderer content={savedContent} emptyText="No scratch work yet."
+                uploadScheme="matter-upload" remarkFeatures={REMARK_FEATURES}
+                defaultWikilinkKind="knowledge" headingIdPrefix={SCRATCH_HEADING_ID_PREFIX} />}
               <OutlinePanel
                 content={content}
-                mode="edit"
+                mode={editing ? "edit" : "read"}
                 textareaRef={textareaRef}
                 headingIdPrefix={SCRATCH_HEADING_ID_PREFIX}
               />

@@ -36,6 +36,7 @@ namespace BabelLauncher
                     string main;
                     string popups;
                     string sequences;
+                    string common;
                     WebView2[] sequencePopups = Array.Empty<WebView2>();
                     // This offscreen fixture checks DOM shortcut routing, not physical keyboard
                     // delivery. A parallel native test can take foreground focus; Chromium then
@@ -58,6 +59,7 @@ namespace BabelLauncher
                                 "Emulation.setFocusEmulationEnabled", "{\"enabled\":true}");
                         }
                         sequences = await Evaluate(view, "window.runSequenceFixture()");
+                        common = await Evaluate(view, "window.runCommonShortcutFixture()");
                     } finally {
                         foreach (var popup in sequencePopups) {
                             await popup.CoreWebView2.CallDevToolsProtocolMethodAsync(
@@ -69,7 +71,7 @@ namespace BabelLauncher
                     // Native source selection and focus ownership remain independently checked
                     // after emulation is disabled.
                     string sourceReturn = await VerifySourceReturn(hostType, host, window, view, origin);
-                    result = String.Join(Environment.NewLine, (main + "\n" + popups + "\n" + sequences + "\n" + sourceReturn).Split('\n').Select(line => "PASS " + line));
+                    result = String.Join(Environment.NewLine, (main + "\n" + popups + "\n" + sequences + "\n" + common + "\n" + sourceReturn).Split('\n').Select(line => "PASS " + line));
                 } catch (Exception error) { failure = error; }
                 finally { ((IDisposable)host).Dispose(); window.Close(); }
             };

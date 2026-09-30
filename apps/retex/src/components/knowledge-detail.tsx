@@ -1,5 +1,9 @@
 "use client";
 
+import { saveWithImportedOriginal } from "@babel-apps/platform/imports/document-client";
+
+import { EditorExitActions, submittedForReading } from "@babel-apps/platform/shortcuts/react";
+
 import type { Wikilink } from "@babel-apps/markdown/core";
 import {
   DetachedEditorWindow,
@@ -155,8 +159,8 @@ interface KnowledgeDetailProps {
   loading?: boolean;
   onEdit: () => void;
   onCreateChild: () => void;
-  onCancel: () => void;
-  onSaved: (detail: KnowledgeDetailDto) => void;
+  onCancel: (discardConfirmed?: boolean) => void;
+  onSaved: (detail: KnowledgeDetailDto, readAfterSave?: boolean) => void;
   onDeleted: () => void;
   onNavigateEntity: (
     kind: LinkEntityKind,
@@ -426,8 +430,8 @@ interface KnowledgeFormProps {
   folderId: number | null;
   pages: KnowledgeSummaryDto[];
   createParentId: number | null;
-  onCancel: () => void;
-  onSaved: (detail: KnowledgeDetailDto) => void;
+  onCancel: (discardConfirmed?: boolean) => void;
+  onSaved: (detail: KnowledgeDetailDto, readAfterSave?: boolean) => void;
   resolveWikilink: (titleKey: string) => ResolvedWikilink | null;
   onNavigateWikilink: (target: ResolvedWikilink) => void;
   onCreateWikilink: (title: string, folderId: number) => Promise<void> | void;
@@ -582,6 +586,7 @@ function KnowledgeForm({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const readAfterSave = submittedForReading(event);
     if (pending) return;
     if (folderId === null) {
       setError("Select a folder first.");
@@ -602,9 +607,13 @@ function KnowledgeForm({
         tags: parseTags(tags),
         exerciseIds,
       };
-      const saved = detail
-        ? await updateKnowledge(detail.id, input, stagedImages)
-        : await createKnowledge(input, stagedImages);
+      const saved = await saveWithImportedOriginal(
+        input.contentMd,
+        importDraft?.originalDocument,
+        (contentMd) => detail
+          ? updateKnowledge(detail.id, { ...input, contentMd }, stagedImages)
+          : createKnowledge({ ...input, contentMd }, stagedImages),
+      );
       for (const image of stagedRef.current) URL.revokeObjectURL(image.previewUrl);
       stagedRef.current = [];
       setStagedImages([]);
@@ -614,7 +623,7 @@ function KnowledgeForm({
       setParentId(saved.parentId);
       setExerciseIds(saved.relatedExercises.map((item) => item.id));
       onDirtyChange?.(false);
-      onSaved(saved);
+      onSaved(saved, readAfterSave);
     } catch (caught) {
       setError(getErrorMessage(caught));
     } finally {
@@ -700,6 +709,7 @@ function KnowledgeForm({
   return (
     <section className="detail-panel form-view" data-babel-pane="detail" tabIndex={-1}>
       <form ref={formRef} onSubmit={submit} aria-busy={pending}>
+        <EditorExitActions dirty={dirty} pending={pending} formRef={formRef} onDiscard={() => onCancel(true)} />
         <fieldset className="form-controls" disabled={pending}>
         <header className="document-header">
           <div>
@@ -740,7 +750,7 @@ function KnowledgeForm({
             </h1>
           </div>
           <div className="document-actions">
-            <button data-babel-command="cancel" type="button" onClick={onCancel}>
+            <button data-babel-command="cancel" type="button" disabled={pending} onClick={() => onCancel()}>
               Cancel
             </button>
             <button

@@ -163,9 +163,9 @@ export function EntryPageSession({
     }
   }, [onError]);
 
-  async function handleSaved(saved: EntryDetailDto) {
+  async function handleSaved(saved: EntryDetailDto, readAfterSave = false) {
     setDetail(saved);
-    setMode(entryModeAfterSave(entryId));
+    setMode(readAfterSave ? "view" : entryModeAfterSave(entryId));
     setDirty(false);
     setLoadError("");
     const nextPage = savedEntryPage(saved);
@@ -217,8 +217,8 @@ export function EntryPageSession({
     }
   }
 
-  function cancelEditing() {
-    if (dirty && !window.confirm("Discard your unsaved changes?")) return;
+  function cancelEditing(discardConfirmed = false) {
+    if (!discardConfirmed && dirty && !window.confirm("Discard your unsaved changes?")) return;
     setDirty(false);
     if (entryId === null) {
       closePage(pageKey);

@@ -50,6 +50,48 @@ npm.cmd run dev -w @babel-apps/<id>
 Existing applications also expose root shortcuts such as
 `npm.cmd run dev:retex`.
 
+## Convert documents during import
+
+Every APP and the new-APP template includes **Import → Import document as
+Markdown** beside the existing Markdown file/folder imports. Choose a DOCX,
+PPTX, XLSX, XLS, text PDF, HTML, TXT, CSV, JSON, XML or EPUB file, review and edit
+the converted Markdown, then open a draft. Select its folder and tags in the
+normal editor and save when ready. ReTex/Matter import into Knowledge; Neum
+imports into its knowledge entries.
+
+Install the optional local converter once, with Python 3.10–3.13 and `uv` on
+PATH:
+
+```powershell
+npm.cmd run import:setup
+npm.cmd run import:test
+```
+
+The setup uses the approved
+[MarkItDown fork](https://github.com/konglong-pro/markitdown) at commit
+`a51f725d7ff4cdfe3bb6ad2ce2c04d98bf5f1f00` (`0.1.6b2`), with locked Python
+dependencies and only the document/Office/PDF extras. Its isolated environment
+is `.runtime/markitdown/`; it does not change the system Python packages.
+Conversion runs locally, without network requests, cloud services, LLMs or SDK
+plugins. The APPs remain usable without the optional converter. A trusted
+deployment can set `BABEL_MARKITDOWN_PYTHON` to another environment containing
+the same pinned SDK.
+
+Source files are limited to 50 MiB, converted Markdown to 10 MiB, and conversion
+to two minutes. Cancel aborts conversion and removes the temporary source.
+Scanned PDFs require OCR first. Images are omitted with a review warning;
+complex tables, layouts and math can require correction or manual images.
+JSON and XML are preserved in labeled code blocks so readers show their data
+and tags literally.
+
+**Keep the original file** is optional and off by default. Its download link is
+added to the draft; the source is written only when the draft is saved with that
+link still present. Originals are immutable files under the current APP's
+configured upload directory, in `documents/`. They are included in private-data
+backups and remain there if a save fails or the note/link is later deleted;
+retries reuse the same original. Markdown exchange exports carry the link, not
+the source bytes. No database schema change is required.
+
 ## Open pages
 
 Folder fields support searching by name or full path and browsing an expandable
@@ -240,14 +282,14 @@ npm.cmd run launcher:build
 
 | Layer | Applies to | Inherits |
 | --- | --- | --- |
-| Global | The 18 notebook commands below | Built-in defaults |
+| Global | Notebook commands and desktop APP tabs | Built-in defaults |
 | Apps home | APP selection, opening, stopping, hiding, and focus | Independent home defaults |
 | APP | Browsing every notebook | Global |
 | Edit | Editing content | Global, then APP |
 | Read | Reading content | Global, then APP |
 
 The system-wide launcher binding is stored independently in
-`%LOCALAPPDATA%\Babel\launcher.json`; schema-v6 notebook and Apps home bindings
+`%LOCALAPPDATA%\Babel\launcher.json`; schema-v7 notebook and Apps home bindings
 live in `%LOCALAPPDATA%\Babel\shortcuts.json`. Both files are outside the
 public repository and the private notebook-data repository. A changed launcher
 binding is registered immediately; if Windows reports that the combination is
@@ -255,7 +297,7 @@ already in use, Babel keeps the previous binding and settings. Saving notebook
 commands updates open desktop views immediately, including detached reader
 underline shortcuts. Reload any notebook pages open separately in a browser.
 
-The Global defaults remain:
+The Global defaults are:
 
 | Command | Default binding | Purpose |
 | --- | --- | --- |
@@ -274,11 +316,28 @@ The Global defaults remain:
 | `focusPreviousPane` | `Ctrl+Shift+F6` | Focus the previous available pane |
 | `nextTab` | `Ctrl+Alt+ArrowRight` | Activate the next tab cyclically |
 | `previousTab` | `Ctrl+Alt+ArrowLeft` | Activate the previous tab cyclically |
-| `closeTab` | `Ctrl+Alt+W` | Close the active tab through its dirty-state flow |
+| `closeTab` | `Ctrl+W` | Close the active note tab through its dirty-state flow |
 | `quickOpen` | `Ctrl+Alt+P` | Open the palette directly in title-only mode |
 | `help` | `Ctrl+Alt+H` | Show the complete keyboard-help overlay |
+| `selectApp1` … `selectApp10` | `Ctrl+1` … `Ctrl+9`, `Ctrl+0` | Switch to an open APP by its left-to-right tab position |
+| `nextAppTab` / `previousAppTab` | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Cycle open APP tabs |
+| `closeAppTab` | `Ctrl+Shift+W` | Close the current APP view after checking unsaved edits |
+| `appHome` | `Alt+Home` | Show Babel home |
+| `selectTab1` … `selectTab10` | `Ctrl+Alt+1` … `Ctrl+Alt+9`, `Ctrl+Alt+0` | Switch to an open note tab by position |
+| `reopenTab` | `Ctrl+Shift+T` | Reopen the most recently closed saved note |
+| `historyBack` / `historyForward` | `Alt+ArrowLeft` / `Alt+ArrowRight` | Traverse visits to still-open notes in this APP |
+| `saveAndRead` | `Ctrl+Shift+Enter`; `Ctrl+Enter` in Edit | Save successfully, then leave editing |
+| `focusFolders` / `focusDocuments` / `focusContent` | `G F` / `G L` / `G C` in APP and Read | Focus folders, document list, or content |
 
-Schema v6 keeps the complete Global map in `bindings`, with `app`, `edit`, `read`,
+APP and note tab badges show their positional number; `0` means the tenth tab.
+An index without an open tab does nothing. APP switching excludes detached windows
+and Babel home. Reopening and visit history last for the current APP session;
+reopening does not recover discarded draft text or deleted notes. Escape cancels
+a pending key sequence or dialog first, then leaves editing or reading. A dirty
+editor offers **Save and read**, **Discard changes**, or **Keep editing**. A failed
+save keeps the editor open. In a dialog, `Ctrl+Enter` retains its confirmation role.
+
+Schema v7 keeps the complete Global map in `bindings`, with `app`, `edit`, `read`,
 and `launcher` maps in `layers`. Global and Apps home assign each command a
 shortcut string or `null` to disable it. In APP, Edit, and Read, an omitted command
 inherits its binding; a shortcut string overrides it; `null` disables it. The settings
@@ -289,11 +348,12 @@ which suppresses the lower command in that context. Edit and Read can reuse keys
 independently. Disabling an override in a later layer does not revive a command
 already suppressed in APP.
 
-Schema v1–v5 files remain readable and retain their existing valid bindings.
+Schema v1–v6 files remain readable and retain their existing custom bindings.
 Migration adds missing commands only when their default key is free; conflicting
-new commands become unbound. New APP, Edit, and Read layers start with inheritance,
-and Apps home receives its defaults. Opening Babel does not rewrite the file;
-saving in `SHORTCUTS` writes schema v6. Existing v5 layer assignments are preserved.
+new commands become unbound. Pane-focus and save-and-read defaults are added only
+when compatible with existing layers. The old default `Ctrl+Alt+W` becomes
+`Ctrl+W` when that key is free. Opening Babel does not rewrite the file;
+saving in `SHORTCUTS` writes schema v7. Existing layer assignments are preserved.
 
 ### Key sequences
 
@@ -329,7 +389,8 @@ notebooks. Apps home supports those keys in its independent layer.
 The desktop shell disables WebView2's browser accelerator commands. Notebook
 commands can additionally use `Ctrl+W`, `Ctrl+Shift+W`, `Ctrl+T`, `Ctrl+Shift+T`,
 `Ctrl+L`, `Ctrl+N`, `Ctrl+Shift+N`, `Ctrl+Tab`, `Ctrl+Shift+Tab`, `F5`, `Ctrl+F5`,
-`F6`, `F11`, and `F12`. These bindings are marked desktop-only in keyboard help;
+`F6`, `F11`, `F12`, `Ctrl+0`–`Ctrl+9`, `Alt+Home`, and `Alt+ArrowLeft/Right`.
+These bindings are marked desktop-only in keyboard help;
 ordinary browser pages load the same settings but do not execute those bindings.
 They cannot be assigned to the global launcher hotkey. In the desktop shell, a
 matching command also consumes its key when temporarily unavailable in the

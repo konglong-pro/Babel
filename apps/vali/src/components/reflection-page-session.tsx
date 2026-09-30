@@ -26,7 +26,7 @@ import {
   usePageSessionLifecycle,
   usePageSessions,
 } from "@babel-apps/platform/pages/react";
-import { useCommandPaletteActions } from "@babel-apps/platform/shortcuts/react";
+import { EditorExitActions, submittedForReading, useCommandPaletteActions } from "@babel-apps/platform/shortcuts/react";
 
 import { MarkdownEditor, type StagedImage } from "@/components/markdown-editor";
 import { ReaderSourceUnderlines } from "@/components/reader-note-underlines";
@@ -91,7 +91,7 @@ export function ReflectionPageSession({
   onShowList,
 }: ReflectionPageSessionProps) {
   const router = useRouter();
-  const { activeKey, setPageStatus, updatePage } = usePageSessions();
+  const { activeKey, closePage, setPageStatus, updatePage } = usePageSessions();
   const formRef = useRef<HTMLFormElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const stagedRef = useRef<StagedImage[]>([]);
@@ -275,6 +275,7 @@ export function ReflectionPageSession({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const readAfterSave = submittedForReading(event);
     if (pending || limitError) {
       if (limitError) setError(limitError);
       return;
@@ -289,7 +290,7 @@ export function ReflectionPageSession({
       setStagedImages([]);
       setDetail(saved);
       setContent(saved.contentMd);
-      setMode(persistedEditorModeAfterSave(persistedBeforeSave));
+      setMode(readAfterSave ? "view" : persistedEditorModeAfterSave(persistedBeforeSave));
       setBacklinks(await listReflectionBacklinks(saved.date));
       onSaved(saved);
     } catch (caught) {
@@ -297,6 +298,18 @@ export function ReflectionPageSession({
     } finally {
       setPending(false);
     }
+  }
+
+  function discardEditing() {
+    if (pending) return;
+    setContent(detail?.contentMd ?? "");
+    for (const image of stagedRef.current) URL.revokeObjectURL(image.previewUrl);
+    stagedRef.current = [];
+    setStagedImages([]);
+    if (detail === null) {
+      closePage(pageKey);
+      onShowList();
+    } else setMode("view");
   }
 
   function createFromWikilink(wikilink: Wikilink) {
@@ -435,6 +448,7 @@ export function ReflectionPageSession({
           <div className="standalone-status">Loading reflection…</div>
         ) : mode === "edit" ? (
           <form ref={formRef} onSubmit={submit}>
+            <EditorExitActions dirty={dirty} pending={pending} formRef={formRef} onDiscard={discardEditing} />
             <header className="document-header form-header">
               <div>
                 <DetachedReaderWindow
@@ -455,6 +469,7 @@ export function ReflectionPageSession({
                   <button
                     data-babel-command="cancel"
                     type="button"
+                    disabled={pending}
                     onClick={() => {
                       if (dirty && !window.confirm("Discard your unsaved reflection changes?")) {
                         return;

@@ -88,11 +88,33 @@ test("page tab roving focus follows external activation outside the tablist", ()
   assert.equal(pageTabRovingKey(pages, "note:2", "missing", true), "note:2");
 });
 
+test("tab number hints follow the first ten displayed positions, with zero for the tenth", () => {
+  const markup = renderToStaticMarkup(createElement(PageSessionProvider, {
+    initialPages: Array.from({ length: 11 }, (_, index) => ({
+      key: `note:${index}`, kind: "Note", title: `Note ${index}`, href: `/notes?note=${index}`,
+    })),
+  }, createElement(PageTabs)));
+  const badges = [...markup.matchAll(/class="babel-page-tab__number" aria-hidden="true">(\d)<\/span>/g)];
+  assert.deepEqual(badges.map((match) => match[1]), ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]);
+  assert.match(markup, /data-babel-command="selectTab10"(?! disabled)/);
+  assert.doesNotMatch(markup, /data-babel-command="selectTab11"/);
+});
+
+test("empty page tabs retain command adapters so reopening remains routable after the last close", () => {
+  const markup = renderToStaticMarkup(createElement(PageSessionProvider, null, createElement(PageTabs)));
+  assert.doesNotMatch(markup, /<nav|role="tablist"/);
+  for (const command of ["nextTab", "previousTab", "closeTab", "reopenTab", "historyBack", "historyForward"]) {
+    assert.match(markup, new RegExp(`data-babel-command="${command}" disabled=""`));
+  }
+  assert.match(markup, /data-babel-command="selectTab1" disabled=""/);
+  assert.match(markup, /data-babel-command="selectTab10" disabled=""/);
+});
+
 test("page commands and async page content preserve a concrete detail focus target", () => {
   const source = readFileSync(new URL("../src/pages/react.tsx", import.meta.url), "utf8");
 
   assert.match(source, /schedulePagePanelFocus\(page\.key\)/);
-  assert.match(source, /closePage\(key\);\s*schedulePagePanelFocus\(\);/);
+  assert.match(source, /dispatch\(\{ type: "close-tab", key \}\);\s*schedulePagePanelFocus\(\);/);
   assert.match(source, /setPendingClose\(null\);\s*schedulePagePanelFocus\(\);/);
   assert.match(source, /const ownedFocusRef = useRef\(false\)/);
   assert.match(source, /page\.querySelector<HTMLElement>\("\[data-babel-pane='detail'\]"\)\?\.focus/);

@@ -357,6 +357,8 @@ function DetachedEditorWindowInstance({
       {isOpen ? createPortal(
         <ShortcutProvider ownerDocument={host.root.ownerDocument} fixedMode="edit"
           onReturnToApp={() => { executeShortcutSourceCommand(launcherRef.current, "app"); host.popup.close(); }}
+          onCancelSource={() => executeShortcutSourceCommand(launcherRef.current, "cancel")}
+          onSaveAndReadSource={() => executeShortcutSourceCommand(launcherRef.current, "saveAndRead")}
           onReadSource={() => executeShortcutSourceCommand(launcherRef.current, "read")}>
           <div className="babel-detached-editor-toolbar" role="toolbar" aria-label="Editor actions">
             <strong>{label}</strong>

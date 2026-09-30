@@ -5,6 +5,8 @@ import React, {
   createContext,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
+  type FormEvent,
+  type RefObject,
   type SyntheticEvent,
   useCallback,
   useContext,
@@ -33,7 +35,7 @@ import {
   type ShortcutMode,
   type ParsedShortcutBinding,
 } from "./core";
-import { focusModeContent, focusNotebookList, getKeyboardContext, isKeyboardInput, type KeyboardContext } from "./context";
+import { focusModeContent, focusNamedPane, focusNotebookList, getKeyboardContext, isKeyboardInput, type KeyboardContext } from "./context";
 import { PaneFocusProvider } from "../navigation/react";
 import { useWorkspaceProcessActive } from "../pages/react";
 
@@ -45,6 +47,62 @@ export interface ShortcutProviderProps {
   readonly onReturnToApp?: () => void;
   readonly onEditSource?: () => boolean;
   readonly onReadSource?: () => boolean;
+  readonly onCancelSource?: () => boolean;
+  readonly onSaveAndReadSource?: () => boolean;
+}
+
+/** The intent belongs to one submitted request; failed saves cannot leak it into a later save. */
+export function submittedForReading(event: FormEvent<HTMLFormElement>): boolean {
+  return (event.nativeEvent as SubmitEvent).submitter?.getAttribute("data-babel-save-and-read") === "true";
+}
+
+export function EditorExitActions({ dirty, pending, formRef, onDiscard }: {
+  readonly dirty: boolean;
+  readonly pending: boolean;
+  readonly formRef: RefObject<HTMLFormElement | null>;
+  readonly onDiscard: () => void;
+}) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const submitRef = useRef<HTMLButtonElement>(null);
+  const headingId = useId();
+  const submit = () => {
+    if (pending || submitRef.current === null) return;
+    dialogRef.current?.close();
+    formRef.current?.requestSubmit(submitRef.current);
+  };
+  const exit = () => {
+    if (pending) return;
+    if (dirty) dialogRef.current?.showModal();
+    else onDiscard();
+  };
+  return <>
+    <button hidden type="submit" ref={submitRef} data-babel-save-and-read="true" disabled={pending} />
+    <button hidden type="button" data-babel-command="saveAndRead" data-babel-command-adapter=""
+      disabled={pending} onClick={submit} />
+    <button hidden type="button" data-babel-command="cancel" data-babel-command-adapter="" data-babel-editor-exit=""
+      data-babel-priority="100" disabled={pending} onClick={exit} />
+    <dialog ref={dialogRef} className="babel-command-palette" aria-labelledby={headingId}>
+      <h2 id={headingId}>Leave editing?</h2>
+      <p>Save your changes before returning to reading, or discard this draft.</p>
+      <div className="document-actions">
+        <button type="button" data-babel-command="saveAndRead" disabled={pending} onClick={submit}>Save and read</button>
+        <button type="button" disabled={pending} onClick={() => { dialogRef.current?.close(); onDiscard(); }}>Discard changes</button>
+        <button type="button" data-babel-command="cancel" onClick={() => dialogRef.current?.close()}>Keep editing</button>
+      </div>
+    </dialog>
+  </>;
+}
+
+const APP_SHELL_COMMANDS = /^(?:selectApp(?:[1-9]|10)|nextAppTab|previousAppTab|closeAppTab|appHome)$/u;
+type DesktopCommandWindow = Window & {
+  __BABEL_DESKTOP__?: boolean;
+  __BABEL_DESKTOP_APP_COMMANDS__?: boolean;
+  chrome?: { webview?: { postMessage(message: string): void } };
+};
+function desktopCommandsAvailable(document: Document): boolean {
+  const view = document.defaultView as DesktopCommandWindow | null;
+  return view?.__BABEL_DESKTOP__ === true && view.__BABEL_DESKTOP_APP_COMMANDS__ === true &&
+    typeof view.chrome?.webview?.postMessage === "function";
 }
 
 export interface CommandPaletteAction {
@@ -286,6 +344,17 @@ export function executeShortcutCommand(
 ): boolean {
   if (INTERNAL_COMMANDS.has(command)) return false;
 
+  if (APP_SHELL_COMMANDS.test(command)) {
+    if (getActiveDialog(document) !== null || !desktopCommandsAvailable(document)) return false;
+    (document.defaultView as DesktopCommandWindow).chrome!.webview!.postMessage(`babel:command:${command}`);
+    return true;
+  }
+  if (getActiveDialog(document) === null) {
+    if (command === "focusFolders") return focusNamedPane(document, "tree");
+    if (command === "focusDocuments") return focusNamedPane(document, "items");
+    if (command === "focusContent") return focusNamedPane(document, "detail");
+  }
+
   const adapter = findShortcutCommandTarget(command, document);
   if (adapter === null) return false;
 
@@ -313,7 +382,7 @@ export function executeShortcutCommand(
 }
 
 /** A reader can belong to a background page; activate that page before editing. */
-export function executeShortcutSourceCommand(anchor: HTMLElement | null, command: ShortcutMode): boolean {
+export function executeShortcutSourceCommand(anchor: HTMLElement | null, command: ShortcutMode | "cancel" | "saveAndRead"): boolean {
   if (anchor === null || !anchor.isConnected) return false;
   const document = anchor.ownerDocument;
   const view = document.defaultView;
@@ -331,9 +400,10 @@ export function executeShortcutSourceCommand(anchor: HTMLElement | null, command
     if (command === "app") { focusNotebookList(document); return; }
     const container = page ?? anchor.closest<HTMLElement>("[data-babel-pane='detail']");
     const adapter = container === null ? undefined : Array.from(container.querySelectorAll<HTMLElement>(`[data-babel-command='${command}']`))
-      .find(candidate => isCommandAdapterCandidate(candidate) && isEnabled(candidate));
+      .filter(candidate => isCommandAdapterCandidate(candidate) && isEnabled(candidate))
+      .sort((left, right) => parsePriority(right) - parsePriority(left))[0];
     if (adapter !== undefined) adapter.click();
-    else focusModeContent(document, command);
+    else if (command === "edit" || command === "read") focusModeContent(document, command);
   });
   return true;
 }
@@ -378,6 +448,11 @@ export function executeCancelLadder(document: Document = window.document): boole
     return true;
   }
 
+  // Saving owns the draft until it completes; Escape must not fall through to
+  // the list/back adapter while the editor's cancel action is disabled.
+  if (Array.from(document.querySelectorAll<HTMLElement>("[data-babel-editor-exit]:disabled"))
+    .some(isCommandAdapterCandidate)) return true;
+
   const cancel = findShortcutCommandTarget("cancel", document);
   if (cancel !== null) {
     cancel.click();
@@ -391,6 +466,10 @@ export function executeCancelLadder(document: Document = window.document): boole
 
 function commandIsAvailable(command: ShortcutCommand, document: Document): boolean {
   if (INTERNAL_COMMANDS.has(command)) return true;
+  if (APP_SHELL_COMMANDS.test(command)) return getActiveDialog(document) === null && desktopCommandsAvailable(document);
+  const paneId = command === "focusFolders" ? "tree" : command === "focusDocuments" ? "items" : command === "focusContent" ? "detail" : null;
+  if (paneId !== null) return getActiveDialog(document) === null &&
+    Array.from(document.querySelectorAll<HTMLElement>(`[data-babel-pane='${paneId}']`)).some(isVisible);
   if (command === "cancel") {
     return getActiveDialog(document) !== null ||
       findShortcutCommandTarget(command, document) !== null ||
@@ -706,7 +785,7 @@ export function useCommandPaletteItemSource(source: CommandPaletteItemSource): v
 }
 
 export function ShortcutProvider({ children, endpoint = "/api/shortcuts", ownerDocument, fixedMode,
-  onReturnToApp, onEditSource, onReadSource }: ShortcutProviderProps) {
+  onReturnToApp, onEditSource, onReadSource, onCancelSource, onSaveAndReadSource }: ShortcutProviderProps) {
   const window = ownerDocument?.defaultView ?? globalThis.window;
   const scopeDocument = ownerDocument ?? (typeof window === "undefined" ? undefined : window.document);
   const parentSettings = useContext(ShortcutSettingsContext);
@@ -828,6 +907,7 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts", ownerD
     const nextAvailability = getAvailabilitySnapshot(window.document);
     if (onEditSource !== undefined || fixedMode === "edit") nextAvailability.edit = true;
     if (onReadSource !== undefined || fixedMode === "read") nextAvailability.read = true;
+    if (onSaveAndReadSource !== undefined) nextAvailability.saveAndRead = true;
     if (onReturnToApp !== undefined || window.document.querySelector("[data-babel-pane='items'], [data-babel-pane='tree'], [data-babel-pane='tabs']")) nextAvailability.cancel = true;
     const contextMode = getKeyboardContext(window.document, fixedMode).mode;
     dialog.dataset.babelMode = contextMode;
@@ -869,9 +949,17 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts", ownerD
   };
 
   const executeContextCommand = (command: ShortcutCommand): boolean => {
+    // The edit layer reuses Confirm's default chord. A modal keeps ownership of
+    // that key even when the form underneath it offers Save and read.
+    if (command === "saveAndRead" && getActiveDialog(window.document) !== null &&
+      findShortcutCommandTarget("saveAndRead", window.document) === null) {
+      return executeShortcutCommand("confirm", window.document);
+    }
     if (getActiveDialog(window.document) === null) {
       if (command === "edit" && onEditSource !== undefined) return onEditSource();
       if (command === "read" && onReadSource !== undefined) return onReadSource();
+      if (command === "saveAndRead" && onSaveAndReadSource !== undefined) return onSaveAndReadSource();
+      if (command === "cancel" && onCancelSource !== undefined && findEscapeTarget(window.document)?.dataset.babelEscape !== "overlay") return onCancelSource();
       if ((command === "edit" || command === "read") && command === fixedMode) return focusModeContent(window.document, command);
     }
     if (command === "cancel") {

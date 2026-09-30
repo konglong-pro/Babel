@@ -144,9 +144,9 @@ export function NotePageSession({
     }
   }, [onError]);
 
-  async function handleSaved(saved: NoteDetailDto) {
+  async function handleSaved(saved: NoteDetailDto, readAfterSave = false) {
     setDetail(saved);
-    setMode(persistedEditorModeAfterSave(noteId !== null));
+    setMode(readAfterSave ? "view" : persistedEditorModeAfterSave(noteId !== null));
     setDirty(false);
     setLoadError("");
     const nextPage = savedNotePage(saved);
@@ -191,8 +191,8 @@ export function NotePageSession({
     }
   }
 
-  function cancelEditing() {
-    if (dirty && !window.confirm("Discard your unsaved changes?")) return;
+  function cancelEditing(discardConfirmed = false) {
+    if (!discardConfirmed && dirty && !window.confirm("Discard your unsaved changes?")) return;
     setDirty(false);
     if (noteId === null) {
       closePage(pageKey);

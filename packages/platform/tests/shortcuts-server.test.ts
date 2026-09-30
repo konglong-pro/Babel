@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { DEFAULT_SHORTCUT_SETTINGS } from "../src/shortcuts/core";
+import { DEFAULT_SHORTCUT_SETTINGS, LEGACY_SHORTCUT_COMMANDS } from "../src/shortcuts/core";
 import {
   loadShortcutSettings,
   resolveShortcutSettingsPath,
@@ -48,7 +48,8 @@ test("shortcut loader rereads valid settings and falls back for missing or inval
     writeFileSync(settingsPath, JSON.stringify(changedAgain), "utf8");
     assert.deepEqual(loadShortcutSettings({ path: settingsPath }), changedAgain);
 
-    const versionFour = JSON.stringify({ schemaVersion: 4, bindings: changedAgain.bindings });
+    const versionFour = JSON.stringify({ schemaVersion: 4, bindings: Object.fromEntries(
+      LEGACY_SHORTCUT_COMMANDS.map(command => [command, changedAgain.bindings[command]])), });
     writeFileSync(settingsPath, versionFour, "utf8");
     assert.deepEqual(loadShortcutSettings({ path: settingsPath }), changedAgain);
     assert.equal(readFileSync(settingsPath, "utf8"), versionFour);
@@ -75,9 +76,10 @@ test("shortcut loader rereads valid settings and falls back for missing or inval
     };
     writeFileSync(settingsPath, JSON.stringify(legacy), "utf8");
     assert.deepEqual(loadShortcutSettings({ path: settingsPath }), {
-      schemaVersion: 6,
+      schemaVersion: 7,
       layers: DEFAULT_SHORTCUT_SETTINGS.layers,
       bindings: {
+        ...DEFAULT_SHORTCUT_SETTINGS.bindings,
         save: "Ctrl+Alt+S",
         new: "Ctrl+Alt+N",
         edit: "Ctrl+Alt+E",
@@ -93,7 +95,7 @@ test("shortcut loader rereads valid settings and falls back for missing or inval
         focusPreviousPane: "Ctrl+Shift+F6",
         nextTab: "Ctrl+Alt+ArrowRight",
         previousTab: "Ctrl+Alt+ArrowLeft",
-        closeTab: "Ctrl+Alt+W",
+        closeTab: "Ctrl+W",
         quickOpen: "Ctrl+Alt+P",
         help: "Ctrl+Alt+H",
       },
@@ -129,18 +131,19 @@ test("shortcut response disables caching", async () => {
   assert.deepEqual(await response.json(), DEFAULT_SHORTCUT_SETTINGS);
 });
 
-test("shortcut loader migrates v5 layers in memory and serves validated v6 sequences", async () => {
+test("shortcut loader migrates v5 layers in memory and serves validated sequences", async () => {
   const directory = mkdtempSync(join(tmpdir(), "babel-shortcut-sequences-"));
   const settingsPath = join(directory, "shortcuts.json");
   try {
     const legacy = {
-      ...DEFAULT_SHORTCUT_SETTINGS,
       schemaVersion: 5,
-      layers: { ...DEFAULT_SHORTCUT_SETTINGS.layers, read: { underlineSelection: "H", new: null } },
+      bindings: Object.fromEntries(LEGACY_SHORTCUT_COMMANDS.map(command => [command, DEFAULT_SHORTCUT_SETTINGS.bindings[command]])),
+      layers: { app: {}, edit: {}, read: { underlineSelection: "H", new: null }, launcher: DEFAULT_SHORTCUT_SETTINGS.layers.launcher },
     };
     const source = JSON.stringify(legacy);
     writeFileSync(settingsPath, source, "utf8");
-    assert.deepEqual(loadShortcutSettings({ path: settingsPath }), { ...legacy, schemaVersion: 6 });
+    assert.deepEqual(loadShortcutSettings({ path: settingsPath }), { ...DEFAULT_SHORTCUT_SETTINGS,
+      layers: { ...DEFAULT_SHORTCUT_SETTINGS.layers, read: legacy.layers.read } });
     assert.equal(readFileSync(settingsPath, "utf8"), source);
 
     const sequences = {

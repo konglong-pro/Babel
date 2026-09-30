@@ -129,7 +129,7 @@ function editorStateTargets(app: { id: string; workspace: string }): EditorState
   return targets;
 }
 
-test("every persisted document save keeps its editor open", async () => {
+test("ordinary persisted saves stay editing and explicit save-and-read requests leave editing", async () => {
   const registry = JSON.parse(
     await readFile(path.join(root, "babel.apps.json"), "utf8"),
   ) as RegistryDocument;
@@ -152,13 +152,18 @@ test("every persisted document save keeps its editor open", async () => {
     const handler = sourceFunction(source, target.functionName);
     assert.match(
       handler,
-      /setMode\(\w*ModeAfterSave\(/,
-      `${target.label} must select edit/view mode from whether the item was already persisted`,
+      /setMode\(readAfterSave \? "view" : \w*ModeAfterSave\(/,
+      `${target.label} must preserve its ordinary save mode and only enter reading for an explicit request`,
     );
     assert.doesNotMatch(
       handler,
       /setMode\("view"\)/,
       `${target.label} must not unconditionally leave edit mode after saving`,
+    );
+    assert.match(
+      handler,
+      target.functionName === "submit" ? /const readAfterSave = submittedForReading\(event\)/ : /readAfterSave = false/,
+      `${target.label} must default to ordinary save semantics`,
     );
   }
 });

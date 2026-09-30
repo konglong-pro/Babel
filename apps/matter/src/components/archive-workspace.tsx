@@ -1,5 +1,7 @@
 "use client";
 
+import type { ImportedOriginalDocument } from "@babel-apps/platform/imports/document-core";
+
 import { FolderMoveProvider } from "@babel-apps/platform/folders/move-react";
 import { pageSubtreeIds } from "@/components/page-tree-state";
 
@@ -502,17 +504,18 @@ export function ArchiveWorkspace({
     });
   }
 
-  async function handleImportMarkdown(file: File) {
+  async function handleImportMarkdown(file: File, original?: ImportedOriginalDocument) {
     if (type !== "knowledge" || selectedFolderId === null) return;
     if (file.size > NOTE_CONTENT_MAX_BYTES) {
       setNavigationError("Markdown files must not exceed 10 MB.");
-      return;
+      throw new Error("Markdown files must not exceed 10 MB.");
     }
     try {
       const draft: MarkdownImportDraft = parseMarkdownImport(
         file.name,
         new Uint8Array(await file.arrayBuffer()),
       );
+      draft.originalDocument = original;
       openDraft({
         type,
         folderId: selectedFolderId,
@@ -522,6 +525,7 @@ export function ArchiveWorkspace({
       });
     } catch (caught) {
       setNavigationError(getErrorMessage(caught));
+      throw caught;
     }
   }
 

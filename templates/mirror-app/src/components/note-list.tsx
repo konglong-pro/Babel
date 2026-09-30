@@ -1,5 +1,8 @@
 "use client";
 
+import { DocumentImportAction } from "@babel-apps/platform/imports/document-react";
+import type { ImportedOriginalDocument } from "@babel-apps/platform/imports/document-core";
+
 import { type ChangeEvent, useMemo, useRef, useState } from "react";
 import { NewContentMenu } from "@babel-apps/platform/canvas/react";
 
@@ -31,7 +34,7 @@ interface NoteListProps {
   onEdit: (id: number) => void;
   onReorder?: (id: number, position: number) => Promise<void> | void;
   onCreate: (parentId: number | null) => void;
-  onImport: (file: File) => Promise<void> | void;
+  onImport: (file: File, original?: ImportedOriginalDocument) => Promise<void> | void;
   onImportFolder: (files: File[]) => Promise<void> | void;
   onManageTemplates: () => void;
   onBack: () => void;
@@ -173,6 +176,7 @@ export function NoteList({
   onBack,
 }: NoteListProps) {
   const importInputRef = useRef<HTMLInputElement>(null);
+  const documentImportOpenRef = useRef<(() => void) | null>(null);
   const folderImportInputRef = useRef<HTMLInputElement>(null);
   const importMenuRef = useRef<HTMLDetailsElement>(null);
   const selectedFolder = selectedFolderId === null ? undefined : folders.get(selectedFolderId);
@@ -266,6 +270,14 @@ export function NoteList({
       run: () => importInputRef.current?.click(),
     },
     {
+      id: "note.importDocument",
+      label: "Convert file to Markdown",
+      keywords: ["import", "document", "pdf", "word", "excel", "powerpoint", "markitdown"],
+      group: "Notes",
+      available: selectedFolderId !== null,
+      run: () => documentImportOpenRef.current?.(),
+    },
+    {
       id: "note.importFolder",
       label: "Import Markdown folder",
       keywords: ["folder", "directory", "md", "batch"],
@@ -285,7 +297,7 @@ export function NoteList({
   function chooseMarkdown(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (file) void onImport(file);
+    if (file) void Promise.resolve(onImport(file)).catch(() => undefined);
   }
 
   function chooseMarkdownFolder(event: ChangeEvent<HTMLInputElement>) {
@@ -366,6 +378,14 @@ export function NoteList({
               >
                 Import Markdown file
               </button>
+              <DocumentImportAction
+                onImport={onImport}
+                disabled={selectedFolderId === null}
+                registerOpen={(open) => { documentImportOpenRef.current = open; }}
+                onOpen={() => {
+                  if (importMenuRef.current) importMenuRef.current.open = false;
+                }}
+              />
               <button
                 type="button"
                 onClick={() => {

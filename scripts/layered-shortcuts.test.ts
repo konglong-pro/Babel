@@ -41,10 +41,12 @@ test("layered settings preserve legacy assignments and round-trip with matching 
 $path = Join-Path $env:BABEL_TEST_DIRECTORY 'shortcuts.json'
 $bindings.cancel = 'Ctrl+Q'
 $bindings.help = $null
-@{ schemaVersion = 4; bindings = $bindings } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $path
+$legacyBindings = [ordered]@{}
+foreach ($definition in @($definitions | Select-Object -First 18)) { $legacyBindings[$definition.Id] = $bindings[$definition.Id] }
+@{ schemaVersion = 4; bindings = $legacyBindings } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $path
 $migrated = Read-BabelShortcutSettings -Definitions $definitions -Path $path
 if ($migrated.Source -ne 'User' -or $migrated.Bindings.cancel -ne 'Ctrl+Q' -or $null -ne $migrated.Bindings.help -or
-    $migrated.Layers.app.Count -ne 0 -or $migrated.Layers.read.Count -ne 0 -or $migrated.Layers.edit.Count -ne 0 -or
+    $migrated.Layers.app.focusFolders -ne 'G F' -or $migrated.Layers.read.Count -ne 0 -or $migrated.Layers.edit.saveAndRead -ne 'Ctrl+Enter' -or
     $migrated.Layers.launcher.focusPreviousPane -ne 'Shift+Tab') { throw 'Schema 4 migration lost a binding or layer default.' }
 $layers.app = [ordered]@{ read = 'Ctrl+S' }
 $layers.read = [ordered]@{ read = $null; underlineSelection = 'u'; removeUnderline = 'Shift+U'; closeTab = 'Ctrl+W' }
@@ -96,7 +98,7 @@ foreach ($scope in @('app', 'edit', 'read', 'launcher')) {
       resolved: Record<"app" | "edit" | "read", unknown>;
     };
     const settings = parseShortcutSettings(result.settings);
-    assert.equal(settings.schemaVersion, 6);
+    assert.equal(settings.schemaVersion, 7);
     assert.equal(settings.bindings.cancel, "Ctrl+Q");
     assert.equal(settings.bindings.help, null);
     assert.equal(settings.layers.launcher.openApp, "1");

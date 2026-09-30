@@ -15,10 +15,11 @@ const sdk = path.join(root, "launcher/.webview2/1.0.3537.50/lib_manual/netcoreap
 // Bundle the real providers, event routing and pane navigation. The fixture only
 // supplies notebook command adapters; no user notebook or database is opened.
 const fixture = String.raw`
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createPortal } from "react-dom";
-import { ShortcutProvider, useShortcutBinding } from "./packages/platform/src/shortcuts/react";
+import { EditorExitActions, submittedForReading, ShortcutProvider, useShortcutBinding } from "./packages/platform/src/shortcuts/react";
+import { PageSessionProvider, PageTabs, PageDeckPage, usePageSessions } from "./packages/platform/src/pages/react";
 const hits = window.fixtureHits = { new: 0, underline: 0, confirm: 0, popupRead: 0, popupEdit: 0, sourceRead: 0, sourceEdit: 0 };
 const focusTrace = [];
 document.addEventListener("focusin", event => {
@@ -68,6 +69,8 @@ function Popup({popup, fixedMode}) {
 function Fixture() {
   const [editing, setEditing] = useState(false);
   const [popups, setPopups] = useState([]);
+  const [common, setCommon] = useState(false);
+  useEffect(() => { window.showCommonFixture = setCommon; }, []);
   useEffect(() => {
     document.getElementById("item").focus();
     window.openModeFixture = fixedMode => {
@@ -83,6 +86,7 @@ function Fixture() {
   }, []);
   return <>
     <Probe />
+    <div hidden={common}>
     <nav data-babel-pane="tree"><button id="tree">Folder</button></nav>
     <section data-babel-pane="items"><button id="item">Document</button>
       <button data-babel-command="new" onClick={() => hits.new++}>New</button></section>
@@ -97,9 +101,61 @@ function Fixture() {
           <input id="annotation" aria-label="Annotation" />
           <div id="editable" contentEditable suppressContentEditableWarning>Editable comment</div></>}
     </section>
+    </div>
+    {common ? <CommonFixture /> : null}
     {popups.map(entry => <Popup key={entry.fixedMode} {...entry} />)}
   </>;
 }
+
+function CommonEditor() {
+  const [editing, setEditing] = useState(true);
+  const [content, setContent] = useState("Saved text");
+  const [saved, setSaved] = useState("Saved text");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  const formRef = useRef(null);
+  useEffect(() => { window.editFixture = { dirty: value => setContent(value), edit: () => setEditing(true) }; });
+  async function submit(event) {
+    event.preventDefault();
+    const readAfter = submittedForReading(event);
+    if (pending) return;
+    setPending(true);
+    setError("");
+    const succeed = await new Promise(resolve => { window.finishFixtureSave = resolve; });
+    if (succeed) { setSaved(content); if (readAfter) setEditing(false); }
+    else setError("Save failed");
+    setPending(false);
+  }
+  return <section data-babel-pane="detail" tabIndex={-1}>
+    {editing ? <form ref={formRef} onSubmit={submit}>
+      <EditorExitActions dirty={content !== saved} pending={pending} formRef={formRef}
+        onDiscard={() => { setContent(saved); setEditing(false); }} />
+      <textarea id="exit-editor" value={content} onChange={event => setContent(event.target.value)} />
+      <button data-babel-command="save" disabled={pending}>Save</button>
+      <span id="exit-state" data-pending={pending}>{error}</span>
+    </form> : <><div id="exit-reader" className="markdown-body" tabIndex={0}>{saved}</div>
+      <button id="exit-edit" data-babel-command="edit" onClick={() => setEditing(true)}>Edit</button></>}
+  </section>;
+}
+const fixturePages = Array.from({length: 10}, (_, index) => ({ key: "note:" + (index + 1), title: "Note " + (index + 1), kind: "Note", href: "/?note=" + (index + 1) }));
+function CommonPages() {
+  const sessions = usePageSessions();
+  useEffect(() => { window.fixturePages = sessions; });
+  return <><PageTabs /><output id="page-state" data-active={sessions.activeKey ?? ""} data-count={sessions.pages.length} />
+    {sessions.pages.map(page => <PageDeckPage key={page.key} pageKey={page.key}>
+      <article data-babel-pane="detail" tabIndex={-1}><div className="markdown-body">{page.title}</div></article>
+    </PageDeckPage>)}</>;
+}
+function CommonFixture() {
+  const [pages, setPages] = useState(false);
+  useEffect(() => { window.showPagesFixture = () => setPages(true); }, []);
+  return <><nav data-babel-pane="tree"><button id="common-tree">Folder</button></nav>
+    <section data-babel-pane="items"><button id="common-item">Document</button></section>
+    {pages ? <PageSessionProvider initialPages={fixturePages} initialActiveKey="note:1"><CommonPages /></PageSessionProvider> : <CommonEditor />}
+    <dialog id="common-confirm"><button data-babel-command="confirm" onClick={() => { hits.confirm++; document.getElementById("common-confirm").close(); }}>Confirm modal</button></dialog>
+  </>;
+}
+
 createRoot(document.getElementById("root")).render(<ShortcutProvider><Fixture /></ShortcutProvider>);
 window.runModeFixture = async () => {
   const passed = [];
@@ -365,6 +421,131 @@ window.runSequenceFixture = async () => {
   passed.push("configuration replacement cancels pending sequences and updates existing detached scopes");
   return passed.join("\n");
 };
+
+window.runCommonShortcutFixture = async () => {
+  const passed = [];
+  await fetch("/common-config");
+  window.dispatchEvent(new Event("babel:shortcuts-changed"));
+  await until(() => document.querySelector("#bindings").dataset.new === "Ctrl+Alt+N", "Common default settings did not load.");
+  window.showCommonFixture(true);
+  await until(() => document.getElementById("exit-editor"), "Editor exit fixture did not mount.");
+  document.getElementById("exit-editor").focus();
+  check(key(document, "Escape"), "Clean editor Escape was not handled.");
+  await until(() => document.getElementById("exit-reader"), "Clean Escape did not exit to Read.");
+  document.getElementById("exit-reader").focus();
+  check(key(document, "Escape"), "Reader Escape was not handled.");
+  await until(() => document.activeElement?.id === "common-item", "Reader Escape did not focus the document list.");
+  window.editFixture.edit();
+  await until(() => document.getElementById("exit-editor"), "Editor did not reopen.");
+  window.editFixture.dirty("Unsaved draft");
+  await until(() => document.getElementById("exit-editor").value === "Unsaved draft", "Draft did not change.");
+  document.getElementById("exit-editor").focus();
+  key(document, "Escape");
+  await until(() => document.querySelector("dialog[open]"), "Dirty Escape did not ask to save/discard.");
+  key(document, "Escape");
+  await until(() => document.querySelector("dialog[open]") === null, "Keep editing did not close the exit dialog.");
+  check(document.getElementById("exit-editor").value === "Unsaved draft", "Keep editing lost the draft.");
+  key(document, "Escape");
+  await until(() => document.querySelector("dialog[open]"), "Exit dialog did not reopen.");
+  Array.from(document.querySelectorAll("dialog[open] button")).find(button => button.textContent === "Discard changes").click();
+  await until(() => document.getElementById("exit-reader"), "Discard did not enter Read.");
+  check(document.getElementById("exit-reader").textContent === "Saved text", "Discard replaced saved text.");
+  passed.push("clean and dirty Escape ladder with save/discard/keep-editing ownership");
+
+  window.editFixture.edit();
+  await until(() => document.getElementById("exit-editor"), "Save editor did not reopen.");
+  window.editFixture.dirty("Retry draft");
+  await until(() => document.getElementById("exit-editor").value === "Retry draft", "Retry draft did not change.");
+  document.getElementById("exit-editor").focus();
+  key(document, "Enter", {ctrlKey: true});
+  await until(() => document.getElementById("exit-state").dataset.pending === "true", "Save and read did not submit.");
+  key(document, "Escape");
+  check(document.getElementById("exit-editor") && document.querySelector("dialog[open]") === null, "Escape escaped a pending save.");
+  window.finishFixtureSave(false);
+  await until(() => document.getElementById("exit-state")?.textContent === "Save failed", "Failed save did not preserve editing.");
+  check(document.getElementById("exit-editor").value === "Retry draft", "Failed save lost its draft.");
+  key(document, "s", {ctrlKey: true});
+  await until(() => document.getElementById("exit-state").dataset.pending === "true", "Retry Save did not submit.");
+  window.finishFixtureSave(true);
+  await until(() => document.getElementById("exit-state")?.dataset.pending === "false", "Retry Save did not complete.");
+  check(document.getElementById("exit-editor"), "Failed Save-and-read intent leaked into ordinary Save.");
+  const confirms = hits.confirm;
+  document.getElementById("common-confirm").showModal();
+  key(document, "Enter", {ctrlKey: true});
+  await until(() => document.querySelector("dialog[open]") === null, "Edit Ctrl+Enter did not confirm its modal.");
+  check(hits.confirm === confirms + 1, "Edit-layer Ctrl+Enter submitted underlying editor instead of modal.");
+  document.getElementById("exit-editor").focus();
+  key(document, "Escape");
+  await until(() => document.getElementById("exit-reader"), "Saved clean editor did not exit.");
+  window.editFixture.edit();
+  await until(() => document.getElementById("exit-editor"), "Save-and-read editor did not open.");
+  window.editFixture.dirty("Final draft");
+  await until(() => document.getElementById("exit-editor").value === "Final draft", "Final draft did not change.");
+  document.getElementById("exit-editor").focus();
+  key(document, "Escape");
+  await until(() => document.querySelector("dialog[open]"), "Final exit dialog missing.");
+  key(document, "Enter", {ctrlKey: true});
+  await until(() => document.getElementById("exit-state").dataset.pending === "true", "Exit-dialog Save and read did not submit.");
+  window.finishFixtureSave(true);
+  await until(() => document.getElementById("exit-reader")?.textContent === "Final draft", "Successful save did not enter Read with saved content.");
+  passed.push("Ctrl+Enter save/read success, failure retention, pending Escape and modal Confirm");
+
+  document.getElementById("exit-reader").focus();
+  for (const [tail, expected] of [["f", "tree"], ["l", "items"], ["c", "detail"]]) {
+    check(key(document, "g") && key(document, tail), "Direct pane sequence was not handled: G " + tail);
+    await until(() => pane(document) === expected, "Direct pane sequence chose wrong pane: " + expected);
+  }
+  const bridge = window.chrome.webview;
+  const send = bridge.postMessage;
+  const messages = [];
+  bridge.postMessage = message => messages.push(message);
+  try {
+    for (let index = 1; index <= 10; index++) key(document, String(index % 10), {ctrlKey: true});
+    key(document, "Tab", {ctrlKey: true});
+    key(document, "Tab", {ctrlKey: true, shiftKey: true});
+    key(document, "w", {ctrlKey: true, shiftKey: true});
+    key(document, "Home", {altKey: true});
+    check(messages.length === 14 && messages[9] === "babel:command:selectApp10" && messages[13] === "babel:command:appHome", "APP keys did not post scoped desktop commands.");
+    document.getElementById("common-confirm").showModal();
+    key(document, "1", {ctrlKey: true});
+    check(messages.length === 14, "An APP shortcut escaped the active modal.");
+    key(document, "Escape");
+  } finally { bridge.postMessage = send; }
+  passed.push("G F/G L/G C pane focus and desktop APP bridge with modal isolation");
+
+  window.showPagesFixture();
+  await until(() => document.getElementById("page-state"), "Page navigation fixture did not mount.");
+  const activePage = () => document.getElementById("page-state").dataset.active;
+  document.getElementById("common-item").focus();
+  key(document, "0", {ctrlKey: true, altKey: true});
+  await until(() => activePage() === "note:10", "Ctrl+Alt+0 did not select the tenth tab.");
+  key(document, "1", {ctrlKey: true, altKey: true});
+  await until(() => activePage() === "note:1", "Ctrl+Alt+1 did not select the first tab.");
+  key(document, "ArrowLeft", {altKey: true});
+  await until(() => activePage() === "note:10", "History Back did not revisit note 10.");
+  key(document, "ArrowRight", {altKey: true});
+  await until(() => activePage() === "note:1", "History Forward did not revisit note 1.");
+  window.fixturePages.movePage("note:10", 0);
+  await until(() => window.fixturePages.pages[0].key === "note:10", "Page reorder did not finish.");
+  key(document, "1", {ctrlKey: true, altKey: true});
+  await until(() => activePage() === "note:10", "Number keys did not follow tab reorder.");
+  key(document, "w", {ctrlKey: true});
+  await until(() => document.getElementById("page-state").dataset.count === "9", "Ctrl+W did not close the note tab.");
+  const beforeAbsent = activePage();
+  key(document, "0", {ctrlKey: true, altKey: true});
+  check(activePage() === beforeAbsent, "Absent tenth tab changed the selected page.");
+  key(document, "t", {ctrlKey: true, shiftKey: true});
+  await until(() => activePage() === "note:10" && document.getElementById("page-state").dataset.count === "10", "Reopen shortcut did not restore the closed note.");
+  for (const page of [...window.fixturePages.pages]) window.fixturePages.requestClosePage(page.key);
+  await until(() => document.getElementById("page-state").dataset.count === "0", "Pages did not all close.");
+  key(document, "t", {ctrlKey: true, shiftKey: true});
+  await until(() => document.getElementById("page-state").dataset.count === "1", "Reopen stopped working after the last page closed.");
+  passed.push("note number keys, visible reorder, absent targets, history and reopening the last closed tab");
+  window.showCommonFixture(false);
+  await until(() => document.getElementById("common-item") === null, "Common fixture did not clean up.");
+  return passed.join("\n");
+};
+
 `;
 
 test("layered keyboard modes execute in real main and detached WebView2 documents", {
@@ -380,16 +561,21 @@ test("layered keyboard modes execute in real main and detached WebView2 document
   let sequenceBinding = false;
   let updatedSequence = false;
   let settingsRequests = 0;
+  let commonSettings = false;
   const server = createServer((request, response) => {
     response.setHeader("Cache-Control", "no-store");
     if (request.url === "/api/shortcuts") {
       settingsRequests++;
       response.setHeader("Content-Type", "application/json");
+      if (commonSettings) { response.end(JSON.stringify(settings)); return; }
       response.end(JSON.stringify({ ...settings, layers: { ...settings.layers,
         app: sequenceBinding ? { new: "G N", help: "G H", quickOpen: "Ctrl+Alt+Q X Y Z" } : { new: arrowBinding ? "ArrowDown" : "N" },
         edit: { new: null, confirm: sequenceBinding ? "Ctrl+Alt+Y N" : "N" },
         read: { new: null, underlineSelection: sequenceBinding ? (updatedSequence ? "G O" : "G U") : updated ? "U" : "N" },
       } }));
+    } else if (request.url === "/common-config") {
+      commonSettings = true;
+      response.end("ok");
     } else if (request.url === "/sequence-config") {
       sequenceBinding = true;
       response.end("ok");
@@ -422,8 +608,8 @@ test("layered keyboard modes execute in real main and detached WebView2 document
       path.join(root, "launcher/Test-BabelKeyboardModes.ps1"), "-FixtureOrigin", `http://127.0.0.1:${address.port}`,
     ], { timeout: 65_000 });
     assert.equal(stderr, "");
-    assert.equal((stdout.match(/^PASS /gm) ?? []).length, 15, stdout);
-    assert.equal(settingsRequests, 5, "Popups must inherit their parent's configuration without independent fetches.");
+    assert.equal((stdout.match(/^PASS /gm) ?? []).length, 19, stdout);
+    assert.equal(settingsRequests, 6, "Popups must inherit their parent's configuration without independent fetches.");
     context.diagnostic(stdout.split(/\r?\n/).find(line => line.includes("native APP source restoration")) ?? "");
     context.diagnostic("Verified actual React providers and WebView2 DOM key events with isolated document focus emulation; native source-return checks run after emulation is disabled. Physical keyboard delivery is outside this fixture.");
   } finally {

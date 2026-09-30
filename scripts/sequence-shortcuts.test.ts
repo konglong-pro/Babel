@@ -78,7 +78,10 @@ $path = Join-Path $env:BABEL_TEST_DIRECTORY 'shortcuts.json'
 $bindings.help = $null
 $bindings.save = " Ctrl\t+ S "
 $layers.read.underlineSelection = " Shift\n+ U "
-@{ schemaVersion = 5; bindings = $bindings; layers = $layers } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $path
+$legacyBindings = [ordered]@{}
+foreach ($definition in @($definitions | Select-Object -First 18)) { $legacyBindings[$definition.Id] = $bindings[$definition.Id] }
+$legacyLayers = [ordered]@{ app = @{}; edit = @{}; read = $layers.read; launcher = $layers.launcher }
+@{ schemaVersion = 5; bindings = $legacyBindings; layers = $legacyLayers } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $path
 $legacy = Read-BabelShortcutSettings -Definitions $definitions -Path $path
 if ($legacy.Source -ne 'User' -or $null -ne $legacy.Bindings.help -or $legacy.Layers.read.underlineSelection -ne 'Shift+U' -or $legacy.Bindings.save -ne 'Ctrl+S') { throw 'Schema 5 assignments were not retained.' }
 $bindings = $legacy.Bindings
@@ -106,7 +109,7 @@ if ($null -ne $read.read -or $null -ne $read.new -or $read.removeUnderline -ne '
 `, directory);
     const result = JSON.parse(stdout) as { settings: unknown; resolved: Record<"app" | "edit" | "read", unknown> };
     const settings = parseShortcutSettings(result.settings);
-    assert.equal(settings.schemaVersion, 6);
+    assert.equal(settings.schemaVersion, 7);
     for (const mode of ["app", "edit", "read"] as const) assert.deepEqual(result.resolved[mode], resolveShortcutBindings(settings, mode));
     assert.throws(() => parseShortcutSettings({ ...(result.settings as object), schemaVersion: 5 }));
   } finally {
@@ -205,8 +208,9 @@ $window.Close()
 test("native home routing shows pending steps and protects input, IME, and app views", { skip: process.platform !== "win32" }, async () => {
   const { stdout } = await runPowerShell(`
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
-Import-GuiFunctions @('Update-BabelHomeShortcutHint', 'Reset-BabelHomeShortcutSequence', 'Invoke-BabelHomeShortcutKeyEvent')
+Import-GuiFunctions @('Get-BabelNativeShellShortcutBindings', 'Update-BabelHomeShortcutHint', 'Reset-BabelHomeShortcutSequence', 'Invoke-BabelHomeShortcutKeyEvent')
 $script:DesktopHost = $null
+$script:DesktopShortcutBindings = [ordered]@{}
 $script:HomeShortcutSequence = New-BabelShortcutSequenceState
 $script:HomeShortcutSequenceTimer = [Windows.Threading.DispatcherTimer]::new()
 $script:LauncherShortcutBindings = [ordered]@{ openApp = 'G G'; hideLauncher = 'Escape'; focusNextPane = 'Tab' }
@@ -245,7 +249,10 @@ if ($typingKey.Handled -or $script:HomeShortcutSequence.Pending) { throw 'Typing
 $script:Typing = $false
 [void](Send-Key G); [void](Send-Key ignored -Key ImeProcessed)
 if ($script:HomeShortcutSequence.Pending) { throw 'IME did not clear pending state.' }
-[void](Send-Key G); $script:DesktopHost = [pscustomobject]@{ IsHomeVisible = $false }; $appKey = Send-Key G
+[void](Send-Key G)
+$script:DesktopHost = [pscustomobject]@{ IsHomeVisible = $false; IsWebContentFocused = $true }
+$script:DesktopHost | Add-Member -MemberType ScriptMethod -Name RefreshStatus -Value {}
+$appKey = Send-Key G
 if ($appKey.Handled -or $script:HomeShortcutSequence.Pending) { throw 'Home dispatcher captured an app key.' }
 $script:DesktopHost = $null
 [void](Send-Key G); Reset-BabelHomeShortcutSequence

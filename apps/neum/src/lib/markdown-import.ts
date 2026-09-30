@@ -1,5 +1,7 @@
 import { maskCodeRegions } from "@babel-apps/markdown/core";
 
+import type { ImportedOriginalDocument } from "@babel-apps/platform/imports/document-core";
+
 import {
   ENTRY_NEW_IMAGE_MAX_COUNT,
   ENTRY_NOTES_MAX_BYTES,
@@ -39,6 +41,7 @@ export interface MarkdownImportDraft {
   title: string;
   contentMd: string;
   imageReferences: ImportedImageReference[];
+  originalDocument?: ImportedOriginalDocument;
 }
 
 export interface ImportedImageMatch<TFile extends { name: string }> {

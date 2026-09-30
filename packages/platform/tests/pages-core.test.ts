@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  createPageNavigationState,
   createPageSessionsState,
+  pageHistoryTarget,
+  pageNavigationReducer,
   pageSessionsReducer,
   parsePageSessions,
   scopedPageKey,
@@ -224,4 +227,135 @@ test("closing other pages only affects the target scope", () => {
     page("legacy", { dirty: true, pending: false }),
   ]);
   assert.equal(state.activeKey, "knowledge-1");
+});
+
+test("visit history crosses process scopes without changing mounted dirty sessions or tab order", () => {
+  let state = createPageNavigationState(createPageSessionsState([
+    page("note", { scope: "notes", dirty: true }),
+    page("code", { scope: "code", href: "/code?entry=2", pending: true }),
+    page("other", { scope: "notes" }),
+  ], "note"));
+  state = pageNavigationReducer(state, { type: "activate", key: "code" });
+  state = pageNavigationReducer(state, { type: "activate", key: "other" });
+  const mountedPages = state.sessions.pages;
+
+  assert.equal(pageHistoryTarget(state, -1)?.page.href, "/code?entry=2");
+  state = pageNavigationReducer(state, { type: "visit-history", direction: -1 });
+  assert.equal(state.sessions.activeKey, "code");
+  state = pageNavigationReducer(state, { type: "visit-history", direction: -1 });
+  assert.equal(state.sessions.activeKey, "note");
+  assert.equal(pageHistoryTarget(state, -1), null);
+  state = pageNavigationReducer(state, { type: "visit-history", direction: 1 });
+  assert.equal(state.sessions.activeKey, "code");
+  assert.equal(state.sessions.pages, mountedPages);
+  assert.deepEqual(state.visits, ["note", "code", "other"]);
+  assert.equal(state.sessions.pages[0]?.dirty, true);
+  assert.equal(state.sessions.pages[1]?.pending, true);
+});
+
+test("status and reordering keep forward history while a new visit replaces its forward branch", () => {
+  let state = createPageNavigationState(createPageSessionsState([
+    page("1"), page("2"), page("3"), page("4"),
+  ], "1"));
+  for (const key of ["2", "3"]) state = pageNavigationReducer(state, { type: "activate", key });
+  state = pageNavigationReducer(state, { type: "visit-history", direction: -1 });
+  state = pageNavigationReducer(state, { type: "status", key: "2", dirty: true });
+  state = pageNavigationReducer(state, { type: "move", key: "4", toIndex: 0 });
+  state = pageNavigationReducer(state, { type: "activate", key: "2" });
+  assert.deepEqual(state.visits, ["1", "2", "3"]);
+  assert.equal(pageHistoryTarget(state, 1)?.page.key, "3");
+  assert.deepEqual(state.sessions.pages.map(({ key }) => key), ["4", "1", "2", "3"]);
+
+  state = pageNavigationReducer(state, { type: "activate", key: "4" });
+  assert.deepEqual(state.visits, ["1", "2", "4"]);
+  assert.equal(pageHistoryTarget(state, 1), null);
+});
+
+test("closed tabs reopen last first with saved identity only, including after the last tab closes", () => {
+  let state = createPageNavigationState(createPageSessionsState([
+    page("1", { scope: "notes", dirty: true, pending: true }),
+    page("2"),
+  ], "2"));
+  state = pageNavigationReducer(state, { type: "close-tab", key: "1" });
+  state = pageNavigationReducer(state, { type: "close-tab", key: "2" });
+  assert.equal(state.sessions.activeKey, null);
+  assert.equal(state.sessions.pages.length, 0);
+
+  state = pageNavigationReducer(state, { type: "reopen-tab" });
+  assert.equal(state.sessions.activeKey, "2");
+  state = pageNavigationReducer(state, { type: "reopen-tab" });
+  assert.equal(state.sessions.activeKey, "1");
+  assert.deepEqual(state.sessions.pages[1], page("1", {
+    scope: "notes", dirty: false, pending: false,
+  }));
+  assert.equal(state.closedPages.length, 0);
+  assert.equal(pageNavigationReducer(state, { type: "reopen-tab" }), state);
+});
+
+test("discarded drafts and programmatic deletions cannot be reopened", () => {
+  let state = createPageNavigationState(createPageSessionsState([
+    page("saved"), page("draft", { restorable: false, dirty: true }),
+  ], "draft"));
+  state = pageNavigationReducer(state, { type: "close-tab", key: "draft" });
+  assert.equal(state.closedPages.length, 0);
+  state = pageNavigationReducer(state, { type: "close-tab", key: "saved" });
+  assert.equal(state.closedPages.length, 1);
+  state = pageNavigationReducer(state, { type: "close", key: "saved" });
+  assert.equal(state.closedPages.length, 0);
+  state = pageNavigationReducer(state, { type: "open", page: page("deleted") });
+  state = pageNavigationReducer(state, { type: "close", key: "deleted" });
+  assert.equal(state.closedPages.length, 0);
+});
+
+test("saving a draft migrates its visited identity and makes its later tab closure restorable", () => {
+  let state = createPageNavigationState(createPageSessionsState([
+    page("draft", { restorable: false, dirty: true }), page("other"),
+  ], "draft"));
+  state = pageNavigationReducer(state, { type: "activate", key: "other" });
+  state = pageNavigationReducer(state, {
+    type: "rekey", key: "draft", page: page("saved", { scope: "notes" }),
+  });
+  assert.equal(pageHistoryTarget(state, -1)?.page.key, "saved");
+  assert.deepEqual(state.visits, ["saved", "other"]);
+  state = pageNavigationReducer(state, { type: "close-tab", key: "saved" });
+  assert.equal(pageHistoryTarget(state, -1), null);
+  state = pageNavigationReducer(state, { type: "reopen-tab" });
+  assert.equal(state.sessions.activeKey, "saved");
+  assert.equal(state.sessions.pages.at(-1)?.restorable, undefined);
+});
+
+test("closing other tabs remembers only the same process and manual reopening avoids duplicates", () => {
+  let state = createPageNavigationState(createPageSessionsState([
+    page("1", { scope: "notes" }),
+    page("2", { scope: "notes" }),
+    page("code", { scope: "code", dirty: true }),
+    page("3", { scope: "notes" }),
+  ], "1"));
+  state = pageNavigationReducer(state, { type: "close-other-tabs", key: "1" });
+  assert.deepEqual(state.sessions.pages.map(({ key }) => key), ["1", "code"]);
+  assert.deepEqual(state.closedPages.map(({ key }) => key), ["2", "3"]);
+  assert.equal(state.sessions.pages[1]?.dirty, true);
+  state = pageNavigationReducer(state, { type: "open", page: page("3", { scope: "notes" }) });
+  assert.deepEqual(state.closedPages.map(({ key }) => key), ["2"]);
+  state = pageNavigationReducer(state, { type: "reopen-tab" });
+  assert.deepEqual(state.sessions.pages.map(({ key }) => key), ["1", "code", "3", "2"]);
+});
+
+test("history skips closed visits and remains bounded for a long-running notebook", () => {
+  let state = createPageNavigationState(createPageSessionsState([page("start")]));
+  for (let index = 0; index < 120; index += 1) {
+    state = pageNavigationReducer(state, { type: "open", page: page(String(index)) });
+  }
+  assert.equal(state.visits.length, 100);
+  assert.equal(state.visitIndex, 99);
+  state = pageNavigationReducer(state, { type: "close-tab", key: "118" });
+  assert.equal(pageHistoryTarget(state, -1)?.page.key, "117");
+  for (let index = 0; index < 40; index += 1) {
+    state = pageNavigationReducer(state, { type: "close-tab", key: String(index) });
+  }
+  assert.equal(state.closedPages.length, 30);
+  assert.equal(state.closedPages.at(-1)?.key, "39");
+  state = pageNavigationReducer(state, { type: "restore", state: createPageSessionsState([page("new")]) });
+  assert.deepEqual(state.visits, ["new"]);
+  assert.equal(state.closedPages.length, 0);
 });
