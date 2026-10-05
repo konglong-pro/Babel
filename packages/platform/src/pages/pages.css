@@ -113,29 +113,15 @@ main#main-content > .babel-workspace-process > :is(
 
 .babel-page-tab {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   grid-template-areas:
-    "number kind status"
-    "number title status";
+    "kind status"
+    "title status";
   flex: 1;
   min-width: 0;
   padding: 7px 34px 7px 10px;
   text-align: left;
   cursor: pointer;
-}
-
-.babel-page-tab__number {
-  grid-area: number;
-  align-self: center;
-  min-width: 1.3em;
-  margin-right: 7px;
-  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
-  border-radius: 4px;
-  color: color-mix(in srgb, currentColor 65%, transparent);
-  font-size: 0.65rem;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.5;
-  text-align: center;
 }
 
 .babel-page-tab__kind {

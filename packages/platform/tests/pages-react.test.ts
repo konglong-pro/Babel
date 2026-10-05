@@ -88,14 +88,14 @@ test("page tab roving focus follows external activation outside the tablist", ()
   assert.equal(pageTabRovingKey(pages, "note:2", "missing", true), "note:2");
 });
 
-test("tab number hints follow the first ten displayed positions, with zero for the tenth", () => {
+test("page tabs omit number hints and retain positional shortcut commands", () => {
   const markup = renderToStaticMarkup(createElement(PageSessionProvider, {
     initialPages: Array.from({ length: 11 }, (_, index) => ({
       key: `note:${index}`, kind: "Note", title: `Note ${index}`, href: `/notes?note=${index}`,
     })),
   }, createElement(PageTabs)));
-  const badges = [...markup.matchAll(/class="babel-page-tab__number" aria-hidden="true">(\d)<\/span>/g)];
-  assert.deepEqual(badges.map((match) => match[1]), ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"]);
+  assert.doesNotMatch(markup, /babel-page-tab__number/);
+  assert.match(markup, /class="babel-page-tab__title">Note 10<\/span>/);
   assert.match(markup, /data-babel-command="selectTab10"(?! disabled)/);
   assert.doesNotMatch(markup, /data-babel-command="selectTab11"/);
 });

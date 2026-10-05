@@ -182,8 +182,9 @@ namespace BabelLauncher
             Check(await Script(first, "window.fixtureState") == "42", "Switching lost page state.");
             passed.Add("independent notebook instances and state-preserving switching");
 
-            Check(((TextBlock)firstBrand.Children[2]).Text == "1", "First APP ordinal is missing.");
-            Check(((TextBlock)((StackPanel)((Button)((StackPanel)secondTab.Child).Children[0]).Content).Children[2]).Text == "2", "Second APP ordinal is missing.");
+            Check(firstBrand.Children.Count == 2, "The APP tab should show only its logo and name.");
+            Check(((StackPanel)((Button)((StackPanel)secondTab.Child).Children[0]).Content).Children.Count == 2,
+                "The second APP tab should show only its logo and name.");
             foreach (string command in new[] { null, "", "openFile", "selectApp0", "selectApp01", "selectApp11", "selectTab1", "selectApp2 " })
                 Check(!(bool)Invoke(host, "ExecuteAppCommand", command), "Unknown native command was accepted: " + command);
             Check(Policy(type, "IsAppNavigationCommand", "selectApp10"), "The tenth APP command is missing.");

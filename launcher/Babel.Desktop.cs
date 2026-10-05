@@ -24,7 +24,6 @@ namespace BabelLauncher
             public Grid Surface;
             public Border Header;
             public Button SelectButton;
-            public TextBlock Ordinal;
             public WebView2 View;
             public Window PopupWindow;
             public string ParentId;
@@ -88,14 +87,6 @@ namespace BabelLauncher
             return true;
         }
 
-        private void RefreshAppOrdinals()
-        {
-            for (int index = 0; index < appTabs.Count; index++) {
-                appTabs[index].Ordinal.Text = index == 9 ? "0" : (index + 1).ToString();
-                appTabs[index].Ordinal.ToolTip = "APP " + (index + 1);
-            }
-        }
-
         public DesktopHost(Window window, Panel surface, FrameworkElement home,
             Panel tabs, TextBlock status, string userDataFolder, string[] allowedOrigins)
         {
@@ -148,10 +139,6 @@ namespace BabelLauncher
                 Text = name, MaxWidth = 160, TextWrapping = TextWrapping.NoWrap,
                 TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center
             });
-            notebook.Ordinal = new TextBlock {
-                FontSize = 11, Opacity = 0.6, Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center
-            };
-            brand.Children.Add(notebook.Ordinal);
             notebook.SelectButton = new Button {
                 Content = brand, Padding = new Thickness(12, 6, 10, 6), ToolTip = "Switch to " + name,
                 VerticalAlignment = VerticalAlignment.Center
@@ -173,7 +160,6 @@ namespace BabelLauncher
             surface.Children.Add(notebook.Surface);
             notebooks.Add(id, notebook);
             appTabs.Add(notebook);
-            RefreshAppOrdinals();
             CreateView(notebook);
             Select(notebook);
             _ = InitializeNotebookAsync(notebook);
@@ -518,7 +504,6 @@ namespace BabelLauncher
             }
             notebooks.Remove(notebook.Id);
             appTabs.Remove(notebook);
-            RefreshAppOrdinals();
             if (active == notebook) ShowHome();
         }
 

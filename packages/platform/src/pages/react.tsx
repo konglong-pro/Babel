@@ -1176,11 +1176,6 @@ export function PageTabs({
                 onClick={() => tabCommands.activateTab(page.key)}
                 onDoubleClick={() => requestCloseOtherPages(page.key)}
               >
-                {index < 10 ? (
-                  <span className="babel-page-tab__number" aria-hidden="true">
-                    {index === 9 ? "0" : index + 1}
-                  </span>
-                ) : null}
                 <span className="babel-page-tab__kind">{page.kind}</span>
                 <span className="babel-page-tab__title">{page.title}</span>
                 {page.pending ? (

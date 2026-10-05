@@ -546,6 +546,7 @@ $script:MaximumLogCharactersPerStream = 131072
 $script:MaximumRenderedLogCharacters = 1048576
 $script:HealthProbeIntervalSeconds = 30
 $script:StatusPollIntervalSeconds = 5
+$script:StatusTimer = $null
 $script:LastPortOpenById = @{}
 $script:LastHealthById = @{}
 $script:LastProbeAtById = @{}
@@ -1703,6 +1704,38 @@ function Refresh-ButtonState {
     } else {
         $script:WorkerText.Text = "MANAGED / IDLE"
     }
+
+    if ($null -ne $script:StatusTimer) {
+        $script:StatusTimer.Interval = Get-BabelStatusPollInterval `
+            -ActiveWorkers $activeWorkers `
+            -PendingOpenCount $script:ExternalOpenRequestsById.Count `
+            -HealthProbeCount $script:HealthProbesById.Count `
+            -Closing $script:CloseRequested `
+            -IdleSeconds $script:StatusPollIntervalSeconds
+    }
+}
+
+function Get-BabelStatusPollInterval {
+    param(
+        [AllowEmptyCollection()]
+        [object[]]$ActiveWorkers = @(),
+        [int]$PendingOpenCount = 0,
+        [int]$HealthProbeCount = 0,
+        [bool]$Closing = $false,
+        [int]$IdleSeconds = 5
+    )
+
+    # Observe readiness promptly while OPEN or startup is pending, then return
+    # to the idle cadence so running notebooks do not cause constant polling.
+    $busy = $Closing -or $PendingOpenCount -gt 0 -or $HealthProbeCount -gt 0
+    foreach ($worker in $ActiveWorkers) {
+        if ($worker.OpenPending -or $worker.StopRequested -or -not $worker.ReadyObserved) {
+            $busy = $true
+            break
+        }
+    }
+    if ($busy) { return [TimeSpan]::FromMilliseconds(250) }
+    return [TimeSpan]::FromSeconds($IdleSeconds)
 }
 
 function Invalidate-AppHealthProbe {
@@ -2418,6 +2451,10 @@ function Open-BabelApp {
 
     if ($script:CloseRequested) {
         throw "The launcher is closing and cannot open another notebook."
+    }
+
+    if ($null -ne $script:StatusTimer) {
+        $script:StatusTimer.Interval = [TimeSpan]::FromMilliseconds(250)
     }
 
     if (Test-AppHealthRecentlyPassed -App $App) {
@@ -3197,6 +3234,7 @@ $script:Window.Add_PreviewKeyDown({
 })
 Update-BabelHomeShortcutHint
 $timer = New-Object Windows.Threading.DispatcherTimer
+$script:StatusTimer = $timer
 $timer.Interval = [TimeSpan]::FromSeconds($script:StatusPollIntervalSeconds)
 $timer.Add_Tick({
     try {
@@ -3392,9 +3430,16 @@ if ($HotkeySmokeTest) {
     $script:HotkeySmokeTimer.Start()
 }
 
-Refresh-AppStatuses
 Refresh-ButtonState
 Set-UiStatus -Message "Choose a notebook and OPEN it. Stopped notebooks start automatically."
+$script:Window.Add_ContentRendered({
+    try {
+        Refresh-AppStatuses
+        Refresh-ButtonState
+    } catch {
+        Set-UiStatus -Message "Initial status check failed: $($_.Exception.Message)"
+    }
+})
 $wpfApplication = New-Object Windows.Application
 $wpfApplication.ShutdownMode = [Windows.ShutdownMode]::OnMainWindowClose
 $timer.Start()
