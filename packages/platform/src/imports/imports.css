@@ -355,7 +355,7 @@
   font-weight: 700;
 }
 
-.babel-document-import-field :is(input, textarea) {
+.babel-document-import-field :is(input, textarea, select) {
   width: 100%;
   box-sizing: border-box;
   padding: 10px 12px;
@@ -391,6 +391,53 @@
   margin-top: .2em;
 }
 
+.babel-document-chapter-toolbar,
+.babel-document-chapter-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.babel-document-chapter-toolbar p {
+  flex: 1;
+  min-width: 220px;
+  margin: 0;
+  color: var(--muted, #60645d);
+}
+
+.babel-document-chapters {
+  display: grid;
+  grid-template-columns: minmax(170px, 28%) minmax(0, 1fr);
+  gap: 18px;
+}
+
+.babel-document-chapter-list {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  max-height: 480px;
+  overflow: auto;
+}
+
+.babel-document-chapter-list button {
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.babel-document-chapter-list button[aria-current="true"] {
+  background: color-mix(in srgb, var(--accent, #d7ff35) 20%, var(--paper, #fffef4));
+  border-color: var(--line, #20231f);
+}
+
+.babel-document-chapter-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
 .babel-document-import-error {
   padding: 12px 16px;
   border: 1px solid var(--danger, #a3291f);
@@ -421,6 +468,14 @@
 }
 
 @media (max-width: 620px) {
+  .babel-document-chapters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .babel-document-chapter-list {
+    max-height: 160px;
+  }
+
   .babel-document-import-dialog {
     width: calc(100vw - 16px);
     height: calc(100dvh - 16px);

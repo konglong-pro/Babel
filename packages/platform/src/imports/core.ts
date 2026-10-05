@@ -36,6 +36,8 @@ export interface FolderImportFileLike {
   readonly size: number;
   readonly type: string;
   readonly webkitRelativePath?: string;
+  /** Suggested review title for generated document sections; never trusted by the server. */
+  readonly importTitle?: string;
   arrayBuffer(): Promise<ArrayBuffer>;
 }
 
@@ -283,6 +285,10 @@ export async function preflightMarkdownFolder(
     ...analysis,
     rootName: located.rootName,
     notes: [...analysis.notes, ...failedNotes]
+      .map((note) => ({
+        ...note,
+        defaultTitle: filesByKey.get(pathKey(note.sourcePath))?.file.importTitle ?? note.defaultTitle,
+      }))
       .sort((left, right) => left.sourcePath.localeCompare(right.sourcePath, "en-US")),
     uploads,
     issues: [
@@ -291,6 +297,24 @@ export async function preflightMarkdownFolder(
     ],
     totalMarkdownBytes: declaredMarkdownBytes,
   };
+}
+
+/** Text-only document conversion must not leave unresolved image references. */
+export function omitMarkdownImages(markdown: string): string {
+  const spans = scanMarkdown(markdown).links.filter((link) => link.image)
+    .map(({ start, end }) => ({ start, end }));
+  const mask = codeMask(markdown);
+  for (const match of markdown.matchAll(/<img\b[^>]*>/giu)) {
+    if (!mask[match.index] && !isEscaped(markdown, match.index)) spans.push({ start: match.index, end: match.index + match[0].length });
+  }
+  const parts: string[] = [];
+  let cursor = 0;
+  for (const span of spans.sort((left, right) => left.start - right.start)) {
+    if (span.start > cursor) parts.push(markdown.slice(cursor, span.start));
+    cursor = Math.max(cursor, span.end);
+  }
+  parts.push(markdown.slice(cursor));
+  return parts.join("");
 }
 
 export function analyzeMarkdownFolder(

@@ -63,6 +63,7 @@ for (const adapter of adapters) {
       readFile(path.join(root, adapter.directory, "src/lib/markdown-import.ts"), "utf8"),
     ]);
     assert.equal((list.match(/<DocumentImportAction\b/gu) ?? []).length, 1);
+    assert.match(list, /onImportChapters=\{onImportFolder\}/u, `${adapter.id} must send book chapters to its atomic folder-import review`);
     assert.ok(list.includes(`id: "${adapter.command}.importDocument"`));
     assert.match(list, /run: \(\) => documentImportOpenRef\.current\?\.\(\)/u);
     assert.match(list, /registerOpen=\{\(open\) => \{ documentImportOpenRef\.current = open; \}\}/u);

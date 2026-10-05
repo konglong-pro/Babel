@@ -59,6 +59,17 @@ the converted Markdown, then open a draft. Select its folder and tags in the
 normal editor and save when ready. ReTex/Matter import into Knowledge; Neum
 imports into its knowledge entries.
 
+Choose **Book chapters** to import a whole book as separate notes directly in
+the selected folder. EPUB sections follow its table of contents and reading
+order, including multiple TOC anchors in one HTML file. Other formats detect
+chapter headings automatically; you can select a heading level instead.
+Review each section's title and Markdown, exclude front matter, merge adjacent
+sections, or split at the text cursor before continuing. The final folder-import
+review lets you resolve duplicate titles and adjust tags and destinations;
+confirmation saves all selected chapters in one transaction. No book subfolder
+is created by default. Keeping the original as an attachment remains available
+in the **One note** draft flow.
+
 Install the optional local converter once, with Python 3.10–3.13 and `uv` on
 PATH:
 

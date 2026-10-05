@@ -60,6 +60,25 @@ def xls_bytes() -> bytes:
     return data + record(0x000A, b"")
 
 
+def epub_bytes(chapters: dict[str, str], toc: str | None = None, ncx: bool = False, href: str | None = None) -> bytes:
+    items = []
+    spine = []
+    entries = {"mimetype": "application/epub+zip", "META-INF/container.xml":
+               '<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OPS/content.opf"/></rootfiles></container>'}
+    for index, (path, html) in enumerate(chapters.items()):
+        items.append(f'<item id="c{index}" href="{href or path}" media-type="application/xhtml+xml"/>')
+        spine.append(f'<itemref idref="c{index}"/>')
+        entries[f"OPS/{path}"] = html
+    if toc is not None:
+        toc_path = "toc.ncx" if ncx else "nav.xhtml"
+        media_type = "application/x-dtbncx+xml" if ncx else "application/xhtml+xml"
+        items.append(f'<item id="toc" href="{toc_path}" media-type="{media_type}" properties="nav"/>' if not ncx else
+                     f'<item id="toc" href="{toc_path}" media-type="{media_type}"/>')
+        entries[f"OPS/{toc_path}"] = toc
+    entries["OPS/content.opf"] = '<package xmlns="http://www.idpf.org/2007/opf"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Test book</dc:title><dc:creator>Test author</dc:creator></metadata><manifest>' + "".join(items) + '</manifest><spine toc="toc">' + "".join(spine) + '</spine></package>'
+    return archive_bytes(entries)
+
+
 class WorkerTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -169,6 +188,53 @@ class WorkerTests(unittest.TestCase):
         result = self.invoke("sample.epub", data)
         self.assertEqual(result["title"], "Babel EPUB")
         self.assertIn("Babel chapter", result["markdown"])
+        self.assertEqual(result["chapterSource"], "epub-spine")
+        self.assertEqual(result["chapters"][0]["title"], "Babel chapter")
+
+    def test_epub_toc_uses_spine_order_and_omits_parent_path_images_before_markdown(self):
+        toc = '<html><body><nav epub:type="toc"><ol><li><a href="Text/last.xhtml">Second chapter</a></li><li><a href="Text/first.xhtml#start">First chapter</a></li></ol></nav></body></html>'
+        data = epub_bytes({
+            "Text/first.xhtml": '<html><body><h1 id="start">Start</h1><p>First section text.</p><img src="../images/p031_01.png" alt="Plot [31] nested ]" title="Line\nTitle"/><img src="https://invalid.example/tracker.png"/><svg><image href="../images/svg.png"/></svg></body></html>',
+            "Text/last.xhtml": '<html><body><h1>Finish</h1><p>Second section text.</p></body></html>',
+        }, toc)
+        result = self.invoke("book-with-images.epub", data)
+        self.assertEqual(result["chapterSource"], "epub-toc")
+        self.assertEqual([chapter["title"] for chapter in result["chapters"]], ["First chapter", "Second chapter"])
+        self.assertIn("**Authors:** Test author", result["markdown"])
+        for markdown in [result["markdown"], *(chapter["markdown"] for chapter in result["chapters"])]:
+            self.assertNotIn("../images", markdown)
+            self.assertNotIn("![", markdown)
+            self.assertNotIn("invalid.example", markdown)
+        self.assertTrue(any("Images" in warning for warning in result["warnings"]))
+
+    def test_epub_toc_splits_anchors_in_a_single_file_without_losing_introductory_text(self):
+        toc = '<html><body><nav role="doc-toc"><ol><li><a href="book.xhtml#one">第一章</a></li><li><a href="book.xhtml#one">Duplicate</a></li><li><a href="book.xhtml#two">第二章</a></li></ol></nav></body></html>'
+        html = '<html><head><title>Introduction</title></head><body><p>Introductory text.</p><h1 id="one">One</h1><p>First content.</p><h1 id="two">Two</h1><p>Second content.</p></body></html>'
+        result = self.invoke("anchored-book.epub", epub_bytes({"book.xhtml": html}, toc))
+        self.assertEqual([chapter["title"] for chapter in result["chapters"]], ["Test book — Introduction", "第一章", "第二章"])
+        self.assertIn("Introductory text", result["chapters"][0]["markdown"])
+        self.assertIn("# One", result["chapters"][1]["markdown"])
+        self.assertIn("First content", result["chapters"][1]["markdown"])
+        self.assertNotIn("Second content", result["chapters"][1]["markdown"])
+        self.assertIn("Second content", result["chapters"][2]["markdown"])
+        self.assertNotIn("BABELCHAPTER", result["markdown"])
+
+    def test_epub_ncx_titles_and_relative_archive_paths(self):
+        toc = '<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/"><navMap><navPoint><navLabel><text>NCX chapter</text></navLabel><content src="Text/one.xhtml"/></navPoint></navMap></ncx>'
+        result = self.invoke("ncx-book.epub", epub_bytes({"Text/one.xhtml": "<h1>Heading</h1><p>NCX content.</p>"}, toc, ncx=True, href="Text/../Text/one.xhtml"))
+        self.assertEqual(result["chapterSource"], "epub-toc")
+        self.assertEqual(result["chapters"][0]["title"], "NCX chapter")
+        self.assertIn("NCX content", result["chapters"][0]["markdown"])
+
+    def test_epub_content_references_cannot_escape_the_archive_or_request_external_files(self):
+        for href in ("../../outside.xhtml", "%2e%2e/%2e%2e/outside.xhtml", "file:///private.xhtml", "https://invalid.example/book.xhtml", "/absolute.xhtml"):
+            with self.subTest(href=href):
+                self.invoke("unsafe-content.epub", epub_bytes({"one.xhtml": "<h1>Text</h1>"}, href=href), "unsafe_archive")
+
+    def test_html_nested_image_alts_and_literal_code_examples(self):
+        result = self.invoke("nested-alt.html", b'<h1>Text</h1><img src="../images/p031_01.png" alt="Figure [31] ]"/><pre>![code](../images/example.png)</pre>')
+        self.assertNotIn("p031_01", result["markdown"])
+        self.assertIn("![code](../images/example.png)", result["markdown"])
 
     def test_invalid_empty_and_unsupported_documents(self):
         self.invoke("empty.txt", b"", "empty_document")

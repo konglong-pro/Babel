@@ -9,12 +9,17 @@ import { assertSameOrigin } from "../http/request";
 import {
   DOCUMENT_IMPORT_MAX_BYTES,
   DOCUMENT_IMPORT_MAX_MARKDOWN_BYTES,
+  DOCUMENT_IMPORT_MAX_CHAPTERS,
   documentImportExtension,
+  validDocumentChapters,
   type DocumentConversionResult,
 } from "./document-core";
+import { omitMarkdownImages } from "./core";
 
 const originalIdPattern = /^[0-9a-f]{64}$/u;
-const workerOutputLimit = DOCUMENT_IMPORT_MAX_MARKDOWN_BYTES * 6 + 64 * 1024;
+// Markdown appears once as a whole book and once in its section list. JSON
+// escaping can use six bytes per character; titles have a separate bound.
+const workerOutputLimit = DOCUMENT_IMPORT_MAX_MARKDOWN_BYTES * 12 + DOCUMENT_IMPORT_MAX_CHAPTERS * 500 * 6 + 64 * 1024;
 const conversionTimeoutMs = 120_000;
 let activeConversions = 0;
 
@@ -185,13 +190,28 @@ export function validateConversionResult(result: Record<string, unknown>): Docum
       typeof result.sdkVersion !== "string") {
     throw new ApiError(502, "INVALID_CONVERSION", "The converter returned an invalid result. Please retry.");
   }
+  if ((result.chapters !== undefined && !validDocumentChapters(result.chapters)) ||
+      (result.chapterSource !== undefined && result.chapterSource !== "epub-toc" && result.chapterSource !== "epub-spine")) {
+    throw new ApiError(502, "INVALID_CONVERSION", "The converter returned invalid book sections. Please retry.");
+  }
   if (Buffer.byteLength(result.markdown, "utf8") > DOCUMENT_IMPORT_MAX_MARKDOWN_BYTES) {
     throw new ApiError(413, "MARKDOWN_TOO_LARGE", "Converted Markdown must not exceed 10 MiB. Split the source into smaller files.");
   }
   if (!result.markdown.trim()) {
     throw new ApiError(422, "NO_EXTRACTABLE_TEXT", "No text could be extracted. Scanned PDFs and images require OCR before importing.");
   }
-  return result as unknown as DocumentConversionResult;
+  const converted = result as unknown as DocumentConversionResult;
+  const markdown = omitMarkdownImages(converted.markdown);
+  const chapters = converted.chapters?.map((chapter) => ({ ...chapter, markdown: omitMarkdownImages(chapter.markdown) }));
+  if (!markdown.trim() || chapters?.some((chapter) => !chapter.markdown.trim())) {
+    throw new ApiError(422, "NO_EXTRACTABLE_TEXT", "No text could be extracted from one or more document sections.");
+  }
+  const omitted = markdown !== converted.markdown || chapters?.some((chapter, index) => chapter.markdown !== converted.chapters![index].markdown);
+  return {
+    ...converted, markdown,
+    ...(chapters ? { chapters } : {}),
+    warnings: omitted ? [...converted.warnings, "Images are not imported automatically; add required images in the editor."] : converted.warnings,
+  };
 }
 
 export function runDocumentWorker(

@@ -1,8 +1,11 @@
 import {
   DOCUMENT_IMPORT_MAX_BYTES,
   DOCUMENT_IMPORT_MAX_MARKDOWN_BYTES,
+  DOCUMENT_IMPORT_MAX_CHAPTERS,
   DOCUMENT_IMPORT_ORIGINAL_PREFIX,
   documentImportExtension,
+  validDocumentChapters,
+  type DocumentChapter,
   type DocumentConversionResult,
   type ImportedOriginalDocument,
 } from "./document-core";
@@ -42,7 +45,30 @@ export async function convertDocumentFile(
     throw new Error("The converter returned an invalid result. Try the import again.");
   }
   assertMarkdownSize(result.markdown);
+  if ((result.chapters !== undefined && !validDocumentChapters(result.chapters)) ||
+      (result.chapterSource !== undefined && result.chapterSource !== "epub-toc" && result.chapterSource !== "epub-spine")) {
+    throw new Error("The converter returned invalid book sections. Try the import again.");
+  }
   return result as unknown as DocumentConversionResult;
+}
+
+/** Virtual Markdown files enter the existing atomic folder-import review. */
+export function prepareDocumentChapterFiles(chapters: readonly DocumentChapter[], bookTitle = "Book chapters"): File[] {
+  if (chapters.length === 0 || chapters.length > DOCUMENT_IMPORT_MAX_CHAPTERS) {
+    throw new Error("Choose between 1 and 1,000 chapters to import.");
+  }
+  return chapters.map((chapter, index) => {
+    const title = chapter.title.trim();
+    if (!title || title.length > 240 || /[\u0000-\u001f\u007f/\\]/u.test(title)) {
+      throw new Error(`Enter a valid title for chapter ${index + 1} (1–240 characters, without slashes or control characters).`);
+    }
+    if (!chapter.markdown.trim()) throw new Error(`Chapter ${index + 1} is empty. Add content or exclude it.`);
+    assertMarkdownSize(chapter.markdown);
+    const file = new File([chapter.markdown], `${String(index + 1).padStart(4, "0")}.md`, { type: "text/markdown" });
+    Object.defineProperty(file, "importTitle", { value: title });
+    Object.defineProperty(file, "webkitRelativePath", { value: `${bookTitle.replace(/[\u0000-\u001f\u007f/\\]/gu, " ").trim() || "Book chapters"}/${file.name}` });
+    return file;
+  });
 }
 
 export function prepareDocumentImportDraft(input: {

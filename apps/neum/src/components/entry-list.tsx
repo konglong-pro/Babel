@@ -393,6 +393,7 @@ export function EntryList({
                     Import Markdown file
                   </button>
                   <DocumentImportAction
+                    onImportChapters={onImportFolder}
                     onImport={onImport}
                     disabled={selectedFolderId === null}
                     registerOpen={(open) => { documentImportOpenRef.current = open; }}
