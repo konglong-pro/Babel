@@ -46,24 +46,41 @@ namespace BabelLauncher
             hostType.GetProperty("ConfigureWindow").SetValue(host, new Action<Window>(popup => {
                 Check(window.Dispatcher.CheckAccess(), "Popup identity callback left the WPF UI thread.");
                 Check(popup.Icon != null && popup.Icon == window.Icon, "Popup did not inherit the Babel window icon.");
+                Check(popup.Owner == null && popup.ShowInTaskbar && popup.ShowActivated && popup.Opacity == 1,
+                    "Detached windows must have independent visibility and taskbar controls.");
                 configureWindow(popup);
+                // Keep this fixture isolated after checking the production defaults.
+                popup.WindowStartupLocation = WindowStartupLocation.Manual;
+                popup.Left = -32000;
+                popup.Top = -32000;
+                popup.ShowInTaskbar = false;
+                popup.ShowActivated = false;
+                popup.Opacity = 0;
                 configuredPopups++;
             }));
             Exception failure = null;
+            bool verificationStarted = false;
             window.Loaded += async (sender, args) => {
+                if (verificationStarted) return;
+                verificationStarted = true;
                 try {
-                    Task verification = VerifyAsync(hostType, host, origin, tabs, fixtureLogo);
+                    Task verification = VerifyAsync(hostType, host, origin, tabs, fixtureLogo, window);
                     if (await Task.WhenAny(verification, Task.Delay(45000)) != verification)
                         throw new TimeoutException("Desktop smoke test exceeded 45 seconds.");
                     await verification;
-                    Check(configuredPopups == 2, "The PowerShell identity callback did not configure both native popups.");
+                    Check(configuredPopups == 4, "The PowerShell identity callback did not configure all detached note windows.");
                 } catch (Exception error) { failure = error; }
                 finally {
                     ((IDisposable)host).Dispose();
                     window.Close();
                 }
             };
-            window.ShowDialog();
+            // A detached window must survive hiding the APP, so keep the
+            // fixture dispatcher running until Closed instead of a modal hide.
+            var frame = new System.Windows.Threading.DispatcherFrame();
+            window.Closed += (sender, args) => frame.Continue = false;
+            window.Show();
+            System.Windows.Threading.Dispatcher.PushFrame(frame);
             if (failure != null) throw new InvalidOperationException("Desktop smoke failed after [" + String.Join(", ", passed) + "]: " + failure, failure);
             return String.Join(Environment.NewLine, passed.Select(name => "PASS " + name));
         }
@@ -131,7 +148,7 @@ namespace BabelLauncher
             return (bool)type.GetMethod(name).Invoke(null, args);
         }
 
-        private static async Task VerifyAsync(Type type, object host, string origin, Panel tabs, ImageSource fixtureLogo)
+        private static async Task VerifyAsync(Type type, object host, string origin, Panel tabs, ImageSource fixtureLogo, Window window)
         {
             Check(Policy(type, "IsNotebookAddress", origin + "/one", origin), "Local fixture origin must be accepted.");
             foreach (string forbidden in new[] { "file:///C:/test.html", "javascript:alert(1)", "https://example.invalid/", "http://127.0.0.1:1/", "http://user@" + new Uri(origin).Authority + "/" }) {
@@ -235,7 +252,7 @@ namespace BabelLauncher
             Check(await Script(first, "window.fixtureState") == "42", "Blocked redirect changed the source view.");
             passed.Add("external redirect blocked without replacing the local page");
 
-            await VerifyPopups(host, first, origin);
+            await VerifyPopups(host, first, origin, window);
             passed.Add("same-origin and blank popups preserve live window references and reader DOM");
 
             Invoke(host, "OpenNotebook", "failed", "Failed request", origin + "/abort");
@@ -256,7 +273,7 @@ namespace BabelLauncher
             passed.Add("unresponsive beforeunload check times out within the expected bound");
         }
 
-        private static async Task VerifyPopups(object host, WebView2 opener, string origin)
+        private static async Task VerifyPopups(object host, WebView2 opener, string origin, Window window)
         {
             int initialCount = Property<int>(host, "OpenCount");
             await Evaluate(opener, "window.fixturePopup = window.open('/popup', '_blank')", true);
@@ -267,12 +284,42 @@ namespace BabelLauncher
                 "window.fixtureReader = window.open('', '_blank'); window.fixtureReader.opener = null;" +
                 "window.prepareFixtureReader(window.fixtureReader, document, 'Reader fixture').innerHTML = '<p id=reader style=color:rgb(1,2,3)>Reader fixture</p>';", true);
             await WaitAsync(() => Task.FromResult(Property<int>(host, "OpenCount") == initialCount + 2), "Blank reader popup was not hosted.");
+            await Evaluate(opener,
+                "window.fixtureNoteBReader = window.open('', '_blank');" +
+                "window.prepareFixtureReader(window.fixtureNoteBReader, document, 'Note B — Reader').innerHTML = '<p>Note B</p>';", true);
+            await WaitAsync(() => Task.FromResult(Property<int>(host, "OpenCount") == initialCount + 3), "Second note reader was not hosted independently.");
+            await Evaluate(opener,
+                "window.fixtureNoteBEditor = window.open('', '_blank');" +
+                "window.fixtureNoteBEditor.document.write('<title>Note B — Editor</title><textarea id=note-b>Draft B</textarea>');" +
+                "window.fixtureNoteBEditor.document.close();", true);
+            await WaitAsync(() => Task.FromResult(Property<int>(host, "OpenCount") == initialCount + 4), "Second note editor was not hosted independently.");
+            Check(await Script(opener,
+                "new Set([window.fixturePopup, window.fixtureReader, window.fixtureNoteBReader, window.fixtureNoteBEditor]).size") == "4",
+                "Reader/editor windows for the same or different notes shared a window instance.");
             Check(await Script(opener, "window.fixtureReader.document.getElementById('reader').textContent") == "\"Reader fixture\"", "Opener could not populate a blank reader window.");
             Check(await Script(opener, "window.fixtureReader.opener === null") == "true", "Detached reader failed to clear its opener.");
             bool readerDesktopFlag = await Script(opener, "window.fixtureReader.__BABEL_DESKTOP__ === true") == "true";
             Check(await Script(opener, "getComputedStyle(window.fixtureReader.document.getElementById('reader')).color") == "\"rgb(1, 2, 3)\"", "Opener could not read detached reader text styles.");
             await Script(opener, "(() => {const popup=window.fixtureReader; const range=popup.document.createRange(); range.selectNodeContents(popup.document.getElementById('reader')); popup.getSelection().removeAllRanges(); popup.getSelection().addRange(range);})()");
             Check(await Script(opener, "window.fixtureReader.getSelection().toString()") == "\"Reader fixture\"", "Detached reader selection is unavailable to annotations.");
+            var detached = Property<string[]>(host, "OpenIds")
+                .Where(id => id.Contains(":"))
+                .Select(id => Window.GetWindow((WebView2)Invoke(host, "GetView", id))).ToArray();
+            Check(detached.Length == 4 && detached.All(view => view.Owner == null),
+                "Detached note windows are still owned by the APP.");
+            window.WindowState = WindowState.Minimized;
+            await Task.Delay(150);
+            Check(detached.All(view => view.IsVisible && view.WindowState == WindowState.Normal),
+                "Minimizing the APP also minimized a detached window.");
+            window.Hide();
+            Check(detached.All(view => view.IsVisible), "Hiding the APP also hid a detached window.");
+            window.Show();
+            window.WindowState = WindowState.Normal;
+            detached[0].WindowState = WindowState.Minimized;
+            await Task.Delay(150);
+            Check(window.WindowState == WindowState.Normal && detached.Skip(1).All(view => view.WindowState == WindowState.Normal),
+                "Minimizing one note affected the APP or another detached note.");
+            detached[0].WindowState = WindowState.Normal;
             foreach (string id in Property<string[]>(host, "OpenIds")) {
                 var view = (WebView2)Invoke(host, "GetView", id);
                 Check(!view.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled &&
@@ -284,6 +331,13 @@ namespace BabelLauncher
             Check(Property<string>(host, "ActiveAppId") == "two", "Popup occupied an APP shortcut position.");
             Invoke(host, "ExecuteAppCommand", "selectApp1");
             Check(readerDesktopFlag, "Detached reader desktop flag is missing after document.write (reader DOM, getComputedStyle, selection and native settings all passed).");
+            await Script(opener, "window.fixtureNoteBReader.close()");
+            await WaitAsync(() => Task.FromResult(Property<int>(host, "OpenCount") == initialCount + 3), "Closing one note reader did not remove only that window.");
+            Check(await Script(opener,
+                "!window.fixturePopup.closed && !window.fixtureReader.closed && !window.fixtureNoteBEditor.closed && " +
+                "window.fixtureNoteBEditor.document.getElementById('note-b').value === 'Draft B'") == "true",
+                "Closing a reader closed another mode/window or lost the editor draft.");
+            passed.Add("independent note reader/editor windows survive APP minimize/hide and isolated close");
         }
     }
 }

@@ -22,6 +22,13 @@ namespace BabelLauncher
             window.Content = surface;
             object host = Activator.CreateInstance(hostType, window, surface, home, new StackPanel(),
                 new TextBlock(), profile, new[] { origin });
+            hostType.GetProperty("ConfigureWindow").SetValue(host, new Action<Window>(popup => {
+                popup.WindowStartupLocation = WindowStartupLocation.Manual;
+                popup.Left = -32000;
+                popup.Top = -32000;
+                popup.ShowInTaskbar = false;
+                popup.ShowActivated = false;
+            }));
             Exception failure = null;
             string result = null;
             window.Loaded += async (sender, args) => {

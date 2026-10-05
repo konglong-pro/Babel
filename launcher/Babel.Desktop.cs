@@ -256,12 +256,14 @@ namespace BabelLauncher
                     AllowBlank = blank, Surface = new Grid()
                 };
                 child.PopupWindow = new Window {
-                    Title = "Babel · " + parent.Name, Owner = window, Content = child.Surface, Icon = window.Icon,
+                    Title = "Babel · " + parent.Name, Content = child.Surface, Icon = window.Icon,
                     Width = Math.Min(1240, SystemParameters.WorkArea.Width),
                     Height = Math.Min(900, SystemParameters.WorkArea.Height), MinWidth = 640, MinHeight = 480,
-                    WindowStartupLocation = WindowStartupLocation.CenterOwner,
-                    ShowInTaskbar = window.ShowInTaskbar, ShowActivated = window.ShowActivated, Opacity = window.Opacity
+                    WindowStartupLocation = WindowStartupLocation.CenterScreen,
+                    ShowInTaskbar = true, ShowActivated = true
                 };
+                // Keep the source APP association for data and close checks,
+                // without a native owner that couples visibility and minimizing.
                 var popup = child;
                 if (ConfigureWindow != null) ConfigureWindow(child.PopupWindow);
                 child.PopupWindow.Activated += (sender, eventArgs) => {
