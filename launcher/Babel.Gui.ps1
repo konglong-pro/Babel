@@ -347,12 +347,13 @@ $expectedShortcutCommands = @(
     "selectTab1", "selectTab2", "selectTab3", "selectTab4", "selectTab5",
     "selectTab6", "selectTab7", "selectTab8", "selectTab9", "selectTab10",
     "reopenTab", "historyBack", "historyForward", "saveAndRead",
-    "focusFolders", "focusDocuments", "focusContent"
+    "focusFolders", "focusDocuments", "focusContent",
+    "minimizeWindow", "toggleMaximizeWindow", "closeWindow"
 )
 $shortcutDefinitions = @(Get-BabelShortcutDefinitions -Path $shortcutDefaultsPath)
 $actualShortcutCommands = @($shortcutDefinitions | ForEach-Object { [string]$_.Id })
 if (($actualShortcutCommands -join "|") -cne ($expectedShortcutCommands -join "|")) {
-    throw "Shortcut defaults must define the schema v7 commands in their registered order."
+    throw "Shortcut defaults must define the schema v8 commands in their registered order."
 }
 $shortcutDefaultBindings = Get-BabelDefaultShortcutBindings -Definitions $shortcutDefinitions
 $launcherShortcutDefinitions = @(Get-BabelLauncherShortcutDefinitions -Path $shortcutDefaultsPath)
@@ -2397,7 +2398,11 @@ function Open-AppIdentity {
         $script:DesktopHost = [BabelLauncher.DesktopHost]::new(
             $script:Window, $controls.DesktopSurface, $controls.LauncherPanel,
             $controls.DesktopAppTabs, $controls.DesktopStatusText, $userDataFolder, [string[]]$allowedOrigins)
-        $script:DesktopHost.ConfigureWindow = [Action[Windows.Window]]{ param($popup) Set-BabelWindowIdentity -Window $popup }
+        $script:DesktopHost.ConfigureWindow = [Action[Windows.Window]]{
+            param($popup)
+            Set-BabelWindowIdentity -Window $popup
+            Register-BabelWindowShortcutEvents -Window $popup
+        }
         $script:DesktopHost.ResolveAppLogo = [Func[string, Windows.Media.ImageSource]]{ param($id) $script:AppLogoImages[$id] }
         $script:DesktopHost.HomeRequested = [Action]{ Focus-BabelAppList }
     }
@@ -3098,8 +3103,32 @@ $script:AppsGrid.Add_SelectionChanged({
     Refresh-ButtonState
 })
 
+function Invoke-BabelWindowShortcut {
+    param(
+        [Parameter(Mandatory = $true)][Windows.Window]$Window,
+        [Parameter(Mandatory = $true)][string]$Command
+    )
+    switch ($Command) {
+        'minimizeWindow' { $Window.WindowState = [Windows.WindowState]::Minimized }
+        'toggleMaximizeWindow' {
+            $Window.WindowState = if ($Window.WindowState -eq [Windows.WindowState]::Maximized) {
+                [Windows.WindowState]::Normal
+            } else { [Windows.WindowState]::Maximized }
+        }
+        'closeWindow' { $Window.Close() }
+    }
+}
+
 function Invoke-BabelHomeShortcut {
-    param([Parameter(Mandatory = $true)][string]$Command)
+    param(
+        [Parameter(Mandatory = $true)][string]$Command,
+        [AllowNull()][Windows.Window]$TargetWindow = $null
+    )
+    if ($Command -in @('minimizeWindow', 'toggleMaximizeWindow', 'closeWindow')) {
+        if ($null -eq $TargetWindow) { $TargetWindow = $script:Window }
+        Invoke-BabelWindowShortcut -Window $TargetWindow -Command $Command
+        return
+    }
     switch ($Command) {
         'previousApp' { Move-BabelAppSelection -Delta -1 }
         'nextApp' { Move-BabelAppSelection -Delta 1 }
@@ -3130,13 +3159,16 @@ function Invoke-BabelHomeShortcut {
 }
 
 function Get-BabelNativeShellShortcutBindings {
-    param([bool]$HomeVisible)
+    param([bool]$HomeVisible, [switch]$WindowOnly)
     $bindings = [ordered]@{}
     if ($HomeVisible) {
         foreach ($id in $script:LauncherShortcutBindings.Keys) { $bindings[$id] = $script:LauncherShortcutBindings[$id] }
     }
     foreach ($id in $script:DesktopShortcutBindings.Keys) {
-        if ($id -notmatch '^selectApp(?:[1-9]|10)$' -and $id -notin @('nextAppTab', 'previousAppTab', 'closeAppTab', 'appHome')) { continue }
+        if ($HomeVisible -and $bindings.Contains($id)) { continue }
+        $windowCommand = $id -in @('minimizeWindow', 'toggleMaximizeWindow', 'closeWindow')
+        if ($WindowOnly -and -not $windowCommand) { continue }
+        if (-not $windowCommand -and $id -notmatch '^selectApp(?:[1-9]|10)$' -and $id -notin @('nextAppTab', 'previousAppTab', 'closeAppTab', 'appHome')) { continue }
         $binding = $script:DesktopShortcutBindings[$id]
         if ($null -eq $binding) { continue }
         # Home bindings take priority, including a shared sequence prefix.
@@ -3150,12 +3182,21 @@ function Get-BabelNativeShellShortcutBindings {
 }
 
 function Invoke-BabelHomeShortcutKeyEvent {
-    param([Parameter(Mandatory = $true)][object]$EventArgs)
+    param(
+        [Parameter(Mandatory = $true)][object]$EventArgs,
+        [AllowNull()][Windows.Window]$TargetWindow = $null
+    )
     # Focused web content resolves APP/edit/read overrides itself. Native chrome
-    # and home share the global APP navigation commands.
-    if ($null -ne $script:DesktopHost -and $script:DesktopHost.IsWebContentFocused) { Reset-BabelHomeShortcutSequence; return }
-    $homeVisible = $null -eq $script:DesktopHost -or $script:DesktopHost.IsHomeVisible
-    $nativeBindings = Get-BabelNativeShellShortcutBindings -HomeVisible $homeVisible
+    # and home share global window and APP navigation commands. Detached chrome
+    # controls its own window; it cannot switch or close the source APP's tabs.
+    if ($null -ne $script:DesktopHost -and (
+        ($null -eq $TargetWindow -and $script:DesktopHost.IsWebContentFocused) -or
+        ($null -ne $TargetWindow -and $script:DesktopHost.IsWindowWebContentFocused($TargetWindow)))) {
+        Reset-BabelHomeShortcutSequence; return
+    }
+    $detached = $null -ne $TargetWindow -and $TargetWindow -ne $script:Window
+    $homeVisible = -not $detached -and ($null -eq $script:DesktopHost -or $script:DesktopHost.IsHomeVisible)
+    $nativeBindings = Get-BabelNativeShellShortcutBindings -HomeVisible $homeVisible -WindowOnly:$detached
     if ($eventArgs.Key -in @([Windows.Input.Key]::ImeProcessed, [Windows.Input.Key]::DeadCharProcessed)) {
         Reset-BabelHomeShortcutSequence
         return
@@ -3182,7 +3223,9 @@ function Invoke-BabelHomeShortcutKeyEvent {
     if (Test-BabelEditableTextInputFocused) {
         $command = Get-BabelLauncherShortcutCommand -Bindings $nativeBindings -Binding $binding
         $desktopPrefix = @($nativeBindings.Keys | Where-Object {
-            $_ -match '^selectApp(?:[1-9]|10)$|^(nextAppTab|previousAppTab|closeAppTab|appHome)$' -and
+            ($_ -match '^selectApp(?:[1-9]|10)$|^(nextAppTab|previousAppTab|closeAppTab|appHome)$' -or
+                ($_ -in @('minimizeWindow', 'toggleMaximizeWindow', 'closeWindow') -and
+                    $binding -match '^(Ctrl|Alt)\+|^F(?:[1-9]|1[012])$')) -and
             ($nativeBindings[$_] -ceq $binding -or ([string]$nativeBindings[$_]).StartsWith($binding + ' ', [StringComparison]::Ordinal))
         }).Count -gt 0
         $nativeTextBinding = $binding -in @('Ctrl+A', 'Ctrl+C', 'Ctrl+V', 'Ctrl+X', 'Ctrl+Z', 'Ctrl+Y', 'Ctrl+Shift+Z',
@@ -3208,7 +3251,10 @@ function Invoke-BabelHomeShortcutKeyEvent {
         $command = $step.Command
         if ($null -eq $command) { return }
         if ($eventArgs.IsRepeat -and $command -notin @('previousApp', 'nextApp', 'focusNextPane', 'focusPreviousPane')) { return }
-        try { Invoke-BabelHomeShortcut -Command $command }
+        try {
+            if ($null -eq $TargetWindow) { Invoke-BabelHomeShortcut -Command $command }
+            else { Invoke-BabelHomeShortcut -Command $command -TargetWindow $TargetWindow }
+        }
         catch { Show-BabelError -Message $_.Exception.Message }
         return
     }
@@ -3225,13 +3271,17 @@ function Invoke-BabelHomeShortcutKeyEvent {
 $script:HomeShortcutSequenceTimer = [Windows.Threading.DispatcherTimer]::new()
 $script:HomeShortcutSequenceTimer.Interval = [TimeSpan]::FromMilliseconds(1500)
 $script:HomeShortcutSequenceTimer.Add_Tick({ Reset-BabelHomeShortcutSequence })
-$script:Window.Add_Deactivated({ Reset-BabelHomeShortcutSequence })
-$script:Window.Add_PreviewGotKeyboardFocus({ Reset-BabelHomeShortcutSequence })
-$script:Window.Add_PreviewMouseDown({ Reset-BabelHomeShortcutSequence })
-$script:Window.Add_PreviewKeyDown({
-    param($sender, $eventArgs)
-    Invoke-BabelHomeShortcutKeyEvent -EventArgs $eventArgs
-})
+function Register-BabelWindowShortcutEvents {
+    param([Parameter(Mandatory = $true)][Windows.Window]$Window)
+    $Window.Add_Deactivated({ Reset-BabelHomeShortcutSequence })
+    $Window.Add_PreviewGotKeyboardFocus({ Reset-BabelHomeShortcutSequence })
+    $Window.Add_PreviewMouseDown({ Reset-BabelHomeShortcutSequence })
+    $Window.Add_PreviewKeyDown({
+        param($sender, $eventArgs)
+        Invoke-BabelHomeShortcutKeyEvent -EventArgs $eventArgs -TargetWindow $sender
+    })
+}
+Register-BabelWindowShortcutEvents -Window $script:Window
 Update-BabelHomeShortcutHint
 $timer = New-Object Windows.Threading.DispatcherTimer
 $script:StatusTimer = $timer

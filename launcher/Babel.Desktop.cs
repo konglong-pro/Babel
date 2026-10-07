@@ -13,7 +13,7 @@ using Microsoft.Web.WebView2.Wpf;
 namespace BabelLauncher
 {
     // The shell hosts registered notebooks. Its message bridge accepts only
-    // allowlisted APP navigation commands; existing HTTP APIs own all data.
+    // allowlisted APP navigation and window commands; existing HTTP APIs own all data.
     public sealed class DesktopHost : IDisposable
     {
         private sealed class Notebook
@@ -55,6 +55,35 @@ namespace BabelLauncher
         public Action<Window> ConfigureWindow { get; set; }
         public Func<string, ImageSource> ResolveAppLogo { get; set; }
         public Action HomeRequested { get; set; }
+
+        public bool IsWindowWebContentFocused(Window target)
+        {
+            return notebooks.Values.Any(n => !n.Disposed &&
+                (n.PopupWindow ?? window) == target && n.View.IsKeyboardFocusWithin);
+        }
+
+        public static bool IsWindowCommand(string command)
+        {
+            return command == "minimizeWindow" || command == "toggleMaximizeWindow" || command == "closeWindow";
+        }
+
+        public bool ExecuteWindowCommand(Window target, string command)
+        {
+            if (!IsWindowCommand(command) || target == null ||
+                (target != window && !notebooks.Values.Any(n => !n.Disposed && n.PopupWindow == target))) return false;
+            if (disposed || closeApproved || checkingClose) return true;
+            if (command == "minimizeWindow") target.WindowState = WindowState.Minimized;
+            else if (command == "toggleMaximizeWindow")
+                target.WindowState = target.WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+            else {
+                // Use the titlebar's existing Closing handlers for dirty checks
+                // and worker cleanup; defer to avoid closing inside a WebView event.
+                _ = target.Dispatcher.BeginInvoke(new Action(() => {
+                    if (!disposed && !checkingClose && !closeApproved) target.Close();
+                }));
+            }
+            return true;
+        }
 
         public static bool IsAppNavigationCommand(string command)
         {
@@ -185,26 +214,32 @@ namespace BabelLauncher
                 var core = view.CoreWebView2;
                 core.Settings.AreBrowserAcceleratorKeysEnabled = false;
                 core.Settings.AreHostObjectsAllowed = false;
-                core.Settings.IsWebMessageEnabled = notebook.PopupWindow == null;
+                core.Settings.IsWebMessageEnabled = true;
                 core.Settings.IsStatusBarEnabled = false;
                 string origin = notebook.Address.GetLeftPart(UriPartial.Authority);
                 // Origin is validated as a loopback HTTP authority, not document text.
-                await core.AddScriptToExecuteOnDocumentCreatedAsync(
+                string desktopCapabilities =
                     "if (window.top === window && (location.origin === '" + origin + "'" +
                     (notebook.AllowBlank ? " || location.href === 'about:blank'" : "") + ")) {" +
                     "Object.defineProperty(window, '__BABEL_DESKTOP__', {value: true});" +
-                    (notebook.PopupWindow == null ? "Object.defineProperty(window, '__BABEL_DESKTOP_APP_COMMANDS__', {value: true});" : "") + " }");
+                    "Object.defineProperty(window, '__BABEL_DESKTOP_WINDOW_COMMANDS__', {value: true});" +
+                    (notebook.PopupWindow == null ? "Object.defineProperty(window, '__BABEL_DESKTOP_APP_COMMANDS__', {value: true});" : "") + " }";
+                await core.AddScriptToExecuteOnDocumentCreatedAsync(desktopCapabilities);
                 if (disposed || notebook.Disposed || notebook.View != view) return false;
-                if (notebook.PopupWindow == null) core.WebMessageReceived += (sender, args) => {
+                core.WebMessageReceived += (sender, args) => {
                     // This Core event receives top-level document messages. Frame
                     // messages have separate CoreWebView2Frame events, not wired here.
-                    if (disposed || notebook.Disposed || notebook.View != view || active != notebook ||
-                        !IsNotebookAddress(args.Source, origin) || !IsNotebookAddress(core.Source, origin)) return;
+                    if (disposed || notebook.Disposed || notebook.View != view ||
+                        (notebook.PopupWindow == null && active != notebook) ||
+                        !(IsNotebookAddress(args.Source, origin) || (notebook.AllowBlank && args.Source == "about:blank")) ||
+                        !(IsNotebookAddress(core.Source, origin) || (notebook.AllowBlank && core.Source == "about:blank"))) return;
                     string message;
                     try { message = args.TryGetWebMessageAsString(); } catch (ArgumentException) { return; }
                     const string prefix = "babel:command:";
-                    if (message != null && message.StartsWith(prefix, StringComparison.Ordinal))
-                        ExecuteAppCommand(message.Substring(prefix.Length));
+                    if (message == null || !message.StartsWith(prefix, StringComparison.Ordinal)) return;
+                    string command = message.Substring(prefix.Length);
+                    if (IsWindowCommand(command)) ExecuteWindowCommand(notebook.PopupWindow ?? window, command);
+                    else if (notebook.PopupWindow == null) ExecuteAppCommand(command);
                 };
                 core.NavigationStarting += (sender, args) => {
                     if (IsNotebookAddress(args.Uri, origin) || (notebook.AllowBlank && args.Uri == "about:blank")) return;
@@ -217,9 +252,21 @@ namespace BabelLauncher
                     if (!notebook.Disposed && notebook.PopupWindow != null)
                         notebook.PopupWindow.Title = "Babel · " + core.DocumentTitle;
                 };
-                core.NavigationCompleted += (sender, args) => {
+                core.NavigationCompleted += async (sender, args) => {
                     if (notebook.Disposed || notebook.View != view) return;
-                    if (args.IsSuccess) SetStatus(notebook, "Ready");
+                    if (args.IsSuccess) {
+                        try {
+                            // A popup's initial document can predate its WebView
+                            // attachment. Also apply capabilities to the completed
+                            // top-level document, using the same origin guard.
+                            if (notebook.PopupWindow != null)
+                                await ExecuteScriptWithTimeoutAsync(view, desktopCapabilities);
+                            if (!notebook.Disposed && notebook.View == view) SetStatus(notebook, "Ready");
+                        } catch {
+                            if (!notebook.Disposed && notebook.View == view)
+                                SetStatus(notebook, "Window shortcuts unavailable; reopen this view to retry");
+                        }
+                    }
                     else if (args.WebErrorStatus != CoreWebView2WebErrorStatus.OperationCanceled)
                         ShowFailure(notebook, "The notebook could not load (" + args.WebErrorStatus + "). Check its service in Apps, then retry.");
                 };

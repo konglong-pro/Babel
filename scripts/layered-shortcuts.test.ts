@@ -98,7 +98,7 @@ foreach ($scope in @('app', 'edit', 'read', 'launcher')) {
       resolved: Record<"app" | "edit" | "read", unknown>;
     };
     const settings = parseShortcutSettings(result.settings);
-    assert.equal(settings.schemaVersion, 7);
+    assert.equal(settings.schemaVersion, 8);
     assert.equal(settings.bindings.cancel, "Ctrl+Q");
     assert.equal(settings.bindings.help, null);
     assert.equal(settings.layers.launcher.openApp, "1");
@@ -158,7 +158,7 @@ Assert-Rejected { Set-BabelShortcutDialogBinding -State $state -CommandId save -
 if ($state.Layers.read.Count -ne 0) { throw 'Rejected toggle conflict leaked into draft settings.' }
 $state.CurrentLayer = 'launcher'
 Update-BabelShortcutDialogRows -State $state
-if ($table.Rows.Count -ne 7 -or $controls.RestoreInheritanceButton.IsEnabled) { throw 'Apps home layer has incorrect commands or inheritance.' }
+if ($table.Rows.Count -ne $launcherDefinitions.Count -or $controls.RestoreInheritanceButton.IsEnabled) { throw 'Apps home layer has incorrect commands or inheritance.' }
 Set-BabelShortcutDialogBinding -State $state -CommandId openApp -Binding '1'
 if ($state.Layers.launcher.openApp -ne '1' -or $state.DefaultLauncherBindings.openApp -ne 'Enter') { throw 'Apps home editing corrupted its defaults.' }
 Set-BabelShortcutDialogLayer -State $state -Bindings $state.DefaultLauncherBindings

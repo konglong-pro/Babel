@@ -293,14 +293,14 @@ npm.cmd run launcher:build
 
 | Layer | Applies to | Inherits |
 | --- | --- | --- |
-| Global | Notebook commands and desktop APP tabs | Built-in defaults |
-| Apps home | APP selection, opening, stopping, hiding, and focus | Independent home defaults |
+| Global | Notebook commands, desktop APP tabs, and window controls | Built-in defaults |
+| Apps home | APP selection, opening, stopping, hiding, focus, and window controls | Independent home defaults |
 | APP | Browsing every notebook | Global |
 | Edit | Editing content | Global, then APP |
 | Read | Reading content | Global, then APP |
 
 The system-wide launcher binding is stored independently in
-`%LOCALAPPDATA%\Babel\launcher.json`; schema-v7 notebook and Apps home bindings
+`%LOCALAPPDATA%\Babel\launcher.json`; schema-v8 notebook and Apps home bindings
 live in `%LOCALAPPDATA%\Babel\shortcuts.json`. Both files are outside the
 public repository and the private notebook-data repository. A changed launcher
 binding is registered immediately; if Windows reports that the combination is
@@ -339,6 +339,17 @@ The Global defaults are:
 | `historyBack` / `historyForward` | `Alt+ArrowLeft` / `Alt+ArrowRight` | Traverse visits to still-open notes in this APP |
 | `saveAndRead` | `Ctrl+Shift+Enter`; `Ctrl+Enter` in Edit | Save successfully, then leave editing |
 | `focusFolders` / `focusDocuments` / `focusContent` | `G F` / `G L` / `G C` in APP and Read | Focus folders, document list, or content |
+| `minimizeWindow` | `Ctrl+Alt+M` | Minimize the current desktop window |
+| `toggleMaximizeWindow` | `Ctrl+Alt+F11` | Toggle the current window between maximized and normal size |
+| `closeWindow` | `Ctrl+Alt+Q` | Close the current window through its existing close checks |
+
+Window commands are available in Babel's desktop shell and detached reader/editor
+windows. They can be rebound, disabled, or recorded as sequences in `SHORTCUTS`.
+The command palette and keyboard help also list them. A detached
+window controls itself. Closing the main window checks unsaved changes and stops
+its managed APP workers; closing a detached window checks that window's edits.
+The Apps home layer can configure these commands independently. Window controls
+remain available while a notebook dialog is open.
 
 APP and note tab badges show their positional number; `0` means the tenth tab.
 An index without an open tab does nothing. APP switching excludes detached windows
@@ -348,7 +359,7 @@ a pending key sequence or dialog first, then leaves editing or reading. A dirty
 editor offers **Save and read**, **Discard changes**, or **Keep editing**. A failed
 save keeps the editor open. In a dialog, `Ctrl+Enter` retains its confirmation role.
 
-Schema v7 keeps the complete Global map in `bindings`, with `app`, `edit`, `read`,
+Schema v8 keeps the complete Global map in `bindings`, with `app`, `edit`, `read`,
 and `launcher` maps in `layers`. Global and Apps home assign each command a
 shortcut string or `null` to disable it. In APP, Edit, and Read, an omitted command
 inherits its binding; a shortcut string overrides it; `null` disables it. The settings
@@ -359,7 +370,9 @@ which suppresses the lower command in that context. Edit and Read can reuse keys
 independently. Disabling an override in a later layer does not revive a command
 already suppressed in APP.
 
-Schema v1–v6 files remain readable and retain their existing custom bindings.
+Schema v1–v7 files remain readable and retain their existing custom bindings.
+New window defaults are disabled when an existing binding or sequence prefix
+already occupies their key; the user can assign a different key in settings.
 Migration adds missing commands only when their default key is free; conflicting
 new commands become unbound. Pane-focus and save-and-read defaults are added only
 when compatible with existing layers. The old default `Ctrl+Alt+W` becomes

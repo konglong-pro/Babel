@@ -27,6 +27,7 @@ import {
   parseShortcutSettings,
   resolveShortcutBindings,
   SHORTCUT_DEFINITIONS,
+  WINDOW_SHORTCUT_COMMANDS,
   shouldIgnoreShortcutEvent,
   type ShortcutCommand,
   type ShortcutBindings,
@@ -94,14 +95,17 @@ export function EditorExitActions({ dirty, pending, formRef, onDiscard }: {
 }
 
 const APP_SHELL_COMMANDS = /^(?:selectApp(?:[1-9]|10)|nextAppTab|previousAppTab|closeAppTab|appHome)$/u;
+const WINDOW_SHELL_COMMANDS = new Set<ShortcutCommand>(WINDOW_SHORTCUT_COMMANDS);
 type DesktopCommandWindow = Window & {
   __BABEL_DESKTOP__?: boolean;
   __BABEL_DESKTOP_APP_COMMANDS__?: boolean;
+  __BABEL_DESKTOP_WINDOW_COMMANDS__?: boolean;
   chrome?: { webview?: { postMessage(message: string): void } };
 };
-function desktopCommandsAvailable(document: Document): boolean {
+function desktopCommandsAvailable(document: Document, windowCommand = false): boolean {
   const view = document.defaultView as DesktopCommandWindow | null;
-  return view?.__BABEL_DESKTOP__ === true && view.__BABEL_DESKTOP_APP_COMMANDS__ === true &&
+  return view?.__BABEL_DESKTOP__ === true &&
+    (windowCommand ? view.__BABEL_DESKTOP_WINDOW_COMMANDS__ === true : view.__BABEL_DESKTOP_APP_COMMANDS__ === true) &&
     typeof view.chrome?.webview?.postMessage === "function";
 }
 
@@ -344,6 +348,11 @@ export function executeShortcutCommand(
 ): boolean {
   if (INTERNAL_COMMANDS.has(command)) return false;
 
+  if (WINDOW_SHELL_COMMANDS.has(command)) {
+    if (!desktopCommandsAvailable(document, true)) return false;
+    (document.defaultView as DesktopCommandWindow).chrome!.webview!.postMessage(`babel:command:${command}`);
+    return true;
+  }
   if (APP_SHELL_COMMANDS.test(command)) {
     if (getActiveDialog(document) !== null || !desktopCommandsAvailable(document)) return false;
     (document.defaultView as DesktopCommandWindow).chrome!.webview!.postMessage(`babel:command:${command}`);
@@ -466,6 +475,7 @@ export function executeCancelLadder(document: Document = window.document): boole
 
 function commandIsAvailable(command: ShortcutCommand, document: Document): boolean {
   if (INTERNAL_COMMANDS.has(command)) return true;
+  if (WINDOW_SHELL_COMMANDS.has(command)) return desktopCommandsAvailable(document, true);
   if (APP_SHELL_COMMANDS.test(command)) return getActiveDialog(document) === null && desktopCommandsAvailable(document);
   const paneId = command === "focusFolders" ? "tree" : command === "focusDocuments" ? "items" : command === "focusContent" ? "detail" : null;
   if (paneId !== null) return getActiveDialog(document) === null &&
@@ -1080,7 +1090,9 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts", ownerD
           key: `command:${definition.command}`,
           kind: "command",
           label: definition.label,
-          description: isDesktopOnlyShortcutBinding(bindings[definition.command])
+          description: WINDOW_SHELL_COMMANDS.has(definition.command)
+            ? "Window · Requires Babel desktop"
+            : isDesktopOnlyShortcutBinding(bindings[definition.command])
             ? "Command · Shortcut requires Babel desktop"
             : "Command",
           binding: bindings[definition.command],

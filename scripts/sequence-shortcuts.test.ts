@@ -80,7 +80,9 @@ $bindings.save = " Ctrl\t+ S "
 $layers.read.underlineSelection = " Shift\n+ U "
 $legacyBindings = [ordered]@{}
 foreach ($definition in @($definitions | Select-Object -First 18)) { $legacyBindings[$definition.Id] = $bindings[$definition.Id] }
-$legacyLayers = [ordered]@{ app = @{}; edit = @{}; read = $layers.read; launcher = $layers.launcher }
+$legacyLauncher = [ordered]@{}
+foreach ($definition in @($launcherDefinitions | Select-Object -First 7)) { $legacyLauncher[$definition.Id] = $layers.launcher[$definition.Id] }
+$legacyLayers = [ordered]@{ app = @{}; edit = @{}; read = $layers.read; launcher = $legacyLauncher }
 @{ schemaVersion = 5; bindings = $legacyBindings; layers = $legacyLayers } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $path
 $legacy = Read-BabelShortcutSettings -Definitions $definitions -Path $path
 if ($legacy.Source -ne 'User' -or $null -ne $legacy.Bindings.help -or $legacy.Layers.read.underlineSelection -ne 'Shift+U' -or $legacy.Bindings.save -ne 'Ctrl+S') { throw 'Schema 5 assignments were not retained.' }
@@ -109,7 +111,7 @@ if ($null -ne $read.read -or $null -ne $read.new -or $read.removeUnderline -ne '
 `, directory);
     const result = JSON.parse(stdout) as { settings: unknown; resolved: Record<"app" | "edit" | "read", unknown> };
     const settings = parseShortcutSettings(result.settings);
-    assert.equal(settings.schemaVersion, 7);
+    assert.equal(settings.schemaVersion, 8);
     for (const mode of ["app", "edit", "read"] as const) assert.deepEqual(result.resolved[mode], resolveShortcutBindings(settings, mode));
     assert.throws(() => parseShortcutSettings({ ...(result.settings as object), schemaVersion: 5 }));
   } finally {

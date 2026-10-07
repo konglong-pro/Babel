@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   DEFAULT_SHORTCUT_SETTINGS,
+  DESKTOP_SHORTCUT_COMMANDS,
   getDefaultShortcutSettings,
   LAUNCHER_SHORTCUT_DEFINITIONS,
   LEGACY_SHORTCUT_COMMANDS,
@@ -19,12 +20,15 @@ import {
   SHORTCUT_COMMANDS,
   SHORTCUT_DEFINITIONS,
   ShortcutValidationError,
+  WINDOW_SHORTCUT_COMMANDS,
 } from "../src/shortcuts/core";
 
 const legacyBindings = () => Object.fromEntries(LEGACY_SHORTCUT_COMMANDS.map(command =>
   [command, DEFAULT_SHORTCUT_SETTINGS.bindings[command]]));
 const additionalBindings = Object.fromEntries(Object.entries(DEFAULT_SHORTCUT_SETTINGS.bindings)
   .filter(([command]) => !LEGACY_SHORTCUT_COMMANDS.includes(command as typeof LEGACY_SHORTCUT_COMMANDS[number])));
+const legacyLauncherBindings = () => Object.fromEntries(Object.entries(DEFAULT_SHORTCUT_SETTINGS.layers.launcher)
+  .filter(([command]) => !WINDOW_SHORTCUT_COMMANDS.includes(command as typeof WINDOW_SHORTCUT_COMMANDS[number])));
 
 test("shortcut definitions and checked-in defaults stay in lockstep", () => {
   const defaultsDocument = JSON.parse(
@@ -32,7 +36,7 @@ test("shortcut definitions and checked-in defaults stay in lockstep", () => {
   ) as unknown;
 
   assert.deepEqual(defaultsDocument, {
-    schemaVersion: 7,
+    schemaVersion: 8,
     commands: SHORTCUT_DEFINITIONS,
     launcherCommands: LAUNCHER_SHORTCUT_DEFINITIONS,
     layers: DEFAULT_SHORTCUT_SETTINGS.layers,
@@ -42,7 +46,7 @@ test("shortcut definitions and checked-in defaults stay in lockstep", () => {
     SHORTCUT_COMMANDS,
   );
   assert.deepEqual(DEFAULT_SHORTCUT_SETTINGS, {
-    schemaVersion: 7,
+    schemaVersion: 8,
     layers: {
       app: { focusFolders: "G F", focusDocuments: "G L", focusContent: "G C" },
       edit: { saveAndRead: "Ctrl+Enter", focusFolders: null, focusDocuments: null, focusContent: null },
@@ -50,6 +54,7 @@ test("shortcut definitions and checked-in defaults stay in lockstep", () => {
       launcher: {
         previousApp: "ArrowUp", nextApp: "ArrowDown", openApp: "Enter", stopApp: "Delete",
         hideLauncher: "Escape", focusNextPane: "Tab", focusPreviousPane: "Shift+Tab",
+        minimizeWindow: "Ctrl+Alt+M", toggleMaximizeWindow: "Ctrl+Alt+F11", closeWindow: "Ctrl+Alt+Q",
       },
     },
     bindings: {
@@ -202,7 +207,7 @@ test("shortcut settings require exact current keys and accept unbound commands",
       }),
     ShortcutValidationError,
   );
-  assert.throws(() => parseShortcutSettings({ ...valid, schemaVersion: 8 }), ShortcutValidationError);
+  assert.throws(() => parseShortcutSettings({ ...valid, schemaVersion: 9 }), ShortcutValidationError);
 });
 
 test("v1, v2, and v3 migrations preserve old bindings and leave conflicting new commands unbound", () => {
@@ -221,7 +226,7 @@ test("v1, v2, and v3 migrations preserve old bindings and leave conflicting new 
     },
   };
   assert.deepEqual(parseShortcutSettings(legacy), {
-    schemaVersion: 7,
+    schemaVersion: 8,
     layers: DEFAULT_SHORTCUT_SETTINGS.layers,
     bindings: {
       ...additionalBindings,
@@ -261,7 +266,7 @@ test("v1, v2, and v3 migrations preserve old bindings and leave conflicting new 
     },
   };
   assert.deepEqual(parseShortcutSettings(versionTwo), {
-    schemaVersion: 7,
+    schemaVersion: 8,
     layers: DEFAULT_SHORTCUT_SETTINGS.layers,
     bindings: {
       ...additionalBindings,
@@ -292,7 +297,7 @@ test("v1, v2, and v3 migrations preserve old bindings and leave conflicting new 
     )),
   };
   const migratedVersionThree = parseShortcutSettings(versionThree);
-  assert.equal(migratedVersionThree.schemaVersion, 7);
+  assert.equal(migratedVersionThree.schemaVersion, 8);
   assert.equal(migratedVersionThree.bindings.underlineSelection, "Ctrl+Shift+U");
   assert.equal(migratedVersionThree.bindings.removeUnderline, "Ctrl+Alt+U");
   const versionThreeConflict = {
@@ -363,7 +368,7 @@ test("v1, v2, and v3 migrations preserve old bindings and leave conflicting new 
 test("v4 migration preserves every binding and starts new layers with inheritance", () => {
   const bindings = { ...legacyBindings(), save: "Ctrl+Shift+S", help: null };
   const migrated = parseShortcutSettings({ schemaVersion: 4, bindings });
-  assert.equal(migrated.schemaVersion, 7);
+  assert.equal(migrated.schemaVersion, 8);
   assert.deepEqual(migrated.bindings, { ...DEFAULT_SHORTCUT_SETTINGS.bindings, ...bindings });
   assert.deepEqual(migrated.layers, DEFAULT_SHORTCUT_SETTINGS.layers);
   assert.equal(resolveShortcutBindings(migrated, "app").save, bindings.save);
@@ -621,13 +626,14 @@ test("v5 migration preserves every layer and older schemas do not silently accep
     bindings: { ...legacyBindings(), save: "Ctrl+Shift+S", help: null },
     layers: {
       app: { new: "N" }, edit: { save: "Ctrl+Alt+S" }, read: { underlineSelection: "H", new: null },
-      launcher: { ...DEFAULT_SHORTCUT_SETTINGS.layers.launcher, nextApp: "J" },
+      launcher: { ...legacyLauncherBindings(), nextApp: "J" },
     },
   };
   assert.deepEqual(parseShortcutSettings(legacy), {
-    ...legacy, schemaVersion: 7,
+    ...legacy, schemaVersion: 8,
     bindings: { ...DEFAULT_SHORTCUT_SETTINGS.bindings, ...legacy.bindings },
     layers: { ...legacy.layers,
+      launcher: { ...DEFAULT_SHORTCUT_SETTINGS.layers.launcher, ...legacy.layers.launcher },
       app: { ...DEFAULT_SHORTCUT_SETTINGS.layers.app, ...legacy.layers.app },
       edit: { ...DEFAULT_SHORTCUT_SETTINGS.layers.edit, ...legacy.layers.edit },
     },
@@ -639,7 +645,7 @@ test("v5 migration preserves every layer and older schemas do not silently accep
 });
 
 test("v6 upgrade adds navigation without replacing custom keys, disabled commands or sequence leaders", () => {
-  const oldLayers = { app: {}, edit: {}, read: {}, launcher: DEFAULT_SHORTCUT_SETTINGS.layers.launcher };
+  const oldLayers = { app: {}, edit: {}, read: {}, launcher: legacyLauncherBindings() };
   const defaultUpgrade = parseShortcutSettings({ schemaVersion: 6,
     bindings: { ...legacyBindings(), closeTab: "Ctrl+Alt+W" }, layers: oldLayers });
   assert.deepEqual(defaultUpgrade, DEFAULT_SHORTCUT_SETTINGS);
@@ -670,4 +676,72 @@ test("v6 upgrade adds navigation without replacing custom keys, disabled command
   assert.throws(() => parseShortcutSettings({ schemaVersion: 6,
     bindings: legacyBindings(), layers: { ...oldLayers, app: { selectApp1: "Ctrl+1" } },
   }), /schemaVersion 7/);
+});
+
+test("window commands are configurable in every mode and the launcher", () => {
+  for (const command of WINDOW_SHORTCUT_COMMANDS) {
+    assert.equal(DESKTOP_SHORTCUT_COMMANDS.includes(command), true);
+    for (const mode of ["app", "edit", "read"] as const) {
+      const settings = parseShortcutSettings({
+        ...getDefaultShortcutSettings(),
+        layers: { ...getDefaultShortcutSettings().layers, [mode]: { [command]: "Z W" } },
+      });
+      assert.equal(resolveShortcutBindings(settings, mode)[command], "Z W");
+    }
+  }
+  const settings = parseShortcutSettings({
+    ...getDefaultShortcutSettings(),
+    bindings: { ...DEFAULT_SHORTCUT_SETTINGS.bindings, minimizeWindow: null, closeWindow: "Ctrl+J Q" },
+    layers: { ...DEFAULT_SHORTCUT_SETTINGS.layers, launcher: {
+      ...DEFAULT_SHORTCUT_SETTINGS.layers.launcher, minimizeWindow: "W M", closeWindow: null,
+    } },
+  });
+  assert.equal(settings.bindings.minimizeWindow, null);
+  assert.equal(settings.bindings.closeWindow, "Ctrl+J Q");
+  assert.equal(settings.layers.launcher.closeWindow, null);
+  assert.deepEqual(parseShortcutSettings(settings), settings);
+});
+
+test("v7 migration preserves every old binding and layer while safely adding window defaults", () => {
+  const legacy = {
+    schemaVersion: 7,
+    bindings: Object.fromEntries(Object.entries(DEFAULT_SHORTCUT_SETTINGS.bindings)
+      .filter(([command]) => !WINDOW_SHORTCUT_COMMANDS.includes(command as typeof WINDOW_SHORTCUT_COMMANDS[number]))),
+    layers: { app: {}, edit: {}, read: {}, launcher: legacyLauncherBindings() },
+  };
+  const migrated = parseShortcutSettings({ ...legacy, bindings: { ...legacy.bindings, closeTab: "Ctrl+Alt+W", save: null } });
+  assert.equal(migrated.schemaVersion, 8);
+  assert.equal(migrated.bindings.closeTab, "Ctrl+Alt+W");
+  assert.equal(migrated.bindings.save, null);
+  assert.deepEqual(migrated.layers.app, {});
+  assert.deepEqual(migrated.layers.edit, {});
+  assert.deepEqual(migrated.layers.read, {});
+  for (const command of WINDOW_SHORTCUT_COMMANDS) {
+    assert.equal(migrated.bindings[command], DEFAULT_SHORTCUT_SETTINGS.bindings[command]);
+    assert.equal(migrated.layers.launcher[command], DEFAULT_SHORTCUT_SETTINGS.layers.launcher[command]);
+  }
+  for (const command of WINDOW_SHORTCUT_COMMANDS) {
+    const defaultBinding = DEFAULT_SHORTCUT_SETTINGS.bindings[command]!;
+    for (const occupied of [defaultBinding, `${defaultBinding} G`]) {
+      const baseConflict = parseShortcutSettings({ ...legacy, bindings: { ...legacy.bindings, help: occupied } });
+      assert.equal(baseConflict.bindings.help, occupied);
+      assert.equal(baseConflict.bindings[command], null);
+      for (const mode of ["app", "edit", "read"] as const) {
+        const modeConflict = parseShortcutSettings({ ...legacy, layers: { ...legacy.layers, [mode]: { help: occupied } } });
+        assert.equal(modeConflict.layers[mode].help, occupied);
+        assert.equal(modeConflict.bindings[command], null);
+      }
+      const launcherConflict = parseShortcutSettings({ ...legacy, layers: { ...legacy.layers,
+        launcher: { ...legacy.layers.launcher, openApp: occupied },
+      } });
+      assert.equal(launcherConflict.layers.launcher.openApp, occupied);
+      assert.equal(launcherConflict.layers.launcher[command], null);
+      assert.deepEqual(parseShortcutSettings(launcherConflict), launcherConflict);
+    }
+  }
+  assert.throws(() => parseShortcutSettings({ ...legacy, bindings: { ...legacy.bindings, closeWindow: "Ctrl+Alt+Q" } }), ShortcutValidationError);
+  assert.throws(() => parseShortcutSettings({ ...legacy, layers: { ...legacy.layers, read: { closeWindow: "Q" } } }), /schemaVersion 8/);
+  assert.throws(() => parseShortcutSettings({ ...legacy, layers: { ...legacy.layers,
+    launcher: { ...legacy.layers.launcher, closeWindow: "Ctrl+Alt+Q" },
+  } }), ShortcutValidationError);
 });

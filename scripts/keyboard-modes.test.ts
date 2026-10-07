@@ -79,6 +79,7 @@ function Fixture() {
       popup.document.write('<!doctype html><html><head><title>Isolated mode fixture</title></head><body><main id="popup-root" data-babel-pane="detail"></main></body></html>');
       popup.document.close();
       Object.defineProperty(popup, "__BABEL_DESKTOP__", { value: true });
+      Object.defineProperty(popup, "__BABEL_DESKTOP_WINDOW_COMMANDS__", { value: window.__BABEL_DESKTOP_WINDOW_COMMANDS__ === true });
       const entry = { popup, fixedMode };
       window.modeFixturePopups = [...(window.modeFixturePopups ?? []), entry];
       setPopups(previous => [...previous, entry]);
@@ -269,7 +270,21 @@ window.runPopupModeFixture = async () => {
     check(pane(doc) === "keyboard", "Nested popup controls were not reachable.");
     key(doc, "F6", {ctrlKey: true});
     check(doc.activeElement?.id === "popup-content", "Nested pane cycle did not return to its document content.");
-    passed.push(fixedMode + " popup fixed mode, ownerDocument routing, inherited config and nested pane cycle");
+    const bridge = popup.chrome.webview;
+    const originalPost = bridge.postMessage;
+    const windowMessages = [];
+    bridge.postMessage = message => windowMessages.push(message);
+    try {
+      doc.getElementById("popup-input").focus();
+      key(doc, "m", {ctrlKey: true, altKey: true});
+      key(doc, "F11", {ctrlKey: true, altKey: true});
+      key(doc, "q", {ctrlKey: true, altKey: true});
+      check(windowMessages.join(',') === 'babel:command:minimizeWindow,babel:command:toggleMaximizeWindow,babel:command:closeWindow',
+        "Detached keyboard commands did not address their own window.");
+      key(doc, "1", {ctrlKey: true});
+      check(windowMessages.length === 3, "A detached window received main APP navigation capability.");
+    } finally { bridge.postMessage = originalPost; }
+    passed.push(fixedMode + " popup fixed mode, ownerDocument routing, window commands and nested pane cycle");
   }
   await fetch("/next-config");
   window.dispatchEvent(new Event("babel:shortcuts-changed"));
@@ -312,11 +327,11 @@ window.runSequenceFixture = async () => {
   document.getElementById("item").focus();
   passed.push("sequence prefixes, shared tails, visible pending state and exactly-once completion");
 
-  check(key(document, "q", {ctrlKey: true, altKey: true}), "Four-step prefix was not recognized.");
+  check(key(document, "j", {ctrlKey: true, altKey: true}), "Four-step prefix was not recognized.");
   check(!key(document, "Control") && !key(document, "Alt"), "Modifier changes were consumed as strokes.");
   check(key(document, "x") && key(document, "y"), "Middle sequence strokes did not advance.");
   check(document.querySelector("dialog[open]") === null, "Four-step command ran before its final stroke.");
-  await until(() => pending(document).includes("Ctrl+Alt+Q X Y"), "Middle strokes were not shown in the hint.");
+  await until(() => pending(document).includes("Ctrl+Alt+J X Y"), "Middle strokes were not shown in the hint.");
   check(key(document, "z"), "Fourth stroke did not complete Quick Open.");
   await until(() => document.querySelector('dialog[open] input'), "Four-step Quick Open did not open.");
   key(document, "Escape");
@@ -506,12 +521,19 @@ window.runCommonShortcutFixture = async () => {
     key(document, "w", {ctrlKey: true, shiftKey: true});
     key(document, "Home", {altKey: true});
     check(messages.length === 14 && messages[9] === "babel:command:selectApp10" && messages[13] === "babel:command:appHome", "APP keys did not post scoped desktop commands.");
+    key(document, "m", {ctrlKey: true, altKey: true});
+    key(document, "F11", {ctrlKey: true, altKey: true});
+    key(document, "q", {ctrlKey: true, altKey: true});
+    check(messages.slice(14).join(',') === 'babel:command:minimizeWindow,babel:command:toggleMaximizeWindow,babel:command:closeWindow',
+      "Main document window shortcuts did not use the native bridge.");
     document.getElementById("common-confirm").showModal();
     key(document, "1", {ctrlKey: true});
-    check(messages.length === 14, "An APP shortcut escaped the active modal.");
+    check(messages.length === 17, "An APP shortcut escaped the active modal.");
+    key(document, "F11", {ctrlKey: true, altKey: true});
+    check(messages.length === 18 && messages[17] === 'babel:command:toggleMaximizeWindow', "Modal dialog prevented window sizing.");
     key(document, "Escape");
   } finally { bridge.postMessage = send; }
-  passed.push("G F/G L/G C pane focus and desktop APP bridge with modal isolation");
+  passed.push("G F/G L/G C pane focus, desktop APP modal isolation and window commands");
 
   window.showPagesFixture();
   await until(() => document.getElementById("page-state"), "Page navigation fixture did not mount.");
@@ -569,7 +591,7 @@ test("layered keyboard modes execute in real main and detached WebView2 document
       response.setHeader("Content-Type", "application/json");
       if (commonSettings) { response.end(JSON.stringify(settings)); return; }
       response.end(JSON.stringify({ ...settings, layers: { ...settings.layers,
-        app: sequenceBinding ? { new: "G N", help: "G H", quickOpen: "Ctrl+Alt+Q X Y Z" } : { new: arrowBinding ? "ArrowDown" : "N" },
+        app: sequenceBinding ? { new: "G N", help: "G H", quickOpen: "Ctrl+Alt+J X Y Z" } : { new: arrowBinding ? "ArrowDown" : "N" },
         edit: { new: null, confirm: sequenceBinding ? "Ctrl+Alt+Y N" : "N" },
         read: { new: null, underlineSelection: sequenceBinding ? (updatedSequence ? "G O" : "G U") : updated ? "U" : "N" },
       } }));

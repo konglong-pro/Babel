@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 
 import {
   getDefaultShortcutSettings, LEGACY_SHORTCUT_COMMANDS, parseShortcutSettings,
-  type ShortcutCommand, type ShortcutSettings,
+  type ShortcutCommand, type ShortcutSettings, WINDOW_SHORTCUT_COMMANDS,
 } from "../packages/platform/src/shortcuts/core";
 
 const root = path.resolve(import.meta.dirname, "..");
@@ -47,11 +47,11 @@ function legacySettings(version: number) {
   return {
     schemaVersion: version,
     bindings: Object.fromEntries(commands.map(id => [id, id === "closeTab" ? "Ctrl+Alt+W" : defaults.bindings[id]])),
-    ...(version >= 5 ? { layers: { app: {}, edit: {}, read: {}, launcher: defaults.layers.launcher } } : {}),
+    ...(version >= 5 ? { layers: { app: {}, edit: {}, read: {}, launcher: Object.fromEntries(Object.entries(defaults.layers.launcher).filter(([command]) => !WINDOW_SHORTCUT_COMMANDS.includes(command as typeof WINDOW_SHORTCUT_COMMANDS[number]))) } } : {}),
   };
 }
 
-test("native schema 7 migration matches web defaults and preserves occupied keys across legacy versions", { skip: process.platform !== "win32" }, async () => {
+test("native schema 8 migration matches web defaults and preserves occupied keys across legacy versions", { skip: process.platform !== "win32" }, async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "babel-navigation-settings-"));
   try {
     const fixtures = Array.from({ length: 6 }, (_, index) => legacySettings(index + 1));
@@ -76,7 +76,7 @@ test("native schema 7 migration matches web defaults and preserves occupied keys
     const { stdout } = await runPowerShell(`
 $results = @(Get-ChildItem -LiteralPath $env:BABEL_TEST_DIRECTORY -Filter '*.json' | Sort-Object { [int]$_.BaseName } | ForEach-Object {
   $settings = Read-BabelShortcutSettings -Definitions $definitions -Path $_.FullName -WarningAction SilentlyContinue
-  @{ source = $settings.Source; warning = $settings.Warning; settings = @{ schemaVersion = 7; bindings = $settings.Bindings; layers = $settings.Layers } }
+  @{ source = $settings.Source; warning = $settings.Warning; settings = @{ schemaVersion = 8; bindings = $settings.Bindings; layers = $settings.Layers } }
 })
 ConvertTo-Json -InputObject $results -Depth 10 -Compress
 `, directory);

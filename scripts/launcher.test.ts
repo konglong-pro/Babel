@@ -398,8 +398,8 @@ test("shared platform changes invalidate application builds", () => {
   );
 });
 
-test("the launcher edits the shared schema v7 shortcut contract", () => {
-  assert.equal(shortcutDefaults.schemaVersion, 7);
+test("the launcher edits the shared schema v8 shortcut contract", () => {
+  assert.equal(shortcutDefaults.schemaVersion, 8);
   assert.deepEqual(
     shortcutDefaults.commands?.map(({ command, defaultBinding }) => [command, defaultBinding]),
     [
@@ -428,6 +428,7 @@ test("the launcher edits the shared schema v7 shortcut contract", () => {
       ["reopenTab", "Ctrl+Shift+T"], ["historyBack", "Alt+ArrowLeft"], ["historyForward", "Alt+ArrowRight"],
       ["saveAndRead", "Ctrl+Shift+Enter"],
       ["focusFolders", null], ["focusDocuments", null], ["focusContent", null],
+      ["minimizeWindow", "Ctrl+Alt+M"], ["toggleMaximizeWindow", "Ctrl+Alt+F11"], ["closeWindow", "Ctrl+Alt+Q"],
     ],
   );
 
@@ -500,7 +501,7 @@ test("the launcher owns one configurable global toggle hotkey", () => {
 });
 
 test("the visible launcher supports the complete keyboard loop", () => {
-  assert.match(guiSource, /\$script:Window\.Add_PreviewKeyDown/i);
+  assert.match(guiSource, /Register-BabelWindowShortcutEvents\s+-Window\s+\$script:Window/i);
   assert.match(guiSource, /\^D\(\[0-9\]\)\$/i);
   assert.match(guiSource, /\^NumPad\(\[0-9\]\)\$/i);
   assert.match(guiSource, /\$number\s+-eq\s+0[\s\S]{0,80}return\s+9/i);
@@ -514,8 +515,10 @@ test("the visible launcher supports the complete keyboard loop", () => {
     "window keyboard commands must not depend on a delayed DataGrid focus transition",
   );
   assert.match(guiSource, /'openApp'[\s\S]{0,520}Open-BabelApp\s+-App\s+\$app/i);
-  assert.match(guiSource, /\$script:Window\.Add_PreviewKeyDown[\s\S]{0,180}Invoke-BabelHomeShortcutKeyEvent/);
-  assert.match(guiSource, /function Invoke-BabelHomeShortcutKeyEvent[\s\S]{0,800}DesktopHost\.IsHomeVisible/);
+  assert.match(guiSource, /function Register-BabelWindowShortcutEvents[\s\S]{0,480}\$Window\.Add_PreviewKeyDown[\s\S]{0,180}Invoke-BabelHomeShortcutKeyEvent/);
+  const homeKeySource =
+    guiSource.match(/function\s+Invoke-BabelHomeShortcutKeyEvent\b([\s\S]*?)function\s+[A-Za-z]/i)?.[1] ?? "";
+  assert.match(homeKeySource, /DesktopHost\.IsHomeVisible/);
   assert.match(guiSource, /'stopApp'[\s\S]{0,520}Get-AppWorkerState\s+-AppId\s+\$app\.Id[\s\S]{0,520}Request-AppWorkerStop/i);
   assert.match(guiSource, /'hideLauncher'[\s\S]{0,100}Hide-BabelWindowToTray/i);
   assert.match(guiSource, /Step-BabelShortcutSequence[\s\S]{0,1800}Get-BabelNumberSelectionIndex/i);
@@ -577,7 +580,7 @@ test("shortcut settings are normalized, validated, and replaced atomically", () 
   ]) {
     assert.match(shortcutsHelperSource, new RegExp(`"${keyName}"`));
   }
-  assert.match(shortcutsHelperSource, /schemaVersion\s*=\s*7[\s\S]{0,100}bindings/i);
+  assert.match(shortcutsHelperSource, /schemaVersion\s*=\s*8[\s\S]{0,100}bindings/i);
   assert.match(shortcutsHelperSource, /migratedBindings[\s\S]{0,900}\$null/i);
   assert.match(shortcutsHelperSource, /Write-Warning/i, "missing or invalid user settings must warn");
   assert.match(shortcutsHelperSource, /Text\.UTF8Encoding\(\$false\)/i, "settings must use UTF-8 without a BOM");
@@ -688,11 +691,11 @@ if (
 [void](Write-BabelShortcutSettings -Definitions $definitions -Bindings $legacyReorderLoaded.Bindings -Path $legacyReorderSettingsPath)
 $legacyReorderRoundTrip = Get-Content -LiteralPath $legacyReorderSettingsPath -Raw | ConvertFrom-Json
 if (
-    [int]$legacyReorderRoundTrip.schemaVersion -ne 7 -or
+    [int]$legacyReorderRoundTrip.schemaVersion -ne 8 -or
     $null -ne $legacyReorderRoundTrip.bindings.read -or
     $legacyReorderRoundTrip.bindings.save -ne "Ctrl+Alt+S"
 ) {
-    throw "The migrated fixed-reorder binding did not round-trip as schema v7 null."
+    throw "The migrated fixed-reorder binding did not round-trip as schema v8 null."
 }
 [IO.File]::Delete($legacyReorderSettingsPath)
 $versionThreeSettingsPath = "$settingsPath.version-three"
@@ -831,7 +834,7 @@ Write-Output "Babel shortcut replacement test passed."
         schemaVersion?: number;
         bindings?: Record<string, string | null>;
       };
-      assert.equal(savedSettings.schemaVersion, 7);
+      assert.equal(savedSettings.schemaVersion, 8);
       assert.equal(savedSettings.bindings?.save, "Ctrl+Alt+S");
       assert.equal(savedSettings.bindings?.read, "Ctrl+R");
       assert.equal(savedSettings.bindings?.commandPalette, "Ctrl+Alt+P");
@@ -962,7 +965,7 @@ test(
 
     assert.match(stdout, /Babel GUI smoke test passed/i);
     assert.match(stdout, /15 shortcut control\(s\)/i);
-    assert.match(stdout, /49 shortcut command\(s\)/i);
+    assert.match(stdout, /52 shortcut command\(s\)/i);
   },
 );
 

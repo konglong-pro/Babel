@@ -6,12 +6,29 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import {
   commandAllowedFromEditable,
+  executeShortcutCommand,
   handleReadShortcutKeyDown,
   handleShortcutKeyDown,
   subscribeShortcutSettings,
   ShortcutProvider,
 } from "../src/shortcuts/react";
 import { DEFAULT_SHORTCUT_SETTINGS, type ShortcutSettings } from "../src/shortcuts/core";
+
+test("window commands require their desktop capability and work in detached documents", () => {
+  const messages: string[] = [];
+  const view = { __BABEL_DESKTOP__: true, __BABEL_DESKTOP_WINDOW_COMMANDS__: false,
+    chrome: { webview: { postMessage: (message: string) => messages.push(message) } } };
+  const document = { defaultView: view } as unknown as Document;
+  assert.equal(executeShortcutCommand("minimizeWindow", document), false);
+  view.__BABEL_DESKTOP_WINDOW_COMMANDS__ = true;
+  for (const command of ["minimizeWindow", "toggleMaximizeWindow", "closeWindow"] as const) {
+    assert.equal(executeShortcutCommand(command, document), true);
+  }
+  assert.deepEqual(messages, ["babel:command:minimizeWindow", "babel:command:toggleMaximizeWindow", "babel:command:closeWindow"]);
+  view.__BABEL_DESKTOP__ = false;
+  assert.equal(executeShortcutCommand("closeWindow", document), false);
+  assert.equal(messages.length, 3);
+});
 
 test("desktop shortcuts consume unavailable commands and repeats without browser fallback", () => {
   let executions = 0;

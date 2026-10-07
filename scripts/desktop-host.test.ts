@@ -23,7 +23,12 @@ test("desktop host runs isolated fixture pages in actual WebView2 controls", { s
   const prepareReader = readerModule.statements.find(statement => ts.isFunctionDeclaration(statement) && statement.name?.text === "prepareDetachedReaderDocument");
   const readerStyle = readerModule.statements.find(statement => ts.isVariableStatement(statement) && statement.declarationList.declarations.some(declaration => ts.isIdentifier(declaration.name) && declaration.name.text === "DETACHED_READER_STYLE"));
   assert.ok(prepareReader && readerStyle, "Detached reader fixture declarations must exist.");
-  const readerFixtureScript = ts.transpileModule(`${readerStyle.getText(readerModule)}\n${prepareReader.getText(readerModule)}\nwindow.prepareFixtureReader = prepareDetachedReaderDocument;`, {
+  const editorSource = await readFile(path.join(root, "packages/markdown/src/detached-editor.tsx"), "utf8");
+  const editorModule = ts.createSourceFile("editor.tsx", editorSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const prepareEditor = editorModule.statements.find(statement => ts.isFunctionDeclaration(statement) && statement.name?.text === "prepareDetachedEditorDocument");
+  const editorStyle = editorModule.statements.find(statement => ts.isVariableStatement(statement) && statement.declarationList.declarations.some(declaration => ts.isIdentifier(declaration.name) && declaration.name.text === "DETACHED_EDITOR_STYLE"));
+  assert.ok(prepareEditor && editorStyle, "Detached editor fixture declarations must exist.");
+  const readerFixtureScript = ts.transpileModule(`${readerStyle.getText(readerModule)}\n${prepareReader.getText(readerModule)}\n${editorStyle.getText(editorModule)}\n${prepareEditor.getText(editorModule)}\nwindow.prepareFixtureReader = prepareDetachedReaderDocument;\nwindow.prepareFixtureEditor = prepareDetachedEditorDocument;`, {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None },
   }).outputText.replace(/<\/script/gi, "<\\/script");
   const server = createServer((request, response) => {
@@ -63,7 +68,7 @@ test("desktop host runs isolated fixture pages in actual WebView2 controls", { s
       path.join(root, "launcher/Test-BabelDesktop.ps1"), "-FixtureOrigin", `http://127.0.0.1:${address.port}`,
     ], { timeout: 58_000 });
     assert.equal(stderr, "");
-    assert.equal((stdout.match(/^PASS /gm) ?? []).length, 10, stdout);
+    assert.equal((stdout.match(/^PASS /gm) ?? []).length, 12, stdout);
     context.diagnostic("Native accelerator settings verified; physical keyboard delivery was not tested. CDP key injection was not delivered by the fixture runtime.");
   } finally {
     server.closeAllConnections();

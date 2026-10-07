@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 7,
+  "schemaVersion": 8,
   "commands": [
     {
       "command": "save",
@@ -245,6 +245,21 @@
       "command": "focusContent",
       "label": "Focus Content",
       "defaultBinding": null
+    },
+    {
+      "command": "minimizeWindow",
+      "label": "Minimize Window",
+      "defaultBinding": "Ctrl+Alt+M"
+    },
+    {
+      "command": "toggleMaximizeWindow",
+      "label": "Maximize / Restore Window",
+      "defaultBinding": "Ctrl+Alt+F11"
+    },
+    {
+      "command": "closeWindow",
+      "label": "Close Window",
+      "defaultBinding": "Ctrl+Alt+Q"
     }
   ],
   "launcherCommands": [
@@ -282,6 +297,21 @@
       "command": "focusPreviousPane",
       "label": "Focus Previous Pane",
       "defaultBinding": "Shift+Tab"
+    },
+    {
+      "command": "minimizeWindow",
+      "label": "Minimize Window",
+      "defaultBinding": "Ctrl+Alt+M"
+    },
+    {
+      "command": "toggleMaximizeWindow",
+      "label": "Maximize / Restore Window",
+      "defaultBinding": "Ctrl+Alt+F11"
+    },
+    {
+      "command": "closeWindow",
+      "label": "Close Window",
+      "defaultBinding": "Ctrl+Alt+Q"
     }
   ],
   "layers": {
@@ -304,7 +334,10 @@
       "stopApp": "Delete",
       "hideLauncher": "Escape",
       "focusNextPane": "Tab",
-      "focusPreviousPane": "Shift+Tab"
+      "focusPreviousPane": "Shift+Tab",
+      "minimizeWindow": "Ctrl+Alt+M",
+      "toggleMaximizeWindow": "Ctrl+Alt+F11",
+      "closeWindow": "Ctrl+Alt+Q"
     }
   }
 }

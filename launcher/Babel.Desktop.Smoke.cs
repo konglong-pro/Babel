@@ -23,7 +23,7 @@ namespace BabelLauncher
             passed.Clear();
             var window = new Window {
                 Width = 900, Height = 650, Left = -32000, Top = -32000,
-                ShowActivated = false, ShowInTaskbar = false, WindowStyle = WindowStyle.None,
+                ShowActivated = false, ShowInTaskbar = false, WindowStyle = WindowStyle.None, Opacity = 0,
                 Title = "Babel isolated desktop smoke test"
             };
             configureWindow(window);
@@ -169,6 +169,7 @@ namespace BabelLauncher
             Check(!first.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled, "Browser accelerators remain enabled.");
             Check(!first.CoreWebView2.Settings.AreHostObjectsAllowed && first.CoreWebView2.Settings.IsWebMessageEnabled, "The constrained navigation bridge is unavailable or host objects were exposed.");
             Check(await Script(first, "window.__BABEL_DESKTOP_APP_COMMANDS__") == "true", "Main APP command capability is missing.");
+            Check(await Script(first, "window.__BABEL_DESKTOP_WINDOW_COMMANDS__") == "true", "Main window command capability is missing.");
             await Script(first, "window.fixtureState = 42");
             passed.Add("real WebView initialization and isolated native settings");
 
@@ -230,6 +231,30 @@ namespace BabelLauncher
             Check(Property<string>(host, "ActiveAppId") == "one", "Closing a tab corrupted APP positions.");
             passed.Add("allowlisted APP navigation bridge, tab positions and clean close");
 
+            Check(!(bool)Invoke(host, "ExecuteWindowCommand", window, "openFile"), "Unknown window command was accepted.");
+            Check(!(bool)Invoke(host, "ExecuteWindowCommand", new Window(), "closeWindow"), "Foreign window command target was accepted.");
+            await PostMessages(second, "chrome.webview.postMessage('babel:command:toggleMaximizeWindow')");
+            Check(window.WindowState == WindowState.Normal, "A background APP changed the window state.");
+            await PostMessages(first, "chrome.webview.postMessage('babel:command:minimizeWindow')");
+            Check(window.WindowState == WindowState.Minimized, "Main window minimize bridge failed.");
+            window.WindowState = WindowState.Normal;
+            await PostMessages(first, "chrome.webview.postMessage('babel:command:toggleMaximizeWindow')");
+            Check(window.WindowState == WindowState.Maximized, "Main window maximize bridge failed.");
+            await PostMessages(first, "chrome.webview.postMessage('babel:command:toggleMaximizeWindow')");
+            Check(window.WindowState == WindowState.Normal, "Main window restore bridge failed.");
+            await Evaluate(first, "document.querySelector('iframe').contentWindow.chrome.webview.postMessage('babel:command:minimizeWindow')");
+            await PostMessages(first, "void 0");
+            Check(window.WindowState == WindowState.Normal, "An iframe changed the main window state.");
+            int closeRequests = 0;
+            System.ComponentModel.CancelEventHandler cancelClose = (sender, args) => { closeRequests++; args.Cancel = true; };
+            window.Closing += cancelClose;
+            try {
+                await Script(first, "chrome.webview.postMessage('babel:command:closeWindow')");
+                await WaitAsync(() => Task.FromResult(closeRequests == 1), "Window close command did not reach Closing.");
+                Check(window.IsVisible && Property<int>(host, "OpenCount") == 2, "Window close command bypassed cancellation.");
+            } finally { window.Closing -= cancelClose; }
+            passed.Add("current-window command allowlist, minimize/maximize/restore and cancellable close");
+
             Invoke(host, "RefreshShortcutSettings");
             await WaitAsync(async () => await Script(first, "window.shortcutEvents") == "1" && await Script(second, "window.shortcutEvents") == "1", "Shortcut changes did not reach both live pages.");
             Check(await Script(first, "window.fixtureState") == "42", "Shortcut refresh reloaded the page.");
@@ -290,8 +315,7 @@ namespace BabelLauncher
             await WaitAsync(() => Task.FromResult(Property<int>(host, "OpenCount") == initialCount + 3), "Second note reader was not hosted independently.");
             await Evaluate(opener,
                 "window.fixtureNoteBEditor = window.open('', '_blank');" +
-                "window.fixtureNoteBEditor.document.write('<title>Note B — Editor</title><textarea id=note-b>Draft B</textarea>');" +
-                "window.fixtureNoteBEditor.document.close();", true);
+                "window.prepareFixtureEditor(window.fixtureNoteBEditor, document, 'Note B — Editor').innerHTML = '<textarea id=note-b>Draft B</textarea>';", true);
             await WaitAsync(() => Task.FromResult(Property<int>(host, "OpenCount") == initialCount + 4), "Second note editor was not hosted independently.");
             Check(await Script(opener,
                 "new Set([window.fixturePopup, window.fixtureReader, window.fixtureNoteBReader, window.fixtureNoteBEditor]).size") == "4",
@@ -323,15 +347,32 @@ namespace BabelLauncher
             foreach (string id in Property<string[]>(host, "OpenIds")) {
                 var view = (WebView2)Invoke(host, "GetView", id);
                 Check(!view.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled &&
-                    !view.CoreWebView2.Settings.AreHostObjectsAllowed && view.CoreWebView2.Settings.IsWebMessageEnabled == !id.Contains(":"),
+                    !view.CoreWebView2.Settings.AreHostObjectsAllowed && view.CoreWebView2.Settings.IsWebMessageEnabled,
                     "APP and popup native bridge policies differ from their capabilities.");
                 if (id.Contains(":")) Check(await Script(view, "window.__BABEL_DESKTOP_APP_COMMANDS__ === true") == "false", "Popup inherited APP command capability.");
+                await WaitAsync(async () => await Script(view, "window.__BABEL_DESKTOP_WINDOW_COMMANDS__ === true") == "true",
+                    "Window lost its window command capability: " + id + " at " + view.CoreWebView2.Source);
             }
             Invoke(host, "ExecuteAppCommand", "selectApp2");
             Check(Property<string>(host, "ActiveAppId") == "two", "Popup occupied an APP shortcut position.");
             Invoke(host, "ExecuteAppCommand", "selectApp1");
             Check(readerDesktopFlag, "Detached reader desktop flag is missing after document.write (reader DOM, getComputedStyle, selection and native settings all passed).");
-            await Script(opener, "window.fixtureNoteBReader.close()");
+            string noteBReaderId = Property<string[]>(host, "OpenIds").First(id => id.Contains(":") &&
+                Window.GetWindow((WebView2)Invoke(host, "GetView", id)).Title == "Babel · Note B — Reader");
+            var noteBReader = (WebView2)Invoke(host, "GetView", noteBReaderId);
+            var noteBWindow = Window.GetWindow(noteBReader);
+            await PostMessages(noteBReader, "chrome.webview.postMessage('babel:command:selectApp2')");
+            Check(Property<string>(host, "ActiveAppId") == "one", "A detached window switched main APP tabs.");
+            await PostMessages(noteBReader, "chrome.webview.postMessage('babel:command:minimizeWindow')");
+            Check(noteBWindow.WindowState == WindowState.Minimized && window.WindowState == WindowState.Normal,
+                "A detached window command minimized the main window.");
+            noteBWindow.WindowState = WindowState.Normal;
+            await PostMessages(noteBReader, "chrome.webview.postMessage('babel:command:toggleMaximizeWindow')");
+            Check(noteBWindow.WindowState == WindowState.Maximized && window.WindowState == WindowState.Normal,
+                "A detached window command maximized the wrong window.");
+            await PostMessages(noteBReader, "chrome.webview.postMessage('babel:command:toggleMaximizeWindow')");
+            Check(noteBWindow.WindowState == WindowState.Normal, "Detached restore command failed.");
+            await Script(noteBReader, "chrome.webview.postMessage('babel:command:closeWindow')");
             await WaitAsync(() => Task.FromResult(Property<int>(host, "OpenCount") == initialCount + 3), "Closing one note reader did not remove only that window.");
             Check(await Script(opener,
                 "!window.fixturePopup.closed && !window.fixtureReader.closed && !window.fixtureNoteBEditor.closed && " +

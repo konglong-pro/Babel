@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { DEFAULT_SHORTCUT_SETTINGS, LEGACY_SHORTCUT_COMMANDS } from "../src/shortcuts/core";
+import { DEFAULT_SHORTCUT_SETTINGS, LEGACY_SHORTCUT_COMMANDS, WINDOW_SHORTCUT_COMMANDS } from "../src/shortcuts/core";
 import {
   loadShortcutSettings,
   resolveShortcutSettingsPath,
@@ -76,7 +76,7 @@ test("shortcut loader rereads valid settings and falls back for missing or inval
     };
     writeFileSync(settingsPath, JSON.stringify(legacy), "utf8");
     assert.deepEqual(loadShortcutSettings({ path: settingsPath }), {
-      schemaVersion: 7,
+      schemaVersion: 8,
       layers: DEFAULT_SHORTCUT_SETTINGS.layers,
       bindings: {
         ...DEFAULT_SHORTCUT_SETTINGS.bindings,
@@ -138,7 +138,7 @@ test("shortcut loader migrates v5 layers in memory and serves validated sequence
     const legacy = {
       schemaVersion: 5,
       bindings: Object.fromEntries(LEGACY_SHORTCUT_COMMANDS.map(command => [command, DEFAULT_SHORTCUT_SETTINGS.bindings[command]])),
-      layers: { app: {}, edit: {}, read: { underlineSelection: "H", new: null }, launcher: DEFAULT_SHORTCUT_SETTINGS.layers.launcher },
+      layers: { app: {}, edit: {}, read: { underlineSelection: "H", new: null }, launcher: Object.fromEntries(Object.entries(DEFAULT_SHORTCUT_SETTINGS.layers.launcher).filter(([command]) => !WINDOW_SHORTCUT_COMMANDS.includes(command as typeof WINDOW_SHORTCUT_COMMANDS[number]))) },
     };
     const source = JSON.stringify(legacy);
     writeFileSync(settingsPath, source, "utf8");

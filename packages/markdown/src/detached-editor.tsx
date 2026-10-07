@@ -440,6 +440,9 @@ function prepareDetachedEditorDocument(
   if ((sourceDocument.defaultView as (Window & { __BABEL_DESKTOP__?: boolean }) | null)?.__BABEL_DESKTOP__ === true) {
     Object.defineProperty(popup, "__BABEL_DESKTOP__", { value: true });
   }
+  if ((sourceDocument.defaultView as (Window & { __BABEL_DESKTOP_WINDOW_COMMANDS__?: boolean }) | null)?.__BABEL_DESKTOP_WINDOW_COMMANDS__ === true) {
+    Object.defineProperty(popup, "__BABEL_DESKTOP_WINDOW_COMMANDS__", { value: true });
+  }
   targetDocument.documentElement.lang = sourceDocument.documentElement.lang || "en";
   targetDocument.documentElement.className = sourceDocument.documentElement.className;
   targetDocument.head.replaceChildren();

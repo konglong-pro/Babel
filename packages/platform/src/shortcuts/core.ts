@@ -1,4 +1,8 @@
-export const SHORTCUT_SCHEMA_VERSION = 7 as const;
+export const SHORTCUT_SCHEMA_VERSION = 8 as const;
+
+export const WINDOW_SHORTCUT_COMMANDS = [
+  "minimizeWindow", "toggleMaximizeWindow", "closeWindow",
+] as const;
 
 export const SHORTCUT_COMMANDS = [
   "save",
@@ -26,6 +30,7 @@ export const SHORTCUT_COMMANDS = [
   "selectTab6", "selectTab7", "selectTab8", "selectTab9", "selectTab10",
   "reopenTab", "historyBack", "historyForward", "saveAndRead",
   "focusFolders", "focusDocuments", "focusContent",
+  ...WINDOW_SHORTCUT_COMMANDS,
 ] as const;
 
 export type ShortcutCommand = (typeof SHORTCUT_COMMANDS)[number];
@@ -98,6 +103,7 @@ export type ShortcutMode = "app" | "edit" | "read";
 export const LAUNCHER_SHORTCUT_COMMANDS = [
   "previousApp", "nextApp", "openApp", "stopApp", "hideLauncher",
   "focusNextPane", "focusPreviousPane",
+  ...WINDOW_SHORTCUT_COMMANDS,
 ] as const;
 
 export type LauncherShortcutCommand = (typeof LAUNCHER_SHORTCUT_COMMANDS)[number];
@@ -225,6 +231,9 @@ export const SHORTCUT_DEFINITIONS: readonly ShortcutDefinition[] = Object.freeze
   Object.freeze({ command: "focusFolders", label: "Focus Folders", defaultBinding: null }),
   Object.freeze({ command: "focusDocuments", label: "Focus Documents", defaultBinding: null }),
   Object.freeze({ command: "focusContent", label: "Focus Content", defaultBinding: null }),
+  Object.freeze({ command: "minimizeWindow", label: "Minimize Window", defaultBinding: "Ctrl+Alt+M" }),
+  Object.freeze({ command: "toggleMaximizeWindow", label: "Maximize / Restore Window", defaultBinding: "Ctrl+Alt+F11" }),
+  Object.freeze({ command: "closeWindow", label: "Close Window", defaultBinding: "Ctrl+Alt+Q" }),
 ]);
 
 export const LAUNCHER_SHORTCUT_DEFINITIONS: readonly {
@@ -239,12 +248,17 @@ export const LAUNCHER_SHORTCUT_DEFINITIONS: readonly {
   Object.freeze({ command: "hideLauncher", label: "Hide Launcher", defaultBinding: "Escape" }),
   Object.freeze({ command: "focusNextPane", label: "Focus Next Pane", defaultBinding: "Tab" }),
   Object.freeze({ command: "focusPreviousPane", label: "Focus Previous Pane", defaultBinding: "Shift+Tab" }),
+  Object.freeze({ command: "minimizeWindow", label: "Minimize Window", defaultBinding: "Ctrl+Alt+M" }),
+  Object.freeze({ command: "toggleMaximizeWindow", label: "Maximize / Restore Window", defaultBinding: "Ctrl+Alt+F11" }),
+  Object.freeze({ command: "closeWindow", label: "Close Window", defaultBinding: "Ctrl+Alt+Q" }),
 ]);
 
 const COMMAND_SET = new Set<string>(SHORTCUT_COMMANDS);
 export const LEGACY_SHORTCUT_COMMANDS = SHORTCUT_COMMANDS.slice(0, 18);
+const VERSION_SEVEN_SHORTCUT_COMMANDS = SHORTCUT_COMMANDS.slice(0, -WINDOW_SHORTCUT_COMMANDS.length);
+const VERSION_SEVEN_LAUNCHER_COMMANDS = LAUNCHER_SHORTCUT_COMMANDS.slice(0, -WINDOW_SHORTCUT_COMMANDS.length);
 export const DESKTOP_SHORTCUT_COMMANDS = SHORTCUT_COMMANDS.filter(command =>
-  /^selectApp\d+$/.test(command) || ["nextAppTab", "previousAppTab", "closeAppTab", "appHome"].includes(command));
+  /^selectApp\d+$/.test(command) || ["nextAppTab", "previousAppTab", "closeAppTab", "appHome", ...WINDOW_SHORTCUT_COMMANDS].includes(command));
 const VERSION_ONE_SHORTCUT_COMMANDS = [
   "save",
   "new",
@@ -599,14 +613,15 @@ function parseModeLayer(value: unknown, mode: ShortcutMode, allowSequences: bool
   return bindings;
 }
 
-function parseLauncherBindings(value: unknown, allowSequences: boolean): LauncherBindings {
+function parseLauncherBindings(value: unknown, allowSequences: boolean, includeWindowCommands: boolean): LauncherBindings {
   if (!isRecord(value)) {
     throw new ShortcutValidationError("Launcher shortcut bindings must be an object.");
   }
-  assertExactKeys(value, LAUNCHER_SHORTCUT_COMMANDS, "Launcher shortcut bindings");
+  const sourceCommands = includeWindowCommands ? LAUNCHER_SHORTCUT_COMMANDS : VERSION_SEVEN_LAUNCHER_COMMANDS;
+  assertExactKeys(value, sourceCommands, "Launcher shortcut bindings");
   const bindings = {} as Record<LauncherShortcutCommand, ShortcutBinding>;
   const assigned = new Map<string, LauncherShortcutCommand>();
-  for (const command of LAUNCHER_SHORTCUT_COMMANDS) {
+  for (const command of sourceCommands) {
     const rawBinding = value[command];
     if (rawBinding === null) {
       bindings[command] = null;
@@ -628,10 +643,17 @@ function parseLauncherBindings(value: unknown, allowSequences: boolean): Launche
     assigned.set(binding, command);
     bindings[command] = binding;
   }
+  if (!includeWindowCommands) {
+    for (const command of WINDOW_SHORTCUT_COMMANDS) {
+      const binding = LAUNCHER_SHORTCUT_DEFINITIONS.find(definition => definition.command === command)!.defaultBinding;
+      bindings[command] = findConflictingCommand(assigned, binding) === undefined ? binding : null;
+      if (bindings[command] !== null) assigned.set(binding, command);
+    }
+  }
   return bindings;
 }
 
-function parseShortcutLayers(value: unknown, allowSequences: boolean): ShortcutLayers {
+function parseShortcutLayers(value: unknown, allowSequences: boolean, includeWindowCommands: boolean): ShortcutLayers {
   if (!isRecord(value)) {
     throw new ShortcutValidationError("Shortcut layers must be an object.");
   }
@@ -640,7 +662,7 @@ function parseShortcutLayers(value: unknown, allowSequences: boolean): ShortcutL
     app: parseModeLayer(value.app, "app", allowSequences),
     edit: parseModeLayer(value.edit, "edit", allowSequences),
     read: parseModeLayer(value.read, "read", allowSequences),
-    launcher: parseLauncherBindings(value.launcher, allowSequences),
+    launcher: parseLauncherBindings(value.launcher, allowSequences, includeWindowCommands),
   };
 }
 
@@ -672,6 +694,7 @@ export function parseShortcutSettings(value: unknown): ShortcutSettings {
     value.schemaVersion !== 4 &&
     value.schemaVersion !== 5 &&
     value.schemaVersion !== 6 &&
+    value.schemaVersion !== 7 &&
     value.schemaVersion !== SHORTCUT_SCHEMA_VERSION
   ) {
     throw new ShortcutValidationError(
@@ -695,7 +718,8 @@ export function parseShortcutSettings(value: unknown): ShortcutSettings {
         ? VERSION_TWO_SHORTCUT_COMMANDS
         : value.schemaVersion === 3
           ? VERSION_THREE_SHORTCUT_COMMANDS
-          : value.schemaVersion < 7 ? LEGACY_SHORTCUT_COMMANDS : SHORTCUT_COMMANDS;
+          : value.schemaVersion < 7 ? LEGACY_SHORTCUT_COMMANDS
+            : value.schemaVersion === 7 ? VERSION_SEVEN_SHORTCUT_COMMANDS : SHORTCUT_COMMANDS;
   assertExactKeys(value.bindings, sourceCommands, "Shortcut bindings");
 
   const sourceBindings = new Map<ShortcutCommand, ShortcutBinding>();
@@ -744,12 +768,19 @@ export function parseShortcutSettings(value: unknown): ShortcutSettings {
   }
 
   const layers = value.schemaVersion >= 5
-    ? parseShortcutLayers(value.layers, value.schemaVersion >= 6)
+    ? parseShortcutLayers(value.layers, value.schemaVersion >= 6, value.schemaVersion >= 8)
     : { app: {}, edit: {}, read: {}, launcher: makeDefaultLayers().launcher };
   if (value.schemaVersion < 7) {
     for (const mode of ["app", "edit", "read"] as const) {
       if (Object.keys(layers[mode]).some(command => !LEGACY_SHORTCUT_COMMANDS.includes(command as ShortcutCommand))) {
         throw new ShortcutValidationError(`New navigation commands require schemaVersion 7 (${mode}).`);
+      }
+    }
+  }
+  if (value.schemaVersion < 8) {
+    for (const mode of ["app", "edit", "read"] as const) {
+      if (Object.keys(layers[mode]).some(command => WINDOW_SHORTCUT_COMMANDS.includes(command as typeof WINDOW_SHORTCUT_COMMANDS[number]))) {
+        throw new ShortcutValidationError(`Window commands require schemaVersion 8 (${mode}).`);
       }
     }
   }
