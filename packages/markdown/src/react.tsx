@@ -1405,7 +1405,7 @@ export function MarkdownEditor({
             <>
               <input
                 ref={fileInputRef}
-                className="sr-only"
+                hidden
                 type="file"
                 accept="image/png,image/jpeg,image/webp,image/gif"
                 multiple

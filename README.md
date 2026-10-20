@@ -62,6 +62,19 @@ Select **PDFs** in an APP's header to import a PDF (up to 512 MiB), then select
 its own library; import the same book again in another APP when needed.
 The reader includes page thumbnails, embedded contents, text search, zoom,
 rotation, and saved page/zoom/rotation progress.
+The library and reader follow the current APP's visual theme. Scroll the shelf,
+page thumbnails, or continuous PDF pages with the wheel or their scrollbars.
+
+Use **Folder batch** → **Choose folder** to include PDFs from every subfolder.
+Other file types are skipped; each PDF keeps its filename as its book title.
+Review the per-file results and use **Retry remaining PDFs** after failures;
+successful imports are kept. **Cancel import** finishes the current PDF and
+stops the remaining queue. Retries reuse the same import identity to avoid
+duplicate entries after an interrupted response.
+
+Each shelf entry has **Delete** and a confirmation step. Deleting permanently
+removes that APP's original PDF, reading progress and annotations. Notes and
+copied excerpt images already created from it remain unchanged.
 
 Select text or use **Area capture** for diagrams and scanned pages. **New note**
 opens an unsaved note in the originating notebook; **Append to [draft title]**

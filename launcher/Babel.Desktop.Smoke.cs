@@ -163,8 +163,19 @@ namespace BabelLauncher
             passed.Add("registered origin policy");
 
             Invoke(host, "OpenNotebook", "one", "One", origin + "/one");
-            await WaitAsync(() => Task.FromResult(Property<int>(host, "ReadyCount") == 1), "First real WebView did not become ready.");
             var first = (WebView2)Invoke(host, "GetView", "one");
+            await WaitAsync(() => {
+                if (first.Visibility == Visibility.Collapsed) {
+                    var failurePanel = ((Panel)first.Parent).Children.OfType<StackPanel>().Single();
+                    throw new InvalidOperationException(failurePanel.Children.OfType<TextBlock>().First().Text);
+                }
+                return Task.FromResult(Property<int>(host, "ReadyCount") == 1);
+            }, "First real WebView did not become ready.");
+            Check(first.CreationProperties.Language == "en-US" && first.CreationProperties.ScriptLocale == "en-US",
+                "APP browser and script locales must be English.");
+            Check(await Script(first, "navigator.language") == "\"en-US\"" &&
+                await Script(first, "new Intl.DateTimeFormat().resolvedOptions().locale") == "\"en-US\"",
+                "The real WebView did not apply the English browser and script locales.");
             Check(await Script(first, "window.earlyDesktop") == "true", "Desktop flag was unavailable to the initial page script.");
             Check(!first.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled, "Browser accelerators remain enabled.");
             Check(!first.CoreWebView2.Settings.AreHostObjectsAllowed && first.CoreWebView2.Settings.IsWebMessageEnabled, "The constrained navigation bridge is unavailable or host objects were exposed.");
@@ -263,6 +274,9 @@ namespace BabelLauncher
             Check(!await (Task<bool>)type.GetMethod("HasUnsavedChangesAsync").Invoke(null, new object[] { first }), "Clean fixture was reported dirty.");
             await Script(first, "window.fixtureDirty = true");
             Check(await (Task<bool>)type.GetMethod("HasUnsavedChangesAsync").Invoke(null, new object[] { first }), "Dirty fixture was reported clean.");
+            Check(!VerifyDiscardDialog(type, host, window, "keep"), "Keep open approved discarding changes.");
+            Check(!VerifyDiscardDialog(type, host, window, "close"), "Closing the dialog approved discarding changes.");
+            Check(VerifyDiscardDialog(type, host, window, "discard"), "Discard changes did not approve closing.");
             await Script(first, "window.fixtureDirty = false");
             passed.Add("clean and dirty beforeunload handling");
 
@@ -296,6 +310,34 @@ namespace BabelLauncher
             catch (TimeoutException) { timedOut = true; }
             Check(timedOut && (DateTime.UtcNow - checkStarted).TotalSeconds < 9, "Unresponsive beforeunload check did not return a bounded timeout.");
             passed.Add("unresponsive beforeunload check times out within the expected bound");
+        }
+
+        private static bool VerifyDiscardDialog(Type type, object host, Window owner, string action)
+        {
+            Exception failure = null;
+            owner.Dispatcher.BeginInvoke(new Action(() => {
+                Window dialog = null;
+                try {
+                    dialog = owner.OwnedWindows.Cast<Window>().Single(item => item.Title == "Babel — unsaved changes");
+                    var panel = (StackPanel)dialog.Content;
+                    var buttons = ((StackPanel)panel.Children[1]).Children.Cast<Button>().ToArray();
+                    Check(buttons.Length == 2 && (string)buttons[0].Content == "Keep open" &&
+                        (string)buttons[1].Content == "Discard changes", "Discard dialog captions must be explicit English.");
+                    Check(buttons[0].IsDefault && buttons[0].IsCancel && !buttons[1].IsDefault,
+                        "Discard dialog must default to keeping changes and support cancellation.");
+                    Check(!dialog.ShowInTaskbar && dialog.Opacity == owner.Opacity,
+                        "Discard dialog lost its owner visibility policy.");
+                    if (action == "close") dialog.Close();
+                    else buttons[action == "keep" ? 0 : 1].RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                } catch (Exception error) {
+                    failure = error;
+                    if (dialog != null) dialog.Close();
+                }
+            }), System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            bool result = (bool)type.GetMethod("ShowDiscardDialog", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(host, new object[] { "Fixture notebooks have unsaved changes." });
+            if (failure != null) throw failure;
+            return result;
         }
 
         private static async Task VerifyPopups(object host, WebView2 opener, string origin, Window window)
@@ -346,6 +388,10 @@ namespace BabelLauncher
             detached[0].WindowState = WindowState.Normal;
             foreach (string id in Property<string[]>(host, "OpenIds")) {
                 var view = (WebView2)Invoke(host, "GetView", id);
+                Check(view.CreationProperties.Language == "en-US" && view.CreationProperties.ScriptLocale == "en-US",
+                    "APP and popup locale policies differ.");
+                Check(await Script(view, "new Intl.DateTimeFormat().resolvedOptions().locale") == "\"en-US\"",
+                    "Detached windows did not retain the English script locale.");
                 Check(!view.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled &&
                     !view.CoreWebView2.Settings.AreHostObjectsAllowed && view.CoreWebView2.Settings.IsWebMessageEnabled,
                     "APP and popup native bridge policies differ from their capabilities.");

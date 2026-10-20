@@ -144,11 +144,78 @@ test(
 
       const rebuiltLauncher = await readFile(outputPath);
       assert.equal(rebuiltLauncher.subarray(0, 2).toString("ascii"), "MZ");
+      const bootstrapDialogCheck = `
+Add-Type -AssemblyName System.Windows.Forms
+$assembly = [Reflection.Assembly]::LoadFile('${outputPath.replaceAll("'", "''")}')
+$factory = $assembly.GetType('Program').GetMethod('CreateErrorDialog', [Reflection.BindingFlags]'NonPublic, Static')
+$dialog = $factory.Invoke($null, @('Bootstrap error fixture'))
+try {
+    if ($dialog.Text -ne 'Babel Launcher' -or $dialog.AcceptButton.Text -ne 'OK' -or
+        $dialog.CancelButton -ne $dialog.AcceptButton -or $dialog.AcceptButton.DialogResult -ne [Windows.Forms.DialogResult]::OK) {
+        throw 'The bootstrap error dialog must own its English caption and safe dismissal.'
+    }
+} finally { $dialog.Dispose() }
+`;
+      await execFileAsync("pwsh.exe", ["-NoLogo", "-NoProfile", "-STA", "-Command", bootstrapDialogCheck], {
+        cwd: root, encoding: "utf8", timeout: 15_000, windowsHide: true,
+      });
     } finally {
       await rm(temporaryRoot, { recursive: true, force: true });
     }
   },
 );
+
+test("launcher message dialogs use an explicit English dismissal", { skip: process.platform !== "win32" }, async () => {
+  assert.doesNotMatch(guiSource, /\[Windows\.MessageBox\]::Show/);
+  assert.doesNotMatch(nativeLauncherSource, /MessageBox\.Show/);
+  const script = `
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
+$tokens = $null; $parseErrors = $null
+$ast = [Management.Automation.Language.Parser]::ParseFile('${guiPath.replaceAll("'", "''")}', [ref]$tokens, [ref]$parseErrors)
+$definition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Show-BabelMessage' }, $true)
+Invoke-Expression $definition.Extent.Text
+$owner = [Windows.Window]::new()
+$owner.Width = 200; $owner.Height = 150; $owner.Left = -32000; $owner.Top = -32000
+$owner.Opacity = 0; $owner.ShowActivated = $false; $owner.ShowInTaskbar = $false
+$state = @{ Checked = $false; Error = $null }
+$timer = [Windows.Threading.DispatcherTimer]::new()
+$timer.Interval = [TimeSpan]::FromMilliseconds(10)
+$timer.Add_Tick({
+    $messageWindow = @($owner.OwnedWindows | Where-Object Title -eq 'English dialog fixture') | Select-Object -First 1
+    if ($null -eq $messageWindow) { return }
+    $timer.Stop()
+    try {
+        $button = $messageWindow.Content.Children[1]
+        if ($button.Content -ne 'OK' -or -not $button.IsDefault -or -not $button.IsCancel) {
+            throw 'The message dialog needs one English OK button with Enter and Escape dismissal.'
+        }
+        if ($messageWindow.Content.Children[0].Content.Text -ne 'Fixture message.' -or
+            $messageWindow.ShowInTaskbar -or $messageWindow.Opacity -ne 0) {
+            throw 'The message dialog lost its content or owner visibility policy.'
+        }
+        $state.Checked = $true
+        $button.RaiseEvent([Windows.RoutedEventArgs]::new([Windows.Controls.Button]::ClickEvent))
+    } catch {
+        $state.Error = $_
+        $messageWindow.Close()
+    }
+}.GetNewClosure())
+try {
+    $owner.Show()
+    $timer.Start()
+    Show-BabelMessage -Owner $owner -Title 'English dialog fixture' -Message 'Fixture message.'
+    if ($null -ne $state.Error) { throw $state.Error }
+    if (-not $state.Checked) { throw 'The English message dialog was not exercised.' }
+} finally {
+    $timer.Stop()
+    $owner.Close()
+}
+`;
+  await execFileAsync("pwsh.exe", ["-NoLogo", "-NoProfile", "-STA", "-Command", script], {
+    cwd: root, encoding: "utf8", timeout: 15_000, windowsHide: true,
+  });
+});
 
 test("the GUI verifies application identity from the lightweight health response", () => {
   for (const field of ["healthPath", "identityPath", "identityText"]) {

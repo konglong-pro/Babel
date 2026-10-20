@@ -717,6 +717,65 @@ function Set-UiStatus {
     $script:StatusText.Text = $Message
 }
 
+function Show-BabelMessage {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Message,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Title,
+
+        [Windows.Window]$Owner
+    )
+
+    # Explicit captions keep Babel's dialogs English on every Windows locale.
+    $messageDialog = [Windows.Window]::new()
+    $messageDialog.Title = $Title
+    $messageDialog.Width = 560
+    $messageDialog.SizeToContent = [Windows.SizeToContent]::Height
+    $messageDialog.ResizeMode = [Windows.ResizeMode]::NoResize
+    $messageDialog.ShowInTaskbar = $false
+    $messageDialog.WindowStartupLocation = [Windows.WindowStartupLocation]::CenterScreen
+    if ($null -ne $Owner) {
+        $messageDialog.Owner = $Owner
+        $messageDialog.Icon = $Owner.Icon
+        $messageDialog.Background = $Owner.Background
+        $messageDialog.Foreground = $Owner.Foreground
+        $messageDialog.FontFamily = $Owner.FontFamily
+        $messageDialog.FontSize = $Owner.FontSize
+        $messageDialog.Opacity = $Owner.Opacity
+        $messageDialog.WindowStartupLocation = [Windows.WindowStartupLocation]::CenterOwner
+    }
+    $panel = [Windows.Controls.StackPanel]::new()
+    $panel.Margin = [Windows.Thickness]::new(24)
+    $messageText = [Windows.Controls.TextBlock]::new()
+    $messageText.Text = $Message
+    $messageText.TextWrapping = [Windows.TextWrapping]::Wrap
+    $scroll = [Windows.Controls.ScrollViewer]::new()
+    $scroll.MaxHeight = [Math]::Max(120, [Math]::Min(420, [Windows.SystemParameters]::WorkArea.Height - 200))
+    $scroll.VerticalScrollBarVisibility = [Windows.Controls.ScrollBarVisibility]::Auto
+    $scroll.Content = $messageText
+    [void]$panel.Children.Add($scroll)
+    $okButton = [Windows.Controls.Button]::new()
+    $okButton.Content = 'OK'
+    $okButton.MinWidth = 100
+    $okButton.Padding = [Windows.Thickness]::new(14, 8, 14, 8)
+    $okButton.Margin = [Windows.Thickness]::new(0, 20, 0, 0)
+    $okButton.HorizontalAlignment = [Windows.HorizontalAlignment]::Right
+    $okButton.IsDefault = $true
+    $okButton.IsCancel = $true
+    if ($null -ne $Owner) {
+        $buttonStyle = $Owner.TryFindResource('ActionButtonStyle')
+        if ($null -eq $buttonStyle) { $buttonStyle = $Owner.TryFindResource('ShortcutButtonStyle') }
+        if ($null -ne $buttonStyle) { $okButton.Style = $buttonStyle }
+    }
+    $okButton.Add_Click({ $messageDialog.DialogResult = $true }.GetNewClosure())
+    $messageDialog.Add_ContentRendered({ [void]$okButton.Focus() }.GetNewClosure())
+    [void]$panel.Children.Add($okButton)
+    $messageDialog.Content = $panel
+    [void]$messageDialog.ShowDialog()
+}
+
 function Show-BabelError {
     param(
         [Parameter(Mandatory = $true)]
@@ -724,13 +783,7 @@ function Show-BabelError {
     )
 
     Set-UiStatus -Message $Message
-    [Windows.MessageBox]::Show(
-        $script:Window,
-        $Message,
-        "Babel Launcher",
-        [Windows.MessageBoxButton]::OK,
-        [Windows.MessageBoxImage]::Error
-    ) | Out-Null
+    Show-BabelMessage -Owner $script:Window -Message $Message -Title 'Babel Launcher'
 }
 
 function Get-WpfShortcutKeyName {
@@ -1171,9 +1224,8 @@ function Show-BabelShortcutSettings {
             Update-BabelHomeShortcutHint
             if ($null -ne $script:DesktopHost) { $script:DesktopHost.RefreshShortcutSettings() }
             $dialogState.Saved = $true
-            [Windows.MessageBox]::Show($dialogState.Window,
-                "Shortcuts saved for all layers. Desktop views update immediately; reload separate browser pages.`r`n`r`nLauncher setting:`r`n$savedLauncherPath`r`n`r`nCommand settings:`r`n$savedShortcutPath",
-                'Babel Shortcuts', [Windows.MessageBoxButton]::OK, [Windows.MessageBoxImage]::Information) | Out-Null
+            Show-BabelMessage -Owner $dialogState.Window -Title 'Babel Shortcuts' -Message `
+                "Shortcuts saved for all layers. Desktop views update immediately; reload separate browser pages.`r`n`r`nLauncher setting:`r`n$savedLauncherPath`r`n`r`nCommand settings:`r`n$savedShortcutPath"
             $dialogState.Window.DialogResult = $true
         } catch {
             Cancel-BabelGlobalHotkeyCandidate -Candidate $candidate

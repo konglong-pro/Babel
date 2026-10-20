@@ -1,6 +1,6 @@
-import { randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { mkdir, open, rename, rm, stat, type FileHandle } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { lstatSync, renameSync, unlinkSync } from "node:fs";
+import { lstat, mkdir, open, rm, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 
@@ -38,6 +38,12 @@ interface DocumentRow {
   annotations_revision: number;
   annotations: string;
 }
+interface UploadedPdf {
+  fileName: string;
+  title: string;
+  size: number;
+  digest: string;
+}
 type SummaryRow = Omit<DocumentRow, "annotations">;
 const summaryColumns = "id, title, file_name, size, imported_at, updated_at, page, scale, rotation, progress_revision, annotations_revision";
 
@@ -49,8 +55,7 @@ export interface PdfLibraryOptions {
 export function createPdfLibraryHandlers(options: PdfLibraryOptions) {
   const root = () => path.resolve(/* turbopackIgnore: true */ options.root());
 
-  async function database<T>(operation: (db: Database.Database) => T): Promise<T> {
-    const directory = root();
+  async function database<T>(operation: (db: Database.Database) => T, directory = root()): Promise<T> {
     await mkdir(directory, { recursive: true });
     let db: Database.Database | undefined;
     try {
@@ -105,31 +110,50 @@ export function createPdfLibraryHandlers(options: PdfLibraryOptions) {
 
     async importPdf(request: Request): Promise<Response> {
       assertSameOrigin(request);
+      const suppliedId = request.headers.get("X-Babel-Pdf-Import-Id")?.toLowerCase();
+      if (suppliedId !== undefined && !idPattern.test(suppliedId)) throw validation("importId", "Supply a valid version 4 UUID for the PDF import ID.");
       const boundary = readBoundary(request);
       assertDeclaredSize(request, PDF_MAX_FILE_BYTES + multipartOverheadLimit);
-      const directory = path.join(root(), "files");
+      const libraryRoot = root();
+      const directory = path.join(libraryRoot, "files");
       await mkdir(directory, { recursive: true });
-      const id = randomUUID();
-      const temporary = path.join(directory, `.pending-${id}.tmp`);
+      const id = suppliedId ?? randomUUID();
+      // Every request owns its temporary file, including simultaneous retries.
+      const temporary = path.join(directory, `.pending-${id}-${randomUUID()}.tmp`);
       const destination = path.join(directory, `${id}.pdf`);
+      let temporaryOwned = false;
       let staged = false;
       try {
-        const uploaded = await streamMultipart(request, boundary, temporary);
-        await rename(temporary, destination);
-        staged = true;
+        if (!(await lstat(directory)).isDirectory()) throw new Error("The PDF files directory is not a directory.");
+        const uploaded = await streamMultipart(request, boundary, temporary, () => { temporaryOwned = true; });
         const timestamp = new Date().toISOString();
-        const document = await database((db) => db.transaction(() => {
+        const result = await database((db) => db.transaction(() => {
+          const previous = db.prepare("SELECT * FROM pdf_documents WHERE id = ?").get(id) as DocumentRow | undefined;
+          if (previous) {
+            if (suppliedId === undefined) throw importInProgress();
+            return { document: toDocument(previous), imported: false };
+          }
+          if (!lstatSync(directory).isDirectory()) throw new Error("The PDF files directory is not a directory.");
+          try {
+            lstatSync(destination);
+            throw importInProgress();
+          } catch (error) { if (!isMissingFile(error)) throw error; }
+          // All imports hold this writer transaction while claiming their final
+          // path, so another process cannot overwrite an in-flight original.
+          renameSync(temporary, destination);
+          staged = true;
           db.prepare(`INSERT INTO pdf_documents (id, title, file_name, size, imported_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?)`).run(id, uploaded.title, uploaded.fileName, uploaded.size, timestamp, timestamp);
-          return toDocument(row(db, id));
-        })());
+          return { document: toDocument(row(db, id)), imported: true };
+        }).immediate(), libraryRoot);
         staged = false;
-        return Response.json({ document }, { status: 201, headers: noStore });
+        if (!result.imported) await assertMatchingImport(result.document, uploaded, destination);
+        return Response.json({ document: result.document }, { status: result.imported ? 201 : 200, headers: noStore });
       } catch (error) {
         if (error instanceof ApiError) throw error;
         throw new ApiError(503, "PDF_LIBRARY_UNAVAILABLE", "The PDF could not be saved. Check available disk space and retry.");
       } finally {
-        await rm(temporary, { force: true });
+        if (temporaryOwned) await rm(temporary, { force: true });
         if (staged) await rm(destination, { force: true });
       }
     },
@@ -140,18 +164,71 @@ export function createPdfLibraryHandlers(options: PdfLibraryOptions) {
       return Response.json({ document }, { headers: noStore });
     },
 
+    async deleteDocument(request: Request, id: string): Promise<Response> {
+      assertSameOrigin(request);
+      if (!idPattern.test(id)) throw notFound();
+      const directory = root();
+      const files = path.join(directory, "files");
+      const original = path.join(files, `${id}.pdf`);
+      const quarantined = path.join(files, `.deleted-${id}-${randomUUID()}.tmp`);
+      let staged = false;
+      try {
+        // An immediate transaction excludes progress/annotation writers in other
+        // windows or processes. File staging is synchronous, so no request can
+        // interleave between checking ownership and committing the row removal.
+        await database((db) => db.transaction(() => {
+          row(db, id);
+          try {
+            if (!lstatSync(files).isDirectory()) throw deletionUnavailable();
+            if (!lstatSync(original).isFile()) throw deletionUnavailable();
+            renameSync(original, quarantined);
+            staged = true;
+          } catch (error) {
+            // A missing original must not trap an otherwise removable shelf entry.
+            if (!isMissingFile(error)) throw error;
+          }
+          // Progress and annotations live in this same app-owned metadata row.
+          // Excerpt notes and their copied images are stored elsewhere and remain.
+          db.prepare("DELETE FROM pdf_documents WHERE id = ?").run(id);
+        }).immediate(), directory);
+      } catch (error) {
+        if (staged) {
+          try { renameSync(quarantined, original); }
+          catch { throw deletionUnavailable(); }
+        }
+        throw error;
+      }
+      if (staged) {
+        try { unlinkSync(quarantined); }
+        catch (error) {
+          // Match note-image deletion: the mutation is already committed, so
+          // retain an inaccessible quarantine rather than report a false failure.
+          console.error("Failed to finalize deleted PDF quarantine.", error);
+        }
+      }
+      return new Response(null, { status: 204, headers: noStore });
+    },
+
     async file(request: Request, id: string): Promise<Response> {
       if (!idPattern.test(id)) throw notFound();
       const document = await database((db) => toSummary(summaryRow(db, id)));
       // IDs are generated UUIDs, never filenames or user-supplied paths.
       const filename = path.join(root(), "files", `${id}.pdf`);
+      let handle: FileHandle | undefined;
       let storedSize: number;
       try {
-        const stored = await stat(filename);
+        if (!(await lstat(path.dirname(filename))).isDirectory() || !(await lstat(filename)).isFile()) throw notFound();
+        // Pin the original before returning a response. A deletion may unlink
+        // its name while a reader finishes an already-open byte-range stream.
+        handle = await open(filename, "r");
+        const stored = await handle.stat();
         if (!stored.isFile()) throw notFound();
         storedSize = stored.size;
-      } catch { throw notFound(); }
-      if (storedSize !== document.size) throw new ApiError(409, "PDF_FILE_CHANGED", "The saved PDF no longer matches its original size. Restore it from a data backup.");
+      } catch { await handle?.close(); throw notFound(); }
+      if (storedSize !== document.size) {
+        await handle.close();
+        throw new ApiError(409, "PDF_FILE_CHANGED", "The saved PDF no longer matches its original size. Restore it from a data backup.");
+      }
       const etag = `"${id}"`;
       const headers: Record<string, string> = {
         "Content-Type": "application/pdf",
@@ -165,13 +242,19 @@ export function createPdfLibraryHandlers(options: PdfLibraryOptions) {
       const requestedRange = request.headers.get("range");
       const ifRange = request.headers.get("if-range");
       const range = requestedRange && (!ifRange || ifRange === etag) ? parseRange(requestedRange, storedSize) : undefined;
-      if (range === null) return new Response(null, { status: 416, headers: { ...headers, "Content-Range": `bytes */${storedSize}` } });
+      if (range === null) {
+        await handle.close();
+        return new Response(null, { status: 416, headers: { ...headers, "Content-Range": `bytes */${storedSize}` } });
+      }
       const start = range?.start ?? 0;
       const end = range?.end ?? storedSize - 1;
       headers["Content-Length"] = String(end - start + 1);
       if (range) headers["Content-Range"] = `bytes ${start}-${end}/${storedSize}`;
-      if (request.method === "HEAD") return new Response(null, { status: range ? 206 : 200, headers });
-      const stream = createReadStream(filename, { start, end });
+      if (request.method === "HEAD") {
+        await handle.close();
+        return new Response(null, { status: range ? 206 : 200, headers });
+      }
+      const stream = handle.createReadStream({ start, end });
       const cancel = () => stream.destroy();
       request.signal.addEventListener("abort", cancel, { once: true });
       stream.once("close", () => request.signal.removeEventListener("abort", cancel));
@@ -248,7 +331,7 @@ function assertDeclaredSize(request: Request, limit: number): void {
 }
 
 /** Only one small header/tail buffer is retained while the original streams to disk. */
-async function streamMultipart(request: Request, boundary: string, temporary: string): Promise<{ fileName: string; title: string; size: number }> {
+async function streamMultipart(request: Request, boundary: string, temporary: string, onStage: () => void): Promise<UploadedPdf> {
   if (!request.body) throw malformedUpload();
   const reader = request.body.getReader();
   const first = Buffer.from(`--${boundary}\r\n`);
@@ -262,6 +345,7 @@ async function streamMultipart(request: Request, boundary: string, temporary: st
   let size = 0;
   let received = 0;
   let magic = Buffer.alloc(0);
+  const digest = createHash("sha256");
 
   async function consume(bytes: Buffer): Promise<void> {
     if (part === "file") {
@@ -269,6 +353,7 @@ async function streamMultipart(request: Request, boundary: string, temporary: st
       if (size > PDF_MAX_FILE_BYTES) throw new ApiError(413, "PDF_TOO_LARGE", "PDF files must not exceed 512 MiB.");
       if (magic.length < 8) magic = Buffer.concat([magic, bytes.subarray(0, 8 - magic.length)]);
       if (magic.length === 8 && !validPdfMagic(magic)) throw invalidPdf();
+      digest.update(bytes);
       if (bytes.length > 0) await handle!.writeFile(bytes);
     } else if (part === "title") {
       if ((titleBytes?.length ?? 0) + bytes.length > PDF_TITLE_MAX_LENGTH * 4) throw validation("title", `PDF titles must not exceed ${PDF_TITLE_MAX_LENGTH} characters.`);
@@ -300,6 +385,7 @@ async function streamMultipart(request: Request, boundary: string, temporary: st
             if (!validFileName(parsed.fileName)) throw validation("file", "Choose a PDF with a valid filename.");
             fileName = parsed.fileName;
             handle = await open(temporary, "wx");
+            onStage();
             part = "file";
           } else if (parsed.name === "title" && parsed.fileName === undefined && titleBytes === undefined) {
             titleBytes = Buffer.alloc(0);
@@ -342,7 +428,7 @@ async function streamMultipart(request: Request, boundary: string, temporary: st
     try { title = titleBytes === undefined ? fileName.replace(/\.pdf$/iu, "") : new TextDecoder("utf-8", { fatal: true }).decode(titleBytes).trim(); }
     catch { throw validation("title", "PDF titles must contain valid text."); }
     if (!title || title.length > PDF_TITLE_MAX_LENGTH || /[\u0000-\u001f\u007f]/u.test(title)) throw validation("title", `Use a PDF title from 1 to ${PDF_TITLE_MAX_LENGTH} characters.`);
-    return { fileName, title, size };
+    return { fileName, title, size, digest: digest.digest("hex") };
   } catch (error) {
     await reader.cancel().catch(() => undefined);
     if (request.signal.aborted) throw new ApiError(499, "PDF_UPLOAD_CANCELED", "The PDF import was canceled.");
@@ -351,6 +437,22 @@ async function streamMultipart(request: Request, boundary: string, temporary: st
     reader.releaseLock();
     await handle?.close();
   }
+}
+
+async function assertMatchingImport(document: PdfDocument, uploaded: UploadedPdf, filename: string): Promise<void> {
+  if (document.title !== uploaded.title || document.fileName !== uploaded.fileName || document.size !== uploaded.size) throw importIdConflict();
+  let handle: FileHandle | undefined;
+  try {
+    if (!(await lstat(path.dirname(filename))).isDirectory() || !(await lstat(filename)).isFile()) throw changedOriginal();
+    handle = await open(filename, "r");
+    if ((await handle.stat()).size !== document.size) throw changedOriginal();
+    const digest = createHash("sha256");
+    for await (const chunk of handle.createReadStream({ autoClose: false })) digest.update(chunk);
+    if (digest.digest("hex") !== uploaded.digest) throw importIdConflict();
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw changedOriginal();
+  } finally { await handle?.close(); }
 }
 
 function readPartHeaders(headers: string): { name: string; fileName?: string } {
@@ -429,6 +531,11 @@ function inlineDisposition(name: string): string {
 function validPdfMagic(bytes: Buffer): boolean { return /^%PDF-[12]\.[0-9]/u.test(bytes.toString("latin1")); }
 function invalidPdf(): ApiError { return new ApiError(415, "INVALID_PDF", "The selected file does not have a valid PDF header."); }
 function notFound(): ApiError { return new ApiError(404, "PDF_NOT_FOUND", "The PDF was not found in this app."); }
+function importIdConflict(): ApiError { return new ApiError(409, "PDF_IMPORT_ID_CONFLICT", "This import ID was already used for another PDF or title. Choose the file again to start a new import."); }
+function importInProgress(): ApiError { return new ApiError(409, "PDF_IMPORT_IN_PROGRESS", "An import with this ID is still finishing. Reload the library and retry. If it does not appear, choose the file again."); }
+function changedOriginal(): ApiError { return new ApiError(409, "PDF_FILE_CHANGED", "The saved PDF no longer matches its original. Restore it from a data backup."); }
+function deletionUnavailable(): ApiError { return new ApiError(503, "PDF_LIBRARY_UNAVAILABLE", "The PDF could not be deleted. Check that library files are accessible and retry."); }
+function isMissingFile(error: unknown): boolean { return error instanceof Error && "code" in error && error.code === "ENOENT"; }
 function malformedUpload(): ApiError { return new ApiError(400, "INVALID_PDF_UPLOAD", "Upload one PDF using the file field and an optional title field."); }
 function validation(field: string, message: string): ApiError { return new ApiError(400, "VALIDATION_ERROR", message, { field }); }
 function conflict(row: DocumentRow): ApiError { return new ApiError(409, "PDF_REVISION_CONFLICT", "This PDF was updated in another window. Reload the latest state before saving.", { document: toDocument(row) }); }

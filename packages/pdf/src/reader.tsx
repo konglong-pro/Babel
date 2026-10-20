@@ -72,7 +72,7 @@ function Outline({ items, onSelect }: { items: OutlineItem[]; onSelect: (item: O
   return <ul className="babel-pdf-outline">{items.map((item, index) => <li key={`${index}-${item.title}`}><button type="button" onClick={() => onSelect(item)}>{item.title || "Untitled section"}</button>{item.items?.length ? <Outline items={item.items} onSelect={onSelect} /> : null}</li>)}</ul>;
 }
 
-export function PdfReader({ appName, documentId, ownerId }: { appName: string; documentId: string; ownerId: string }) {
+export function PdfReader({ appId, appName, documentId, ownerId }: { appId: string; appName: string; documentId: string; ownerId: string }) {
   const container = useRef<HTMLDivElement>(null);
   const viewerElement = useRef<HTMLDivElement>(null);
   const engine = useRef<Engine | null>(null);
@@ -355,7 +355,7 @@ export function PdfReader({ appName, documentId, ownerId }: { appName: string; d
   const canExcerpt = Boolean(selection && selection.text.length <= PDF_EXCERPT_MAX_TEXT && !sending);
 
   return (
-    <div className="babel-pdf-reader" onKeyDown={(event) => {
+    <div className="babel-pdf-reader babel-pdf-theme" data-pdf-app={appId} onKeyDown={(event) => {
       if (event.key === "Escape") { setClipMode(false); drag.current = null; setDragRect(null); }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") { event.preventDefault(); document.getElementById("babel-pdf-search")?.focus(); }
     }}>
@@ -368,7 +368,7 @@ export function PdfReader({ appName, documentId, ownerId }: { appName: string; d
       </div>
       <div className="babel-pdf-excerpt-bar" aria-label="PDF excerpt actions">
         <button type="button" aria-pressed={clipMode} disabled={!pdf} onClick={() => { setClipMode(!clipMode); setSelection(null); }}>Area capture</button>
-        <span className="babel-pdf-selection-status">{selection?.imageDataUrl ? "Image selected" : selection ? `${selection.text.length.toLocaleString()} characters selected` : "Select text, or capture an area for diagrams and scanned pages."}</span>
+        <span className="babel-pdf-selection-status">{selection?.imageDataUrl ? "Image selected" : selection ? `${selection.text.length.toLocaleString("en-US")} characters selected` : "Select text, or capture an area for diagrams and scanned pages."}</span>
         <button className="babel-pdf-primary" type="button" disabled={!canExcerpt || !notebook.connected || !notebook.canCreate} onClick={() => { void createExcerpt("new"); }}>New note</button>
         <button type="button" disabled={!canExcerpt || !notebook.target || notebook.target.pending || !notebook.connected} title={notebook.target ? notebook.target.pending ? "This draft is saving" : notebook.target.title : "Open a draft in the notebook first"} onClick={() => { void createExcerpt("append"); }}>Append to {notebook.target?.title ?? "current draft"}</button>
       </div>

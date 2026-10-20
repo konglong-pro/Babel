@@ -95,7 +95,10 @@ internal static class Program
         if (args.Length == 0)
         {
             Application.EnableVisualStyles();
-            MessageBox.Show(message, "Babel Launcher", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            using (Form dialog = CreateErrorDialog(message))
+            {
+                dialog.ShowDialog();
+            }
         }
         else
         {
@@ -103,5 +106,43 @@ internal static class Program
         }
 
         return 1;
+    }
+
+    private static Form CreateErrorDialog(string message)
+    {
+        // The bootstrap must work even when PowerShell/WPF cannot start.
+        // Keep its one button explicit instead of using Windows-localized captions.
+        Form dialog = new Form();
+        dialog.Text = "Babel Launcher";
+        dialog.Width = 560;
+        dialog.Height = 240;
+        dialog.FormBorderStyle = FormBorderStyle.FixedDialog;
+        dialog.StartPosition = FormStartPosition.CenterScreen;
+        dialog.MinimizeBox = false;
+        dialog.MaximizeBox = false;
+        dialog.Padding = new Padding(16);
+        TextBox details = new TextBox();
+        details.Text = message;
+        details.Multiline = true;
+        details.ReadOnly = true;
+        details.BorderStyle = BorderStyle.None;
+        details.ScrollBars = ScrollBars.Vertical;
+        details.Dock = DockStyle.Fill;
+        details.TabStop = false;
+        FlowLayoutPanel actions = new FlowLayoutPanel();
+        actions.Dock = DockStyle.Bottom;
+        actions.AutoSize = true;
+        actions.FlowDirection = FlowDirection.RightToLeft;
+        Button ok = new Button();
+        ok.Text = "OK";
+        ok.Width = 100;
+        ok.Height = 32;
+        ok.DialogResult = DialogResult.OK;
+        actions.Controls.Add(ok);
+        dialog.Controls.Add(details);
+        dialog.Controls.Add(actions);
+        dialog.AcceptButton = ok;
+        dialog.CancelButton = ok;
+        return dialog;
     }
 }

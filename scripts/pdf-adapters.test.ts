@@ -25,6 +25,7 @@ for (const target of targets) test(`${target.workspace}: PDF reader, private sto
   assert.ok(header.includes(`appId="${target.id}"`));
   assert.ok(header.includes(`notebookHref="/${knowledge ? "knowledge" : "notes"}"`));
   assert.match(reader, /<PdfReader/);
+  assert.ok(reader.includes(`appId="${target.id}"`));
   assert.match(reader, /ownerId=/);
   assert.match(server, /createPdfLibraryHandlers/);
   assert.match(server, /"pdf-library"/);
@@ -32,7 +33,7 @@ for (const target of targets) test(`${target.workspace}: PDF reader, private sto
   assert.doesNotMatch(server, /lib\/db|db\/client/);
   const routes = [
     ["", ["GET", "POST"], ["list", "importPdf"]],
-    ["/[id]", ["GET"], ["getDocument"]],
+    ["/[id]", ["GET", "DELETE"], ["getDocument", "deleteDocument"]],
     ["/[id]/file", ["GET", "HEAD"], ["file"]],
     ["/[id]/progress", ["PATCH"], ["patchProgress"]],
     ["/[id]/annotations", ["PATCH"], ["patchAnnotations"]],

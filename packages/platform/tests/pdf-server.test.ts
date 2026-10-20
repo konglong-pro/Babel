@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -30,6 +30,10 @@ function fileRequest(headers: Record<string, string> = {}, method = "GET") {
   return new Request("http://localhost:3000/api/pdf/documents/id/file", { headers, method });
 }
 
+function deletion(headers: Record<string, string> = {}) {
+  return new Request("http://localhost:3000/api/pdf/documents/id", { method: "DELETE", headers });
+}
+
 function chunked(bytes: Uint8Array, boundary: string, chunkSize: number) {
   let position = 0;
   const body = new ReadableStream<Uint8Array>({ pull(controller) {
@@ -40,6 +44,32 @@ function chunked(bytes: Uint8Array, boundary: string, chunkSize: number) {
   return new Request("http://localhost:3000/api/pdf/documents", {
     method: "POST", headers: { "content-type": `multipart/form-data; boundary="${boundary}"` }, body, duplex: "half",
   } as RequestInit);
+}
+
+function heldUpload(id: string) {
+  const boundary = "held-pdf-boundary";
+  let release!: () => void;
+  let reached!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const paused = new Promise<void>((resolve) => { reached = resolve; });
+  let first = true;
+  const body = new ReadableStream<Uint8Array>({ async pull(controller) {
+    if (first) {
+      first = false;
+      controller.enqueue(Buffer.concat([Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="book.pdf"\r\n\r\n`), pdf]));
+    } else {
+      reached();
+      await gate;
+      controller.enqueue(Buffer.from(`\r\n--${boundary}--\r\n`));
+      controller.close();
+    }
+  } }, { highWaterMark: 0 });
+  const controller = new AbortController();
+  const request = new Request("http://localhost:3000/api/pdf/documents", {
+    method: "POST", body, signal: controller.signal, duplex: "half",
+    headers: { "content-type": `multipart/form-data; boundary=${boundary}`, "X-Babel-Pdf-Import-Id": id },
+  } as RequestInit);
+  return { request, paused, release, controller };
 }
 
 async function decoded(response: Response): Promise<PdfDocument> {
@@ -86,6 +116,103 @@ test("PDF library keeps immutable originals and independent application-owned me
   assert.equal(metadata.pragma("integrity_check", { simple: true }), "ok");
   metadata.close();
   assert.deepEqual((await readdir(appRoot)).sort(), ["files", "metadata.sqlite"]);
+});
+
+test("PDF import IDs make completed retries idempotent across restarts and remain app-owned", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "babel-pdf-import-id-test-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const appRoot = path.join(root, "first");
+  const library = createPdfLibraryHandlers({ root: () => appRoot });
+  const id = randomUUID();
+  const headers = { "X-Babel-Pdf-Import-Id": id.toUpperCase() };
+  const first = await library.importPdf(upload(pdf, "book.pdf", "Book", headers));
+  assert.equal(first.status, 201);
+  const document = await decoded(first);
+  assert.equal(document.id, id);
+  const progressed = await decoded(await library.patchProgress(patch({ revision: 0, progress: { page: 4, scale: 1.5, rotation: 0 } }), id));
+  const restarted = createPdfLibraryHandlers({ root: () => appRoot });
+  const replay = await restarted.importPdf(upload(pdf, "book.pdf", " Book ", headers));
+  assert.equal(replay.status, 200);
+  assert.deepEqual(await decoded(replay), progressed);
+  assert.equal((await (await library.list()).json() as { documents: unknown[] }).documents.length, 1);
+  assert.deepEqual(await readdir(path.join(appRoot, "files")), [`${id}.pdf`]);
+  const second = createPdfLibraryHandlers({ root: () => path.join(root, "second") });
+  assert.equal((await second.importPdf(upload(pdf, "other.pdf", undefined, headers))).status, 201);
+  assert.equal((await decoded(await second.getDocument(id))).fileName, "other.pdf");
+  assert.deepEqual(await readFile(path.join(appRoot, "files", `${id}.pdf`)), pdf);
+});
+
+test("PDF import ID conflicts never replace an original, including different content with the same name and size", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "babel-pdf-import-conflict-test-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const library = createPdfLibraryHandlers({ root: () => root });
+  const id = randomUUID();
+  const headers = { "X-Babel-Pdf-Import-Id": id };
+  const document = await decoded(await library.importPdf(upload(pdf, "book.pdf", "Book", headers)));
+  const changed = Buffer.from(pdf);
+  changed[20] ^= 1;
+  for (const attempt of [
+    upload(pdf, "different.pdf", "Book", headers), upload(pdf, "book.pdf", "Different title", headers),
+    upload(Buffer.concat([pdf, pdf]), "book.pdf", "Book", headers), upload(changed, "book.pdf", "Book", headers),
+  ]) await assert.rejects(library.importPdf(attempt), { code: "PDF_IMPORT_ID_CONFLICT", status: 409 });
+  assert.deepEqual(await decoded(await library.getDocument(id)), document);
+  assert.deepEqual(await readFile(path.join(root, "files", `${id}.pdf`)), pdf);
+  assert.deepEqual(await readdir(path.join(root, "files")), [`${id}.pdf`]);
+});
+
+test("PDF import IDs reject invalid versions and paths before creating storage", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "babel-pdf-import-invalid-id-test-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const library = createPdfLibraryHandlers({ root: () => root });
+  for (const id of ["", "../book.pdf", "..\\metadata.sqlite", "not-a-uuid", "00000000-0000-1000-8000-000000000000", "00000000-0000-4000-7000-000000000000", `${randomUUID()},${randomUUID()}`]) {
+    await assert.rejects(library.importPdf(upload(pdf, "book.pdf", undefined, { "X-Babel-Pdf-Import-Id": id })), { code: "VALIDATION_ERROR", status: 400 });
+  }
+  assert.deepEqual(await readdir(root), []);
+});
+
+test("simultaneous PDF import retries own distinct staging files and cannot remove a committed original", { timeout: 5000 }, async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "babel-pdf-import-race-test-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const first = createPdfLibraryHandlers({ root: () => root });
+  const second = createPdfLibraryHandlers({ root: () => root });
+  for (const abort of [false, true]) {
+    const id = randomUUID();
+    const held = heldUpload(id);
+    t.after(held.release);
+    const importing = first.importPdf(held.request);
+    await held.paused;
+    const staged = (await readdir(path.join(root, "files"))).find((name) => name.startsWith(`.pending-${id}-`));
+    assert.ok(staged);
+    const completed = await second.importPdf(upload(pdf, "book.pdf", undefined, { "X-Babel-Pdf-Import-Id": id }));
+    assert.equal(completed.status, 201);
+    assert.ok((await readdir(path.join(root, "files"))).includes(staged));
+    if (abort) held.controller.abort();
+    held.release();
+    if (abort) await assert.rejects(importing, { code: "PDF_UPLOAD_CANCELED" });
+    else {
+      const replay = await importing;
+      assert.equal(replay.status, 200);
+      assert.equal((await decoded(replay)).id, id);
+    }
+    assert.deepEqual(await readFile(path.join(root, "files", `${id}.pdf`)), pdf);
+    assert.ok(!(await readdir(path.join(root, "files"))).includes(staged));
+  }
+  assert.equal((await (await first.list()).json() as { documents: unknown[] }).documents.length, 2);
+  assert.equal((await readdir(path.join(root, "files"))).length, 2);
+});
+
+test("PDF import retries never overwrite an existing original with no completed metadata", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "babel-pdf-import-existing-file-test-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const library = createPdfLibraryHandlers({ root: () => root });
+  const id = randomUUID();
+  await mkdir(path.join(root, "files"));
+  const original = path.join(root, "files", `${id}.pdf`);
+  await writeFile(original, "An existing unclaimed original.");
+  await assert.rejects(library.importPdf(upload(pdf, "book.pdf", undefined, { "X-Babel-Pdf-Import-Id": id })), { code: "PDF_IMPORT_IN_PROGRESS", status: 409 });
+  assert.equal(await readFile(original, "utf8"), "An existing unclaimed original.");
+  assert.deepEqual(await readdir(path.join(root, "files")), [`${id}.pdf`]);
+  assert.deepEqual(await (await library.list()).json(), { documents: [] });
 });
 
 test("PDF import streams browser multipart boundaries and arbitrary PDF bytes without corruption", async (t) => {
@@ -176,6 +303,148 @@ test("independent progress and annotation revisions prevent stale-window overwri
   assert.equal(loaded.annotationsRevision, 2);
   assert.deepEqual(loaded.progress, progress);
   assert.deepEqual(await readFile(path.join(root, "files", `${document.id}.pdf`)), pdf);
+});
+
+test("PDF deletion removes the original and its metadata without touching other apps or excerpt notes", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "babel-pdf-delete-test-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const appRoot = path.join(root, "first", "pdf-library");
+  const first = createPdfLibraryHandlers({ root: () => appRoot });
+  const second = createPdfLibraryHandlers({ root: () => path.join(root, "second", "pdf-library") });
+  const document = await decoded(await first.importPdf(upload()));
+  const kept = await decoded(await first.importPdf(upload(pdf, "kept.pdf")));
+  const otherApp = await decoded(await second.importPdf(upload()));
+  const annotation: PdfAnnotation = {
+    id: randomUUID(), type: "comment", page: 2, rects: [{ x: 0.1, y: 0.2, width: 0.5, height: 0.03 }],
+    text: "Keep this excerpt", comment: "Copied into a note", color: "#ffcc66", createdAt: new Date().toISOString(),
+  };
+  await first.patchProgress(patch({ revision: 0, progress: { page: 2, scale: 1.5, rotation: 90 } }), document.id);
+  await first.patchAnnotations(patch({ revision: 0, annotations: [annotation] }), document.id);
+  const notes = path.join(root, "first", "notes");
+  await mkdir(notes);
+  await writeFile(path.join(notes, "excerpt.md"), "A previously saved excerpt.");
+  await writeFile(path.join(notes, "excerpt.png"), "Copied screenshot bytes");
+  await assert.rejects(second.deleteDocument(deletion(), document.id), { code: "PDF_NOT_FOUND" });
+  await assert.rejects(first.deleteDocument(deletion({ origin: "http://localhost:3001" }), document.id), { code: "FORBIDDEN_ORIGIN" });
+  for (const id of ["../metadata.sqlite", "..\\metadata.sqlite", "%2e%2e", "../../notes/excerpt.md", "id.pdf", "", randomUUID()]) {
+    await assert.rejects(first.deleteDocument(deletion(), id), { code: "PDF_NOT_FOUND" });
+  }
+  const response = await first.deleteDocument(deletion({ origin: "http://127.0.0.1:3000" }), document.id);
+  assert.equal(response.status, 204);
+  assert.equal(response.headers.get("cache-control"), "private, no-store");
+  assert.equal(await response.text(), "");
+  await assert.rejects(readFile(path.join(appRoot, "files", `${document.id}.pdf`)), { code: "ENOENT" });
+  await assert.rejects(first.getDocument(document.id), { code: "PDF_NOT_FOUND" });
+  await assert.rejects(first.file(fileRequest(), document.id), { code: "PDF_NOT_FOUND" });
+  await assert.rejects(first.deleteDocument(deletion(), document.id), { code: "PDF_NOT_FOUND" });
+  assert.deepEqual((await (await first.list()).json() as { documents: PdfDocument[] }).documents.map((entry) => entry.id), [kept.id]);
+  assert.equal((await decoded(await second.getDocument(otherApp.id))).id, otherApp.id);
+  assert.equal(await readFile(path.join(notes, "excerpt.md"), "utf8"), "A previously saved excerpt.");
+  assert.equal(await readFile(path.join(notes, "excerpt.png"), "utf8"), "Copied screenshot bytes");
+  assert.deepEqual(await readdir(path.join(appRoot, "files")), [`${kept.id}.pdf`]);
+  const metadata = new Database(path.join(appRoot, "metadata.sqlite"), { readonly: true });
+  assert.equal(metadata.prepare("SELECT * FROM pdf_documents WHERE id = ?").get(document.id), undefined);
+  assert.equal(metadata.pragma("integrity_check", { simple: true }), "ok");
+  metadata.close();
+  const restarted = createPdfLibraryHandlers({ root: () => appRoot });
+  await assert.rejects(restarted.getDocument(document.id), { code: "PDF_NOT_FOUND" });
+});
+
+test("deleted PDFs cannot be resurrected by delayed progress or annotation writes while open readers can finish", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "babel-pdf-delete-race-test-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const library = createPdfLibraryHandlers({ root: () => root });
+  const staleWindow = createPdfLibraryHandlers({ root: () => root });
+  const document = await decoded(await library.importPdf(upload()));
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  t.after(release);
+  function delayed(body: unknown) {
+    const stream = new ReadableStream<Uint8Array>({ async start(controller) {
+      await gate;
+      controller.enqueue(Buffer.from(JSON.stringify(body)));
+      controller.close();
+    } });
+    return new Request("http://localhost:3000/api/pdf/documents/id/progress", { method: "PATCH", body: stream, duplex: "half" } as RequestInit);
+  }
+  const writes = Promise.allSettled([
+    staleWindow.patchProgress(delayed({ revision: 0, progress: PDF_DEFAULT_PROGRESS }), document.id),
+    staleWindow.patchAnnotations(delayed({ revision: 0, annotations: [] }), document.id),
+  ]);
+  const reader = await staleWindow.file(fileRequest({ range: "bytes=0-7" }), document.id);
+  assert.equal((await library.deleteDocument(deletion(), document.id)).status, 204);
+  release();
+  for (const result of await writes) {
+    assert.equal(result.status, "rejected");
+    assert.equal((result as PromiseRejectedResult).reason.code, "PDF_NOT_FOUND");
+  }
+  assert.deepEqual(Buffer.from(await reader.arrayBuffer()), pdf.subarray(0, 8));
+  assert.deepEqual(await (await library.list()).json(), { documents: [] });
+  assert.deepEqual(await readdir(path.join(root, "files")), []);
+  const concurrent = await decoded(await library.importPdf(upload()));
+  const results = await Promise.allSettled([library.deleteDocument(deletion(), concurrent.id), staleWindow.deleteDocument(deletion(), concurrent.id)]);
+  assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal((results.find((result) => result.status === "rejected") as PromiseRejectedResult).reason.code, "PDF_NOT_FOUND");
+});
+
+test("PDF deletion restores a staged original if the metadata transaction fails and can remove missing originals", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "babel-pdf-delete-rollback-test-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const library = createPdfLibraryHandlers({ root: () => root });
+  const document = await decoded(await library.importPdf(upload()));
+  const metadata = new Database(path.join(root, "metadata.sqlite"));
+  metadata.exec("CREATE TRIGGER reject_pdf_delete BEFORE DELETE ON pdf_documents BEGIN SELECT RAISE(ABORT, 'test failure'); END");
+  metadata.close();
+  await assert.rejects(library.deleteDocument(deletion(), document.id), { code: "PDF_LIBRARY_UNAVAILABLE" });
+  assert.deepEqual(await decoded(await library.getDocument(document.id)), document);
+  assert.deepEqual(await readFile(path.join(root, "files", `${document.id}.pdf`)), pdf);
+  assert.deepEqual(await readdir(path.join(root, "files")), [`${document.id}.pdf`]);
+  const repaired = new Database(path.join(root, "metadata.sqlite"));
+  repaired.exec("DROP TRIGGER reject_pdf_delete");
+  repaired.close();
+  await unlink(path.join(root, "files", `${document.id}.pdf`));
+  assert.equal((await library.deleteDocument(deletion(), document.id)).status, 204);
+  await assert.rejects(library.getDocument(document.id), { code: "PDF_NOT_FOUND" });
+});
+
+test("PDF deletion and reading reject a symlinked files directory without touching its target", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "babel-pdf-delete-link-test-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const library = createPdfLibraryHandlers({ root: () => path.join(root, "library") });
+  const document = await decoded(await library.importPdf(upload()));
+  const files = path.join(root, "library", "files");
+  const keptFiles = path.join(root, "library", "kept-files");
+  const target = path.join(root, "other-app-files");
+  await mkdir(target);
+  await writeFile(path.join(target, `${document.id}.pdf`), pdf);
+  await rename(files, keptFiles);
+  try { await symlink(target, files, process.platform === "win32" ? "junction" : "dir"); }
+  catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "EPERM") { t.skip("Creating directory links requires additional filesystem permission."); return; }
+    throw error;
+  }
+  await assert.rejects(library.deleteDocument(deletion(), document.id), { code: "PDF_LIBRARY_UNAVAILABLE" });
+  await assert.rejects(library.file(fileRequest(), document.id), { code: "PDF_NOT_FOUND" });
+  assert.deepEqual(await readFile(path.join(target, `${document.id}.pdf`)), pdf);
+  assert.deepEqual(await decoded(await library.getDocument(document.id)), document);
+  await unlink(files);
+  await rename(keptFiles, files);
+  assert.equal((await library.deleteDocument(deletion(), document.id)).status, 204);
+  assert.deepEqual(await readFile(path.join(target, `${document.id}.pdf`)), pdf);
+});
+
+test("PDF deletion never recursively removes a non-file original", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "babel-pdf-delete-directory-test-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const library = createPdfLibraryHandlers({ root: () => root });
+  const document = await decoded(await library.importPdf(upload()));
+  const original = path.join(root, "files", `${document.id}.pdf`);
+  await unlink(original);
+  await mkdir(original);
+  await writeFile(path.join(original, "keep.txt"), "Never recursively delete this.");
+  await assert.rejects(library.deleteDocument(deletion(), document.id), { code: "PDF_LIBRARY_UNAVAILABLE" });
+  assert.equal(await readFile(path.join(original, "keep.txt"), "utf8"), "Never recursively delete this.");
+  assert.deepEqual(await decoded(await library.getDocument(document.id)), document);
 });
 
 test("PDF writes enforce same-origin, body limits, magic bytes, multipart structure and cleanup", async (t) => {

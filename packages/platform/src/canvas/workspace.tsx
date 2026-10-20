@@ -365,5 +365,5 @@ function ActiveCanvasHistoryGuard() {
 function formatUpdatedAt(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.valueOf())) return value;
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(date);
+  return new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(date);
 }

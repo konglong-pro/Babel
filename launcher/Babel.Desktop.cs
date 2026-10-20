@@ -197,7 +197,9 @@ namespace BabelLauncher
         private void CreateView(Notebook notebook)
         {
             notebook.View = new WebView2 {
-                CreationProperties = new CoreWebView2CreationProperties { UserDataFolder = userDataFolder }
+                CreationProperties = new CoreWebView2CreationProperties {
+                    UserDataFolder = userDataFolder, Language = "en-US", ScriptLocale = "en-US"
+                }
             };
             notebook.Surface.Children.Clear();
             notebook.Surface.Children.Add(notebook.View);
@@ -479,10 +481,49 @@ namespace BabelLauncher
                 } catch { return notebook.Name + " (could not check changes)"; }
             }));
             var affected = results.Where(name => name != null).ToArray();
-            return affected.Length == 0 || MessageBox.Show(window,
+            return affected.Length == 0 || ShowDiscardDialog(
                 "These notebooks may have unsaved changes:\n\n" + String.Join("\n", affected) +
-                "\n\nDiscard changes and close?", "Babel — unsaved changes",
-                MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) == MessageBoxResult.Yes;
+                "\n\nDiscard changes and close?");
+        }
+
+        private bool ShowDiscardDialog(string message)
+        {
+            // Own the captions instead of inheriting Windows' display language.
+            // The safe action stays both the default and the Escape action.
+            var dialog = new Window {
+                Title = "Babel — unsaved changes", Owner = window, Icon = window.Icon,
+                Width = 520, SizeToContent = SizeToContent.Height,
+                ResizeMode = ResizeMode.NoResize, WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                ShowInTaskbar = false, Background = window.Background, Foreground = window.Foreground,
+                FontFamily = window.FontFamily, FontSize = window.FontSize, Opacity = window.Opacity
+            };
+            var panel = new StackPanel { Margin = new Thickness(24) };
+            panel.Children.Add(new ScrollViewer {
+                MaxHeight = Math.Max(120, Math.Min(420, SystemParameters.WorkArea.Height - 200)),
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap }
+            });
+            var actions = new StackPanel {
+                Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 20, 0, 0)
+            };
+            var keepOpen = new Button {
+                Content = "Keep open", IsDefault = true, IsCancel = true,
+                MinWidth = 110, Padding = new Thickness(14, 8, 14, 8), Margin = new Thickness(0, 0, 8, 0)
+            };
+            var discard = new Button {
+                Content = "Discard changes", MinWidth = 140, Padding = new Thickness(14, 8, 14, 8), Margin = new Thickness(0)
+            };
+            var buttonStyle = window.TryFindResource("ActionButtonStyle") as Style;
+            if (buttonStyle != null) { keepOpen.Style = buttonStyle; discard.Style = buttonStyle; }
+            keepOpen.Click += (sender, args) => dialog.DialogResult = false;
+            discard.Click += (sender, args) => dialog.DialogResult = true;
+            actions.Children.Add(keepOpen);
+            actions.Children.Add(discard);
+            panel.Children.Add(actions);
+            dialog.Content = panel;
+            dialog.ContentRendered += (sender, args) => keepOpen.Focus();
+            return dialog.ShowDialog() == true;
         }
 
         private async Task CloseNotebookAsync(Notebook notebook)

@@ -47,7 +47,7 @@ function localToday(): string {
 }
 
 function formatWeekday(date: string): string {
-  return new Intl.DateTimeFormat(undefined, { weekday: "long" }).format(
+  return new Intl.DateTimeFormat("en-US", { weekday: "long" }).format(
     new Date(`${date}T00:00:00`),
   );
 }

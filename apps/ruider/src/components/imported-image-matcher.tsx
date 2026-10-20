@@ -140,7 +140,7 @@ export function ImportedImageMatcher({
         </div>
         <input
           ref={bulkInputRef}
-          className="sr-only"
+          hidden
           type="file"
           accept={IMAGE_ACCEPT}
           multiple
@@ -159,7 +159,7 @@ export function ImportedImageMatcher({
 
       <input
         ref={manualInputRef}
-        className="sr-only"
+        hidden
         type="file"
         accept={IMAGE_ACCEPT}
         disabled={disabled}

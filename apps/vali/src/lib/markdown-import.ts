@@ -307,7 +307,7 @@ function normalizeLocalImagePath(destination: string): LocalImagePath {
 function unsafeImagePath(path: string): MarkdownImportError {
   return new MarkdownImportError(
     "UNSAFE_IMAGE_PATH",
-    `The image path 鈥?{path}鈥?is not a safe relative path.`,
+    `The image path “${path}” is not a safe relative path.`,
     path,
   );
 }

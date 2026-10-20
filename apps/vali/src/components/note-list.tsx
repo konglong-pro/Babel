@@ -353,7 +353,7 @@ export function NoteList({
         <div className="note-create-actions content-list-actions">
           <input
             ref={importInputRef}
-            className="sr-only"
+            hidden
             type="file"
             accept=".md,text/markdown,text/plain"
             tabIndex={-1}
@@ -365,7 +365,7 @@ export function NoteList({
               node?.setAttribute("webkitdirectory", "");
               node?.setAttribute("directory", "");
             }}
-            className="sr-only"
+            hidden
             type="file"
             accept=".md,text/markdown,image/png,image/jpeg,image/webp,image/gif"
             multiple
