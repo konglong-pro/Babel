@@ -1,5 +1,7 @@
 "use client";
 
+import { appendPdfMarkdown, preparePdfExcerpt, usePdfExcerptEditor } from "@babel-apps/pdf/excerpts";
+
 import { saveWithImportedOriginal } from "@babel-apps/platform/imports/document-client";
 
 import { EditorExitActions, submittedForReading } from "@babel-apps/platform/shortcuts/react";
@@ -483,6 +485,7 @@ function NoteForm({
   const formRef = useRef<HTMLFormElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const stagedRef = useRef<StagedImage[]>([]);
+  const pendingRef = useRef(false);
   const initialTitle = detail?.title ?? importDraft?.title ?? "";
   const initialTags = detail?.tags.join(", ") ?? "";
   const initialContent = detail?.contentMd ?? importDraft?.contentMd ?? "";
@@ -494,9 +497,27 @@ function NoteForm({
   const [folderId, setFolderId] = useState<number | null>(initialFolder);
   const [parentId, setParentId] = useState<number | null>(initialParent);
   const [templateId, setTemplateId] = useState("");
-  const [stagedImages, setStagedImages] = useState<StagedImage[]>([]);
+  const [stagedImages, setStagedImages] = useState<StagedImage[]>(
+    () => importDraft?.pdfImage ? [importDraft.pdfImage] : [],
+  );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+
+  usePdfExcerptEditor({
+    id: `vali:note:${draftKey}`,
+    title: title.trim() || "Untitled note",
+    isActive: () => Boolean(formRef.current?.getClientRects().length),
+    isPending: () => pendingRef.current,
+    onAppend: async (excerpt) => {
+      const { markdown, image } = await preparePdfExcerpt(excerpt, "vali-upload");
+      if (pendingRef.current || !formRef.current?.getClientRects().length) {
+        if (image) URL.revokeObjectURL(image.previewUrl);
+        throw new Error("Return to the note editor and wait for saving to finish before appending.");
+      }
+      setContent((current) => appendPdfMarkdown(current, markdown));
+      if (image) setStagedImages((current) => [...current, image]);
+    },
+  });
 
   const folderMap = useMemo(() => new Map(folders.map((folder) => [folder.id, folder])), [folders]);
   const readerTriggerId = `vali-note-${detail?.id ?? draftKey}-reader-trigger`;
@@ -563,7 +584,7 @@ function NoteForm({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const readAfterSave = submittedForReading(event);
-    if (pending) return;
+    if (pendingRef.current) return;
     if (folderId === null) {
       setError("Select a folder before saving this note.");
       return;
@@ -573,6 +594,7 @@ function NoteForm({
       return;
     }
 
+    pendingRef.current = true;
     setPending(true);
     setError("");
     try {
@@ -603,6 +625,7 @@ function NoteForm({
     } catch (caught) {
       setError(getErrorMessage(caught));
     } finally {
+      pendingRef.current = false;
       setPending(false);
     }
   }
@@ -655,14 +678,16 @@ function NoteForm({
   }
 
   async function createFromWikilink(wikilink: Wikilink) {
-    if (pending) return;
+    if (pendingRef.current) return;
     const normalizedTitle = wikilink.titleRaw.trim().replace(/\s+/gu, " ");
     if (folderId === null || !normalizedTitle) return;
     if (!window.confirm(`Create note “${normalizedTitle}”?`)) return;
+    pendingRef.current = true;
     setPending(true);
     try {
       await onCreateWikilink(normalizedTitle, folderId);
     } finally {
+      pendingRef.current = false;
       setPending(false);
     }
   }
@@ -726,7 +751,7 @@ function NoteForm({
               )}
             </DetachedReaderWindow>
             <span className="eyebrow">
-              {detail ? "Edit note" : importDraft ? "Import Markdown" : "New note"}
+              {detail ? "Edit note" : importDraft?.pdfExcerpt ? "PDF excerpt" : importDraft ? "Import Markdown" : "New note"}
             </span>
             <h1>{detail ? detail.title : importDraft?.title ?? "Capture what you learned"}</h1>
           </div>

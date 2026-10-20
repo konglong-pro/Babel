@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./pdf/core": "./src/pdf/core.ts",
+    "./pdf/server": "./src/pdf/server.ts",
     "./build/next": "./src/build/next.ts",
     "./canvas/core": "./src/canvas/core.ts",
     "./canvas/autosave": "./src/canvas/autosave.ts",
@@ -13,6 +15,8 @@
     "./canvas/workspace": "./src/canvas/workspace.tsx",
     "./canvas.css": "./src/canvas/canvas.css",
     "./imports/core": "./src/imports/core.ts",
+    "./imports/clipboard-client": "./src/imports/clipboard-client.ts",
+    "./imports/clipboard-react": "./src/imports/clipboard-react.tsx",
     "./imports/react": "./src/imports/react.tsx",
     "./imports/server": "./src/imports/server.ts",
     "./imports/document-core": "./src/imports/document-core.ts",

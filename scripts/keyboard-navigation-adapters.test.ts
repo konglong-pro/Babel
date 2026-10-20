@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 
@@ -55,7 +55,6 @@ function navigationTarget(
   };
 }
 
-assert.equal(registry.apps.length, 10, "the keyboard gate must cover ten apps");
 const targets = [
   ...registry.apps.map(({ id, workspace }) => navigationTarget(id, workspace)),
   navigationTarget("mirror-app template", "templates/mirror-app"),
@@ -71,6 +70,21 @@ function componentPath(
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+
+test("the keyboard gate covers every application workspace", async () => {
+  const appDirectories = await readdir(path.join(root, "apps"), { withFileTypes: true });
+  const workspaces = appDirectories
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => `apps/${entry.name}`)
+    .sort();
+
+  assert.ok(workspaces.length > 0, "the keyboard gate must cover registered apps");
+  assert.deepEqual(
+    registry.apps.map(({ workspace }) => workspace).sort(),
+    workspaces,
+    "every application workspace must be registered for keyboard coverage",
+  );
+});
 
 test("every app and the mirror template expose the Ready navigation seams", async (t) => {
   for (const target of targets) {
@@ -383,7 +397,8 @@ test("note template managers expose list navigation, pane focus, and semantic ac
 
   for (const target of templateTargets) {
     await t.test(target.id, async () => {
-      const managerName = target.id === "bio" || target.id === "mirror-app template"
+      const componentFiles = await readdir(componentPath(target, "."));
+      const managerName = componentFiles.includes("note-template-manager.tsx")
         ? "note-template-manager.tsx"
         : "template-manager.tsx";
       const [manager, shared] = await Promise.all([

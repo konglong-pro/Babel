@@ -8,6 +8,8 @@ import "@babel-apps/platform/search.css";
 import "@babel-apps/platform/shortcuts.css";
 import "@babel-apps/platform/imports.css";
 import "./globals.css";
+import "@babel-apps/pdf/pdf.css";
+import { PdfRouteBoundary } from "@babel-apps/pdf/react";
 import "./ruider-theme.css";
 
 import { PageSessionProvider } from "@babel-apps/platform/pages/react";
@@ -32,17 +34,19 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
   return (
     <html lang="en-US">
       <body>
-        <ShortcutProvider>
-          <PageSessionProvider storageKey="babel:ruider:pages">
-            <a className="skip-link" href="#main-content">Skip to main content</a>
-            <AppHeader />
-            <RuiderPageTabs />
-            <GlobalQuickOpenSource />
-            <main id="main-content">
-              <RuiderWorkspaceProcessHost>{children}</RuiderWorkspaceProcessHost>
-            </main>
-          </PageSessionProvider>
-        </ShortcutProvider>
+        <PdfRouteBoundary reader={children}>
+          <ShortcutProvider>
+            <PageSessionProvider storageKey="babel:ruider:pages">
+              <a className="skip-link" href="#main-content">Skip to main content</a>
+              <AppHeader />
+              <RuiderPageTabs />
+              <GlobalQuickOpenSource />
+              <main id="main-content">
+                <RuiderWorkspaceProcessHost>{children}</RuiderWorkspaceProcessHost>
+              </main>
+            </PageSessionProvider>
+          </ShortcutProvider>
+        </PdfRouteBoundary>
       </body>
     </html>
   );

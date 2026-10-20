@@ -1,5 +1,7 @@
 "use client";
 
+import { preparePdfExcerpt, usePdfExcerptCreation } from "@babel-apps/pdf/excerpts";
+
 import type { ImportedOriginalDocument } from "@babel-apps/platform/imports/document-core";
 
 import { FolderMoveProvider } from "@babel-apps/platform/folders/move-react";
@@ -354,6 +356,35 @@ export function NotesWorkspace({
     setSelectedFolderId(draft.folderId);
     setStage("note");
   }
+
+  usePdfExcerptCreation({
+    id: "ruider:notes",
+    isReady: () => processActive && !indexLoading,
+    onCreate: async (excerpt) => {
+      const prepared = await preparePdfExcerpt(excerpt, "ruider-upload");
+      let folderId = folders.find((folder) => folder.id === selectedFolderId)?.id
+        ?? folders[0]?.id;
+      if (folderId === undefined) {
+        const folder = await createFolder({ name: "PDF Notes", parentId: null });
+        folderId = folder.id;
+        await refreshIndex();
+      }
+      const pageLabel = ` — p. ${excerpt.page}`;
+      const title = `${excerpt.title.slice(0, 240 - pageLabel.length)}${pageLabel}`;
+      openDraft({
+        folderId,
+        parentId: null,
+        title,
+        importDraft: {
+          title,
+          contentMd: prepared.markdown,
+          imageReferences: [],
+          pdfExcerpt: true,
+          pdfImage: prepared.image,
+        },
+      });
+    },
+  });
 
   function selectFolder(id: number | null) {
     setManagingTemplates(false);

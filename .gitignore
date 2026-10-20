@@ -8,6 +8,7 @@
 **/node_modules/
 **/.next/
 **/public/_typst/
+**/public/_pdf/
 **/output/
 **/*.tsbuildinfo
 **/*.log

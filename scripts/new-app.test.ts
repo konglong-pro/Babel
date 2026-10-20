@@ -46,6 +46,8 @@ test("renders a mirror app and updates registry metadata", async (t) => {
   });
   await mkdir(path.join(templateRoot, "node_modules"), { recursive: true });
   await mkdir(path.join(templateRoot, "public", "_typst"), { recursive: true });
+  await mkdir(path.join(templateRoot, "public", "_pdf"), { recursive: true });
+  await writeFile(path.join(templateRoot, "public", "_pdf", "pdf.worker.min.mjs"), "generated");
   await writeFile(path.join(templateRoot, "tsconfig.tsbuildinfo"), "generated");
   await writeFile(path.join(templateRoot, "build.log"), "generated");
   await writeFile(
@@ -110,6 +112,7 @@ test("renders a mirror app and updates registry metadata", async (t) => {
     ".next",
     "node_modules",
     "public/_typst",
+    "public/_pdf",
     "tsconfig.tsbuildinfo",
     "build.log",
   ]) {
@@ -169,15 +172,17 @@ test("renders the repository mirror template as an independent app", async (t) =
   assert.equal(manifest.dependencies["@babel-apps/markdown"], "0.1.0");
   assert.equal(manifest.dependencies["@babel-apps/platform"], "0.1.0");
   assert.equal(manifest.dependencies["@babel-apps/typst"], "0.1.0");
+  assert.equal(manifest.dependencies["@babel-apps/pdf"], "0.1.0");
   assert.equal(manifest.dependencies["react-markdown"], undefined);
   assert.equal(manifest.dependencies["remark-gfm"], undefined);
   assert.equal(
     manifest.scripts["typst:assets"],
     "tsx ../../packages/typst/scripts/sync-public-assets.ts public",
   );
-  assert.equal(manifest.scripts.predev, "npm run typst:assets");
-  assert.equal(manifest.scripts.prebuild, "npm run typst:assets");
-  assert.equal(manifest.scripts.prestart, "npm run typst:assets");
+  assert.equal(manifest.scripts["pdf:assets"], "tsx ../../packages/pdf/scripts/sync-public-assets.ts public");
+  assert.equal(manifest.scripts.predev, "npm run typst:assets && npm run pdf:assets");
+  assert.equal(manifest.scripts.prebuild, "npm run typst:assets && npm run pdf:assets");
+  assert.equal(manifest.scripts.prestart, "npm run typst:assets && npm run pdf:assets");
   assert.equal(manifest.scripts["db:backfill-links"], "tsx scripts/backfill-links.ts");
   assert.equal(manifest.scripts["db:check"], "tsx scripts/check-database.ts");
   assert.equal(manifest.scripts["benchmark:search"], "tsx scripts/benchmark-search.ts");
@@ -207,6 +212,9 @@ test("renders the repository mirror template as an independent app", async (t) =
     "utf8",
   );
   assert.match(generatedLayout, /<AppPageTabs\s*\/>/);
+  assert.match(generatedLayout, /<PdfRouteBoundary reader=\{children\}>/);
+  await access(path.join(generatedRoot, "src", "app", "pdf-reader", "page.tsx"));
+  await access(path.join(generatedRoot, "src", "app", "api", "pdf", "documents", "route.ts"));
   assert.match(
     generatedLayout,
     /<AppWorkspaceProcessHost>\{children\}<\/AppWorkspaceProcessHost>/,

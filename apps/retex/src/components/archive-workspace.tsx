@@ -1,6 +1,7 @@
 "use client";
 
 import type { ImportedOriginalDocument } from "@babel-apps/platform/imports/document-core";
+import { preparePdfExcerpt, usePdfExcerptCreation } from "@babel-apps/pdf/excerpts";
 
 import { FolderMoveProvider } from "@babel-apps/platform/folders/move-react";
 import { pageSubtreeIds } from "@/components/page-tree-state";
@@ -249,6 +250,35 @@ export function ArchiveWorkspace({
     return Number.isInteger(candidate) && candidate > 0 ? candidate : null;
   }, [activePage]);
   const visibleFolderId = activeFolderId ?? selectedFolderId;
+
+  usePdfExcerptCreation({
+    id: `retex:${type}`,
+    isReady: () => type === "knowledge" && processActive && !indexLoading,
+    onCreate: async (excerpt) => {
+      if (type !== "knowledge") return;
+      const prepared = await preparePdfExcerpt(excerpt, "retex-upload");
+      let folder = folders.find((candidate) => candidate.id === visibleFolderId) ?? folders[0];
+      if (folder === undefined) {
+        folder = await createFolder({ type: "knowledge", name: "PDF Notes", parentId: null });
+        const created = folder;
+        setFolders((current) => [...current, created]);
+      }
+      const importDraft: MarkdownImportDraft = {
+        title: `${excerpt.title.slice(0, 240 - ` · p. ${excerpt.page}`.length)} · p. ${excerpt.page}`,
+        contentMd: prepared.markdown,
+        imageReferences: [],
+        pdfExcerpt: true,
+        pdfImage: prepared.image,
+      };
+      openDraft({
+        type: "knowledge",
+        folderId: folder.id,
+        parentId: null,
+        importDraft,
+        title: importDraft.title,
+      });
+    },
+  });
 
   useEffect(() => {
     if (!processActive || activePage === null) return;

@@ -64,6 +64,7 @@ import {
 } from "./outline";
 import { createRemarkFormulaMath, prepareFormulaMath } from "./formula-math";
 import { ReaderImage, ReaderImageZoom } from "./reader-image-zoom";
+import { remarkTableBreaks } from "./table-breaks";
 
 export {
   ReaderAnnotationLayer,
@@ -295,10 +296,16 @@ export function MarkdownRenderer({
     if (uploadScheme === undefined) return internalMarkdownUrlTransform;
     const placeholderPrefix = `${uploadScheme}://`;
     return (value, key, node) => {
-      if (key === "src" && value.startsWith(placeholderPrefix)) return value;
+      if (key === "src" && value.startsWith(placeholderPrefix)) {
+        const preview = imagePreviews?.get(value.slice(placeholderPrefix.length));
+        if (node.tagName === "img" && preview !== undefined && isPngDataPreview(preview)) {
+          return preview;
+        }
+        return value;
+      }
       return internalMarkdownUrlTransform(value, key, node);
     };
-  }, [uploadScheme]);
+  }, [imagePreviews, uploadScheme]);
 
   if (!content.trim()) return <p className="empty-copy">{emptyText}</p>;
 
@@ -309,7 +316,7 @@ export function MarkdownRenderer({
           <ReactMarkdown
             components={components}
             remarkPlugins={[
-              ...(useGfm ? [remarkGfm] : []),
+              ...(useGfm ? [remarkGfm, remarkTableBreaks] : []),
               ...(preparedFormulaMath === null ? [] : [createRemarkFormulaMath(preparedFormulaMath)]),
             ]}
             urlTransform={urlTransform}
@@ -1615,8 +1622,23 @@ function withImagePreviews(
     "g",
   );
   return content.replace(pattern, (placeholder, token: string) => {
-    return previews.get(token) ?? placeholder;
+    const preview = previews.get(token);
+    // Resolve registered data previews only from image tokens in urlTransform.
+    // Literal data URLs in Markdown must still pass the default URL filter.
+    return preview === undefined || /^data:/iu.test(preview) ? placeholder : preview;
   });
+}
+
+function isPngDataPreview(value: string): boolean {
+  const prefix = "data:image/png;base64,";
+  if (!value.startsWith(prefix)) return false;
+  const encoded = value.slice(prefix.length);
+  if (
+    encoded.length < 12 ||
+    encoded.length % 4 !== 0 ||
+    !/^[A-Za-z0-9+/]+={0,2}$/u.test(encoded)
+  ) return false;
+  return atob(encoded.slice(0, 12)).startsWith("\x89PNG\r\n\x1a\n");
 }
 
 function createHeadingComponent(

@@ -43,6 +43,8 @@ export interface MarkdownImportDraft {
   contentMd: string;
   imageReferences: ImportedImageReference[];
   originalDocument?: ImportedOriginalDocument;
+  pdfExcerpt?: true;
+  pdfImage?: { token: string; file: File; previewUrl: string };
 }
 
 export interface ImportedImageMatch<TFile extends { name: string }> {

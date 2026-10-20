@@ -1,6 +1,7 @@
 "use client";
 
 import { saveWithImportedOriginal } from "@babel-apps/platform/imports/document-client";
+import { appendPdfMarkdown, preparePdfExcerpt, usePdfExcerptEditor } from "@babel-apps/pdf/excerpts";
 
 import { EditorExitActions, submittedForReading } from "@babel-apps/platform/shortcuts/react";
 
@@ -623,6 +624,7 @@ function EntryForm({
   const formRef = useRef<HTMLFormElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const stagedRef = useRef<StagedImage[]>([]);
+  const pendingRef = useRef(false);
   const initialTitle = detail?.title ?? importDraft?.title ?? "";
   const initialTags = detail?.tags.join(", ") ?? "";
   const initialNotes = detail?.notesMd ?? importDraft?.contentMd ?? "";
@@ -639,9 +641,34 @@ function EntryForm({
   const [filename, setFilename] = useState(initialFilename);
   const [folderId, setFolderId] = useState<number | null>(initialFolder);
   const [parentId, setParentId] = useState<number | null>(initialParent);
-  const [stagedImages, setStagedImages] = useState<StagedImage[]>([]);
+  const [stagedImages, setStagedImages] = useState<StagedImage[]>(
+    () => importDraft?.pdfImage ? [importDraft.pdfImage] : [],
+  );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+
+  function canReceivePdfExcerpt() {
+    const bounds = formRef.current?.getBoundingClientRect();
+    return kind === "knowledge" && Boolean(bounds && bounds.width > 0 && bounds.height > 0);
+  }
+
+  usePdfExcerptEditor({
+    id: `neum:${draftKey}`,
+    title: title.trim() || "Untitled Knowledge entry",
+    isActive: canReceivePdfExcerpt,
+    isPending: () => pendingRef.current,
+    onAppend: async (excerpt) => {
+      const prepared = await preparePdfExcerpt(excerpt, "neum-upload");
+      if (pendingRef.current || !canReceivePdfExcerpt()) {
+        throw new Error("Keep the Knowledge note open for editing before appending an excerpt.");
+      }
+      if (prepared.image) {
+        const image = prepared.image;
+        setStagedImages((current) => [...current, image]);
+      }
+      setNotesMd((current) => appendPdfMarkdown(current, prepared.markdown));
+    },
+  });
 
   const folderMap = useMemo(
     () => new Map(folders.map((folder) => [folder.id, folder])),
@@ -759,6 +786,7 @@ function EntryForm({
       return;
     }
 
+    pendingRef.current = true;
     setPending(true);
     setError("");
     try {
@@ -796,6 +824,7 @@ function EntryForm({
     } catch (caught) {
       setError(getErrorMessage(caught));
     } finally {
+      pendingRef.current = false;
       setPending(false);
     }
   }
@@ -902,7 +931,7 @@ function EntryForm({
               )}
             </DetachedReaderWindow>
             <span className="eyebrow">
-              {detail ? "Edit entry" : importDraft ? "Import Markdown" : "New entry"}
+              {detail ? "Edit entry" : importDraft?.pdfExcerpt ? "PDF excerpt" : importDraft ? "Import Markdown" : "New entry"}
             </span>
             <h1>
               {detail ? detail.title : importDraft ? importDraft.title : "Capture technical knowledge"}

@@ -1,5 +1,6 @@
 "use client";
 
+import { ClipboardMarkdownImportAction } from "@babel-apps/platform/imports/clipboard-react";
 import { DocumentImportAction } from "@babel-apps/platform/imports/document-react";
 import type { ImportedOriginalDocument } from "@babel-apps/platform/imports/document-core";
 
@@ -177,6 +178,7 @@ export function NoteList({
 }: NoteListProps) {
   const importInputRef = useRef<HTMLInputElement>(null);
   const documentImportOpenRef = useRef<(() => void) | null>(null);
+  const clipboardImportOpenRef = useRef<(() => void) | null>(null);
   const folderImportInputRef = useRef<HTMLInputElement>(null);
   const importMenuRef = useRef<HTMLDetailsElement>(null);
   const selectedFolder = selectedFolderId === null ? undefined : folders.get(selectedFolderId);
@@ -273,6 +275,14 @@ export function NoteList({
       group: "Notes",
       available: selectedFolderId !== null,
       run: () => importInputRef.current?.click(),
+    },
+    {
+      id: "note.importClipboard",
+      label: "Paste Markdown / David",
+      keywords: ["paste", "clipboard", "david", "conversation", "llm"],
+      group: "Notes",
+      available: selectedFolderId !== null && !referencePanelOpen,
+      run: () => clipboardImportOpenRef.current?.(),
     },
     {
       id: "note.importDocument",
@@ -382,6 +392,14 @@ export function NoteList({
               >
                 Import Markdown file
               </button>
+              <ClipboardMarkdownImportAction
+                onImport={onImport}
+                disabled={selectedFolderId === null || referencePanelOpen}
+                registerOpen={(open) => { clipboardImportOpenRef.current = open; }}
+                onOpen={() => {
+                  if (importMenuRef.current) importMenuRef.current.open = false;
+                }}
+              />
               <DocumentImportAction
                 onImportChapters={onImportFolder}
                 onImport={onImport}

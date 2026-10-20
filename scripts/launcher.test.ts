@@ -396,6 +396,11 @@ test("shared platform changes invalidate application builds", () => {
     /Join-Path\s+\$RootPath\s+["']packages\\platform["']/i,
     "the launcher must rebuild apps after the shared shortcut contract changes",
   );
+  assert.match(
+    buildInputPathsSource,
+    /Join-Path\s+\$RootPath\s+["']packages\\pdf["']/i,
+    "the launcher must rebuild apps after the shared PDF reader changes",
+  );
 });
 
 test("the launcher edits the shared schema v8 shortcut contract", () => {

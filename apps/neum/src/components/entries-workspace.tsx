@@ -1,6 +1,7 @@
 "use client";
 
 import type { ImportedOriginalDocument } from "@babel-apps/platform/imports/document-core";
+import { preparePdfExcerpt, usePdfExcerptCreation } from "@babel-apps/pdf/excerpts";
 
 import { FolderMoveProvider } from "@babel-apps/platform/folders/move-react";
 import { entrySubtreeIds } from "@/components/entry-tree-state";
@@ -316,6 +317,36 @@ export function EntriesWorkspace({
     return Number.isInteger(candidate) && candidate > 0 ? candidate : null;
   }, [activePage]);
   const visibleFolderId = activeFolderId ?? selectedFolderId;
+
+  usePdfExcerptCreation({
+    id: `neum:${kind}`,
+    isReady: () => kind === "knowledge" && processActive && !indexLoading,
+    onCreate: async (excerpt) => {
+      if (kind !== "knowledge") return;
+      const prepared = await preparePdfExcerpt(excerpt, "neum-upload");
+      let folder = folders.find((candidate) => candidate.id === visibleFolderId) ?? folders[0];
+      if (folder === undefined) {
+        folder = await createFolder({ name: "PDF Notes", parentId: null });
+        const created = folder;
+        setFolders((current) => [...current, created]);
+        notifyFoldersChanged();
+      }
+      const importDraft: MarkdownImportDraft = {
+        title: `${excerpt.title.slice(0, 240 - ` · p. ${excerpt.page}`.length)} · p. ${excerpt.page}`,
+        contentMd: prepared.markdown,
+        imageReferences: [],
+        pdfExcerpt: true,
+        pdfImage: prepared.image,
+      };
+      openDraft({
+        kind: "knowledge",
+        folderId: folder.id,
+        parentId: null,
+        importDraft,
+        title: importDraft.title,
+      });
+    },
+  });
 
   useEffect(() => {
     if (!processActive || activePage === null) return;

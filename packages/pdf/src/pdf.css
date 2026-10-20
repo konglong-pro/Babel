@@ -1,0 +1,81 @@
+@import "pdfjs-dist/web/pdf_viewer.css";
+@import "./library.css";
+
+.babel-pdf-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+.babel-pdf-reader { --pdf-ink: #26352e; --pdf-line: #d4ddd4; display: flex; flex-direction: column; position: fixed; inset: 0; z-index: 100; overflow: hidden; background: #e6ebe5; color: var(--pdf-ink); font: 13px/1.5 system-ui, sans-serif; color-scheme: light; }
+.babel-pdf-reader * { box-sizing: border-box; }
+.babel-pdf-reader button, .babel-pdf-reader input { min-height: 32px; border: 1px solid var(--pdf-line); border-radius: 5px; background: #fff; color: var(--pdf-ink); padding: 5px 9px; font: inherit; }
+.babel-pdf-reader button { cursor: pointer; white-space: nowrap; }
+.babel-pdf-reader button:disabled { opacity: .45; cursor: not-allowed; }
+.babel-pdf-reader button:hover:not(:disabled), .babel-pdf-reader button[aria-pressed="true"] { background: #e4eddf; border-color: #95b080; }
+.babel-pdf-reader input:focus-visible, .babel-pdf-reader button:focus-visible, .babel-pdf-reader a:focus-visible { outline: 2px solid #4e7b36; outline-offset: 2px; }
+.babel-pdf-reader-header { display: flex; min-height: 69px; align-items: center; justify-content: space-between; gap: 20px; border-bottom: 1px solid #284231; background: #153322; color: #f4f5e8; padding: 10px 22px; }
+.babel-pdf-reader-header > div { min-width: 0; }
+.babel-pdf-reader-header h1 { margin: 2px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 17px; font-weight: 650; letter-spacing: -.3px; }
+.babel-pdf-reader-label { color: #c2d6ac; font: 9px/1.5 ui-monospace, monospace; letter-spacing: 1.5px; }
+.babel-pdf-reader-header a { flex-shrink: 0; color: #e5edcf; font-size: 11px; text-decoration: none; }
+.babel-pdf-toolbar, .babel-pdf-excerpt-bar, .babel-pdf-annotation-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; border-bottom: 1px solid var(--pdf-line); padding: 9px 16px; background: #f8faf5; }
+.babel-pdf-toolgroup { display: flex; align-items: center; gap: 4px; }
+.babel-pdf-toolgroup + .babel-pdf-toolgroup { border-left: 1px solid var(--pdf-line); padding-left: 8px; }
+.babel-pdf-toolgroup form { display: flex; align-items: center; gap: 4px; }
+.babel-pdf-toolgroup input { width: 58px; }
+.babel-pdf-zoom { min-width: 43px; text-align: center; font-size: 11px; }
+.babel-pdf-find { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+.babel-pdf-find input { width: 150px; }
+.babel-pdf-find > span { min-width: 35px; font-size: 10px; }
+.babel-pdf-excerpt-bar { background: #edf3e5; }
+.babel-pdf-selection-status { flex: 1; min-width: 130px; font-size: 11px; color: #52644f; }
+.babel-pdf-excerpt-bar .babel-pdf-primary { border-color: #315a29; background: #315a29; color: #fff; }
+.babel-pdf-excerpt-bar > button:last-child { max-width: min(360px, 45vw); overflow: hidden; text-overflow: ellipsis; }
+.babel-pdf-annotation-bar { padding-block: 6px; }
+.babel-pdf-annotation-bar > input { flex: 1; min-width: 180px; max-width: 480px; }
+.babel-pdf-annotation-bar > span { margin-left: auto; font-size: 11px; color: #586953; }
+.babel-pdf-connection { margin: 0; border-bottom: 1px solid #d8dcbf; background: #f7f6dc; color: #646443; padding: 6px 16px; font-size: 11px; }
+.babel-pdf-message { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--pdf-line); background: #e5efdc; padding: 5px 16px; font-size: 12px; }
+.babel-pdf-message button { min-height: 24px; padding: 2px 7px; font-size: 10px; }
+.babel-pdf-message.error { background: #fff0e8; color: #8e3625; }
+.babel-pdf-reading-area { position: relative; display: flex; flex: 1; min-height: 0; }
+.babel-pdf-sidebar { flex: 0 0 225px; min-height: 0; overflow: auto; border-right: 1px solid #c7d1c3; background: #f4f6ef; padding: 14px; }
+.babel-pdf-sidebar > p { margin: 8px 0; color: #5f6c57; font-size: 12px; }
+.babel-pdf-canvas-host { position: relative; flex: 1; min-width: 0; min-height: 0; }
+.babel-pdf-scroll { position: absolute; inset: 0; overflow: auto; overscroll-behavior: contain; background: #d5dcd3; }
+.babel-pdf-scroll .pdfViewer { padding-block: 20px; min-height: 100%; }
+.babel-pdf-scroll .pdfViewer .page { box-sizing: content-box; }
+.babel-pdf-scroll .canvasWrapper { position: relative; }
+.babel-pdf-scroll.capture-mode, .babel-pdf-scroll.capture-mode .textLayer { cursor: crosshair; user-select: none; }
+.babel-pdf-scroll.capture-mode .textLayer { pointer-events: none; }
+.babel-pdf-marks { position: absolute; inset: 0; z-index: 4; pointer-events: none; overflow: hidden; }
+.babel-pdf-mark { position: absolute; display: block; pointer-events: none; }
+.babel-pdf-mark.highlight { background: var(--mark-color); opacity: .35; mix-blend-mode: multiply; }
+.babel-pdf-mark.underline { border-bottom: max(2px, .12em) solid var(--mark-color); }
+.babel-pdf-mark.comment { border: 1px dashed var(--mark-color); background: color-mix(in srgb, var(--mark-color) 15%, transparent); }
+.babel-pdf-capture-box { position: absolute; border: 2px solid #2d78af; background: #3f9cdd33; }
+.babel-pdf-load, .babel-pdf-password { position: absolute; z-index: 8; top: 24px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 30px); border: 1px solid #c2ccba; border-radius: 7px; background: #fffef6; padding: 20px 25px; box-shadow: 0 5px 24px #17332224; text-align: center; }
+.babel-pdf-password { display: grid; gap: 10px; }
+.babel-pdf-load.error { color: #8d392b; }
+.babel-pdf-outline, .babel-pdf-annotation-list { list-style: none; margin: 0; padding: 0; }
+.babel-pdf-outline .babel-pdf-outline { border-left: 1px solid #ced7c6; margin-left: 7px; padding-left: 7px; }
+.babel-pdf-outline button { width: 100%; border-color: transparent; background: transparent; white-space: normal; text-align: left; font-size: 12px; }
+.babel-pdf-thumbnail { display: flex; flex-direction: column; align-items: center; gap: 7px; width: 150px; min-height: 190px !important; margin: 0 auto 15px; padding: 10px !important; }
+.babel-pdf-thumbnail canvas { width: 120px; height: 160px; background: #fff; object-fit: contain; box-shadow: 0 1px 5px #19332425; }
+.babel-pdf-thumbnail.selected { border-color: #63854e; background: #e5efda; }
+.babel-pdf-thumbnail > span { font-size: 11px; }
+.babel-pdf-annotation-list li { margin-bottom: 12px; border: 1px solid #d8dfd0; border-radius: 5px; background: #fffef7; padding: 7px; }
+.babel-pdf-annotation-list li > button:first-child { display: grid; gap: 6px; width: 100%; border: 0; background: none; white-space: normal; padding: 3px; text-align: left; }
+.babel-pdf-annotation-list strong { font-size: 11px; text-transform: capitalize; }
+.babel-pdf-annotation-list span, .babel-pdf-annotation-list p { margin: 0; font-size: 11px; color: #596552; }
+.babel-pdf-annotation-list .babel-pdf-remove { min-height: 23px; margin-top: 7px; padding: 2px 6px; font-size: 10px; }
+@media (max-width: 850px) {
+  .babel-pdf-toolbar { gap: 6px; padding-inline: 10px; }
+  .babel-pdf-find { margin-left: 0; }
+  .babel-pdf-toolbar button, .babel-pdf-excerpt-bar button, .babel-pdf-annotation-bar button { font-size: 11px; }
+  .babel-pdf-sidebar { flex-basis: 175px; }
+}
+@media (max-width: 520px) {
+  .babel-pdf-reader-header { padding-inline: 12px; }
+  .babel-pdf-reader-header h1 { max-width: 220px; font-size: 14px; }
+  .babel-pdf-excerpt-bar, .babel-pdf-annotation-bar { padding-inline: 10px; }
+  .babel-pdf-selection-status { flex-basis: 65%; }
+  .babel-pdf-excerpt-bar > button:last-child { max-width: 190px; }
+  .babel-pdf-sidebar { position: absolute; inset: 0 auto 0 0; width: 180px; z-index: 7; box-shadow: 5px 0 15px #14271b22; }
+}

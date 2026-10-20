@@ -9,16 +9,6 @@ interface RegistryDocument {
   apps: Array<{ id: string; workspace: string }>;
 }
 
-const standardNoteApps = new Set([
-  "bio",
-  "esperanto",
-  "herodotus",
-  "klsche",
-  "leviathan",
-  "ruider",
-  "vali",
-]);
-
 test("every app and the mirror scaffold expose atomic Markdown folder import", async () => {
   const registry = JSON.parse(
     await readFile(path.join(root, "babel.apps.json"), "utf8"),
@@ -98,11 +88,11 @@ test("all import-capable lists expose both semantic actions and a directory pick
     await readFile(path.join(root, "babel.apps.json"), "utf8"),
   ) as RegistryDocument;
   for (const app of registry.apps) {
-    const component = standardNoteApps.has(app.id)
-      ? "note-list.tsx"
-      : app.id === "neum"
-        ? "entry-list.tsx"
-        : "item-list.tsx";
+    const component = app.id === "neum"
+      ? "entry-list.tsx"
+      : app.id === "retex" || app.id === "matter"
+        ? "item-list.tsx"
+        : "note-list.tsx";
     const source = await readFile(path.join(root, app.workspace, "src", "components", component), "utf8");
     assert.match(source, /Import Markdown file/u, `${app.id} must retain single-file import`);
     assert.match(source, /Import Markdown folder/u, `${app.id} must expose folder import`);

@@ -4,11 +4,11 @@
   "private": true,
   "scripts": {
     "typst:assets": "tsx ../../packages/typst/scripts/sync-public-assets.ts public",
-    "predev": "npm run typst:assets",
+    "predev": "npm run typst:assets && npm run pdf:assets",
     "dev": "next dev -H 127.0.0.1 -p 3003",
-    "prebuild": "npm run typst:assets",
+    "prebuild": "npm run typst:assets && npm run pdf:assets",
     "build": "tsx scripts/build.ts",
-    "prestart": "npm run typst:assets",
+    "prestart": "npm run typst:assets && npm run pdf:assets",
     "start": "next start -H 127.0.0.1 -p 3003",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
@@ -21,7 +21,8 @@
     "snapshot:import": "tsx scripts/import-snapshot.ts",
     "benchmark:search": "tsx scripts/benchmark-search.ts",
     "test": "tsx --test tests/*.test.ts",
-    "check": "npm run lint && npm run typecheck && npm run test && npm run build"
+    "check": "npm run lint && npm run typecheck && npm run test && npm run build",
+    "pdf:assets": "tsx ../../packages/pdf/scripts/sync-public-assets.ts public"
   },
   "dependencies": {
     "@babel-apps/markdown": "0.1.0",
@@ -31,6 +32,7 @@
     "drizzle-orm": "^0.45.2",
     "next": "^16.2.10",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "@babel-apps/pdf": "0.1.0"
   }
 }

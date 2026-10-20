@@ -1,6 +1,7 @@
 "use client";
 
 import { saveWithImportedOriginal } from "@babel-apps/platform/imports/document-client";
+import { appendPdfMarkdown, preparePdfExcerpt, usePdfExcerptEditor } from "@babel-apps/pdf/excerpts";
 
 import { EditorExitActions, submittedForReading } from "@babel-apps/platform/shortcuts/react";
 
@@ -461,6 +462,7 @@ function KnowledgeForm({
   const formRef = useRef<HTMLFormElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const stagedRef = useRef<StagedImage[]>([]);
+  const pendingRef = useRef(false);
   const initialTitle = detail?.title ?? importDraft?.title ?? "";
   const initialTags = detail?.tags.join(", ") ?? "";
   const initialContent = detail?.contentMd ?? importDraft?.contentMd ?? "";
@@ -471,11 +473,36 @@ function KnowledgeForm({
   const [content, setContent] = useState(initialContent);
   const [parentId, setParentId] = useState<number | null>(initialParentId);
   const [exerciseIds, setExerciseIds] = useState(initialExerciseIds);
-  const [stagedImages, setStagedImages] = useState<StagedImage[]>([]);
+  const [stagedImages, setStagedImages] = useState<StagedImage[]>(
+    () => importDraft?.pdfImage ? [importDraft.pdfImage] : [],
+  );
   const [exercises, setExercises] = useState<ExerciseSummaryDto[]>([]);
   const [relationsLoading, setRelationsLoading] = useState(true);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+
+  function canReceivePdfExcerpt() {
+    const bounds = formRef.current?.getBoundingClientRect();
+    return Boolean(bounds && bounds.width > 0 && bounds.height > 0);
+  }
+
+  usePdfExcerptEditor({
+    id: `retex:knowledge:${draftKey}`,
+    title: title.trim() || "Untitled Knowledge note",
+    isActive: canReceivePdfExcerpt,
+    isPending: () => pendingRef.current,
+    onAppend: async (excerpt) => {
+      const prepared = await preparePdfExcerpt(excerpt, "retex-upload");
+      if (pendingRef.current || !canReceivePdfExcerpt()) {
+        throw new Error("Keep the Knowledge note open for editing before appending an excerpt.");
+      }
+      if (prepared.image) {
+        const image = prepared.image;
+        setStagedImages((current) => [...current, image]);
+      }
+      setContent((current) => appendPdfMarkdown(current, prepared.markdown));
+    },
+  });
   const readerTriggerId = `retex-knowledge-${detail?.id ?? draftKey}-reader-trigger`;
   const pageMap = useMemo(
     () => new Map(pages.map((page) => [page.id, page])),
@@ -596,6 +623,7 @@ function KnowledgeForm({
       setError(saveBlockMessage);
       return;
     }
+    pendingRef.current = true;
     setPending(true);
     setError("");
     try {
@@ -627,6 +655,7 @@ function KnowledgeForm({
     } catch (caught) {
       setError(getErrorMessage(caught));
     } finally {
+      pendingRef.current = false;
       setPending(false);
     }
   }
@@ -667,10 +696,12 @@ function KnowledgeForm({
     if (!window.confirm(
       `Create Knowledge note “${targetTitle}”, discard unsaved changes, and open it?`,
     )) return;
+    pendingRef.current = true;
     setPending(true);
     try {
       await Promise.resolve(onCreateWikilink(targetTitle, folderId)).catch(() => undefined);
     } finally {
+      pendingRef.current = false;
       setPending(false);
     }
   }
@@ -739,7 +770,7 @@ function KnowledgeForm({
               )}
             </DetachedReaderWindow>
             <span className="eyebrow">
-              {detail ? "Edit Knowledge" : importDraft ? "Import Markdown" : "New Knowledge"}
+              {detail ? "Edit Knowledge" : importDraft?.pdfExcerpt ? "PDF excerpt" : importDraft ? "Import Markdown" : "New Knowledge"}
             </span>
             <h1>
               {detail

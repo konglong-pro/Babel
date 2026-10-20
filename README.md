@@ -50,6 +50,66 @@ npm.cmd run dev -w @babel-apps/<id>
 Existing applications also expose root shortcuts such as
 `npm.cmd run dev:retex`.
 
+**Carbon** is the chemistry notebook at `http://127.0.0.1:3010`.
+Run `npm.cmd run dev:carbon`, or select Carbon in the Babel launcher. It includes
+Concept, Reaction, and Experiment note starters, Markdown formulas, nested
+folders, search, attachments, and canvases, with private data in `data/carbon/`.
+
+## Read and annotate PDFs
+
+Select **PDFs** in an APP's header to import a PDF (up to 512 MiB), then select
+**Open PDF** to read it in a separate window on either screen. Each APP keeps
+its own library; import the same book again in another APP when needed.
+The reader includes page thumbnails, embedded contents, text search, zoom,
+rotation, and saved page/zoom/rotation progress.
+
+Select text or use **Area capture** for diagrams and scanned pages. **New note**
+opens an unsaved note in the originating notebook; **Append to [draft title]**
+adds the excerpt to its visible editor. Appending is disabled when no editor is
+visible or a save is in progress. Keep the originating notebook window open.
+Excerpts contain the selected text/image, book title and page number, without
+requiring a link back to the PDF. Images use the notebook's normal managed
+attachment flow when the note is saved. ReTex/Matter/Neum use Knowledge notes.
+
+Highlights, underlines and comments are saved separately from the immutable
+original. PDFs and their `metadata.sqlite` live in `pdf-library/` under each
+APP's configured private upload directory and are included in `data:backup`.
+The backup verifies PDF metadata after all APPs have stopped. Existing notebook
+schemas are unchanged. Rendering uses bundled [PDF.js](https://github.com/mozilla/pdf.js)
+assets locally; no cloud service is needed. Scanned pages support reading and
+image excerpts now; OCR is deferred.
+
+## Import LLM conversations with David
+
+[David](https://github.com/konglong-pro/David) copies a web selection, a loaded AI
+conversation, or a selected message range as Markdown. In any Babel APP, select
+a folder, then choose **Import → Paste Markdown / David** (also available in the
+command palette). Paste with `Ctrl+V`, or choose **Read clipboard**. Review the
+suggested title and editable Markdown, then choose **Open draft**. Choose tags
+and save through the normal editor when ready. ReTex/Matter use Knowledge notes;
+Neum uses Knowledge entries. The new-APP template includes the same flow.
+
+David's **Save Markdown** provides a `.md` file for the existing **Import Markdown
+file** action. Clipboard and file imports share the same notebook adapters,
+10 MiB UTF-8 content limit, local-image matching, and unsaved-draft behavior.
+No converter setup or direct access to Babel's databases is needed.
+
+The exchange format is ordinary Markdown: `## User` / `## Assistant` delimit
+messages, answer headings are nested below those labels, and code keeps its
+language and fences. Explicit `\(...\)` and `\[...\]` formulas use LaTeX/KaTeX,
+so Babel's native single-dollar Typst notation stays available. GFM lists,
+tables and task lists are supported; plain `<br>` in a table cell is rendered as
+a line break without enabling arbitrary HTML. Mermaid remains a labeled code
+block for reading and editing its source.
+
+Web images keep their source URLs and can expire or require a signed-in browser.
+They are not automatically downloaded or made into managed attachments. Save
+needed images separately and add them in the editor for durable local storage.
+Blob images, unsupported attachments and canvas-only visuals require manual
+capture. David copies only messages currently loaded in the page; load older
+messages first for a long conversation. Imports add no hidden title, source URL,
+timestamp or platform metadata to the conversation body.
+
 ## Convert documents during import
 
 Every APP and the new-APP template includes **Import → Import document as

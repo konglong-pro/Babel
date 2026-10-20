@@ -5,6 +5,7 @@ import net from "node:net";
 import path from "node:path";
 
 import Database from "better-sqlite3";
+import { verifyPdfMetadataForBackup } from "./lib/pdf-backup";
 
 type RegisteredApp = {
   name: string;
@@ -66,6 +67,11 @@ for (const app of registry.apps) {
     database.close();
   }
   console.log(`[database] ${app.name} checkpointed and verified`);
+  const uploadEntries = Object.entries(app.env).filter(([name]) => name.endsWith("_UPLOAD_DIRECTORY"));
+  for (const [, uploadDirectory] of uploadEntries) {
+    const metadata = path.join(resolveInsideRoot(uploadDirectory), "pdf-library", "metadata.sqlite");
+    if (verifyPdfMetadataForBackup(metadata, app.name)) console.log(`[pdf] ${app.name} metadata recovered and verified`);
+  }
 }
 
 runGit(["add", "-A"]);

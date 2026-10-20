@@ -1,5 +1,7 @@
 "use client";
 
+import { appendPdfMarkdown, preparePdfExcerpt, usePdfExcerptEditor } from "@babel-apps/pdf/excerpts";
+
 import { saveWithImportedOriginal } from "@babel-apps/platform/imports/document-client";
 
 import { EditorExitActions, submittedForReading } from "@babel-apps/platform/shortcuts/react";
@@ -530,9 +532,27 @@ function NoteForm({
   const [folderId, setFolderId] = useState<number | null>(initialFolder);
   const [parentId, setParentId] = useState<number | null>(initialParentId);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
-  const [stagedImages, setStagedImages] = useState<StagedImage[]>([]);
+  const [stagedImages, setStagedImages] = useState<StagedImage[]>(
+    () => importDraft?.pdfImage ? [importDraft.pdfImage] : [],
+  );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+
+  usePdfExcerptEditor({
+    id: `__APP_ID__:note:${draftKey}`,
+    title: title.trim() || "Untitled note",
+    isActive: () => Boolean(formRef.current?.getClientRects().length),
+    isPending: () => pendingRef.current,
+    onAppend: async (excerpt) => {
+      const { markdown, image } = await preparePdfExcerpt(excerpt, "__APP_ID__-upload");
+      if (pendingRef.current || !formRef.current?.getClientRects().length) {
+        if (image) URL.revokeObjectURL(image.previewUrl);
+        throw new Error("Return to the note editor and wait for saving to finish before appending.");
+      }
+      setContent((current) => appendPdfMarkdown(current, markdown));
+      if (image) setStagedImages((current) => [...current, image]);
+    },
+  });
 
   const folderMap = useMemo(() => new Map(folders.map((folder) => [folder.id, folder])), [folders]);
   const readerTriggerId = `__APP_ID__-note-${detail?.id ?? draftKey}-reader-trigger`;
@@ -841,7 +861,7 @@ function NoteForm({
               )}
             </DetachedReaderWindow>
             <span className="eyebrow">
-              {detail ? "Edit note" : importDraft ? "Import Markdown" : "New note"}
+              {detail ? "Edit note" : importDraft?.pdfExcerpt ? "PDF excerpt" : importDraft ? "Import Markdown" : "New note"}
             </span>
             <h1>
               {detail ? detail.title : importDraft ? importDraft.title : "Begin a new record"}

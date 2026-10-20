@@ -1,5 +1,7 @@
 "use client";
 
+import { PdfLibraryButton } from "@babel-apps/pdf/react";
+
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { type FormEvent, type MouseEvent, useState } from "react";
@@ -82,6 +84,7 @@ export function AppHeader() {
         >
           Canvases
         </Link>
+        <PdfLibraryButton appId="vali" appName="Vali" notebookHref="/notes" />
       </nav>
 
       <form className="global-search" role="search" onSubmit={submitSearch}>

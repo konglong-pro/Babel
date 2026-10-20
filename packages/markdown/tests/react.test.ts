@@ -101,6 +101,57 @@ test("preserves image previews before wikilink preprocessing", () => {
   assert.doesNotMatch(html, /esperanto-upload/u);
 });
 
+const PNG_PREVIEW = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jwX8AAAAASUVORK5CYII=";
+
+test("renders registered staged PNG previews only from image upload tokens", () => {
+  const html = renderToStaticMarkup(createElement(MarkdownRenderer, {
+    content: [
+      "![PDF screenshot](carbon-upload://screenshot)",
+      `![Literal data URL](${PNG_PREVIEW})`,
+      `[Literal link](${PNG_PREVIEW})`,
+      "[Token link](carbon-upload://screenshot)",
+    ].join("\n\n"),
+    uploadScheme: "carbon-upload",
+    imagePreviews: new Map([["screenshot", PNG_PREVIEW]]),
+  }));
+
+  assert.ok(html.includes(`src="${PNG_PREVIEW}"`));
+  assert.equal(html.split(PNG_PREVIEW).length - 1, 1, "the registered preview cannot authorize literal URLs or links");
+  assert.doesNotMatch(html, /href="(?:data:|carbon-upload:)/u);
+  assert.match(html, /alt="PDF screenshot"/u);
+});
+
+test("does not authorize an unregistered PNG data URL", () => {
+  const html = renderToStaticMarkup(createElement(MarkdownRenderer, {
+    content: `![Literal data URL](${PNG_PREVIEW})\n\n![Missing file](carbon-upload://missing)`,
+    uploadScheme: "carbon-upload",
+    imagePreviews: new Map(),
+  }));
+
+  assert.doesNotMatch(html, /src="data:/u);
+  assert.match(html, /Image awaiting file: Missing file/u);
+});
+
+test("rejects executable, non-PNG, and malformed registered preview values", () => {
+  const blocked = [
+    "javascript:alert",
+    "data:text/html;base64," + Buffer.from("<script>alert(1)</script>").toString("base64"),
+    "data:image/svg+xml;base64," + Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>').toString("base64"),
+    "data:image/png;base64," + Buffer.from("<svg>not a PNG</svg>").toString("base64"),
+    PNG_PREVIEW + "=",
+    PNG_PREVIEW.replace("base64,", "base64, "),
+  ];
+  for (const preview of blocked) {
+    const html = renderToStaticMarkup(createElement(MarkdownRenderer, {
+      content: "![Untrusted preview](carbon-upload://screenshot)",
+      uploadScheme: "carbon-upload",
+      imagePreviews: new Map([["screenshot", preview]]),
+    }));
+
+    assert.doesNotMatch(html, /src="(?:data:|javascript:)|<script|<svg/u);
+  }
+});
+
 test("renders an unresolved managed image as a placeholder without an empty source", () => {
   const html = renderToStaticMarkup(createElement(MarkdownRenderer, {
     content: "![Babel seal](herodotus-upload://import-token)",

@@ -300,7 +300,7 @@ function isGeneratedTemplateEntry(
     isDirectory &&
     segments.length === 2 &&
     segments[0] === "public" &&
-    segments[1] === "_typst"
+    ["_typst", "_pdf"].includes(segments[1])
   ) {
     return true;
   }

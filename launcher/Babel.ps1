@@ -519,6 +519,7 @@ function Get-BabelApps {
             (Join-Path $RootPath "packages\config"),
             (Join-Path $RootPath "packages\markdown"),
             (Join-Path $RootPath "packages\platform"),
+            (Join-Path $RootPath "packages\pdf"),
             (Join-Path $RootPath "package.json"),
             (Join-Path $RootPath "package-lock.json"),
             $registryPath

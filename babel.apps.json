@@ -180,6 +180,24 @@
         "data/bio/sqlite.db",
         "data/bio/uploads/notes"
       ]
+    },
+    {
+      "name": "Carbon",
+      "id": "carbon",
+      "workspace": "apps/carbon",
+      "port": 3010,
+      "healthPath": "/api/health",
+      "identityPath": "/notes",
+      "identityText": "Carbon",
+      "readyTimeoutSeconds": 60,
+      "env": {
+        "CARBON_DATABASE_PATH": "data/carbon/sqlite.db",
+        "CARBON_UPLOAD_DIRECTORY": "data/carbon/uploads/notes"
+      },
+      "requiredDataPaths": [
+        "data/carbon/sqlite.db",
+        "data/carbon/uploads/notes"
+      ]
     }
   ]
 }
