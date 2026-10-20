@@ -25,6 +25,7 @@ export interface PdfAnnotation {
 
 export interface PdfDocumentSummary {
   id: string;
+  folderId: string | null;
   title: string;
   fileName: string;
   size: number;
@@ -39,10 +40,25 @@ export interface PdfDocument extends PdfDocumentSummary {
   annotations: PdfAnnotation[];
 }
 
+export interface PdfFolder {
+  id: string;
+  name: string;
+  parentId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export const PDF_MAX_FILE_BYTES = 512 * 1024 * 1024;
 export const PDF_MAX_ANNOTATIONS = 10_000;
 export const PDF_TITLE_MAX_LENGTH = 240;
+export const PDF_FOLDER_NAME_MAX_LENGTH = 120;
+export const PDF_FOLDER_MAX_DEPTH = 32;
 export const PDF_DEFAULT_PROGRESS: Readonly<PdfProgress> = { page: 1, scale: 1, rotation: 0 };
+
+/** Match sibling names consistently in folder pickers and private metadata. */
+export function pdfFolderNameKey(name: string): string {
+  return name.trim().normalize("NFC").toLowerCase();
+}
 
 function object(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

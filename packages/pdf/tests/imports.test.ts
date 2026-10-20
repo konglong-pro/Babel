@@ -21,6 +21,7 @@ test("folder imports include nested PDFs in stable natural order and skip other 
   ]);
   assert.equal(result.files[0].file, second);
   assert.equal(result.files[1].file, first);
+  assert.deepEqual(result.files[0].folderPath, ["Books", "nested"]);
 });
 
 test("validation is per file, including empty and oversized files, without reading file contents", () => {
@@ -44,4 +45,15 @@ test("titles preserve the filename, use the title limit and never turn folder pa
   assert.ok(result.files.some(({ title }) => title.length === 240));
   assert.ok(result.files.some(({ title }) => title === "Untitled PDF"));
   assert.deepEqual(preparePdfFolder([]).files, []);
+  assert.deepEqual(preparePdfFolder([fixture("root.pdf", "")]).files[0].folderPath, []);
+});
+
+test("folder imports reject invalid folder segments and excessive depth without changing file identities", () => {
+  for (const relativePath of ["Books/../book.pdf", "Books//book.pdf", "Books/bad\\name/book.pdf", `${"x/".repeat(33)}book.pdf`, `${"x".repeat(121)}/book.pdf`]) {
+    const file = fixture("book.pdf", relativePath);
+    const entry = preparePdfFolder([file]).files[0];
+    assert.ok(entry.error.includes("Folder paths"));
+    assert.equal(entry.file, file);
+  }
+  assert.deepEqual(preparePdfFolder([fixture("book.pdf", " Books / 子目录 /book.pdf")]).files[0].folderPath, ["Books", "子目录"]);
 });

@@ -8,6 +8,7 @@ import {
   isPdfRect,
   PDF_DEFAULT_PROGRESS,
   PDF_MAX_ANNOTATIONS,
+  pdfFolderNameKey,
   type PdfAnnotation,
 } from "../src/pdf/core";
 
@@ -26,6 +27,12 @@ test("PDF progress accepts supported viewing states and rejects invalid or unkno
     { ...PDF_DEFAULT_PROGRESS, rotation: 45 }, { ...PDF_DEFAULT_PROGRESS, extra: "field" }]) {
     assert.equal(isPdfProgress(progress), false);
   }
+});
+
+test("PDF folder names compare trimmed Unicode equivalents and casing without changing user text", () => {
+  assert.equal(pdfFolderNameKey("  Chemistry  "), "chemistry");
+  assert.equal(pdfFolderNameKey("CAFE\u0301"), pdfFolderNameKey("Café"));
+  assert.equal(pdfFolderNameKey("化学"), "化学");
 });
 
 test("PDF rectangle geometry remains within an unrotated normalized page", () => {

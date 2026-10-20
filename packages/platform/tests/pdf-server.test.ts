@@ -82,7 +82,7 @@ test("PDF library keeps immutable originals and independent application-owned me
   const appRoot = path.join(root, "first");
   const first = createPdfLibraryHandlers({ root: () => appRoot });
   const second = createPdfLibraryHandlers({ root: () => path.join(root, "second") });
-  assert.deepEqual(await (await first.list()).json(), { documents: [] });
+  assert.deepEqual(await (await first.list()).json(), { documents: [], folders: [] });
   const response = await first.importPdf(upload(pdf, "中文教材.pdf", "  化学导论  "));
   assert.equal(response.status, 201);
   const document = await decoded(response);
@@ -104,7 +104,7 @@ test("PDF library keeps immutable originals and independent application-owned me
   assert.equal(repeated.title, "中文教材");
   await assert.rejects(second.getDocument(document.id), { code: "PDF_NOT_FOUND" });
   await assert.rejects(second.file(fileRequest(), document.id), { code: "PDF_NOT_FOUND" });
-  assert.deepEqual(await (await second.list()).json(), { documents: [] });
+  assert.deepEqual(await (await second.list()).json(), { documents: [], folders: [] });
   const separatelyImported = await decoded(await second.importPdf(upload()));
   assert.notEqual(separatelyImported.id, document.id);
   for (const malicious of ["../metadata.sqlite", "..\\metadata.sqlite", "%2e%2e", "../../x", "id.pdf", ""]) {
@@ -212,7 +212,7 @@ test("PDF import retries never overwrite an existing original with no completed 
   await assert.rejects(library.importPdf(upload(pdf, "book.pdf", undefined, { "X-Babel-Pdf-Import-Id": id })), { code: "PDF_IMPORT_IN_PROGRESS", status: 409 });
   assert.equal(await readFile(original, "utf8"), "An existing unclaimed original.");
   assert.deepEqual(await readdir(path.join(root, "files")), [`${id}.pdf`]);
-  assert.deepEqual(await (await library.list()).json(), { documents: [] });
+  assert.deepEqual(await (await library.list()).json(), { documents: [], folders: [] });
 });
 
 test("PDF import streams browser multipart boundaries and arbitrary PDF bytes without corruption", async (t) => {
@@ -379,7 +379,7 @@ test("deleted PDFs cannot be resurrected by delayed progress or annotation write
     assert.equal((result as PromiseRejectedResult).reason.code, "PDF_NOT_FOUND");
   }
   assert.deepEqual(Buffer.from(await reader.arrayBuffer()), pdf.subarray(0, 8));
-  assert.deepEqual(await (await library.list()).json(), { documents: [] });
+  assert.deepEqual(await (await library.list()).json(), { documents: [], folders: [] });
   assert.deepEqual(await readdir(path.join(root, "files")), []);
   const concurrent = await decoded(await library.importPdf(upload()));
   const results = await Promise.allSettled([library.deleteDocument(deletion(), concurrent.id), staleWindow.deleteDocument(deletion(), concurrent.id)]);

@@ -66,11 +66,20 @@ The library and reader follow the current APP's visual theme. Scroll the shelf,
 page thumbnails, or continuous PDF pages with the wheel or their scrollbars.
 
 Use **Folder batch** → **Choose folder** to include PDFs from every subfolder.
+The selected folder and its nested structure are preserved under **Import into**;
+matching folders are reused. Single PDFs can also be imported into any folder.
 Other file types are skipped; each PDF keeps its filename as its book title.
 Review the per-file results and use **Retry remaining PDFs** after failures;
 successful imports are kept. **Cancel import** finishes the current PDF and
 stops the remaining queue. Retries reuse the same import identity to avoid
 duplicate entries after an interrupted response.
+
+Use the PDF library's **Folders** sidebar to create nested folders and browse
+**All PDFs** or **Unfiled**. Existing PDFs start in **Unfiled**. Select a folder
+to rename it, move it to another parent, or delete it after moving all its PDFs
+and subfolders out. Each PDF has a **Move** action. Moving a PDF or folder keeps
+its reading progress, annotations, and existing excerpt notes. PDF folders are
+independent of notebook folders and of every other APP's library.
 
 Each shelf entry has **Delete** and a confirmation step. Deleting permanently
 removes that APP's original PDF, reading progress and annotations. Notes and

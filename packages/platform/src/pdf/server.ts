@@ -11,10 +11,14 @@ import { assertOnlyFields, assertSameOrigin } from "../http/request";
 import {
   isPdfAnnotations,
   isPdfProgress,
+  PDF_FOLDER_MAX_DEPTH,
+  PDF_FOLDER_NAME_MAX_LENGTH,
+  pdfFolderNameKey,
   PDF_MAX_FILE_BYTES,
   PDF_TITLE_MAX_LENGTH,
   type PdfDocument,
   type PdfDocumentSummary,
+  type PdfFolder,
   type PdfProgress,
 } from "./core";
 
@@ -26,6 +30,7 @@ const noStore = { "Cache-Control": "private, no-store" };
 
 interface DocumentRow {
   id: string;
+  folder_id: string | null;
   title: string;
   file_name: string;
   size: number;
@@ -45,7 +50,16 @@ interface UploadedPdf {
   digest: string;
 }
 type SummaryRow = Omit<DocumentRow, "annotations">;
-const summaryColumns = "id, title, file_name, size, imported_at, updated_at, page, scale, rotation, progress_revision, annotations_revision";
+interface FolderRow {
+  id: string;
+  name: string;
+  name_key: string;
+  parent_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+const summaryColumns = "d.id, d.title, d.file_name, d.size, d.imported_at, d.updated_at, d.page, d.scale, d.rotation, d.progress_revision, d.annotations_revision, f.folder_id";
+const documentFrom = "pdf_documents d LEFT JOIN pdf_document_folders f ON f.document_id = d.id";
 
 export interface PdfLibraryOptions {
   /** An app-owned private uploads/pdf-library directory, never the public repository. */
@@ -66,6 +80,9 @@ export function createPdfLibraryHandlers(options: PdfLibraryOptions) {
       // in metadata.sqlite; this library never depends on untracked WAL sidecars.
       db.pragma("journal_mode = DELETE");
       db.pragma("synchronous = FULL");
+      db.pragma("foreign_keys = ON");
+      // Folder membership is additive: existing document rows and immutable
+      // originals stay untouched, and a missing membership means the root shelf.
       db.exec(`CREATE TABLE IF NOT EXISTS pdf_documents (
         id TEXT PRIMARY KEY,
         title TEXT NOT NULL,
@@ -79,7 +96,22 @@ export function createPdfLibraryHandlers(options: PdfLibraryOptions) {
         progress_revision INTEGER NOT NULL DEFAULT 0,
         annotations_revision INTEGER NOT NULL DEFAULT 0,
         annotations TEXT NOT NULL DEFAULT '[]'
-      )`);
+      );
+      CREATE TABLE IF NOT EXISTS pdf_folders (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        name_key TEXT NOT NULL,
+        parent_id TEXT REFERENCES pdf_folders(id) ON DELETE RESTRICT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS pdf_folders_sibling_name
+        ON pdf_folders (COALESCE(parent_id, ''), name_key);
+      CREATE TABLE IF NOT EXISTS pdf_document_folders (
+        document_id TEXT PRIMARY KEY REFERENCES pdf_documents(id) ON DELETE CASCADE,
+        folder_id TEXT NOT NULL REFERENCES pdf_folders(id) ON DELETE RESTRICT
+      );
+      CREATE INDEX IF NOT EXISTS pdf_document_folders_folder ON pdf_document_folders (folder_id)`);
       return operation(db);
     } catch (error) {
       if (error instanceof ApiError) throw error;
@@ -91,27 +123,104 @@ export function createPdfLibraryHandlers(options: PdfLibraryOptions) {
 
   function row(db: Database.Database, id: string): DocumentRow {
     if (!idPattern.test(id)) throw notFound();
-    const result = db.prepare("SELECT * FROM pdf_documents WHERE id = ?").get(id) as DocumentRow | undefined;
+    const result = optionalRow(db, id);
     if (!result) throw notFound();
     return result;
   }
 
+  function optionalRow(db: Database.Database, id: string): DocumentRow | undefined {
+    return db.prepare(`SELECT d.*, f.folder_id FROM ${documentFrom} WHERE d.id = ?`).get(id) as DocumentRow | undefined;
+  }
+
   function summaryRow(db: Database.Database, id: string): SummaryRow {
-    const result = db.prepare(`SELECT ${summaryColumns} FROM pdf_documents WHERE id = ?`).get(id) as SummaryRow | undefined;
+    const result = db.prepare(`SELECT ${summaryColumns} FROM ${documentFrom} WHERE d.id = ?`).get(id) as SummaryRow | undefined;
     if (!result) throw notFound();
     return result;
   }
 
   return {
     async list(): Promise<Response> {
-      const documents = await database((db) => (db.prepare(`SELECT ${summaryColumns} FROM pdf_documents ORDER BY imported_at DESC, id DESC`).all() as SummaryRow[]).map(toSummary));
-      return Response.json({ documents }, { headers: noStore });
+      const library = await database((db) => db.transaction(() => ({
+        documents: (db.prepare(`SELECT ${summaryColumns} FROM ${documentFrom} ORDER BY d.imported_at DESC, d.id DESC`).all() as SummaryRow[]).map(toSummary),
+        folders: folderRows(db).map(toFolder),
+      }))());
+      return Response.json(library, { headers: noStore });
+    },
+
+    async createFolder(request: Request): Promise<Response> {
+      assertSameOrigin(request);
+      const body = await readBoundedJson(request);
+      assertOnlyFields(body, ["name", "parentId"]);
+      const name = readFolderName(body.name);
+      const parentId = readFolderId(body.parentId === undefined ? null : body.parentId, "parentId");
+      const folder = await database((db) => db.transaction(() => {
+        assertFolderPlacement(db, parentId);
+        assertUniqueFolderName(db, name, parentId);
+        const id = randomUUID();
+        const timestamp = new Date().toISOString();
+        db.prepare("INSERT INTO pdf_folders (id, name, name_key, parent_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+          .run(id, name, pdfFolderNameKey(name), parentId, timestamp, timestamp);
+        return toFolder(folderRow(db, id));
+      }).immediate());
+      return Response.json({ folder }, { status: 201, headers: noStore });
+    },
+
+    async patchFolder(request: Request, id: string): Promise<Response> {
+      assertSameOrigin(request);
+      if (!idPattern.test(id)) throw folderNotFound();
+      const body = await readBoundedJson(request);
+      assertOnlyFields(body, ["name", "parentId"]);
+      if (body.name === undefined && body.parentId === undefined) throw validation("body", "Supply a folder name or parent folder to update.");
+      const name = body.name === undefined ? undefined : readFolderName(body.name);
+      const parentId = body.parentId === undefined ? undefined : readFolderId(body.parentId, "parentId");
+      const folder = await database((db) => db.transaction(() => {
+        const previous = folderRow(db, id);
+        const nextName = name ?? previous.name;
+        const nextParentId = parentId === undefined ? previous.parent_id : parentId;
+        assertFolderPlacement(db, nextParentId, id);
+        assertUniqueFolderName(db, nextName, nextParentId, id);
+        db.prepare("UPDATE pdf_folders SET name = ?, name_key = ?, parent_id = ?, updated_at = ? WHERE id = ?")
+          .run(nextName, pdfFolderNameKey(nextName), nextParentId, new Date().toISOString(), id);
+        return toFolder(folderRow(db, id));
+      }).immediate());
+      return Response.json({ folder }, { headers: noStore });
+    },
+
+    async deleteFolder(request: Request, id: string): Promise<Response> {
+      assertSameOrigin(request);
+      if (!idPattern.test(id)) throw folderNotFound();
+      await database((db) => db.transaction(() => {
+        folderRow(db, id);
+        if (db.prepare("SELECT 1 FROM pdf_folders WHERE parent_id = ? LIMIT 1").get(id) ||
+            db.prepare("SELECT 1 FROM pdf_document_folders WHERE folder_id = ? LIMIT 1").get(id)) {
+          throw new ApiError(409, "PDF_FOLDER_NOT_EMPTY", "Move the PDFs and subfolders out of this folder before deleting it.");
+        }
+        db.prepare("DELETE FROM pdf_folders WHERE id = ?").run(id);
+      }).immediate());
+      return new Response(null, { status: 204, headers: noStore });
+    },
+
+    async moveDocument(request: Request, id: string): Promise<Response> {
+      assertSameOrigin(request);
+      if (!idPattern.test(id)) throw notFound();
+      const body = await readBoundedJson(request);
+      assertOnlyFields(body, ["folderId"]);
+      const folderId = readFolderId(body.folderId, "folderId");
+      const document = await database((db) => db.transaction(() => {
+        row(db, id);
+        if (folderId !== null) folderRow(db, folderId);
+        setDocumentFolder(db, id, folderId);
+        db.prepare("UPDATE pdf_documents SET updated_at = ? WHERE id = ?").run(new Date().toISOString(), id);
+        return toDocument(row(db, id));
+      }).immediate());
+      return Response.json({ document }, { headers: noStore });
     },
 
     async importPdf(request: Request): Promise<Response> {
       assertSameOrigin(request);
       const suppliedId = request.headers.get("X-Babel-Pdf-Import-Id")?.toLowerCase();
       if (suppliedId !== undefined && !idPattern.test(suppliedId)) throw validation("importId", "Supply a valid version 4 UUID for the PDF import ID.");
+      const folderId = readFolderId(request.headers.get("X-Babel-Pdf-Folder-Id"), "folderId");
       const boundary = readBoundary(request);
       assertDeclaredSize(request, PDF_MAX_FILE_BYTES + multipartOverheadLimit);
       const libraryRoot = root();
@@ -128,11 +237,12 @@ export function createPdfLibraryHandlers(options: PdfLibraryOptions) {
         const uploaded = await streamMultipart(request, boundary, temporary, () => { temporaryOwned = true; });
         const timestamp = new Date().toISOString();
         const result = await database((db) => db.transaction(() => {
-          const previous = db.prepare("SELECT * FROM pdf_documents WHERE id = ?").get(id) as DocumentRow | undefined;
+          const previous = optionalRow(db, id);
           if (previous) {
             if (suppliedId === undefined) throw importInProgress();
             return { document: toDocument(previous), imported: false };
           }
+          if (folderId !== null) folderRow(db, folderId);
           if (!lstatSync(directory).isDirectory()) throw new Error("The PDF files directory is not a directory.");
           try {
             lstatSync(destination);
@@ -144,6 +254,7 @@ export function createPdfLibraryHandlers(options: PdfLibraryOptions) {
           staged = true;
           db.prepare(`INSERT INTO pdf_documents (id, title, file_name, size, imported_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?)`).run(id, uploaded.title, uploaded.fileName, uploaded.size, timestamp, timestamp);
+          setDocumentFolder(db, id, folderId);
           return { document: toDocument(row(db, id)), imported: true };
         }).immediate(), libraryRoot);
         staged = false;
@@ -300,9 +411,85 @@ export function createPdfLibraryHandlers(options: PdfLibraryOptions) {
   };
 }
 
+function folderRows(db: Database.Database): FolderRow[] {
+  return db.prepare("SELECT * FROM pdf_folders ORDER BY name_key, id").all() as FolderRow[];
+}
+
+function folderRow(db: Database.Database, id: string): FolderRow {
+  if (!idPattern.test(id)) throw folderNotFound();
+  const result = db.prepare("SELECT * FROM pdf_folders WHERE id = ?").get(id) as FolderRow | undefined;
+  if (!result) throw folderNotFound();
+  return result;
+}
+
+function toFolder(row: FolderRow): PdfFolder {
+  return { id: row.id, name: row.name, parentId: row.parent_id, createdAt: row.created_at, updatedAt: row.updated_at };
+}
+
+function readFolderName(value: unknown): string {
+  if (typeof value !== "string") throw validation("name", "Supply a folder name.");
+  const name = value.trim().normalize("NFC");
+  if (!name || name.length > PDF_FOLDER_NAME_MAX_LENGTH || name === "." || name === ".." || /[\\/\u0000-\u001f\u007f-\u009f]/u.test(name)) {
+    throw validation("name", `Use a folder name from 1 to ${PDF_FOLDER_NAME_MAX_LENGTH} characters without slashes or control characters.`);
+  }
+  return name;
+}
+
+function readFolderId(value: unknown, field: string): string | null {
+  if (value === null) return null;
+  if (typeof value !== "string" || !idPattern.test(value.toLowerCase())) throw validation(field, "Use a valid folder ID, or null for the root shelf.");
+  return value.toLowerCase();
+}
+
+function assertUniqueFolderName(db: Database.Database, name: string, parentId: string | null, exceptId = ""): void {
+  if (db.prepare("SELECT 1 FROM pdf_folders WHERE parent_id IS ? AND name_key = ? AND id <> ? LIMIT 1").get(parentId, pdfFolderNameKey(name), exceptId)) {
+    throw new ApiError(409, "PDF_FOLDER_EXISTS", "A folder with this name already exists here.");
+  }
+}
+
+/** Validate both the new ancestor chain and the entire subtree before moving. */
+function assertFolderPlacement(db: Database.Database, parentId: string | null, movingId?: string): void {
+  const folders = folderRows(db);
+  const byId = new Map(folders.map((folder) => [folder.id, folder]));
+  const ancestors = new Set<string>();
+  let ancestor = parentId;
+  while (ancestor !== null) {
+    if (ancestor === movingId || ancestors.has(ancestor)) throw validation("parentId", "A folder cannot be placed inside itself or one of its subfolders.");
+    const folder = byId.get(ancestor);
+    if (!folder) throw folderNotFound();
+    ancestors.add(ancestor);
+    ancestor = folder.parent_id;
+  }
+  let subtreeHeight = 1;
+  if (movingId !== undefined) {
+    const children = new Map<string, string[]>();
+    for (const folder of folders) {
+      if (folder.parent_id === null) continue;
+      const siblings = children.get(folder.parent_id) ?? [];
+      siblings.push(folder.id);
+      children.set(folder.parent_id, siblings);
+    }
+    const seen = new Set<string>();
+    const pending = [{ id: movingId, depth: 1 }];
+    while (pending.length > 0) {
+      const current = pending.pop()!;
+      if (seen.has(current.id)) throw validation("parentId", "A folder cannot be placed inside itself or one of its subfolders.");
+      seen.add(current.id);
+      subtreeHeight = Math.max(subtreeHeight, current.depth);
+      for (const child of children.get(current.id) ?? []) pending.push({ id: child, depth: current.depth + 1 });
+    }
+  }
+  if (ancestors.size + subtreeHeight > PDF_FOLDER_MAX_DEPTH) throw validation("parentId", `PDF folders can be nested up to ${PDF_FOLDER_MAX_DEPTH} levels.`);
+}
+
+function setDocumentFolder(db: Database.Database, id: string, folderId: string | null): void {
+  if (folderId === null) db.prepare("DELETE FROM pdf_document_folders WHERE document_id = ?").run(id);
+  else db.prepare("INSERT INTO pdf_document_folders (document_id, folder_id) VALUES (?, ?) ON CONFLICT (document_id) DO UPDATE SET folder_id = excluded.folder_id").run(id, folderId);
+}
+
 function toSummary(row: SummaryRow): PdfDocumentSummary {
   return {
-    id: row.id, title: row.title, fileName: row.file_name, size: row.size,
+    id: row.id, folderId: row.folder_id, title: row.title, fileName: row.file_name, size: row.size,
     importedAt: row.imported_at, updatedAt: row.updated_at,
     progress: { page: row.page, scale: row.scale, rotation: row.rotation },
     progressRevision: row.progress_revision, annotationsRevision: row.annotations_revision,
@@ -531,6 +718,7 @@ function inlineDisposition(name: string): string {
 function validPdfMagic(bytes: Buffer): boolean { return /^%PDF-[12]\.[0-9]/u.test(bytes.toString("latin1")); }
 function invalidPdf(): ApiError { return new ApiError(415, "INVALID_PDF", "The selected file does not have a valid PDF header."); }
 function notFound(): ApiError { return new ApiError(404, "PDF_NOT_FOUND", "The PDF was not found in this app."); }
+function folderNotFound(): ApiError { return new ApiError(404, "PDF_FOLDER_NOT_FOUND", "The PDF folder was not found in this app. Reload the library and choose a folder again."); }
 function importIdConflict(): ApiError { return new ApiError(409, "PDF_IMPORT_ID_CONFLICT", "This import ID was already used for another PDF or title. Choose the file again to start a new import."); }
 function importInProgress(): ApiError { return new ApiError(409, "PDF_IMPORT_IN_PROGRESS", "An import with this ID is still finishing. Reload the library and retry. If it does not appear, choose the file again."); }
 function changedOriginal(): ApiError { return new ApiError(409, "PDF_FILE_CHANGED", "The saved PDF no longer matches its original. Restore it from a data backup."); }

@@ -33,13 +33,22 @@ for (const target of targets) test(`${target.workspace}: PDF reader, private sto
   assert.doesNotMatch(server, /lib\/db|db\/client/);
   const routes = [
     ["", ["GET", "POST"], ["list", "importPdf"]],
-    ["/[id]", ["GET", "DELETE"], ["getDocument", "deleteDocument"]],
+    ["/[id]", ["GET", "PATCH", "DELETE"], ["getDocument", "moveDocument", "deleteDocument"]],
     ["/[id]/file", ["GET", "HEAD"], ["file"]],
     ["/[id]/progress", ["PATCH"], ["patchProgress"]],
     ["/[id]/annotations", ["PATCH"], ["patchAnnotations"]],
   ] as const;
   for (const [suffix, methods, handlers] of routes) {
     const source = await read(`src/app/api/pdf/documents${suffix}/route.ts`);
+    assert.match(source, /handleApi/);
+    for (const method of methods) assert.match(source, new RegExp(`export (?:(?:async )?function|const) ${method}`));
+    for (const handler of handlers) assert.ok(source.includes(`pdfLibraryHandlers.${handler}`));
+  }
+  for (const [suffix, methods, handlers] of [
+    ["", ["POST"], ["createFolder"]],
+    ["/[id]", ["PATCH", "DELETE"], ["patchFolder", "deleteFolder"]],
+  ] as const) {
+    const source = await read(`src/app/api/pdf/folders${suffix}/route.ts`);
     assert.match(source, /handleApi/);
     for (const method of methods) assert.match(source, new RegExp(`export (?:(?:async )?function|const) ${method}`));
     for (const handler of handlers) assert.ok(source.includes(`pdfLibraryHandlers.${handler}`));
