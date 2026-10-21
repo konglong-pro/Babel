@@ -1,5 +1,6 @@
 "use client";
 
+import { ImportMenu } from "@babel-apps/platform/imports/menu-react";
 import { WebArchiveImportAction } from "@babel-apps/platform/imports/web-archive-react";
 import { ClipboardMarkdownImportAction } from "@babel-apps/platform/imports/clipboard-react";
 import { DocumentImportAction } from "@babel-apps/platform/imports/document-react";
@@ -377,63 +378,53 @@ export function NoteList({
             tabIndex={-1}
             onChange={chooseMarkdownFolder}
           />
-          <details ref={importMenuRef} className="babel-import-menu">
-            <summary
-              aria-disabled={selectedFolderId === null}
-              aria-describedby={folderActionHintId}
-              title={selectedFolderId === null ? "Select a folder before importing Markdown" : undefined}
-              onClick={(event) => {
-                if (selectedFolderId === null) event.preventDefault();
+          <ImportMenu ref={importMenuRef} disabled={selectedFolderId === null || referencePanelOpen}
+            describedBy={folderActionHintId}
+            unavailableTitle="Select a folder before importing Markdown">
+            <button
+              type="button"
+              onClick={() => {
+                if (importMenuRef.current) importMenuRef.current.open = false;
+                importInputRef.current?.click();
               }}
             >
-              Import
-            </summary>
-            <div>
-              <button
-                type="button"
-                onClick={() => {
-                  if (importMenuRef.current) importMenuRef.current.open = false;
-                  importInputRef.current?.click();
-                }}
-              >
-                Import Markdown file
-              </button>
-              <ClipboardMarkdownImportAction
-                onImport={onImport}
-                disabled={selectedFolderId === null || referencePanelOpen}
-                registerOpen={(open) => { clipboardImportOpenRef.current = open; }}
-                onOpen={() => {
-                  if (importMenuRef.current) importMenuRef.current.open = false;
-                }}
-              />
-              <WebArchiveImportAction
-                onImport={onImport}
-                disabled={selectedFolderId === null || referencePanelOpen}
-                registerOpen={(open) => { webArchiveImportOpenRef.current = open; }}
-                onOpen={() => {
-                  if (importMenuRef.current) importMenuRef.current.open = false;
-                }}
-              />
-              <DocumentImportAction
-                onImportChapters={onImportFolder}
-                onImport={onImport}
-                disabled={selectedFolderId === null}
-                registerOpen={(open) => { documentImportOpenRef.current = open; }}
-                onOpen={() => {
-                  if (importMenuRef.current) importMenuRef.current.open = false;
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  if (importMenuRef.current) importMenuRef.current.open = false;
-                  folderImportInputRef.current?.click();
-                }}
-              >
-                Import Markdown folder
-              </button>
-            </div>
-          </details>
+              Import Markdown file
+            </button>
+            <ClipboardMarkdownImportAction
+              onImport={onImport}
+              disabled={selectedFolderId === null || referencePanelOpen}
+              registerOpen={(open) => { clipboardImportOpenRef.current = open; }}
+              onOpen={() => {
+                if (importMenuRef.current) importMenuRef.current.open = false;
+              }}
+            />
+            <WebArchiveImportAction
+              onImport={onImport}
+              disabled={selectedFolderId === null || referencePanelOpen}
+              registerOpen={(open) => { webArchiveImportOpenRef.current = open; }}
+              onOpen={() => {
+                if (importMenuRef.current) importMenuRef.current.open = false;
+              }}
+            />
+            <DocumentImportAction
+              onImportChapters={onImportFolder}
+              onImport={onImport}
+              disabled={selectedFolderId === null}
+              registerOpen={(open) => { documentImportOpenRef.current = open; }}
+              onOpen={() => {
+                if (importMenuRef.current) importMenuRef.current.open = false;
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                if (importMenuRef.current) importMenuRef.current.open = false;
+                folderImportInputRef.current?.click();
+              }}
+            >
+              Import Markdown folder
+            </button>
+          </ImportMenu>
           <NewContentMenu
             beforeNavigateEvent={BEFORE_NAVIGATE_EVENT}
             contentLabel="New note"

@@ -100,7 +100,7 @@ test("bad replacement files keep the previous capture and release the synchronou
   const changes: unknown[] = [];
   const busyRef = { current: false };
   const choose = callback<(file: File) => Promise<void>>("chooseFile", {
-    busyRef, readWebArchiveFile,
+    busyRef, readWebArchiveFile, active: true, disabled: false,
     setReading: () => undefined, setError: (error: string) => errors.push(error),
     setArchive: (value: unknown) => changes.push(value), setTitle: (value: unknown) => changes.push(value),
     setMarkdown: (value: unknown) => changes.push(value), setPreview: (value: unknown) => changes.push(value),
@@ -109,6 +109,103 @@ test("bad replacement files keep the previous capture and release the synchronou
   assert.equal(busyRef.current, false);
   assert.deepEqual(changes, []);
   assert.ok(errors.at(-1));
+});
+
+function dropped(files: File[], options: { text?: boolean; directory?: boolean } = {}) {
+  return {
+    dataTransfer: {
+      types: options.text ? ["text/plain"] : ["Files"], files,
+      items: files.map(() => ({ kind: "file", webkitGetAsEntry: () => ({ isDirectory: Boolean(options.directory) }) })),
+      dropEffect: "none",
+    },
+    prevented: false, stopped: false,
+    preventDefault() { this.prevented = true; },
+    stopPropagation() { this.stopped = true; },
+  };
+}
+
+test("dropped archives use file-picker validation and bad replacements preserve the reviewed capture", async () => {
+  const selected: WebArchive[] = [];
+  const names: string[] = [];
+  const titles: string[] = [];
+  const errors: string[] = [];
+  const values = {
+    active: true, disabled: false, busyRef: { current: false }, dragDepthRef: { current: 2 },
+    readWebArchiveFile, setReading: () => undefined, setDragging: () => undefined,
+    setArchive: (value: WebArchive) => selected.push(value), setFileName: (name: string) => names.push(name),
+    setTitle: (title: string) => titles.push(title), setMarkdown: () => undefined, setPreview: () => undefined,
+    setError: (error: string) => errors.push(error), webArchiveImportTitle: (title: string) => title,
+    isFileDrag: callback<(event: ReturnType<typeof dropped>) => boolean>("isFileDrag", {}),
+  };
+  const chooseFile = callback<(file: File) => Promise<void>>("chooseFile", values);
+  const drop = callback<(event: ReturnType<typeof dropped>) => Promise<void>>("handleDrop", { ...values, chooseFile });
+  const valid = new File([JSON.stringify(archive)], "conversation.babel.json");
+  const event = dropped([valid]);
+  await drop(event);
+  assert.equal(event.prevented, true, "File drop cannot navigate the browser");
+  assert.equal(event.stopped, true, "The background notebook must not receive this file");
+  assert.equal(values.dragDepthRef.current, 0);
+  assert.deepEqual(selected, [archive]);
+  assert.deepEqual(names, [valid.name]);
+  await drop(dropped([new File(["{}"], "invalid.babel.json")]));
+  assert.match(errors.at(-1)!, /archive|format/iu);
+  await drop(dropped([new File([JSON.stringify(archive)], "conversation.txt")]));
+  assert.match(errors.at(-1)!, /\.babel\.json/u);
+  await drop(dropped([valid, valid]));
+  assert.match(errors.at(-1)!, /one David archive/iu);
+  await drop(dropped([valid], { directory: true }));
+  assert.match(errors.at(-1)!, /not a folder/iu);
+  await drop(dropped([]));
+  assert.match(errors.at(-1)!, /one David archive/iu);
+  assert.deepEqual(selected, [archive], "Rejected replacements must not discard or alter the accepted capture");
+  assert.deepEqual(titles, [archive.title]);
+  assert.deepEqual(names, [valid.name]);
+});
+
+test("file drops are consumed but cannot replace a busy, disabled or inactive import; text drags remain native", async () => {
+  for (const gate of [{ busyRef: { current: true } }, { disabled: true }, { active: false }]) {
+    let reads = 0;
+    const drop = callback<(event: ReturnType<typeof dropped>) => Promise<void>>("handleDrop", {
+      active: true, disabled: false, busyRef: { current: false }, ...gate,
+      dragDepthRef: { current: 1 }, setDragging: () => undefined,
+      setError: () => assert.fail("Blocked drop must not change the current review"),
+      chooseFile: () => { reads++; },
+      isFileDrag: callback<(event: ReturnType<typeof dropped>) => boolean>("isFileDrag", {}),
+    });
+    const file = dropped([new File(["{}"], "capture.babel.json")]);
+    await drop(file);
+    assert.equal(reads, 0);
+    assert.equal(file.prevented, true);
+    assert.equal(file.stopped, true);
+    const text = dropped([], { text: true });
+    await drop(text);
+    assert.equal(text.prevented, false);
+    assert.equal(text.stopped, false);
+  }
+});
+
+test("dragging over nested modal contents keeps feedback until the file leaves the dialog", () => {
+  const feedback: boolean[] = [];
+  const values = {
+    active: true, disabled: false, busyRef: { current: false }, dragDepthRef: { current: 0 },
+    setDragging: (value: boolean) => feedback.push(value),
+    isFileDrag: callback<(event: ReturnType<typeof dropped>) => boolean>("isFileDrag", {}),
+  };
+  const enter = callback<(event: ReturnType<typeof dropped>) => void>("handleDragEnter", values);
+  const leave = callback<(event: ReturnType<typeof dropped>) => void>("handleDragLeave", values);
+  const over = callback<(event: ReturnType<typeof dropped>) => void>("handleDragOver", values);
+  const event = dropped([]);
+  enter(event);
+  enter(event);
+  leave(event);
+  assert.equal(feedback.at(-1), true);
+  over(event);
+  assert.equal(event.dataTransfer.dropEffect, "copy");
+  leave(event);
+  assert.equal(feedback.at(-1), false);
+  assert.equal(values.dragDepthRef.current, 0);
+  leave(event);
+  assert.equal(values.dragDepthRef.current, 0);
 });
 
 test("preview renderer errors stay inside the review dialog and do not replace its capture", () => {

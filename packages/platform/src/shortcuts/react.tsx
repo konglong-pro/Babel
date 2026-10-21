@@ -1196,6 +1196,11 @@ export function ShortcutProvider({ children, endpoint = "/api/shortcuts", ownerD
   };
 
   const onWindowKeyDown = useEffectEvent((event: KeyboardEvent, sequencesOnly = false) => {
+    if (!event.ctrlKey && !event.altKey && !event.metaKey &&
+      Array.from(window.document.querySelectorAll<HTMLElement>(".babel-import-menu[open], .new-content-menu[data-open='true']")).some(isVisible)) {
+      resetSequence();
+      return;
+    }
     if (shouldIgnoreShortcutEvent(withoutKeyRepeat(event))) {
       resetSequence();
       return;

@@ -15,6 +15,7 @@
     "./canvas/workspace": "./src/canvas/workspace.tsx",
     "./canvas.css": "./src/canvas/canvas.css",
     "./imports/core": "./src/imports/core.ts",
+    "./imports/menu-react": "./src/imports/menu-react.tsx",
     "./imports/clipboard-client": "./src/imports/clipboard-client.ts",
     "./imports/clipboard-react": "./src/imports/clipboard-react.tsx",
     "./imports/react": "./src/imports/react.tsx",

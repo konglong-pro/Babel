@@ -2,9 +2,14 @@
 
 David's **Export for Babel** creates a portable `.babel.json` file from a
 loaded ChatGPT, Gemini or Claude conversation, or a selected message range.
-Use **Import → Import David archive** in a Babel APP, review the capture, then
-open a draft. Choose its folder and tags and save through the usual editor.
+Use **Import → Import David archive** in a Babel APP, then drag the exported
+`.babel.json` file from Downloads onto the import window, or choose the file.
+Review the capture, then open a draft. Choose its folder and tags and save
+through the usual editor.
 Importing or previewing a capture does not save it.
+
+Drop one archive at a time. Invalid replacements leave the already reviewed
+capture intact; folders and multiple-file drops are rejected with a message.
 
 The note contains editable Markdown and local image attachments. A separate
 **View original layout** link preserves the capture as it appeared at export

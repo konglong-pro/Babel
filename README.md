@@ -129,7 +129,8 @@ a line break without enabling arbitrary HTML. Mermaid remains a labeled code
 block for reading and editing its source.
 
 For pictures and diagrams, use David's **Export for Babel** (`B`) and choose
-**Import → Import David archive** in Babel. The `.babel.json` file includes
+**Import → Import David archive** in Babel, then drop the downloaded `.babel.json`
+onto the import window or choose the file. The archive includes
 editable Markdown, local raster pictures, and a static capture of the original
 message layout. Review the title, text, capture warnings, and optional original
 layout preview, then choose **Open draft**. Pictures become managed attachments
