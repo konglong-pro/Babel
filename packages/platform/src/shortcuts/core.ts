@@ -1,4 +1,4 @@
-export const SHORTCUT_SCHEMA_VERSION = 8 as const;
+export const SHORTCUT_SCHEMA_VERSION = 9 as const;
 
 export const WINDOW_SHORTCUT_COMMANDS = [
   "minimizeWindow", "toggleMaximizeWindow", "closeWindow",
@@ -30,6 +30,7 @@ export const SHORTCUT_COMMANDS = [
   "selectTab6", "selectTab7", "selectTab8", "selectTab9", "selectTab10",
   "reopenTab", "historyBack", "historyForward", "saveAndRead",
   "focusFolders", "focusDocuments", "focusContent",
+  "pdfLibrary",
   ...WINDOW_SHORTCUT_COMMANDS,
 ] as const;
 
@@ -231,6 +232,7 @@ export const SHORTCUT_DEFINITIONS: readonly ShortcutDefinition[] = Object.freeze
   Object.freeze({ command: "focusFolders", label: "Focus Folders", defaultBinding: null }),
   Object.freeze({ command: "focusDocuments", label: "Focus Documents", defaultBinding: null }),
   Object.freeze({ command: "focusContent", label: "Focus Content", defaultBinding: null }),
+  Object.freeze({ command: "pdfLibrary", label: "Open PDF Library", defaultBinding: "Ctrl+P" }),
   Object.freeze({ command: "minimizeWindow", label: "Minimize Window", defaultBinding: "Ctrl+Alt+M" }),
   Object.freeze({ command: "toggleMaximizeWindow", label: "Maximize / Restore Window", defaultBinding: "Ctrl+Alt+F11" }),
   Object.freeze({ command: "closeWindow", label: "Close Window", defaultBinding: "Ctrl+Alt+Q" }),
@@ -255,7 +257,9 @@ export const LAUNCHER_SHORTCUT_DEFINITIONS: readonly {
 
 const COMMAND_SET = new Set<string>(SHORTCUT_COMMANDS);
 export const LEGACY_SHORTCUT_COMMANDS = SHORTCUT_COMMANDS.slice(0, 18);
-const VERSION_SEVEN_SHORTCUT_COMMANDS = SHORTCUT_COMMANDS.slice(0, -WINDOW_SHORTCUT_COMMANDS.length);
+const VERSION_EIGHT_SHORTCUT_COMMANDS = SHORTCUT_COMMANDS.filter(command => command !== "pdfLibrary");
+const VERSION_SEVEN_SHORTCUT_COMMANDS = VERSION_EIGHT_SHORTCUT_COMMANDS.filter(command =>
+  !WINDOW_SHORTCUT_COMMANDS.includes(command as typeof WINDOW_SHORTCUT_COMMANDS[number]));
 const VERSION_SEVEN_LAUNCHER_COMMANDS = LAUNCHER_SHORTCUT_COMMANDS.slice(0, -WINDOW_SHORTCUT_COMMANDS.length);
 export const DESKTOP_SHORTCUT_COMMANDS = SHORTCUT_COMMANDS.filter(command =>
   /^selectApp\d+$/.test(command) || ["nextAppTab", "previousAppTab", "closeAppTab", "appHome", ...WINDOW_SHORTCUT_COMMANDS].includes(command));
@@ -695,6 +699,7 @@ export function parseShortcutSettings(value: unknown): ShortcutSettings {
     value.schemaVersion !== 5 &&
     value.schemaVersion !== 6 &&
     value.schemaVersion !== 7 &&
+    value.schemaVersion !== 8 &&
     value.schemaVersion !== SHORTCUT_SCHEMA_VERSION
   ) {
     throw new ShortcutValidationError(
@@ -719,7 +724,8 @@ export function parseShortcutSettings(value: unknown): ShortcutSettings {
         : value.schemaVersion === 3
           ? VERSION_THREE_SHORTCUT_COMMANDS
           : value.schemaVersion < 7 ? LEGACY_SHORTCUT_COMMANDS
-            : value.schemaVersion === 7 ? VERSION_SEVEN_SHORTCUT_COMMANDS : SHORTCUT_COMMANDS;
+            : value.schemaVersion === 7 ? VERSION_SEVEN_SHORTCUT_COMMANDS
+              : value.schemaVersion === 8 ? VERSION_EIGHT_SHORTCUT_COMMANDS : SHORTCUT_COMMANDS;
   assertExactKeys(value.bindings, sourceCommands, "Shortcut bindings");
 
   const sourceBindings = new Map<ShortcutCommand, ShortcutBinding>();
@@ -781,6 +787,13 @@ export function parseShortcutSettings(value: unknown): ShortcutSettings {
     for (const mode of ["app", "edit", "read"] as const) {
       if (Object.keys(layers[mode]).some(command => WINDOW_SHORTCUT_COMMANDS.includes(command as typeof WINDOW_SHORTCUT_COMMANDS[number]))) {
         throw new ShortcutValidationError(`Window commands require schemaVersion 8 (${mode}).`);
+      }
+    }
+  }
+  if (value.schemaVersion < 9) {
+    for (const mode of ["app", "edit", "read"] as const) {
+      if (Object.hasOwn(layers[mode], "pdfLibrary")) {
+        throw new ShortcutValidationError(`The PDF Library command requires schemaVersion 9 (${mode}).`);
       }
     }
   }

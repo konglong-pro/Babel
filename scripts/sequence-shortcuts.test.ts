@@ -111,7 +111,7 @@ if ($null -ne $read.read -or $null -ne $read.new -or $read.removeUnderline -ne '
 `, directory);
     const result = JSON.parse(stdout) as { settings: unknown; resolved: Record<"app" | "edit" | "read", unknown> };
     const settings = parseShortcutSettings(result.settings);
-    assert.equal(settings.schemaVersion, 8);
+    assert.equal(settings.schemaVersion, 9);
     for (const mode of ["app", "edit", "read"] as const) assert.deepEqual(result.resolved[mode], resolveShortcutBindings(settings, mode));
     assert.throws(() => parseShortcutSettings({ ...(result.settings as object), schemaVersion: 5 }));
   } finally {

@@ -43,6 +43,7 @@ export interface MarkdownImportDraft {
   imageReferences: ImportedImageReference[];
   originalDocument?: ImportedOriginalDocument;
   pdfExcerpt?: true;
+  archiveImages?: { token: string; file: File; previewUrl: string }[];
   pdfImage?: { token: string; file: File; previewUrl: string };
 }
 

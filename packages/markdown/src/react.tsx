@@ -206,7 +206,10 @@ export function MarkdownRenderer({
       a: ({ href, children, className, node, ...props }) => {
         const parsed = parseWikilinkHref(href);
         if (parsed === null) {
-          return <a {...props} className={className} href={href}>{children}</a>;
+          const snapshotProps = typeof href === "string" && /^\/api\/imports\/web-archive\/snapshots\/[a-f0-9]{64}$/u.test(href)
+            ? { target: "_blank", rel: "noopener noreferrer", title: "Open saved original layout" }
+            : {};
+          return <a {...props} {...snapshotProps} className={className} href={href}>{children}</a>;
         }
 
         const wikilink = wikilinksByOffset.get(node?.position?.start.offset ?? -1) ?? {

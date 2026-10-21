@@ -498,7 +498,7 @@ function NoteForm({
   const [parentId, setParentId] = useState<number | null>(initialParent);
   const [templateId, setTemplateId] = useState("");
   const [stagedImages, setStagedImages] = useState<StagedImage[]>(
-    () => importDraft?.pdfImage ? [importDraft.pdfImage] : [],
+    () => [...(importDraft?.archiveImages ?? []), ...(importDraft?.pdfImage ? [importDraft.pdfImage] : [])],
   );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");

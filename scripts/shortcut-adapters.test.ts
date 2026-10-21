@@ -66,7 +66,7 @@ test("every registered app and the mirror template expose the global shortcut se
     readonly schemaVersion: number;
     readonly commands: ReadonlyArray<{ readonly command: string }>;
   };
-  assert.equal(defaults.schemaVersion, 8, "window commands require schema v8");
+  assert.equal(defaults.schemaVersion, 9, "the PDF Library command requires schema v9");
   const configuredCommands = new Set(defaults.commands.map(({ command }) => command));
   for (const command of requiredNavigationCommands) {
     assert.ok(

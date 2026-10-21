@@ -1,5 +1,7 @@
 "use client";
 
+import { webArchiveDraftImages } from "@babel-apps/platform/imports/web-archive-client";
+
 import type { ImportedOriginalDocument } from "@babel-apps/platform/imports/document-core";
 import { preparePdfExcerpt, usePdfExcerptCreation } from "@babel-apps/pdf/excerpts";
 
@@ -46,7 +48,7 @@ import {
   updateFolder,
 } from "@/lib/api-client";
 import { entryUnitLabel, entryUnitPath, entryWorkspaceHref } from "@/lib/entry-routes";
-import { ENTRY_NOTES_MAX_BYTES } from "@/lib/entry-limits";
+import { ENTRY_NOTES_MAX_BYTES, ENTRY_NEW_IMAGE_MAX_COUNT, ENTRY_IMAGE_MAX_BYTES, ENTRY_SAVE_MAX_BYTES } from "@/lib/entry-limits";
 import {
   parseMarkdownImport,
   type MarkdownImportDraft,
@@ -115,6 +117,23 @@ export function EntriesWorkspace({
   const [folderImportTitles, setFolderImportTitles] = useState<string[]>([]);
   const [folderImportParents, setFolderImportParents] = useState<EntrySummaryDto[]>([]);
   const [drafts, setDrafts] = useState<Record<string, EntryDraftSession>>({});
+
+  const draftPageKeysRef = useRef(new Set<string>());
+  useEffect(() => {
+    const pageKeys = new Set(pages.map((page) => page.key));
+    const closedKeys = [...draftPageKeysRef.current].filter((key) => !pageKeys.has(key));
+    draftPageKeysRef.current = pageKeys;
+    if (closedKeys.length === 0) return;
+    // Remove only previously observed pages, so batched new drafts stay intact.
+    queueMicrotask(() => setDrafts((current) => {
+      const removed = closedKeys.filter((key) => !draftPageKeysRef.current.has(key) && key in current);
+      if (removed.length === 0) return current;
+      const next = { ...current };
+      for (const key of removed) delete next[key];
+      return next;
+    }));
+  }, [pages]);
+
   const [movingItemIds, setMovingItemIds] = useState<ReadonlySet<number>>(new Set());
   const [moveRevisions, setMoveRevisions] = useState<Record<number, number>>({});
   const [pendingEditPageKey, setPendingEditPageKey] = useState<string | null>(
@@ -615,15 +634,26 @@ export function EntriesWorkspace({
   }
 
   async function handleImportMarkdown(file: File, original?: ImportedOriginalDocument) {
-    if (selectedFolderId === null) return;
+    if (kind !== "knowledge" || selectedFolderId === null) throw new Error("Select a knowledge folder before opening an imported draft.");
     if (file.size > ENTRY_NOTES_MAX_BYTES) {
       setError("Markdown files must not exceed 10 MB.");
       throw new Error("Markdown files must not exceed 10 MB.");
     }
+    let archiveImages: MarkdownImportDraft["archiveImages"];
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const importDraft: MarkdownImportDraft = parseMarkdownImport(file.name, bytes);
       importDraft.originalDocument = original;
+      archiveImages = webArchiveDraftImages(file, importDraft.imageReferences, {
+        contentMd: importDraft.contentMd,
+        maxMarkdownBytes: ENTRY_NOTES_MAX_BYTES,
+        maxImages: ENTRY_NEW_IMAGE_MAX_COUNT,
+        maxImageBytes: ENTRY_IMAGE_MAX_BYTES,
+        maxSaveBytes: ENTRY_SAVE_MAX_BYTES,
+        imageScheme: "neum-upload",
+        imageUrlPrefix: "/api/uploads/entries/",
+      });
+      if (archiveImages) importDraft.archiveImages = archiveImages;
       openDraft({
         kind,
         folderId: selectedFolderId,
@@ -632,6 +662,7 @@ export function EntriesWorkspace({
         title: importDraft.title,
       });
     } catch (caught) {
+      for (const image of archiveImages ?? []) URL.revokeObjectURL(image.previewUrl);
       setError(getErrorMessage(caught));
       throw caught;
     }

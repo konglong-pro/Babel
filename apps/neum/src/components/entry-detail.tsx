@@ -642,7 +642,7 @@ function EntryForm({
   const [folderId, setFolderId] = useState<number | null>(initialFolder);
   const [parentId, setParentId] = useState<number | null>(initialParent);
   const [stagedImages, setStagedImages] = useState<StagedImage[]>(
-    () => importDraft?.pdfImage ? [importDraft.pdfImage] : [],
+    () => [...(importDraft?.archiveImages ?? []), ...(importDraft?.pdfImage ? [importDraft.pdfImage] : [])],
   );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");

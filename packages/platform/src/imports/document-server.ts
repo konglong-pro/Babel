@@ -15,6 +15,7 @@ import {
   type DocumentConversionResult,
 } from "./document-core";
 import { omitMarkdownImages } from "./core";
+import { createWebArchiveHandlers } from "./web-archive-server";
 
 const originalIdPattern = /^[0-9a-f]{64}$/u;
 // Markdown appears once as a whole book and once in its section list. JSON
@@ -37,6 +38,7 @@ export interface DocumentImportOptions {
 export function createDocumentImportHandlers(options: DocumentImportOptions) {
   const runtime = options.resolveRuntime ?? resolveDocumentWorkerRuntime;
   return {
+    ...createWebArchiveHandlers(options),
     async capability(): Promise<Response> {
       const result = await runDocumentWorker(await runtime(), ["--probe"], undefined, 15_000);
       if (result.ready !== true || typeof result.sdkVersion !== "string") {

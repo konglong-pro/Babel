@@ -36,7 +36,7 @@ test("shortcut definitions and checked-in defaults stay in lockstep", () => {
   ) as unknown;
 
   assert.deepEqual(defaultsDocument, {
-    schemaVersion: 8,
+    schemaVersion: 9,
     commands: SHORTCUT_DEFINITIONS,
     launcherCommands: LAUNCHER_SHORTCUT_DEFINITIONS,
     layers: DEFAULT_SHORTCUT_SETTINGS.layers,
@@ -46,7 +46,7 @@ test("shortcut definitions and checked-in defaults stay in lockstep", () => {
     SHORTCUT_COMMANDS,
   );
   assert.deepEqual(DEFAULT_SHORTCUT_SETTINGS, {
-    schemaVersion: 8,
+    schemaVersion: 9,
     layers: {
       app: { focusFolders: "G F", focusDocuments: "G L", focusContent: "G C" },
       edit: { saveAndRead: "Ctrl+Enter", focusFolders: null, focusDocuments: null, focusContent: null },
@@ -207,7 +207,7 @@ test("shortcut settings require exact current keys and accept unbound commands",
       }),
     ShortcutValidationError,
   );
-  assert.throws(() => parseShortcutSettings({ ...valid, schemaVersion: 9 }), ShortcutValidationError);
+  assert.throws(() => parseShortcutSettings({ ...valid, schemaVersion: 10 }), ShortcutValidationError);
 });
 
 test("v1, v2, and v3 migrations preserve old bindings and leave conflicting new commands unbound", () => {
@@ -226,7 +226,7 @@ test("v1, v2, and v3 migrations preserve old bindings and leave conflicting new 
     },
   };
   assert.deepEqual(parseShortcutSettings(legacy), {
-    schemaVersion: 8,
+    schemaVersion: 9,
     layers: DEFAULT_SHORTCUT_SETTINGS.layers,
     bindings: {
       ...additionalBindings,
@@ -266,7 +266,7 @@ test("v1, v2, and v3 migrations preserve old bindings and leave conflicting new 
     },
   };
   assert.deepEqual(parseShortcutSettings(versionTwo), {
-    schemaVersion: 8,
+    schemaVersion: 9,
     layers: DEFAULT_SHORTCUT_SETTINGS.layers,
     bindings: {
       ...additionalBindings,
@@ -297,7 +297,7 @@ test("v1, v2, and v3 migrations preserve old bindings and leave conflicting new 
     )),
   };
   const migratedVersionThree = parseShortcutSettings(versionThree);
-  assert.equal(migratedVersionThree.schemaVersion, 8);
+  assert.equal(migratedVersionThree.schemaVersion, 9);
   assert.equal(migratedVersionThree.bindings.underlineSelection, "Ctrl+Shift+U");
   assert.equal(migratedVersionThree.bindings.removeUnderline, "Ctrl+Alt+U");
   const versionThreeConflict = {
@@ -368,7 +368,7 @@ test("v1, v2, and v3 migrations preserve old bindings and leave conflicting new 
 test("v4 migration preserves every binding and starts new layers with inheritance", () => {
   const bindings = { ...legacyBindings(), save: "Ctrl+Shift+S", help: null };
   const migrated = parseShortcutSettings({ schemaVersion: 4, bindings });
-  assert.equal(migrated.schemaVersion, 8);
+  assert.equal(migrated.schemaVersion, 9);
   assert.deepEqual(migrated.bindings, { ...DEFAULT_SHORTCUT_SETTINGS.bindings, ...bindings });
   assert.deepEqual(migrated.layers, DEFAULT_SHORTCUT_SETTINGS.layers);
   assert.equal(resolveShortcutBindings(migrated, "app").save, bindings.save);
@@ -630,7 +630,7 @@ test("v5 migration preserves every layer and older schemas do not silently accep
     },
   };
   assert.deepEqual(parseShortcutSettings(legacy), {
-    ...legacy, schemaVersion: 8,
+    ...legacy, schemaVersion: 9,
     bindings: { ...DEFAULT_SHORTCUT_SETTINGS.bindings, ...legacy.bindings },
     layers: { ...legacy.layers,
       launcher: { ...DEFAULT_SHORTCUT_SETTINGS.layers.launcher, ...legacy.layers.launcher },
@@ -706,11 +706,11 @@ test("v7 migration preserves every old binding and layer while safely adding win
   const legacy = {
     schemaVersion: 7,
     bindings: Object.fromEntries(Object.entries(DEFAULT_SHORTCUT_SETTINGS.bindings)
-      .filter(([command]) => !WINDOW_SHORTCUT_COMMANDS.includes(command as typeof WINDOW_SHORTCUT_COMMANDS[number]))),
+      .filter(([command]) => command !== "pdfLibrary" && !WINDOW_SHORTCUT_COMMANDS.includes(command as typeof WINDOW_SHORTCUT_COMMANDS[number]))),
     layers: { app: {}, edit: {}, read: {}, launcher: legacyLauncherBindings() },
   };
   const migrated = parseShortcutSettings({ ...legacy, bindings: { ...legacy.bindings, closeTab: "Ctrl+Alt+W", save: null } });
-  assert.equal(migrated.schemaVersion, 8);
+  assert.equal(migrated.schemaVersion, 9);
   assert.equal(migrated.bindings.closeTab, "Ctrl+Alt+W");
   assert.equal(migrated.bindings.save, null);
   assert.deepEqual(migrated.layers.app, {});
@@ -744,4 +744,73 @@ test("v7 migration preserves every old binding and layer while safely adding win
   assert.throws(() => parseShortcutSettings({ ...legacy, layers: { ...legacy.layers,
     launcher: { ...legacy.layers.launcher, closeWindow: "Ctrl+Alt+Q" },
   } }), ShortcutValidationError);
+});
+
+const versionEightSettings = () => {
+  const defaults = getDefaultShortcutSettings();
+  return {
+    ...defaults,
+    schemaVersion: 8,
+    bindings: Object.fromEntries(Object.entries(defaults.bindings).filter(([command]) => command !== "pdfLibrary")),
+  };
+};
+
+test("v8 upgrades add the browser PDF Library command without changing user bindings or layers", () => {
+  const defaults = getDefaultShortcutSettings();
+  assert.deepEqual(parseShortcutSettings(versionEightSettings()), defaults);
+  assert.equal(defaults.bindings.pdfLibrary, "Ctrl+P");
+  assert.equal(SHORTCUT_DEFINITIONS.find(definition => definition.command === "pdfLibrary")?.label, "Open PDF Library");
+  assert.equal(isShortcutBindingAvailable("Ctrl+P", false), true);
+  assert.equal(DESKTOP_SHORTCUT_COMMANDS.includes("pdfLibrary"), false);
+  assert.equal(LAUNCHER_SHORTCUT_DEFINITIONS.some(definition => String(definition.command) === "pdfLibrary"), false);
+
+  const legacy = versionEightSettings();
+  legacy.bindings = { ...legacy.bindings, save: "Ctrl+Shift+S", help: null, closeWindow: null };
+  legacy.layers = {
+    ...legacy.layers,
+    app: { ...legacy.layers.app, new: "N" },
+    edit: { ...legacy.layers.edit, confirm: null },
+    read: { underlineSelection: "Z H", removeUnderline: null },
+    launcher: { ...legacy.layers.launcher, openApp: "Ctrl+P", minimizeWindow: null },
+  };
+  const migrated = parseShortcutSettings(legacy);
+  assert.equal(migrated.schemaVersion, 9);
+  assert.deepEqual(migrated.layers, legacy.layers);
+  assert.deepEqual(migrated.bindings, { ...legacy.bindings, pdfLibrary: "Ctrl+P" });
+  assert.deepEqual(parseShortcutSettings(migrated), migrated);
+});
+
+test("v8 PDF migration preserves exact and sequence-prefix assignments in every notebook layer", () => {
+  for (const binding of ["Ctrl+P", "Ctrl+P G"]) {
+    const legacy = versionEightSettings();
+    const global = parseShortcutSettings({ ...legacy, bindings: { ...legacy.bindings, help: binding } });
+    assert.equal(global.bindings.help, binding);
+    assert.equal(global.bindings.pdfLibrary, null);
+    for (const mode of ["app", "edit", "read"] as const) {
+      const layer = { ...legacy.layers[mode], help: binding };
+      const migrated = parseShortcutSettings({ ...legacy, layers: { ...legacy.layers, [mode]: layer } });
+      assert.equal(migrated.bindings.pdfLibrary, null, `${mode}: ${binding}`);
+      assert.deepEqual(migrated.layers[mode], layer);
+      assert.equal(resolveShortcutBindings(migrated, mode).help, binding);
+      assert.deepEqual(parseShortcutSettings(migrated), migrated);
+    }
+  }
+});
+
+test("only v9 accepts PDF Library bindings and preserves explicit disables and rebinding", () => {
+  const legacy = versionEightSettings();
+  assert.throws(() => parseShortcutSettings({ ...legacy, bindings: { ...legacy.bindings, pdfLibrary: null } }), ShortcutValidationError);
+  for (const mode of ["app", "edit", "read"] as const) {
+    assert.throws(() => parseShortcutSettings({ ...legacy, layers: { ...legacy.layers, [mode]: { pdfLibrary: null } } }), /schemaVersion 9/u);
+  }
+  const settings = getDefaultShortcutSettings();
+  const disabled = parseShortcutSettings({ ...settings, bindings: { ...settings.bindings, pdfLibrary: null } });
+  assert.equal(disabled.bindings.pdfLibrary, null);
+  assert.deepEqual(parseShortcutSettings(disabled), disabled);
+  const rebound = parseShortcutSettings({
+    ...settings, bindings: { ...settings.bindings, pdfLibrary: "Ctrl+Q P" },
+    layers: { ...settings.layers, read: { pdfLibrary: null } },
+  });
+  assert.equal(resolveShortcutBindings(rebound, "app").pdfLibrary, "Ctrl+Q P");
+  assert.equal(resolveShortcutBindings(rebound, "read").pdfLibrary, null);
 });

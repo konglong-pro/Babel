@@ -348,12 +348,13 @@ $expectedShortcutCommands = @(
     "selectTab6", "selectTab7", "selectTab8", "selectTab9", "selectTab10",
     "reopenTab", "historyBack", "historyForward", "saveAndRead",
     "focusFolders", "focusDocuments", "focusContent",
+    "pdfLibrary",
     "minimizeWindow", "toggleMaximizeWindow", "closeWindow"
 )
 $shortcutDefinitions = @(Get-BabelShortcutDefinitions -Path $shortcutDefaultsPath)
 $actualShortcutCommands = @($shortcutDefinitions | ForEach-Object { [string]$_.Id })
 if (($actualShortcutCommands -join "|") -cne ($expectedShortcutCommands -join "|")) {
-    throw "Shortcut defaults must define the schema v8 commands in their registered order."
+    throw "Shortcut defaults must define the schema v9 commands in their registered order."
 }
 $shortcutDefaultBindings = Get-BabelDefaultShortcutBindings -Definitions $shortcutDefinitions
 $launcherShortcutDefinitions = @(Get-BabelLauncherShortcutDefinitions -Path $shortcutDefaultsPath)
@@ -926,7 +927,7 @@ function Update-BabelShortcutDialogRows {
     if ($State.Table.Rows.Count -gt 0) { $State.Controls.ShortcutGrid.SelectedIndex = $selectedIndex }
     $State.Controls.RestoreInheritanceButton.IsEnabled = $scope -in @('app', 'edit', 'read')
     $State.Controls.ShortcutLayerHint.Text = switch ($scope) {
-        'global' { 'Global defaults for notebook commands. Use Ctrl or Alt, Escape, or a safe function key.' }
+        'global' { 'Global defaults for notebook commands, including Open PDF Library (Ctrl+P). Use Ctrl or Alt, Escape, or a safe function key.' }
         'launcher' { 'Apps home commands are independent of notebook layers. Bare keys, Tab and Shift+Tab are supported.' }
         'app' { 'APP inherits Global. An override can take a key from an inherited command; duplicates in APP are rejected.' }
         'edit' { 'Edit inherits Global then APP. Single keys are supported; ordinary text entry still keeps its typing keys.' }

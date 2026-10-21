@@ -1,5 +1,6 @@
 "use client";
 
+import { WebArchiveImportAction } from "@babel-apps/platform/imports/web-archive-react";
 import { ClipboardMarkdownImportAction } from "@babel-apps/platform/imports/clipboard-react";
 import { DocumentImportAction } from "@babel-apps/platform/imports/document-react";
 import type { ImportedOriginalDocument } from "@babel-apps/platform/imports/document-core";
@@ -179,6 +180,7 @@ export function NoteList({
   const importInputRef = useRef<HTMLInputElement>(null);
   const documentImportOpenRef = useRef<(() => void) | null>(null);
   const clipboardImportOpenRef = useRef<(() => void) | null>(null);
+  const webArchiveImportOpenRef = useRef<(() => void) | null>(null);
   const folderImportInputRef = useRef<HTMLInputElement>(null);
   const importMenuRef = useRef<HTMLDetailsElement>(null);
   const selectedFolder = selectedFolderId === null ? undefined : folders.get(selectedFolderId);
@@ -283,6 +285,14 @@ export function NoteList({
       group: "Notes",
       available: selectedFolderId !== null && !referencePanelOpen,
       run: () => clipboardImportOpenRef.current?.(),
+    },
+    {
+      id: "note.importWebArchive",
+      label: "Import David archive",
+      keywords: ["import", "david", "archive", "snapshot", "images", "llm"],
+      group: "Notes",
+      available: selectedFolderId !== null && !referencePanelOpen,
+      run: () => webArchiveImportOpenRef.current?.(),
     },
     {
       id: "note.importDocument",
@@ -396,6 +406,14 @@ export function NoteList({
                 onImport={onImport}
                 disabled={selectedFolderId === null || referencePanelOpen}
                 registerOpen={(open) => { clipboardImportOpenRef.current = open; }}
+                onOpen={() => {
+                  if (importMenuRef.current) importMenuRef.current.open = false;
+                }}
+              />
+              <WebArchiveImportAction
+                onImport={onImport}
+                disabled={selectedFolderId === null || referencePanelOpen}
+                registerOpen={(open) => { webArchiveImportOpenRef.current = open; }}
                 onOpen={() => {
                   if (importMenuRef.current) importMenuRef.current.open = false;
                 }}

@@ -76,7 +76,7 @@ test("shortcut loader rereads valid settings and falls back for missing or inval
     };
     writeFileSync(settingsPath, JSON.stringify(legacy), "utf8");
     assert.deepEqual(loadShortcutSettings({ path: settingsPath }), {
-      schemaVersion: 8,
+      schemaVersion: 9,
       layers: DEFAULT_SHORTCUT_SETTINGS.layers,
       bindings: {
         ...DEFAULT_SHORTCUT_SETTINGS.bindings,
@@ -168,4 +168,28 @@ test("shortcut loader migrates v5 layers in memory and serves validated sequence
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("shortcut loader upgrades v8 PDF conflicts in memory without rewriting user settings", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "babel-shortcuts-v8-"));
+  const settingsPath = join(directory, "shortcuts.json");
+  try {
+    const legacy = {
+      schemaVersion: 8,
+      bindings: Object.fromEntries(Object.entries(DEFAULT_SHORTCUT_SETTINGS.bindings).filter(([command]) => command !== "pdfLibrary")),
+      layers: { ...DEFAULT_SHORTCUT_SETTINGS.layers, read: { underlineSelection: "J", new: null } },
+    };
+    legacy.bindings.help = "Ctrl+P G";
+    legacy.bindings.save = null;
+    const source = JSON.stringify(legacy);
+    writeFileSync(settingsPath, source, "utf8");
+    const settings = loadShortcutSettings({ path: settingsPath });
+    assert.equal(settings.schemaVersion, 9);
+    assert.equal(settings.bindings.pdfLibrary, null);
+    assert.equal(settings.bindings.help, "Ctrl+P G");
+    assert.equal(settings.bindings.save, null);
+    assert.deepEqual(settings.layers, legacy.layers);
+    assert.equal(readFileSync(settingsPath, "utf8"), source);
+    assert.deepEqual(await shortcutSettingsResponse(settings).json(), settings);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });

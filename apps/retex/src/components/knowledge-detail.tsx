@@ -474,7 +474,7 @@ function KnowledgeForm({
   const [parentId, setParentId] = useState<number | null>(initialParentId);
   const [exerciseIds, setExerciseIds] = useState(initialExerciseIds);
   const [stagedImages, setStagedImages] = useState<StagedImage[]>(
-    () => importDraft?.pdfImage ? [importDraft.pdfImage] : [],
+    () => [...(importDraft?.archiveImages ?? []), ...(importDraft?.pdfImage ? [importDraft.pdfImage] : [])],
   );
   const [exercises, setExercises] = useState<ExerciseSummaryDto[]>([]);
   const [relationsLoading, setRelationsLoading] = useState(true);

@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 
 import { isPdfProgress, pdfFolderNameKey, type PdfDocumentSummary, type PdfFolder } from "@babel-apps/platform/pdf/core";
 import { openSearchWindow } from "@babel-apps/platform/search/window";
+import { useShortcutBinding } from "@babel-apps/platform/shortcuts/react";
 
 import { pdfExcerptOwnerId, preparePdfExcerptOwner } from "./excerpts";
 import { pdfImportError, preparePdfFolder, type FolderPdf } from "./imports";
@@ -74,6 +75,7 @@ function importDate(value: string): string {
 export function PdfLibraryButton({ appId, appName, notebookHref }: PdfLibraryButtonProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const shortcut = useShortcutBinding("pdfLibrary");
   const dialogRef = useRef<HTMLDialogElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -435,7 +437,9 @@ export function PdfLibraryButton({ appId, appName, notebookHref }: PdfLibraryBut
   const readyToImport = importMode === "single" ? Boolean(selectedFile && !pdfImportError(selectedFile)) : pendingCount > 0;
 
   return <>
-    <button className="babel-pdf-library-button" type="button" onClick={openLibrary} title={`Open ${appName} PDF library`}><LibraryIcon /><span>PDFs</span></button>
+    <button className="babel-pdf-library-button" type="button" data-babel-command="pdfLibrary" onClick={openLibrary}
+      title={`Open ${appName} PDF library${shortcut ? ` (${shortcut})` : ""}`}
+      aria-keyshortcuts={shortcut && !shortcut.includes(" ") ? shortcut.replace(/Ctrl/gu, "Control") : undefined}><LibraryIcon /><span>PDFs</span></button>
     <dialog ref={dialogRef} className="babel-pdf-library babel-pdf-theme" data-pdf-app={appId} aria-label={`${appName} PDF library`}
       onCancel={(event) => { if (event.target === event.currentTarget) { event.preventDefault(); closeLibrary(); } }}>
       <header className="babel-pdf-library-header">

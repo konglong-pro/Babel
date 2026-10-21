@@ -51,7 +51,7 @@ function legacySettings(version: number) {
   };
 }
 
-test("native schema 8 migration matches web defaults and preserves occupied keys across legacy versions", { skip: process.platform !== "win32" }, async () => {
+test("native schema 9 migration matches web defaults and preserves occupied keys across legacy versions", { skip: process.platform !== "win32" }, async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "babel-navigation-settings-"));
   try {
     const fixtures = Array.from({ length: 6 }, (_, index) => legacySettings(index + 1));
@@ -76,7 +76,7 @@ test("native schema 8 migration matches web defaults and preserves occupied keys
     const { stdout } = await runPowerShell(`
 $results = @(Get-ChildItem -LiteralPath $env:BABEL_TEST_DIRECTORY -Filter '*.json' | Sort-Object { [int]$_.BaseName } | ForEach-Object {
   $settings = Read-BabelShortcutSettings -Definitions $definitions -Path $_.FullName -WarningAction SilentlyContinue
-  @{ source = $settings.Source; warning = $settings.Warning; settings = @{ schemaVersion = 8; bindings = $settings.Bindings; layers = $settings.Layers } }
+  @{ source = $settings.Source; warning = $settings.Warning; settings = @{ schemaVersion = 9; bindings = $settings.Bindings; layers = $settings.Layers } }
 })
 ConvertTo-Json -InputObject $results -Depth 10 -Compress
 `, directory);

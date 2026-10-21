@@ -1,5 +1,7 @@
 "use client";
 
+import { webArchiveDraftImages } from "@babel-apps/platform/imports/web-archive-client";
+
 import { preparePdfExcerpt, usePdfExcerptCreation } from "@babel-apps/pdf/excerpts";
 
 import type { ImportedOriginalDocument } from "@babel-apps/platform/imports/document-core";
@@ -48,7 +50,7 @@ import {
   parseMarkdownImport,
   type MarkdownImportDraft,
 } from "@/lib/markdown-import";
-import { NOTE_CONTENT_MAX_BYTES } from "@/lib/note-limits";
+import { NOTE_CONTENT_MAX_BYTES, NOTE_NEW_IMAGE_MAX_COUNT, NOTE_IMAGE_MAX_BYTES, NOTE_SAVE_MAX_BYTES } from "@/lib/note-limits";
 import type {
   FolderDto,
   NoteSearchField,
@@ -115,6 +117,23 @@ export function NotesWorkspace({
   const [notice, setNotice] = useState("");
   const [folderImportFiles, setFolderImportFiles] = useState<File[] | null>(null);
   const [drafts, setDrafts] = useState<Record<string, NoteDraftSession>>({});
+
+  const draftPageKeysRef = useRef(new Set<string>());
+  useEffect(() => {
+    const pageKeys = new Set(pages.map((page) => page.key));
+    const closedKeys = [...draftPageKeysRef.current].filter((key) => !pageKeys.has(key));
+    draftPageKeysRef.current = pageKeys;
+    if (closedKeys.length === 0) return;
+    // Remove only previously observed pages, so batched new drafts stay intact.
+    queueMicrotask(() => setDrafts((current) => {
+      const removed = closedKeys.filter((key) => !draftPageKeysRef.current.has(key) && key in current);
+      if (removed.length === 0) return current;
+      const next = { ...current };
+      for (const key of removed) delete next[key];
+      return next;
+    }));
+  }, [pages]);
+
   const [movingItemIds, setMovingItemIds] = useState<ReadonlySet<number>>(new Set());
   const [moveRevisions, setMoveRevisions] = useState<Record<number, number>>({});
   const [pendingEditPageKey, setPendingEditPageKey] = useState<string | null>(null);
@@ -431,15 +450,26 @@ export function NotesWorkspace({
   }
 
   async function handleImportMarkdown(file: File, original?: ImportedOriginalDocument) {
-    if (selectedFolderId === null) return;
+    if (selectedFolderId === null) throw new Error("Select a folder before opening an imported draft.");
     if (file.size > NOTE_CONTENT_MAX_BYTES) {
       setError("Markdown files must not exceed 10 MB.");
       throw new Error("Markdown files must not exceed 10 MB.");
     }
+    let archiveImages: MarkdownImportDraft["archiveImages"];
     try {
       const bytes = new Uint8Array(await file.arrayBuffer());
       const importDraft: MarkdownImportDraft = parseMarkdownImport(file.name, bytes);
       importDraft.originalDocument = original;
+      archiveImages = webArchiveDraftImages(file, importDraft.imageReferences, {
+        contentMd: importDraft.contentMd,
+        maxMarkdownBytes: NOTE_CONTENT_MAX_BYTES,
+        maxImages: NOTE_NEW_IMAGE_MAX_COUNT,
+        maxImageBytes: NOTE_IMAGE_MAX_BYTES,
+        maxSaveBytes: NOTE_SAVE_MAX_BYTES,
+        imageScheme: "klsche-upload",
+        imageUrlPrefix: "/api/uploads/notes/",
+      });
+      if (archiveImages) importDraft.archiveImages = archiveImages;
       openDraft({
         folderId: selectedFolderId,
         parentId: null,
@@ -447,6 +477,7 @@ export function NotesWorkspace({
         title: importDraft.title,
       });
     } catch (caught) {
+      for (const image of archiveImages ?? []) URL.revokeObjectURL(image.previewUrl);
       setError(getErrorMessage(caught));
       throw caught;
     }

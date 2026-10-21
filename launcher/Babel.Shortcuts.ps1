@@ -450,7 +450,7 @@ function Get-BabelShortcutDefinitions {
     if (-not (Test-BabelShortcutProperty -InputObject $document -Name "schemaVersion")) {
         throw "Shortcut defaults are missing schemaVersion."
     }
-    if (-not ($document.schemaVersion -is [int] -or $document.schemaVersion -is [long]) -or [long]$document.schemaVersion -ne 8) {
+    if (-not ($document.schemaVersion -is [int] -or $document.schemaVersion -is [long]) -or [long]$document.schemaVersion -ne 9) {
         throw "Unsupported shortcut defaults schemaVersion '$($document.schemaVersion)'."
     }
     if (-not (Test-BabelShortcutProperty -InputObject $document -Name "commands")) {
@@ -737,7 +737,7 @@ function Update-BabelNavigationShortcutDefaults {
         (Test-BabelMigrationBindingAvailable -Bindings $Bindings -Layers $Layers -Command closeTab -Binding 'Ctrl+W')) {
         $Bindings.closeTab = 'Ctrl+W'
     }
-    foreach ($definition in @($Definitions | Select-Object -Skip 18 | Where-Object { $_.Id -notin @('minimizeWindow', 'toggleMaximizeWindow', 'closeWindow') })) {
+    foreach ($definition in @($Definitions | Select-Object -Skip 18 | Where-Object { $_.Id -notin @('pdfLibrary', 'minimizeWindow', 'toggleMaximizeWindow', 'closeWindow') })) {
         $id = [string]$definition.Id
         if (Test-BabelMigrationBindingAvailable -Bindings $Bindings -Layers $Layers -Command $id -Binding $definition.DefaultBinding) {
             $Bindings[$id] = $definition.DefaultBinding
@@ -815,7 +815,8 @@ function Read-BabelShortcutSettings {
                 [long]$document.schemaVersion -ne 5 -and
                 [long]$document.schemaVersion -ne 6 -and
                 [long]$document.schemaVersion -ne 7 -and
-                [long]$document.schemaVersion -ne 8
+                [long]$document.schemaVersion -ne 8 -and
+                [long]$document.schemaVersion -ne 9
             )
         ) {
             throw "Unsupported shortcut settings schemaVersion '$($document.schemaVersion)'."
@@ -874,7 +875,8 @@ function Read-BabelShortcutSettings {
             2 { $versionTwoCommandIds }
             3 { $versionThreeCommandIds }
             { $_ -in @(4, 5, 6) } { @($currentCommandIds | Select-Object -First 18) }
-            7 { @($currentCommandIds | Where-Object { $_ -notin @('minimizeWindow', 'toggleMaximizeWindow', 'closeWindow') }) }
+            7 { @($currentCommandIds | Where-Object { $_ -notin @('pdfLibrary', 'minimizeWindow', 'toggleMaximizeWindow', 'closeWindow') }) }
+            8 { @($currentCommandIds | Where-Object { $_ -cne 'pdfLibrary' }) }
             default { $currentCommandIds }
         }
         Assert-BabelShortcutExactProperties `
@@ -962,6 +964,7 @@ function Read-BabelShortcutSettings {
         } elseif ([long]$document.schemaVersion -eq 7) {
             foreach ($id in @('minimizeWindow', 'toggleMaximizeWindow', 'closeWindow')) { $bindings[$id] = $null }
         }
+        if ([long]$document.schemaVersion -lt 9) { $bindings['pdfLibrary'] = $null }
         $canonicalBindings = ConvertTo-BabelShortcutBindingMap `
             -Definitions $Definitions `
             -Bindings $bindings
@@ -980,7 +983,8 @@ function Read-BabelShortcutSettings {
                 }
             }
             $layerDefinitions = if ([long]$document.schemaVersion -lt 7) { @($Definitions | Select-Object -First 18) }
-                elseif ([long]$document.schemaVersion -eq 7) { @($Definitions | Where-Object { $_.Id -notin @('minimizeWindow', 'toggleMaximizeWindow', 'closeWindow') }) }
+                elseif ([long]$document.schemaVersion -eq 7) { @($Definitions | Where-Object { $_.Id -notin @('pdfLibrary', 'minimizeWindow', 'toggleMaximizeWindow', 'closeWindow') }) }
+                elseif ([long]$document.schemaVersion -eq 8) { @($Definitions | Where-Object { $_.Id -cne 'pdfLibrary' }) }
                 else { $Definitions }
             $launcherDefinitions = @(Get-BabelLauncherShortcutDefinitions)
             if ([long]$document.schemaVersion -lt 8) {
@@ -1007,6 +1011,14 @@ function Read-BabelShortcutSettings {
             # commands before filling them with conflict-aware migration.
             foreach ($id in @('minimizeWindow', 'toggleMaximizeWindow', 'closeWindow')) { $canonicalLayers.launcher.Remove($id) }
             Update-BabelWindowShortcutDefaults -Bindings $canonicalBindings -Layers $canonicalLayers -Definitions $Definitions
+            Assert-BabelEffectiveShortcutPrefixes -Bindings $canonicalBindings -Layers $canonicalLayers
+        }
+        if ([long]$document.schemaVersion -lt 9) {
+            $pdfDefinition = $Definitions | Where-Object { $_.Id -ceq 'pdfLibrary' }
+            if (Test-BabelMigrationBindingAvailable -Bindings $canonicalBindings -Layers $canonicalLayers `
+                -Command pdfLibrary -Binding $pdfDefinition.DefaultBinding) {
+                $canonicalBindings['pdfLibrary'] = $pdfDefinition.DefaultBinding
+            }
             Assert-BabelEffectiveShortcutPrefixes -Bindings $canonicalBindings -Layers $canonicalLayers
         }
 
@@ -1057,7 +1069,7 @@ function Write-BabelShortcutSettings {
     }
 
     $document = [ordered]@{
-        schemaVersion = 8
+        schemaVersion = 9
         bindings = $canonicalBindings
         layers = $canonicalLayers
     }

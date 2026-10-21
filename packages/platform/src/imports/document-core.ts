@@ -24,6 +24,7 @@ export interface DocumentConversionResult {
 
 /** The browser retains the source until the imported draft is actually saved. */
 export interface ImportedOriginalDocument {
+  kind?: "web-archive";
   file: File;
   token: string;
   savedUrl?: string;

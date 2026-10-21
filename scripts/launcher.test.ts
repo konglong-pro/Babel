@@ -470,8 +470,8 @@ test("shared platform changes invalidate application builds", () => {
   );
 });
 
-test("the launcher edits the shared schema v8 shortcut contract", () => {
-  assert.equal(shortcutDefaults.schemaVersion, 8);
+test("the launcher edits the shared schema v9 shortcut contract", () => {
+  assert.equal(shortcutDefaults.schemaVersion, 9);
   assert.deepEqual(
     shortcutDefaults.commands?.map(({ command, defaultBinding }) => [command, defaultBinding]),
     [
@@ -500,6 +500,7 @@ test("the launcher edits the shared schema v8 shortcut contract", () => {
       ["reopenTab", "Ctrl+Shift+T"], ["historyBack", "Alt+ArrowLeft"], ["historyForward", "Alt+ArrowRight"],
       ["saveAndRead", "Ctrl+Shift+Enter"],
       ["focusFolders", null], ["focusDocuments", null], ["focusContent", null],
+      ["pdfLibrary", "Ctrl+P"],
       ["minimizeWindow", "Ctrl+Alt+M"], ["toggleMaximizeWindow", "Ctrl+Alt+F11"], ["closeWindow", "Ctrl+Alt+Q"],
     ],
   );
@@ -652,7 +653,7 @@ test("shortcut settings are normalized, validated, and replaced atomically", () 
   ]) {
     assert.match(shortcutsHelperSource, new RegExp(`"${keyName}"`));
   }
-  assert.match(shortcutsHelperSource, /schemaVersion\s*=\s*8[\s\S]{0,100}bindings/i);
+  assert.match(shortcutsHelperSource, /schemaVersion\s*=\s*9[\s\S]{0,100}bindings/i);
   assert.match(shortcutsHelperSource, /migratedBindings[\s\S]{0,900}\$null/i);
   assert.match(shortcutsHelperSource, /Write-Warning/i, "missing or invalid user settings must warn");
   assert.match(shortcutsHelperSource, /Text\.UTF8Encoding\(\$false\)/i, "settings must use UTF-8 without a BOM");
@@ -763,11 +764,11 @@ if (
 [void](Write-BabelShortcutSettings -Definitions $definitions -Bindings $legacyReorderLoaded.Bindings -Path $legacyReorderSettingsPath)
 $legacyReorderRoundTrip = Get-Content -LiteralPath $legacyReorderSettingsPath -Raw | ConvertFrom-Json
 if (
-    [int]$legacyReorderRoundTrip.schemaVersion -ne 8 -or
+    [int]$legacyReorderRoundTrip.schemaVersion -ne 9 -or
     $null -ne $legacyReorderRoundTrip.bindings.read -or
     $legacyReorderRoundTrip.bindings.save -ne "Ctrl+Alt+S"
 ) {
-    throw "The migrated fixed-reorder binding did not round-trip as schema v8 null."
+    throw "The migrated fixed-reorder binding did not round-trip as schema v9 null."
 }
 [IO.File]::Delete($legacyReorderSettingsPath)
 $versionThreeSettingsPath = "$settingsPath.version-three"
@@ -906,7 +907,7 @@ Write-Output "Babel shortcut replacement test passed."
         schemaVersion?: number;
         bindings?: Record<string, string | null>;
       };
-      assert.equal(savedSettings.schemaVersion, 8);
+      assert.equal(savedSettings.schemaVersion, 9);
       assert.equal(savedSettings.bindings?.save, "Ctrl+Alt+S");
       assert.equal(savedSettings.bindings?.read, "Ctrl+R");
       assert.equal(savedSettings.bindings?.commandPalette, "Ctrl+Alt+P");
@@ -1037,7 +1038,7 @@ test(
 
     assert.match(stdout, /Babel GUI smoke test passed/i);
     assert.match(stdout, /15 shortcut control\(s\)/i);
-    assert.match(stdout, /52 shortcut command\(s\)/i);
+    assert.match(stdout, /53 shortcut command\(s\)/i);
   },
 );
 

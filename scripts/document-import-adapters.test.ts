@@ -7,10 +7,11 @@ import ts from "typescript";
 import { maskCodeRegions } from "../packages/markdown/src/core";
 
 import type { ImportedOriginalDocument } from "../packages/platform/src/imports/document-core";
+import { webArchiveDraftImages } from "../packages/platform/src/imports/web-archive-client";
 
 const root = path.resolve(import.meta.dirname, "..");
 const adapters = [
-  ...["bio", "esperanto", "vali", "herodotus", "leviathan", "klsche", "ruider"].map((id) => ({
+  ...["bio", "carbon", "esperanto", "vali", "herodotus", "leviathan", "klsche", "ruider"].map((id) => ({
     id, directory: `apps/${id}`, list: "note-list", workspace: "notes-workspace",
     detail: "note-detail", command: "note", field: "contentMd", entity: "Note",
   })),
@@ -107,7 +108,11 @@ for (const adapter of adapters) {
     const variables = {
       selectedFolderId: 7, type: "knowledge", kind: "knowledge",
       NOTE_CONTENT_MAX_BYTES: 10 * 1024 * 1024, ENTRY_NOTES_MAX_BYTES: 10 * 1024 * 1024,
+      NOTE_NEW_IMAGE_MAX_COUNT: 50, ENTRY_NEW_IMAGE_MAX_COUNT: 50,
+      NOTE_IMAGE_MAX_BYTES: 10 * 1024 * 1024, ENTRY_IMAGE_MAX_BYTES: 10 * 1024 * 1024,
+      NOTE_SAVE_MAX_BYTES: 100 * 1024 * 1024, ENTRY_SAVE_MAX_BYTES: 100 * 1024 * 1024,
       parseMarkdownImport: imported.parseMarkdownImport,
+      webArchiveDraftImages,
       openDraft: (draft: Record<string, unknown>) => drafts.push(draft),
       setError: (error: string) => errors.push(error),
       setNavigationError: (error: string) => errors.push(error),
@@ -129,7 +134,7 @@ for (const adapter of adapters) {
     const unavailable = evaluate<Handler>(
       declaration.getText(source), { ...variables, selectedFolderId: null }, "handleImportMarkdown",
     );
-    await unavailable(file, original);
+    await assert.rejects(unavailable(file, original), /Select a (?:knowledge )?folder/u);
     assert.equal(drafts.length, 2, "All-notes collection must not create an import draft.");
     const tooLarge = { size: 10 * 1024 * 1024 + 1 } as File;
     await assert.rejects(handler(tooLarge, original), /10 MB/u);

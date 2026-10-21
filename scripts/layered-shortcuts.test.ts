@@ -98,7 +98,7 @@ foreach ($scope in @('app', 'edit', 'read', 'launcher')) {
       resolved: Record<"app" | "edit" | "read", unknown>;
     };
     const settings = parseShortcutSettings(result.settings);
-    assert.equal(settings.schemaVersion, 8);
+    assert.equal(settings.schemaVersion, 9);
     assert.equal(settings.bindings.cancel, "Ctrl+Q");
     assert.equal(settings.bindings.help, null);
     assert.equal(settings.layers.launcher.openApp, "1");
@@ -139,6 +139,20 @@ $state = [pscustomobject]@{
     Bindings = $bindings; Layers = $layers; CurrentLayer = 'app'; SelectedCommand = ''; LauncherBinding = 'Ctrl+Alt+B'
 }
 function Get-Row([string]$Id) { return $table.Rows | Where-Object { $_.Id -eq $Id } }
+Update-BabelShortcutDialogRows -State $state
+if ((Get-Row pdfLibrary).Label -cne 'Open PDF Library' -or (Get-Row pdfLibrary).Shortcut -cne 'Ctrl+P') {
+    throw 'PDF Library command or default is missing from the editor.'
+}
+Set-BabelShortcutDialogBinding -State $state -CommandId pdfLibrary -Binding $null
+if ((Get-Row pdfLibrary).BindingState -ne 'Disabled' -or $state.Bindings.pdfLibrary -ne 'Ctrl+P') {
+    throw 'Disabling PDF Library in APP changed the global binding.'
+}
+Set-BabelShortcutDialogBinding -State $state -CommandId pdfLibrary -Binding 'Ctrl+P G'
+if ((Get-Row pdfLibrary).Shortcut -cne 'Ctrl+P G') { throw 'PDF Library sequence rebinding failed.' }
+Set-BabelShortcutDialogBinding -State $state -CommandId pdfLibrary -Inherit
+if ($state.Layers.app.Contains('pdfLibrary') -or (Get-Row pdfLibrary).BindingState -ne 'Inherited: Global') {
+    throw 'PDF Library inheritance could not be restored.'
+}
 Set-BabelShortcutDialogBinding -State $state -CommandId read -Binding 'Ctrl+S'
 if ($state.Bindings.save -ne 'Ctrl+S' -or (Get-Row save).BindingState -ne 'Key claimed in APP') { throw 'APP override corrupted Global or lost its source.' }
 $state.CurrentLayer = 'read'

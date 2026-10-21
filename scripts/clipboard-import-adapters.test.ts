@@ -7,6 +7,7 @@ import ts from "typescript";
 
 import { maskCodeRegions } from "../packages/markdown/src/core";
 import { clipboardMarkdownTitle, prepareClipboardMarkdownFile } from "../packages/platform/src/imports/clipboard-client";
+import { webArchiveDraftImages } from "../packages/platform/src/imports/web-archive-client";
 
 const root = path.resolve(import.meta.dirname, "..");
 
@@ -69,7 +70,11 @@ test("David clipboard files open unsaved drafts through every registered noteboo
     const variables = {
       selectedFolderId: 7, type: "knowledge", kind: "knowledge",
       NOTE_CONTENT_MAX_BYTES: 10 * 1024 * 1024, ENTRY_NOTES_MAX_BYTES: 10 * 1024 * 1024,
+      NOTE_NEW_IMAGE_MAX_COUNT: 50, ENTRY_NEW_IMAGE_MAX_COUNT: 50,
+      NOTE_IMAGE_MAX_BYTES: 10 * 1024 * 1024, ENTRY_IMAGE_MAX_BYTES: 10 * 1024 * 1024,
+      NOTE_SAVE_MAX_BYTES: 100 * 1024 * 1024, ENTRY_SAVE_MAX_BYTES: 100 * 1024 * 1024,
       parseMarkdownImport: parserExports.parseMarkdownImport,
+      webArchiveDraftImages,
       openDraft: (draft: Record<string, unknown>) => drafts.push(draft),
       setError: (error: string) => errors.push(error),
       setNavigationError: (error: string) => errors.push(error),

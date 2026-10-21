@@ -9,8 +9,10 @@ import {
   type DocumentConversionResult,
   type ImportedOriginalDocument,
 } from "./document-core";
+import { WEB_ARCHIVE_MAX_BYTES } from "./web-archive-core";
 
 const originalUrlPattern = /^\/api\/imports\/documents\/originals\/[a-f0-9]{64}$/u;
+const webArchiveUrlPattern = /^\/api\/imports\/web-archive\/snapshots\/[a-f0-9]{64}$/u;
 const tokenPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/iu;
 const encoder = new TextEncoder();
 
@@ -109,25 +111,33 @@ export async function saveWithImportedOriginal<T>(
   const placeholder = `${DOCUMENT_IMPORT_ORIGINAL_PREFIX}${original.token}`;
   const reference = new RegExp(`${placeholder}(?![\\w-])`, "gu");
   if (!reference.test(contentMd)) return save(contentMd);
+  const webArchive = original.kind === "web-archive";
+  const endpoint = webArchive ? "/api/imports/web-archive/snapshots" : "/api/imports/documents/originals";
+  const locationPattern = webArchive ? webArchiveUrlPattern : originalUrlPattern;
   // Saved links are longer than the transient reference. Check the final
   // draft size before creating an attachment that cannot fit in the note.
-  assertMarkdownSize(contentMd.replace(reference, `/api/imports/documents/originals/${"0".repeat(64)}`));
+  assertMarkdownSize(contentMd.replace(reference, `${endpoint}/${"0".repeat(64)}`));
 
   if (!original.savedUrl) {
-    validateDocumentImportFile(original.file);
-    const result = await requestJson("/api/imports/documents/originals", {
+    if (webArchive) {
+      const file = original.file;
+      if (!/\.babel\.json$/iu.test(file.name) || /[\u0000-\u001f\u007f/\\]/u.test(file.name) || encoder.encode(file.name).byteLength > 240 || !file.size || file.size > WEB_ARCHIVE_MAX_BYTES) {
+        throw new Error("Choose a Babel archive .babel.json file within the 150 MiB limit.");
+      }
+    } else validateDocumentImportFile(original.file);
+    const result = await requestJson(endpoint, {
       method: "POST",
       headers: uploadHeaders(original.file),
       body: original.file,
     });
-    if (!isRecord(result) || typeof result.url !== "string" || !originalUrlPattern.test(result.url)) {
+    if (!isRecord(result) || typeof result.url !== "string" || !locationPattern.test(result.url)) {
       throw new Error("The server returned an invalid original file location.");
     }
     // Keep the location after a failed save: the server may already have saved
     // the note, and a retry must not leave its attachment link dangling.
     original.savedUrl = result.url;
   }
-  if (!originalUrlPattern.test(original.savedUrl)) {
+  if (!locationPattern.test(original.savedUrl)) {
     throw new Error("The original file location is invalid.");
   }
   const resolvedContent = contentMd.replace(reference, original.savedUrl);

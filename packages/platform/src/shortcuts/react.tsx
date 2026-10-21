@@ -563,10 +563,11 @@ export function handleShortcutKeyDown(
   if (!commandAllowedFromEditable(command, editable) || (editable && (textKey || isNativeEditingKey(event)))) {
     return false;
   }
-  if (event.repeat === true && !reserve && command !== "read") return false;
+  const reservesNativeAction = command === "read" || command === "pdfLibrary";
+  if (event.repeat === true && !reserve && !reservesNativeAction) return false;
 
   const handled = event.repeat !== true && execute();
-  if (!handled && !reserve && command !== "read") return false;
+  if (!handled && !reserve && !reservesNativeAction) return false;
   event.preventDefault();
   event.stopPropagation();
   return true;

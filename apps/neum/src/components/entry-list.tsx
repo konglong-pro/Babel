@@ -1,5 +1,6 @@
 "use client";
 
+import { WebArchiveImportAction } from "@babel-apps/platform/imports/web-archive-react";
 import { ClipboardMarkdownImportAction } from "@babel-apps/platform/imports/clipboard-react";
 import { DocumentImportAction } from "@babel-apps/platform/imports/document-react";
 import type { ImportedOriginalDocument } from "@babel-apps/platform/imports/document-core";
@@ -190,6 +191,7 @@ export function EntryList({
   const importInputRef = useRef<HTMLInputElement>(null);
   const documentImportOpenRef = useRef<(() => void) | null>(null);
   const clipboardImportOpenRef = useRef<(() => void) | null>(null);
+  const webArchiveImportOpenRef = useRef<(() => void) | null>(null);
   const folderImportInputRef = useRef<HTMLInputElement>(null);
   const importMenuRef = useRef<HTMLDetailsElement>(null);
   const unitLabel = entryUnitLabel(kind);
@@ -290,6 +292,14 @@ export function EntryList({
       group: "Entries",
       available: kind === "knowledge" && Boolean(onImport) && selectedFolderId !== null && !referencePanelOpen,
       run: () => clipboardImportOpenRef.current?.(),
+    },
+    {
+      id: "entry.importWebArchive",
+      label: "Import David archive",
+      keywords: ["import", "david", "archive", "snapshot", "images", "llm"],
+      group: "Entries",
+      available: kind === "knowledge" && Boolean(onImport) && selectedFolderId !== null && !referencePanelOpen,
+      run: () => webArchiveImportOpenRef.current?.(),
     },
     {
       id: "entry.importDocument",
@@ -406,6 +416,14 @@ export function EntryList({
                     onImport={onImport}
                     disabled={selectedFolderId === null || referencePanelOpen}
                     registerOpen={(open) => { clipboardImportOpenRef.current = open; }}
+                    onOpen={() => {
+                      if (importMenuRef.current) importMenuRef.current.open = false;
+                    }}
+                  />
+                  <WebArchiveImportAction
+                    onImport={onImport}
+                    disabled={selectedFolderId === null || referencePanelOpen}
+                    registerOpen={(open) => { webArchiveImportOpenRef.current = open; }}
                     onOpen={() => {
                       if (importMenuRef.current) importMenuRef.current.open = false;
                     }}

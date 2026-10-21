@@ -60,6 +60,10 @@ folders, search, attachments, and canvases, with private data in `data/carbon/`.
 Select **PDFs** in an APP's header to import a PDF (up to 512 MiB), then select
 **Open PDF** to read it in a separate window on either screen. Each APP keeps
 its own library; import the same book again in another APP when needed.
+Press **Ctrl+P** to open the PDF library from the notebook, including while
+editing. This replaces browser Print inside Babel. Customize or disable
+**Open PDF Library** in the launcher's shortcut settings; existing custom
+bindings are preserved when settings are upgraded.
 The reader includes page thumbnails, embedded contents, text search, zoom,
 rotation, and saved page/zoom/rotation progress.
 The library and reader follow the current APP's visual theme. Scroll the shelf,
@@ -124,13 +128,28 @@ tables and task lists are supported; plain `<br>` in a table cell is rendered as
 a line break without enabling arbitrary HTML. Mermaid remains a labeled code
 block for reading and editing its source.
 
-Web images keep their source URLs and can expire or require a signed-in browser.
-They are not automatically downloaded or made into managed attachments. Save
-needed images separately and add them in the editor for durable local storage.
-Blob images, unsupported attachments and canvas-only visuals require manual
-capture. David copies only messages currently loaded in the page; load older
-messages first for a long conversation. Imports add no hidden title, source URL,
-timestamp or platform metadata to the conversation body.
+For pictures and diagrams, use David's **Export for Babel** (`B`) and choose
+**Import → Import David archive** in Babel. The `.babel.json` file includes
+editable Markdown, local raster pictures, and a static capture of the original
+message layout. Review the title, text, capture warnings, and optional original
+layout preview, then choose **Open draft**. Pictures become managed attachments
+when you save. The saved note's **View original layout** link opens its offline
+snapshot separately. This flow needs no document converter and is available in
+every APP, its command palette, and the new-APP template.
+
+David captures readable photos, SVG and canvas diagrams as raster assets, with
+a browser screenshot fallback for visible graphics it cannot otherwise read.
+Capture preserves the displayed state; website scripts, logins, live controls,
+and content inside inaccessible embeds are not reproduced. Review any warnings
+before importing. The layout viewer disables scripts and external resource
+loads. See [the archive format and limits](WEB_ARCHIVES.md) for details.
+
+The simpler **Quick Copy** and **Save Markdown** flows keep web image URLs,
+which can expire or require a signed-in browser. They do not download pictures.
+All capture modes include only messages currently loaded in the page; load
+older messages first for a long conversation. Ordinary Markdown imports add no
+hidden title, source URL, timestamp or platform metadata to the conversation
+body.
 
 ## Convert documents during import
 

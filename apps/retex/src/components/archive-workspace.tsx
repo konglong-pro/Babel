@@ -1,5 +1,7 @@
 "use client";
 
+import { webArchiveDraftImages } from "@babel-apps/platform/imports/web-archive-client";
+
 import type { ImportedOriginalDocument } from "@babel-apps/platform/imports/document-core";
 import { preparePdfExcerpt, usePdfExcerptCreation } from "@babel-apps/pdf/excerpts";
 
@@ -59,7 +61,7 @@ import {
   parseMarkdownImport,
   type MarkdownImportDraft,
 } from "@/lib/markdown-import";
-import { NOTE_CONTENT_MAX_BYTES } from "@/lib/note-limits";
+import { NOTE_CONTENT_MAX_BYTES, NOTE_NEW_IMAGE_MAX_COUNT, NOTE_IMAGE_MAX_BYTES, NOTE_SAVE_MAX_BYTES } from "@/lib/note-limits";
 import type { ArchiveSearchFocus } from "@/lib/search-focus";
 import type {
   ExerciseSummaryDto,
@@ -128,6 +130,23 @@ export function ArchiveWorkspace({
   const [folderImportFiles, setFolderImportFiles] = useState<File[] | null>(null);
   const [importTitleUniverse, setImportTitleUniverse] = useState<string[]>([]);
   const [drafts, setDrafts] = useState<Record<string, ArchiveDraftSession>>({});
+
+  const draftPageKeysRef = useRef(new Set<string>());
+  useEffect(() => {
+    const pageKeys = new Set(pages.map((page) => page.key));
+    const closedKeys = [...draftPageKeysRef.current].filter((key) => !pageKeys.has(key));
+    draftPageKeysRef.current = pageKeys;
+    if (closedKeys.length === 0) return;
+    // Remove only previously observed pages, so batched new drafts stay intact.
+    queueMicrotask(() => setDrafts((current) => {
+      const removed = closedKeys.filter((key) => !draftPageKeysRef.current.has(key) && key in current);
+      if (removed.length === 0) return current;
+      const next = { ...current };
+      for (const key of removed) delete next[key];
+      return next;
+    }));
+  }, [pages]);
+
   const [movingItemIds, setMovingItemIds] = useState<ReadonlySet<number>>(new Set());
   const [moveRevisions, setMoveRevisions] = useState<Record<number, number>>({});
   const [pendingEditPageKey, setPendingEditPageKey] = useState<string | null>(null);
@@ -535,17 +554,28 @@ export function ArchiveWorkspace({
   }
 
   async function handleImportMarkdown(file: File, original?: ImportedOriginalDocument) {
-    if (type !== "knowledge" || selectedFolderId === null) return;
+    if (type !== "knowledge" || selectedFolderId === null) throw new Error("Select a knowledge folder before opening an imported draft.");
     if (file.size > NOTE_CONTENT_MAX_BYTES) {
       setNavigationError("Markdown files must not exceed 10 MB.");
       throw new Error("Markdown files must not exceed 10 MB.");
     }
+    let archiveImages: MarkdownImportDraft["archiveImages"];
     try {
       const draft: MarkdownImportDraft = parseMarkdownImport(
         file.name,
         new Uint8Array(await file.arrayBuffer()),
       );
       draft.originalDocument = original;
+      archiveImages = webArchiveDraftImages(file, draft.imageReferences, {
+        contentMd: draft.contentMd,
+        maxMarkdownBytes: NOTE_CONTENT_MAX_BYTES,
+        maxImages: NOTE_NEW_IMAGE_MAX_COUNT,
+        maxImageBytes: NOTE_IMAGE_MAX_BYTES,
+        maxSaveBytes: NOTE_SAVE_MAX_BYTES,
+        imageScheme: "retex-upload",
+        imageUrlPrefix: "/api/uploads/notes/",
+      });
+      if (archiveImages) draft.archiveImages = archiveImages;
       openDraft({
         type,
         folderId: selectedFolderId,
@@ -554,6 +584,7 @@ export function ArchiveWorkspace({
         title: draft.title,
       });
     } catch (caught) {
+      for (const image of archiveImages ?? []) URL.revokeObjectURL(image.previewUrl);
       setNavigationError(getErrorMessage(caught));
       throw caught;
     }

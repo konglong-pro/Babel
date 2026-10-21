@@ -62,7 +62,7 @@ $results | ConvertTo-Json -Depth 5 -Compress
     assert.equal(documents.length, desktopBindings.length);
     for (const [index, document] of documents.entries()) {
       const settings = parseShortcutSettings(document);
-      assert.equal(settings.schemaVersion, 8);
+      assert.equal(settings.schemaVersion, 9);
       assert.equal(settings.bindings.closeTab, desktopBindings[index]);
       assert.equal(settings.bindings.save, "Ctrl+S");
     }
@@ -79,13 +79,17 @@ test("native window settings migrate v7 without claiming custom keys and preserv
   const isWindowCommand = (command: string) => WINDOW_SHORTCUT_COMMANDS.includes(command as typeof WINDOW_SHORTCUT_COMMANDS[number]);
   const legacy = {
     schemaVersion: 7,
-    bindings: Object.fromEntries(Object.entries(defaults.bindings).filter(([command]) => !isWindowCommand(command))),
+    bindings: Object.fromEntries(Object.entries(defaults.bindings).filter(([command]) => command !== "pdfLibrary" && !isWindowCommand(command))),
     layers: { app: {}, edit: {}, read: {}, launcher: Object.fromEntries(Object.entries(defaults.layers.launcher).filter(([command]) => !isWindowCommand(command))) },
+  };
+  const versionEight = {
+    ...defaults, schemaVersion: 8,
+    bindings: Object.fromEntries(Object.entries(defaults.bindings).filter(([command]) => command !== "pdfLibrary")),
   };
   const fixtures: unknown[] = [
     legacy,
     { ...legacy, bindings: { ...legacy.bindings, closeTab: "Ctrl+Alt+W", save: null } },
-    { ...defaults, bindings: { ...defaults.bindings, minimizeWindow: null, closeWindow: "Ctrl+J Q" },
+    { ...versionEight, bindings: { ...versionEight.bindings, minimizeWindow: null, closeWindow: "Ctrl+J Q" },
       layers: { ...defaults.layers, read: { toggleMaximizeWindow: "W W" },
         launcher: { ...defaults.layers.launcher, closeWindow: null, minimizeWindow: "W M" } } },
   ];
