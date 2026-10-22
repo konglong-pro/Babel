@@ -23,6 +23,54 @@
 }
 
 body { background: var(--forest); }
+/* Detached readers inherit the forest background and need a light ink palette. */
+body.babel-detached-reader-window {
+  --paper: var(--forest);
+  --paper-deep: #082919;
+  --paper-raised: #0b351b;
+  --paper-muted: #123e25;
+  --ink: #f5f8ed;
+  --ink-soft: #d8e5cd;
+  --ink-faint: #bfd0b1;
+  --blue: #c9f899;
+  --blue-hover: #e0ffb4;
+  --blue-soft: #214c2b;
+  --blue-line: #779e58;
+  --rust: #c4e68c;
+  --line: #42664b;
+  --line-strong: #6d8b67;
+  --focus: var(--lime);
+  --cream: var(--paper-muted);
+  --night: var(--ink);
+  color: var(--ink);
+}
+body.babel-detached-reader-window .markdown-body blockquote,
+body.babel-detached-reader-window .markdown-body pre,
+body.babel-detached-reader-window .markdown-body :not(pre) > code {
+  background: var(--paper-muted);
+  color: var(--ink);
+}
+body.babel-detached-reader-window .markdown-body :not(pre) > code {
+  border-color: var(--line-strong);
+}
+body.babel-detached-reader-window .markdown-body th {
+  background: var(--blue-soft);
+}
+body.babel-detached-reader-window .outline-panel button:hover:not(:disabled),
+body.babel-detached-reader-window .babel-reader-annotations__toolbar button:hover:not(:disabled),
+body.babel-detached-reader-window .babel-reader-annotations__entry:hover:not(:disabled),
+body.babel-detached-reader-window .babel-keyboard-status button:hover:not(:disabled) {
+  border-color: var(--blue-line);
+  background: var(--blue-soft);
+  color: var(--ink);
+}
+body.babel-detached-reader-window .babel-keyboard-status button:focus-visible {
+  outline-color: var(--focus);
+}
+body.babel-detached-reader-window .babel-reader-annotations__error,
+body.babel-detached-reader-window .form-error {
+  color: #ffb8b8;
+}
 ::selection { background: #c3f16c; color: var(--forest); }
 button { border-radius: 5px; }
 button:hover:not(:disabled) { background: #e5edcc; border-color: #8da76c; }
