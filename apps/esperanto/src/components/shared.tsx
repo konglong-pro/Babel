@@ -5,10 +5,12 @@ import { type ReactNode, useRef, useState } from "react";
 import type { FolderDto } from "@/lib/types";
 
 export function Tags({ tags }: { tags: string[] }) {
-  if (tags.length === 0) return <span className="muted no-tags">No tags</span>;
+  if (tags.length === 0) {
+    return <span className="muted no-tags" data-search-field="tags">No tags</span>;
+  }
 
   return (
-    <ul className="tag-list" aria-label="Tags">
+    <ul className="tag-list" data-search-field="tags" aria-label="Tags">
       {tags.map((tag, index) => (
         <li key={`${tag}-${index}`}>{tag}</li>
       ))}
@@ -56,6 +58,7 @@ export function ConfirmButton({
     <>
       <button
         className={className}
+        data-babel-command="delete"
         type="button"
         disabled={disabled}
         onClick={() => dialogRef.current?.showModal()}
@@ -73,10 +76,10 @@ export function ConfirmButton({
             </p>
           ) : null}
           <div className="dialog-actions">
-            <button type="button" onClick={() => dialogRef.current?.close()}>
+            <button data-babel-command="cancel" type="button" onClick={() => dialogRef.current?.close()}>
               Cancel
             </button>
-            <button className="danger-button" type="button" disabled={pending} onClick={confirm}>
+            <button data-babel-command="confirm" className="danger-button" type="button" disabled={pending} onClick={confirm}>
               {pending ? "Working…" : confirmLabel}
             </button>
           </div>

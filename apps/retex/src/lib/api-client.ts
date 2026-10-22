@@ -1,10 +1,14 @@
+import type { StagedImage } from "@babel-apps/markdown/react";
+
 import type {
+  BacklinksDto,
   ExerciseDetailDto,
   ExerciseSummaryDto,
   FolderDto,
   FolderType,
   KnowledgeDetailDto,
   KnowledgeSummaryDto,
+  NoteTitleDto,
   ScratchSolutionDto,
   SearchResultsDto,
 } from "@/lib/types";
@@ -60,6 +64,20 @@ function jsonBody(value: unknown): Pick<RequestInit, "body"> {
   return { body: JSON.stringify(value) };
 }
 
+function markdownMutationBody(
+  value: unknown,
+  stagedImages: readonly StagedImage[],
+): Pick<RequestInit, "body"> {
+  if (stagedImages.length === 0) return jsonBody(value);
+
+  const formData = new FormData();
+  formData.set("payload", JSON.stringify(value));
+  for (const image of stagedImages) {
+    formData.set(`image:${image.token}`, image.file);
+  }
+  return { body: formData };
+}
+
 export function getErrorMessage(error: unknown): string {
   return error instanceof Error
     ? error.message
@@ -83,7 +101,7 @@ export function createFolder(input: {
 
 export function updateFolder(
   id: number,
-  input: { name?: string; parentId?: number | null },
+  input: { name?: string; parentId?: number | null; position?: number },
 ): Promise<FolderDto> {
   return request(`/api/folders/${id}`, {
     method: "PATCH",
@@ -104,23 +122,52 @@ export function getKnowledge(id: number): Promise<KnowledgeDetailDto> {
   return request(`/api/knowledge/${id}`);
 }
 
+export function getKnowledgeBacklinks(id: number): Promise<BacklinksDto> {
+  return request(`/api/knowledge/${id}/backlinks`);
+}
+
 export interface KnowledgeInput {
   folderId: number;
+  parentId: number | null;
   title: string;
   contentMd: string;
   tags: string[];
   exerciseIds: number[];
 }
 
-export function createKnowledge(input: KnowledgeInput): Promise<KnowledgeDetailDto> {
-  return request("/api/knowledge", { method: "POST", ...jsonBody(input) });
+export function createKnowledge(
+  input: KnowledgeInput,
+  stagedImages: readonly StagedImage[] = [],
+): Promise<KnowledgeDetailDto> {
+  return request("/api/knowledge", {
+    method: "POST",
+    ...markdownMutationBody(input, stagedImages),
+  });
 }
 
 export function updateKnowledge(
   id: number,
   input: KnowledgeInput,
+  stagedImages: readonly StagedImage[] = [],
 ): Promise<KnowledgeDetailDto> {
-  return request(`/api/knowledge/${id}`, { method: "PATCH", ...jsonBody(input) });
+  return request(`/api/knowledge/${id}`, {
+    method: "PATCH",
+    ...markdownMutationBody(input, stagedImages),
+  });
+}
+
+export function moveKnowledge(id: number, folderId: number): Promise<KnowledgeDetailDto> {
+  return request(`/api/knowledge/${id}`, {
+    method: "PATCH",
+    ...jsonBody({ folderId, parentId: null }),
+  });
+}
+
+export function reorderKnowledge(id: number, position: number): Promise<KnowledgeDetailDto> {
+  return request(`/api/knowledge/${id}`, {
+    method: "PATCH",
+    ...jsonBody({ position }),
+  });
 }
 
 export function deleteKnowledge(id: number): Promise<void> {
@@ -136,37 +183,57 @@ export function getExercise(id: number): Promise<ExerciseDetailDto> {
   return request(`/api/exercises/${id}`);
 }
 
+export function getExerciseBacklinks(id: number): Promise<BacklinksDto> {
+  return request(`/api/exercises/${id}/backlinks`);
+}
+
 export interface ExerciseInput {
   folderId: number;
   title: string;
-  imagePath: string;
+  problemMd: string;
   answerMd: string;
   solutionMd: string;
   tags: string[];
   knowledgeIds: number[];
 }
 
-export function createExercise(input: ExerciseInput): Promise<ExerciseDetailDto> {
-  return request("/api/exercises", { method: "POST", ...jsonBody(input) });
+export function createExercise(
+  input: ExerciseInput,
+  stagedImages: readonly StagedImage[] = [],
+): Promise<ExerciseDetailDto> {
+  return request("/api/exercises", {
+    method: "POST",
+    ...markdownMutationBody(input, stagedImages),
+  });
 }
 
 export function updateExercise(
   id: number,
   input: ExerciseInput,
+  stagedImages: readonly StagedImage[] = [],
 ): Promise<ExerciseDetailDto> {
-  return request(`/api/exercises/${id}`, { method: "PATCH", ...jsonBody(input) });
+  return request(`/api/exercises/${id}`, {
+    method: "PATCH",
+    ...markdownMutationBody(input, stagedImages),
+  });
+}
+
+export function moveExercise(id: number, folderId: number): Promise<ExerciseDetailDto> {
+  return request(`/api/exercises/${id}`, {
+    method: "PATCH",
+    ...jsonBody({ folderId }),
+  });
+}
+
+export function reorderExercise(id: number, position: number): Promise<ExerciseDetailDto> {
+  return request(`/api/exercises/${id}`, {
+    method: "PATCH",
+    ...jsonBody({ position }),
+  });
 }
 
 export function deleteExercise(id: number): Promise<void> {
   return request(`/api/exercises/${id}`, { method: "DELETE" });
-}
-
-export function uploadExerciseImage(
-  file: File,
-): Promise<{ imagePath: string; url: string }> {
-  const formData = new FormData();
-  formData.set("file", file);
-  return request("/api/uploads/exercises", { method: "POST", body: formData });
 }
 
 export async function getScratch(exerciseId: number): Promise<ScratchSolutionDto | null> {
@@ -192,6 +259,28 @@ export function deleteScratch(exerciseId: number): Promise<void> {
   return request(`/api/exercises/${exerciseId}/scratch`, { method: "DELETE" });
 }
 
-export function searchArchive(query: string): Promise<SearchResultsDto> {
-  return request(`/api/search?q=${encodeURIComponent(query)}`);
+export function searchArchive(
+  query: string,
+  options: {
+    limit?: number;
+    knowledgeOffset?: number;
+    exerciseOffset?: number;
+  } = {},
+): Promise<SearchResultsDto> {
+  const params = new URLSearchParams({ q: query });
+  if (options.limit !== undefined) params.set("limit", String(options.limit));
+  if (options.knowledgeOffset !== undefined) {
+    params.set("knowledgeOffset", String(options.knowledgeOffset));
+  }
+  if (options.exerciseOffset !== undefined) {
+    params.set("exerciseOffset", String(options.exerciseOffset));
+  }
+  return request(`/api/search?${params}`);
+}
+
+export function listNoteTitles(
+  query: string,
+  signal?: AbortSignal,
+): Promise<NoteTitleDto[]> {
+  return request(`/api/titles?q=${encodeURIComponent(query)}`, { signal });
 }

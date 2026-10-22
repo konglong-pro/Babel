@@ -1,7 +1,14 @@
 /data/
 /node_modules/
+/.runtime/
+**/__pycache__/
+**/.venv/
+/.new-app.lock
+/launcher/.webview2/
 **/node_modules/
 **/.next/
+**/public/_typst/
+**/public/_pdf/
 **/output/
 **/*.tsbuildinfo
 **/*.log

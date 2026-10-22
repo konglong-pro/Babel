@@ -1,17 +1,24 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "beefa6c8-cc5d-448a-892b-4af0062ca629",
+  "id": "ae5061e9-2814-4f46-915b-ec06df820477",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
-    "category": {
-      "name": "category",
+    "folder": {
+      "name": "folder",
       "columns": {
         "id": {
           "name": "id",
-          "type": "text",
+          "type": "integer",
           "primaryKey": true,
           "notNull": true,
+          "autoincrement": true
+        },
+        "parent_id": {
+          "name": "parent_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "name": {
@@ -21,15 +28,82 @@
           "notNull": true,
           "autoincrement": false
         },
-        "order": {
-          "name": "order",
-          "type": "integer",
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {
+        "folder_parent_idx": {
+          "name": "folder_parent_idx",
+          "columns": [
+            "parent_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "folder_parent_id_folder_id_fk": {
+          "name": "folder_parent_id_folder_id_fk",
+          "tableFrom": "folder",
+          "tableTo": "folder",
+          "columnsFrom": [
+            "parent_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "folder_name_not_blank": {
+          "name": "folder_name_not_blank",
+          "value": "length(trim(\"folder\".\"name\")) > 0"
+        }
+      }
+    },
+    "document_image": {
+      "name": "document_image",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "note_id": {
+          "name": "note_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
-        "content": {
-          "name": "content",
+        "reflection_date": {
+          "name": "reflection_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "image_path": {
+          "name": "image_path",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -40,54 +114,224 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
         }
       },
       "indexes": {
-        "category_name_unique": {
-          "name": "category_name_unique",
+        "document_image_note_idx": {
+          "name": "document_image_note_idx",
           "columns": [
-            "name"
+            "note_id"
+          ],
+          "isUnique": false
+        },
+        "document_image_reflection_idx": {
+          "name": "document_image_reflection_idx",
+          "columns": [
+            "reflection_date"
+          ],
+          "isUnique": false
+        },
+        "document_image_path_unique": {
+          "name": "document_image_path_unique",
+          "columns": [
+            "image_path"
           ],
           "isUnique": true
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "document_image_note_id_note_id_fk": {
+          "name": "document_image_note_id_note_id_fk",
+          "tableFrom": "document_image",
+          "tableTo": "note",
+          "columnsFrom": [
+            "note_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "document_image_reflection_date_reflection_date_fk": {
+          "name": "document_image_reflection_date_reflection_date_fk",
+          "tableFrom": "document_image",
+          "tableTo": "reflection",
+          "columnsFrom": [
+            "reflection_date"
+          ],
+          "columnsTo": [
+            "date"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {
-        "category_id_prefix": {
-          "name": "category_id_prefix",
-          "value": "substr(\"category\".\"id\", 1, 4) = 'cat_'"
+        "document_image_path_not_blank": {
+          "name": "document_image_path_not_blank",
+          "value": "length(trim(\"document_image\".\"image_path\")) > 0"
         },
-        "category_order_integer": {
-          "name": "category_order_integer",
-          "value": "typeof(\"category\".\"order\") = 'integer'"
+        "document_image_single_owner": {
+          "name": "document_image_single_owner",
+          "value": "(\"document_image\".\"note_id\" IS NULL) <> (\"document_image\".\"reflection_date\" IS NULL)"
         }
       }
     },
-    "entry": {
-      "name": "entry",
+    "note_link": {
+      "name": "note_link",
       "columns": {
         "id": {
           "name": "id",
-          "type": "text",
+          "type": "integer",
           "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "source_note_id": {
+          "name": "source_note_id",
+          "type": "integer",
+          "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "category_id": {
-          "name": "category_id",
+        "target_title_key": {
+          "name": "target_title_key",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "target_note_id": {
+          "name": "target_note_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "target_reflection_date": {
+          "name": "target_reflection_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {
+        "note_link_source_title_unique": {
+          "name": "note_link_source_title_unique",
+          "columns": [
+            "source_note_id",
+            "target_title_key"
+          ],
+          "isUnique": true
+        },
+        "note_link_target_idx": {
+          "name": "note_link_target_idx",
+          "columns": [
+            "target_note_id"
+          ],
+          "isUnique": false
+        },
+        "note_link_target_reflection_idx": {
+          "name": "note_link_target_reflection_idx",
+          "columns": [
+            "target_reflection_date"
+          ],
+          "isUnique": false
+        },
+        "note_link_title_key_idx": {
+          "name": "note_link_title_key_idx",
+          "columns": [
+            "target_title_key"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "note_link_source_note_id_note_id_fk": {
+          "name": "note_link_source_note_id_note_id_fk",
+          "tableFrom": "note_link",
+          "tableTo": "note",
+          "columnsFrom": [
+            "source_note_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "note_link_target_note_id_note_id_fk": {
+          "name": "note_link_target_note_id_note_id_fk",
+          "tableFrom": "note_link",
+          "tableTo": "note",
+          "columnsFrom": [
+            "target_note_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "note_link_target_reflection_date_reflection_date_fk": {
+          "name": "note_link_target_reflection_date_reflection_date_fk",
+          "tableFrom": "note_link",
+          "tableTo": "reflection",
+          "columnsFrom": [
+            "target_reflection_date"
+          ],
+          "columnsTo": [
+            "date"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "note_link_single_target": {
+          "name": "note_link_single_target",
+          "value": "\"note_link\".\"target_note_id\" IS NULL OR \"note_link\".\"target_reflection_date\" IS NULL"
+        }
+      }
+    },
+    "note": {
+      "name": "note",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "folder_id": {
+          "name": "folder_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "parent_id": {
+          "name": "parent_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "title": {
@@ -97,18 +341,135 @@
           "notNull": true,
           "autoincrement": false
         },
-        "order": {
-          "name": "order",
+        "content_md": {
+          "name": "content_md",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
+        },
+        "tags": {
+          "name": "tags",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+        }
+      },
+      "indexes": {
+        "note_folder_idx": {
+          "name": "note_folder_idx",
+          "columns": [
+            "folder_id"
+          ],
+          "isUnique": false
+        },
+        "note_parent_idx": {
+          "name": "note_parent_idx",
+          "columns": [
+            "parent_id"
+          ],
+          "isUnique": false
+        },
+        "note_title_idx": {
+          "name": "note_title_idx",
+          "columns": [
+            "title"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "note_folder_id_folder_id_fk": {
+          "name": "note_folder_id_folder_id_fk",
+          "tableFrom": "note",
+          "tableTo": "folder",
+          "columnsFrom": [
+            "folder_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "note_parent_id_note_id_fk": {
+          "name": "note_parent_id_note_id_fk",
+          "tableFrom": "note",
+          "tableTo": "note",
+          "columnsFrom": [
+            "parent_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "note_title_not_blank": {
+          "name": "note_title_not_blank",
+          "value": "length(trim(\"note\".\"title\")) > 0"
+        }
+      }
+    },
+    "reflection_link": {
+      "name": "reflection_link",
+      "columns": {
+        "id": {
+          "name": "id",
           "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "source_reflection_date": {
+          "name": "source_reflection_date",
+          "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "content": {
-          "name": "content",
+        "target_title_key": {
+          "name": "target_title_key",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "target_note_id": {
+          "name": "target_note_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "target_reflection_date": {
+          "name": "target_reflection_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "created_at": {
@@ -116,118 +477,88 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
         }
       },
       "indexes": {
-        "entry_category_title_unique": {
-          "name": "entry_category_title_unique",
+        "reflection_link_source_title_unique": {
+          "name": "reflection_link_source_title_unique",
           "columns": [
-            "category_id",
-            "title"
+            "source_reflection_date",
+            "target_title_key"
           ],
           "isUnique": true
+        },
+        "reflection_link_target_note_idx": {
+          "name": "reflection_link_target_note_idx",
+          "columns": [
+            "target_note_id"
+          ],
+          "isUnique": false
+        },
+        "reflection_link_target_reflection_idx": {
+          "name": "reflection_link_target_reflection_idx",
+          "columns": [
+            "target_reflection_date"
+          ],
+          "isUnique": false
+        },
+        "reflection_link_title_key_idx": {
+          "name": "reflection_link_title_key_idx",
+          "columns": [
+            "target_title_key"
+          ],
+          "isUnique": false
         }
       },
       "foreignKeys": {
-        "entry_category_id_category_id_fk": {
-          "name": "entry_category_id_category_id_fk",
-          "tableFrom": "entry",
-          "tableTo": "category",
+        "reflection_link_source_reflection_date_reflection_date_fk": {
+          "name": "reflection_link_source_reflection_date_reflection_date_fk",
+          "tableFrom": "reflection_link",
+          "tableTo": "reflection",
           "columnsFrom": [
-            "category_id"
+            "source_reflection_date"
+          ],
+          "columnsTo": [
+            "date"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "reflection_link_target_note_id_note_id_fk": {
+          "name": "reflection_link_target_note_id_note_id_fk",
+          "tableFrom": "reflection_link",
+          "tableTo": "note",
+          "columnsFrom": [
+            "target_note_id"
           ],
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
-          "onUpdate": "cascade"
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "reflection_link_target_reflection_date_reflection_date_fk": {
+          "name": "reflection_link_target_reflection_date_reflection_date_fk",
+          "tableFrom": "reflection_link",
+          "tableTo": "reflection",
+          "columnsFrom": [
+            "target_reflection_date"
+          ],
+          "columnsTo": [
+            "date"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {
-        "entry_id_prefix": {
-          "name": "entry_id_prefix",
-          "value": "substr(\"entry\".\"id\", 1, 4) = 'ent_'"
-        },
-        "entry_order_integer": {
-          "name": "entry_order_integer",
-          "value": "typeof(\"entry\".\"order\") = 'integer'"
-        }
-      }
-    },
-    "entry_alias": {
-      "name": "entry_alias",
-      "columns": {
-        "entry_id": {
-          "name": "entry_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "alias": {
-          "name": "alias",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "position": {
-          "name": "position",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "entry_alias_entry_alias_unique": {
-          "name": "entry_alias_entry_alias_unique",
-          "columns": [
-            "entry_id",
-            "alias"
-          ],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {
-        "entry_alias_entry_id_entry_id_fk": {
-          "name": "entry_alias_entry_id_entry_id_fk",
-          "tableFrom": "entry_alias",
-          "tableTo": "entry",
-          "columnsFrom": [
-            "entry_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "cascade"
-        }
-      },
-      "compositePrimaryKeys": {
-        "entry_alias_entry_id_position_pk": {
-          "columns": [
-            "entry_id",
-            "position"
-          ],
-          "name": "entry_alias_entry_id_position_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "entry_alias_position_nonnegative": {
-          "name": "entry_alias_position_nonnegative",
-          "value": "\"entry_alias\".\"position\" >= 0"
+        "reflection_link_single_target": {
+          "name": "reflection_link_single_target",
+          "value": "\"reflection_link\".\"target_note_id\" IS NULL OR \"reflection_link\".\"target_reflection_date\" IS NULL"
         }
       }
     },
@@ -241,143 +572,47 @@
           "notNull": true,
           "autoincrement": false
         },
-        "content": {
-          "name": "content",
+        "content_md": {
+          "name": "content_md",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "trash_entry": {
-      "name": "trash_entry",
-      "columns": {
-        "occurrence_id": {
-          "name": "occurrence_id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": true
-        },
-        "deleted_at": {
-          "name": "deleted_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "original_entry_id": {
-          "name": "original_entry_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "snapshot_json": {
-          "name": "snapshot_json",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "legacy_source_name": {
-          "name": "legacy_source_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "trash_entry_legacy_source_unique": {
-          "name": "trash_entry_legacy_source_unique",
-          "columns": [
-            "legacy_source_name"
-          ],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "trash_entry_snapshot_json": {
-          "name": "trash_entry_snapshot_json",
-          "value": "json_valid(\"trash_entry\".\"snapshot_json\")"
-        }
-      }
-    },
-    "vault_config": {
-      "name": "vault_config",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "schema_version": {
-          "name": "schema_version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "autoincrement": false,
+          "default": "''"
         },
         "created_at": {
           "name": "created_at",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
         },
-        "default_category_id": {
-          "name": "default_category_id",
+        "updated_at": {
+          "name": "updated_at",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
+          "autoincrement": false,
+          "default": "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
         }
       },
-      "indexes": {},
-      "foreignKeys": {
-        "vault_config_default_category_id_category_id_fk": {
-          "name": "vault_config_default_category_id_category_id_fk",
-          "tableFrom": "vault_config",
-          "tableTo": "category",
-          "columnsFrom": [
-            "default_category_id"
+      "indexes": {
+        "reflection_updated_idx": {
+          "name": "reflection_updated_idx",
+          "columns": [
+            "updated_at"
           ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "cascade"
+          "isUnique": false
         }
       },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {
-        "vault_config_singleton": {
-          "name": "vault_config_singleton",
-          "value": "\"vault_config\".\"id\" = 1"
-        },
-        "vault_config_schema_version": {
-          "name": "vault_config_schema_version",
-          "value": "\"vault_config\".\"schema_version\" = 1"
+        "reflection_date_valid": {
+          "name": "reflection_date_valid",
+          "value": "\"reflection\".\"date\" GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' AND strftime('%Y-%m-%d', \"reflection\".\"date\") = \"reflection\".\"date\""
         }
       }
     }

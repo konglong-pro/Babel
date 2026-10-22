@@ -1,0 +1,26 @@
+{
+  "name": "@babel-apps/pdf",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./react": "./src/react.tsx",
+    "./excerpts": "./src/excerpts.tsx",
+    "./core": "./src/core.ts",
+    "./pdf.css": "./src/pdf.css"
+  },
+  "scripts": {
+    "assets:sync": "tsx scripts/sync-public-assets.ts",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit --incremental false",
+    "test": "tsx --test tests/*.test.ts",
+    "check": "npm run lint && npm run typecheck && npm run test"
+  },
+  "dependencies": {
+    "@babel-apps/platform": "0.1.0",
+    "next": "^16.2.10",
+    "pdfjs-dist": "6.4.299",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  }
+}

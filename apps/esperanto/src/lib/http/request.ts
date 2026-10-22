@@ -1,70 +1,70 @@
+import {
+  hasOwn,
+  type JsonObject,
+} from "@babel-apps/platform/http/request";
+
 import { ApiError } from "@/lib/http/errors";
+import {
+  NOTE_MULTIPART_WIRE_MAX_BYTES,
+  NOTE_NEW_IMAGE_MAX_COUNT,
+} from "@/lib/note-limits";
 import { assertUploadToken, type NoteImageUpload } from "@/lib/storage";
 
-export type JsonObject = Record<string, unknown>;
+export {
+  assertOnlyFields,
+  assertPatchHasFields,
+  assertSameOrigin,
+  optionalNullablePositiveInteger,
+  optionalNonNegativeInteger,
+  optionalPositiveInteger,
+  optionalString,
+  parsePositiveInteger,
+  readJsonObject,
+  requiredPositiveInteger,
+  requiredString,
+  type JsonObject,
+} from "@babel-apps/platform/http/request";
 
 export interface NoteMultipartRequest {
   payload: JsonObject;
   uploads: Map<string, NoteImageUpload>;
 }
 
-function hasOwn(value: JsonObject, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(value, key);
-}
-
-export function assertSameOrigin(request: Request): void {
-  let requestUrl: URL;
-  try {
-    requestUrl = new URL(request.url);
-  } catch {
-    throw new ApiError(403, "FORBIDDEN_ORIGIN", "Cross-origin mutations are not allowed.");
-  }
-  if (!["localhost", "127.0.0.1", "[::1]", "::1"].includes(requestUrl.hostname)) {
-    throw new ApiError(403, "FORBIDDEN_ORIGIN", "Cross-origin mutations are not allowed.");
-  }
-
-  const origin = request.headers.get("origin");
-  if (origin === null) return;
-
-  let requestOrigin: string;
-  let suppliedOrigin: string;
-  try {
-    requestOrigin = requestUrl.origin;
-    suppliedOrigin = new URL(origin).origin;
-  } catch {
-    throw new ApiError(
-      403,
-      "FORBIDDEN_ORIGIN",
-      "Cross-origin mutations are not allowed.",
-    );
-  }
-
-  if (suppliedOrigin !== requestOrigin) {
-    throw new ApiError(
-      403,
-      "FORBIDDEN_ORIGIN",
-      "Cross-origin mutations are not allowed.",
-    );
-  }
-}
-
-export async function readJsonObject(request: Request): Promise<JsonObject> {
-  let value: unknown;
-  try {
-    value = await request.json();
-  } catch {
-    throw new ApiError(400, "INVALID_JSON", "The request body must be a valid JSON object.");
-  }
-  return asJsonObject(value, "The request body must be a JSON object.");
-}
-
 export async function readNoteMultipart(
   request: Request,
+  wireLimitBytes = NOTE_MULTIPART_WIRE_MAX_BYTES,
 ): Promise<NoteMultipartRequest> {
+  assertMultipartWireSize(request.headers.get("content-length"), wireLimitBytes);
+
   let formData: FormData;
+  let sizeError: ApiError | undefined;
   try {
-    formData = await request.formData();
+    if (request.body === undefined || request.body === null) {
+      // Minimal Request-shaped test doubles do not expose a body stream. Real
+      // HTTP requests always take the byte-counted stream path below.
+      formData = await request.formData();
+    } else {
+      let receivedBytes = 0;
+      const countedBody = request.body.pipeThrough(
+        new TransformStream<Uint8Array, Uint8Array>({
+          transform(chunk, controller) {
+            receivedBytes += chunk.byteLength;
+            if (receivedBytes > wireLimitBytes) {
+              sizeError = multipartWireSizeError(wireLimitBytes);
+              controller.error(sizeError);
+              return;
+            }
+            controller.enqueue(chunk);
+          },
+        }),
+      );
+      const headers = new Headers();
+      const contentType = request.headers.get("content-type");
+      if (contentType !== null) headers.set("content-type", contentType);
+      formData = await new Response(countedBody, { headers }).formData();
+    }
   } catch {
+    if (sizeError !== undefined) throw sizeError;
     throw new ApiError(
       400,
       "INVALID_MULTIPART",
@@ -106,6 +106,13 @@ export async function readNoteMultipart(
         field,
       });
     }
+    if (uploads.size >= NOTE_NEW_IMAGE_MAX_COUNT) {
+      throw new ApiError(
+        413,
+        "TOO_MANY_IMAGES",
+        "A note save may include at most 50 new images.",
+      );
+    }
     const token = field.slice("image:".length);
     assertUploadToken(token);
     if (uploads.has(token)) {
@@ -124,69 +131,36 @@ export async function readNoteMultipart(
   return { payload, uploads };
 }
 
-export function parsePositiveInteger(value: string, field: string): number {
-  if (!/^\d+$/.test(value)) {
-    throw new ApiError(400, "VALIDATION_ERROR", `${field} must be a positive integer.`, {
-      field,
-    });
-  }
-  const parsed = Number(value);
-  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
-    throw new ApiError(400, "VALIDATION_ERROR", `${field} must be a positive integer.`, {
-      field,
-    });
-  }
-  return parsed;
+function multipartWireSizeError(wireLimitBytes: number): ApiError {
+  const mebibyte = 1024 * 1024;
+  const displayLimit =
+    wireLimitBytes % mebibyte === 0
+      ? `${wireLimitBytes / mebibyte} MiB`
+      : `${wireLimitBytes} bytes`;
+  return new ApiError(
+    413,
+    "REQUEST_TOO_LARGE",
+    `The multipart request body must not exceed ${displayLimit}.`,
+  );
 }
 
-export function requiredString(body: JsonObject, field: string): string {
-  const value = body[field];
-  if (typeof value !== "string" || value.trim().length === 0) {
-    throw new ApiError(400, "VALIDATION_ERROR", `${field} is required.`, { field });
-  }
-  return value.trim();
-}
+function assertMultipartWireSize(
+  contentLength: string | null,
+  wireLimitBytes: number,
+): void {
+  if (contentLength === null) return;
+  const normalized = contentLength.trim();
+  if (!/^\d+$/.test(normalized)) return;
 
-export function optionalString(
-  body: JsonObject,
-  field: string,
-  options: { allowEmpty?: boolean; trim?: boolean } = {},
-): string | undefined {
-  if (!hasOwn(body, field)) return undefined;
-  const value = body[field];
-  if (typeof value !== "string") {
-    throw new ApiError(400, "VALIDATION_ERROR", `${field} must be a string.`, { field });
+  let parsed: bigint;
+  try {
+    parsed = BigInt(normalized);
+  } catch {
+    return;
   }
-  const normalized = options.trim === false ? value : value.trim();
-  if (options.allowEmpty !== true && normalized.length === 0) {
-    throw new ApiError(400, "VALIDATION_ERROR", `${field} is required.`, { field });
+  if (parsed > BigInt(wireLimitBytes)) {
+    throw multipartWireSizeError(wireLimitBytes);
   }
-  return normalized;
-}
-
-export function requiredPositiveInteger(body: JsonObject, field: string): number {
-  const value = body[field];
-  if (!Number.isSafeInteger(value) || (value as number) <= 0) {
-    throw new ApiError(400, "VALIDATION_ERROR", `${field} must be a positive integer.`, {
-      field,
-    });
-  }
-  return value as number;
-}
-
-export function optionalPositiveInteger(
-  body: JsonObject,
-  field: string,
-): number | undefined {
-  return hasOwn(body, field) ? requiredPositiveInteger(body, field) : undefined;
-}
-
-export function optionalNullablePositiveInteger(
-  body: JsonObject,
-  field: string,
-): number | null | undefined {
-  if (!hasOwn(body, field)) return undefined;
-  return body[field] === null ? null : requiredPositiveInteger(body, field);
 }
 
 export function optionalStringArray(
@@ -201,24 +175,6 @@ export function optionalStringArray(
     });
   }
   return [...value] as string[];
-}
-
-export function assertOnlyFields(body: JsonObject, allowed: readonly string[]): void {
-  const unknown = Object.keys(body).find((field) => !allowed.includes(field));
-  if (unknown) {
-    throw new ApiError(400, "VALIDATION_ERROR", `Unexpected field: ${unknown}.`, {
-      field: unknown,
-    });
-  }
-}
-
-export function assertPatchHasFields(
-  patch: Record<string, unknown>,
-  message = "At least one field must be provided for update.",
-): void {
-  if (Object.values(patch).every((value) => value === undefined)) {
-    throw new ApiError(400, "VALIDATION_ERROR", message);
-  }
 }
 
 function asJsonObject(value: unknown, message: string): JsonObject {

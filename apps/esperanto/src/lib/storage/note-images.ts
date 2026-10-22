@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import {
   mkdir,
+  lstat,
+  readdir,
   readFile,
   rename,
   rm,
@@ -10,11 +12,24 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 
+import {
+  NOTE_CONTENT_MAX_BYTES,
+  NOTE_IMAGE_MAX_BYTES,
+  NOTE_NEW_IMAGE_MAX_COUNT,
+  NOTE_SAVE_MAX_BYTES,
+  utf8ByteLength,
+} from "@/lib/note-limits";
 import { noteImageUrl } from "@/lib/types";
 
 import { ImageStorageError } from "./errors";
 
-export const NOTE_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+export {
+  NOTE_CONTENT_MAX_BYTES,
+  NOTE_IMAGE_MAX_BYTES,
+  NOTE_MULTIPART_WIRE_MAX_BYTES,
+  NOTE_NEW_IMAGE_MAX_COUNT,
+  NOTE_SAVE_MAX_BYTES,
+} from "@/lib/note-limits";
 export const NOTE_IMAGE_DIRECTORY = "data/uploads/notes";
 export const NOTE_UPLOAD_PLACEHOLDER_PREFIX = "esperanto-upload://";
 
@@ -79,6 +94,10 @@ const formatsByExtension: Readonly<Record<string, ImageFormat | undefined>> = {
 };
 
 const uploadTokenPattern = /^[A-Za-z0-9_-]{1,128}$/;
+const generatedImageFileNamePattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(?:png|jpg|webp|gif)$/;
+const generatedTransactionDirectoryPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 export async function saveNoteImage(upload: NoteImageUpload): Promise<string> {
   const declaredType = upload.type.toLowerCase() as NoteImageMimeType;
@@ -89,14 +108,9 @@ export async function saveNoteImage(upload: NoteImageUpload): Promise<string> {
       "Note images must be PNG, JPEG, WebP, or GIF.",
     );
   }
-  if (!Number.isSafeInteger(upload.size) || upload.size < 0) {
-    throw new ImageStorageError("INVALID_CONTENT", "Invalid image size.");
-  }
+  assertDeclaredImageSize(upload.size);
   if (upload.size === 0) {
     throw new ImageStorageError("EMPTY_FILE", "The image file is empty.");
-  }
-  if (upload.size > NOTE_IMAGE_MAX_BYTES) {
-    throw new ImageStorageError("FILE_TOO_LARGE", "Image files must not exceed 10 MB.");
   }
 
   const data = Buffer.from(await upload.arrayBuffer());
@@ -104,7 +118,7 @@ export async function saveNoteImage(upload: NoteImageUpload): Promise<string> {
     throw new ImageStorageError("EMPTY_FILE", "The image file is empty.");
   }
   if (data.byteLength > NOTE_IMAGE_MAX_BYTES) {
-    throw new ImageStorageError("FILE_TOO_LARGE", "Image files must not exceed 10 MB.");
+    throw new ImageStorageError("FILE_TOO_LARGE", "Image files must not exceed 10 MiB.");
   }
   if (data.byteLength !== upload.size) {
     throw new ImageStorageError(
@@ -168,6 +182,58 @@ export async function deleteNoteImage(
 
 export async function deleteNoteImages(imagePaths: readonly string[]): Promise<void> {
   await Promise.all(imagePaths.map((imagePath) => deleteNoteImage(imagePath)));
+}
+
+export async function reconcileNoteImageStorage(
+  ownedImagePaths: ReadonlySet<string>,
+): Promise<void> {
+  const uploadRoot = resolveNoteImageRoot();
+  const stagingRoot = path.join(uploadRoot, ".staging");
+  await mkdir(uploadRoot, { recursive: true });
+
+  const transactions = await readDirectoryEntries(stagingRoot);
+  for (const transaction of transactions) {
+    if (
+      !transaction.isDirectory() ||
+      !generatedTransactionDirectoryPattern.test(transaction.name)
+    ) {
+      continue;
+    }
+    const transactionDirectory = path.join(stagingRoot, transaction.name);
+    const stagedFiles = await readDirectoryEntries(transactionDirectory);
+    for (const stagedFile of stagedFiles) {
+      if (
+        !stagedFile.isFile() ||
+        !generatedImageFileNamePattern.test(stagedFile.name)
+      ) {
+        continue;
+      }
+      const imagePath = `${NOTE_IMAGE_DIRECTORY}/${stagedFile.name}`;
+      const stagedPath = path.join(transactionDirectory, stagedFile.name);
+      if (!ownedImagePaths.has(imagePath)) {
+        await unlinkIfPresent(stagedPath);
+        continue;
+      }
+
+      const finalPath = path.join(uploadRoot, stagedFile.name);
+      if (await fileExists(finalPath)) {
+        await unlinkIfPresent(stagedPath);
+      } else {
+        await rename(stagedPath, finalPath);
+      }
+    }
+    await removeDirectoryIfEmpty(transactionDirectory);
+  }
+  await removeDirectoryIfEmpty(stagingRoot);
+
+  const finalEntries = await readDirectoryEntries(uploadRoot);
+  for (const entry of finalEntries) {
+    if (!entry.isFile() || !generatedImageFileNamePattern.test(entry.name)) continue;
+    const imagePath = `${NOTE_IMAGE_DIRECTORY}/${entry.name}`;
+    if (!ownedImagePaths.has(imagePath)) {
+      await unlinkIfPresent(path.join(uploadRoot, entry.name));
+    }
+  }
 }
 
 export async function quarantineNoteImages(
@@ -249,6 +315,7 @@ export async function stageNoteImages(
   contentMd: string,
   uploads: ReadonlyMap<string, NoteImageUpload>,
 ): Promise<StagedNoteImages> {
+  assertNoteSaveLimits(contentMd, uploads);
   const tokens = uploadTokensInMarkdown(contentMd);
   if (tokens.size !== uploads.size || [...tokens].some((token) => !uploads.has(token))) {
     throw new ImageStorageError(
@@ -269,17 +336,7 @@ export async function stageNoteImages(
     (result): result is PromiseRejectedResult => result.status === "rejected",
   );
   if (failed) {
-    let quarantine: NoteImageQuarantine;
-    try {
-      quarantine = await quarantineNoteImages(imagePaths);
-    } catch (cleanupError) {
-      throw new AggregateError(
-        [failed.reason, cleanupError],
-        "Image staging failed and completed uploads could not be quarantined.",
-      );
-    }
-    await finalizeQuarantinedNoteImages(quarantine);
-    throw failed.reason;
+    await discardStagedNoteImages(imagePaths, failed.reason);
   }
 
   let updatedContent = contentMd;
@@ -290,7 +347,75 @@ export async function stageNoteImages(
     );
   });
 
+  try {
+    assertNoteSaveLimits(updatedContent, uploads);
+  } catch (error) {
+    await discardStagedNoteImages(imagePaths, error);
+  }
+
   return { contentMd: updatedContent, imagePaths };
+}
+
+export function assertNoteSaveLimits(
+  contentMd: string,
+  uploads: ReadonlyMap<string, NoteImageUpload>,
+): void {
+  const contentBytes = assertNoteContentSize(contentMd);
+  if (uploads.size > NOTE_NEW_IMAGE_MAX_COUNT) {
+    throw new ImageStorageError(
+      "TOO_MANY_IMAGES",
+      "A note save may include at most 50 new images.",
+    );
+  }
+
+  let logicalBytes = contentBytes;
+  for (const upload of uploads.values()) {
+    assertDeclaredImageSize(upload.size);
+    logicalBytes += upload.size;
+    if (logicalBytes > NOTE_SAVE_MAX_BYTES) {
+      throw new ImageStorageError(
+        "REQUEST_TOO_LARGE",
+        "Markdown content and new images must not exceed 100 MiB in total.",
+      );
+    }
+  }
+}
+
+function assertNoteContentSize(contentMd: string): number {
+  const bytes = utf8ByteLength(contentMd);
+  if (bytes > NOTE_CONTENT_MAX_BYTES) {
+    throw new ImageStorageError(
+      "CONTENT_TOO_LARGE",
+      "Markdown content must not exceed 10 MiB.",
+    );
+  }
+  return bytes;
+}
+
+function assertDeclaredImageSize(size: number): void {
+  if (!Number.isSafeInteger(size) || size < 0) {
+    throw new ImageStorageError("INVALID_CONTENT", "Invalid image size.");
+  }
+  if (size > NOTE_IMAGE_MAX_BYTES) {
+    throw new ImageStorageError("FILE_TOO_LARGE", "Image files must not exceed 10 MiB.");
+  }
+}
+
+async function discardStagedNoteImages(
+  imagePaths: readonly string[],
+  cause: unknown,
+): Promise<never> {
+  let quarantine: NoteImageQuarantine;
+  try {
+    quarantine = await quarantineNoteImages(imagePaths);
+  } catch (cleanupError) {
+    throw new AggregateError(
+      [cause, cleanupError],
+      "Image staging failed and completed uploads could not be quarantined.",
+    );
+  }
+  await finalizeQuarantinedNoteImages(quarantine);
+  throw cause;
 }
 
 export function assertUploadToken(token: string): void {
@@ -634,6 +759,54 @@ function detectImageFormat(data: Buffer): ImageFormat | null {
     data.subarray(8, 12).toString("ascii") === "WEBP"
   ) return formatsByMimeType["image/webp"];
   return null;
+}
+
+async function readDirectoryEntries(directory: string) {
+  try {
+    return await readdir(directory, { withFileTypes: true });
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    const entry = await lstat(filePath);
+    if (!entry.isFile()) {
+      throw new ImageStorageError(
+        "INVALID_PATH",
+        "A managed image path is occupied by a non-file entry.",
+      );
+    }
+    return true;
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+async function unlinkIfPresent(filePath: string): Promise<void> {
+  try {
+    await unlink(filePath);
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") return;
+    throw error;
+  }
+}
+
+async function removeDirectoryIfEmpty(directory: string): Promise<void> {
+  try {
+    await rmdir(directory);
+  } catch (error) {
+    if (
+      isNodeError(error) &&
+      (error.code === "ENOENT" || error.code === "ENOTEMPTY" || error.code === "EEXIST")
+    ) {
+      return;
+    }
+    throw error;
+  }
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

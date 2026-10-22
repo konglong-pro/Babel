@@ -1,0 +1,35 @@
+.global-search {
+  position: relative;
+}
+
+.babel-search-window-error {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  width: min(320px, 80vw);
+  border: 1px solid #d6a797;
+  background: #f8e5df;
+  box-shadow: 0 6px 18px rgb(38 31 22 / 12%);
+  color: #733526;
+  font-size: 0.72rem;
+  padding: 0.55rem 0.7rem;
+}
+
+.babel-search-focus-target {
+  scroll-margin-block: 5rem;
+  animation: babel-search-focus-pulse 1.2s ease-out 2;
+  outline: 2px solid rgb(176 128 0 / 72%);
+  outline-offset: 0.35rem;
+}
+
+@keyframes babel-search-focus-pulse {
+  0%, 100% { background-color: transparent; }
+  35% { background-color: rgb(244 220 120 / 34%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .babel-search-focus-target {
+    animation: none;
+  }
+}

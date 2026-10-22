@@ -1,22 +1,34 @@
-import { and, asc, desc, eq, ne, sql, type SQL } from "drizzle-orm";
+import { asc, eq, sql, type SQL } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
 import { exercises, knowledgeExercises } from "@/lib/db/schema";
-import {
-  deleteExerciseImage,
-  normalizeStoredExerciseImagePath,
-} from "@/lib/storage";
 import type {
   ExerciseDetailDto,
   ExerciseSummaryDto,
 } from "@/lib/types";
 
 import { RepositoryError } from "./errors";
+import {
+  deleteEntityLinks,
+  listOutgoingNoteLinks,
+  reconcileNoteTitleChange,
+  replaceSourceNoteLinks,
+  resolveIncomingLinksForTitle,
+} from "./links";
+import {
+  applyNoteImageMutation,
+  assertNoteImageDeletionPrepared,
+  deleteNoteImageRows,
+  insertNoteImages,
+  prepareNewNoteImages,
+  prepareNoteImageMutation,
+} from "./note-images";
 import { validateKnowledgeIds } from "./relation-validation";
 import { listExerciseKnowledge } from "./relations";
 import {
   assertPositiveId,
   normalizeMarkdown,
+  normalizeRequiredMarkdown,
   normalizeRequiredText,
   requireFolder,
   tagsFromJson,
@@ -28,7 +40,7 @@ type ExerciseRow = typeof exercises.$inferSelect;
 export interface CreateExerciseInput {
   folderId: number;
   title: string;
-  imagePath: string;
+  problemMd: string;
   answerMd?: string;
   solutionMd?: string;
   tags?: readonly string[];
@@ -38,11 +50,12 @@ export interface CreateExerciseInput {
 export interface UpdateExerciseInput {
   folderId?: number;
   title?: string;
-  imagePath?: string;
+  problemMd?: string;
   answerMd?: string;
   solutionMd?: string;
   tags?: readonly string[];
   knowledgeIds?: readonly number[];
+  position?: number;
 }
 
 export function listExercises(folderId?: number): ExerciseSummaryDto[] {
@@ -52,7 +65,7 @@ export function listExercises(folderId?: number): ExerciseSummaryDto[] {
       .select()
       .from(exercises)
       .where(eq(exercises.folderId, folderId))
-      .orderBy(desc(exercises.updatedAt), asc(exercises.title))
+      .orderBy(asc(exercises.position), asc(exercises.id))
       .all()
       .map(toExerciseSummary);
   }
@@ -60,7 +73,7 @@ export function listExercises(folderId?: number): ExerciseSummaryDto[] {
   return db
     .select()
     .from(exercises)
-    .orderBy(desc(exercises.updatedAt), asc(exercises.title))
+    .orderBy(asc(exercises.position), asc(exercises.id))
     .all()
     .map(toExerciseSummary);
 }
@@ -73,33 +86,51 @@ export function getExercise(id: number): ExerciseDetailDto | null {
     .where(eq(exercises.id, id))
     .get();
 
-  return exercise ? toExerciseDetail(exercise) : null;
+  return exercise
+    ? toExerciseDetail(
+        exercise,
+        listExerciseKnowledge(exercise.id),
+        listOutgoingNoteLinks("exercise", exercise.id),
+      )
+    : null;
 }
 
 export function createExercise(
   input: CreateExerciseInput,
+  newImagePaths: readonly string[] = [],
 ): ExerciseDetailDto {
   requireFolder(input.folderId, "exercise");
   const title = normalizeRequiredText(input.title, "title");
-  const imagePath = normalizeStoredExerciseImagePath(input.imagePath);
+  const problemMd = normalizeRequiredMarkdown(input.problemMd, "problemMd");
   const answerMd = normalizeMarkdown(input.answerMd ?? "", "answerMd");
   const solutionMd = normalizeMarkdown(input.solutionMd ?? "", "solutionMd");
   const tags = tagsToJson(input.tags ?? []);
   const knowledgeIds = validateKnowledgeIds(input.knowledgeIds ?? []);
+  const noteImagePaths = prepareNewNoteImages(
+    [problemMd, answerMd, solutionMd],
+    newImagePaths,
+  );
 
-  const exercise = db.transaction((transaction) => {
+  return db.transaction((transaction) => {
+    transaction.update(exercises)
+      .set({ position: sql`${exercises.position} + 1` })
+      .where(eq(exercises.folderId, input.folderId))
+      .run();
     const row = transaction
       .insert(exercises)
       .values({
         folderId: input.folderId,
         title,
-        imagePath,
+        problemMd,
         answerMd,
         solutionMd,
         tags,
+        position: 0,
       })
       .returning()
       .get();
+
+    insertNoteImages(transaction, "exercise", row.id, noteImagePaths);
 
     if (knowledgeIds.length > 0) {
       transaction
@@ -113,15 +144,25 @@ export function createExercise(
         .run();
     }
 
-    return row;
+    replaceSourceNoteLinks(transaction, "exercise", row.id, [
+      problemMd,
+      answerMd,
+      solutionMd,
+    ]);
+    resolveIncomingLinksForTitle(transaction, title);
+    return toExerciseDetail(
+      row,
+      listExerciseKnowledge(row.id, transaction),
+      listOutgoingNoteLinks("exercise", row.id, transaction),
+    );
   });
-
-  return toExerciseDetail(exercise);
 }
 
 export function updateExercise(
   id: number,
   input: UpdateExerciseInput,
+  newImagePaths: readonly string[] = [],
+  expectedRemovedImagePaths?: readonly string[],
 ): ExerciseDetailDto {
   assertPositiveId(id, "id");
   const current = db
@@ -137,14 +178,28 @@ export function updateExercise(
   const changes: {
     folderId?: number;
     title?: string;
-    imagePath?: string;
+    problemMd?: string;
     answerMd?: string;
     solutionMd?: string;
     tags?: string;
+    position?: number;
     updatedAt: SQL;
   } = { updatedAt: sql`CURRENT_TIMESTAMP` };
-  let hasChanges = false;
+  let hasChanges = newImagePaths.length > 0;
   let relatedKnowledgeIds: number[] | undefined;
+
+  if (
+    newImagePaths.length > 0 &&
+    input.problemMd === undefined &&
+    input.answerMd === undefined &&
+    input.solutionMd === undefined
+  ) {
+    throw new RepositoryError(
+      "VALIDATION",
+      "problemMd, answerMd, or solutionMd is required when adding images.",
+      { field: "problemMd" },
+    );
+  }
 
   if (input.folderId !== undefined) {
     requireFolder(input.folderId, "exercise");
@@ -157,8 +212,8 @@ export function updateExercise(
     hasChanges = true;
   }
 
-  if (input.imagePath !== undefined) {
-    changes.imagePath = normalizeStoredExerciseImagePath(input.imagePath);
+  if (input.problemMd !== undefined) {
+    changes.problemMd = normalizeRequiredMarkdown(input.problemMd, "problemMd");
     hasChanges = true;
   }
 
@@ -182,17 +237,49 @@ export function updateExercise(
     hasChanges = true;
   }
 
-  if (!hasChanges) {
-    return toExerciseDetail(current);
+  const nextFolderId = input.folderId ?? current.folderId;
+  const requestedPosition = input.position === undefined
+    ? undefined
+    : normalizePosition(input.position);
+  const orderPlan = nextFolderId !== current.folderId || requestedPosition !== undefined
+    ? planExerciseOrder(current, nextFolderId, requestedPosition)
+    : null;
+  if (orderPlan !== null) {
+    changes.position = orderPlan.position;
+    hasChanges = true;
   }
 
-  const updated = db.transaction((transaction) => {
+  if (!hasChanges) {
+    return getExercise(id)!;
+  }
+
+  const preparedImages = prepareNoteImageMutation(
+    "exercise",
+    id,
+    [
+      changes.problemMd ?? current.problemMd,
+      changes.answerMd ?? current.answerMd,
+      changes.solutionMd ?? current.solutionMd,
+    ],
+    newImagePaths,
+    expectedRemovedImagePaths,
+  );
+
+  return db.transaction((transaction) => {
+    for (const change of orderPlan?.siblings ?? []) {
+      transaction.update(exercises)
+        .set({ position: change.position })
+        .where(eq(exercises.id, change.id))
+        .run();
+    }
     const row = transaction
       .update(exercises)
       .set(changes)
       .where(eq(exercises.id, id))
       .returning()
       .get();
+
+    applyNoteImageMutation(transaction, "exercise", id, preparedImages);
 
     if (relatedKnowledgeIds !== undefined) {
       transaction
@@ -210,54 +297,107 @@ export function updateExercise(
             })),
           )
           .run();
-      }
+        }
     }
 
-    return row;
+    replaceSourceNoteLinks(transaction, "exercise", id, [
+      changes.problemMd ?? current.problemMd,
+      changes.answerMd ?? current.answerMd,
+      changes.solutionMd ?? current.solutionMd,
+    ]);
+    if (changes.title !== undefined) {
+      reconcileNoteTitleChange(
+        transaction,
+        "exercise",
+        id,
+        current.title,
+        changes.title,
+      );
+    }
+    return toExerciseDetail(
+      row,
+      listExerciseKnowledge(id, transaction),
+      listOutgoingNoteLinks("exercise", id, transaction),
+    );
+  });
+}
+
+export async function deleteExercise(
+  id: number,
+  expectedNoteImagePaths?: readonly string[],
+): Promise<boolean> {
+  assertPositiveId(id, "id");
+  assertNoteImageDeletionPrepared("exercise", id, expectedNoteImagePaths);
+  const deleted = db.transaction((transaction) => {
+    const exercise = transaction
+      .select()
+      .from(exercises)
+      .where(eq(exercises.id, id))
+      .get();
+    if (!exercise) return null;
+
+    deleteNoteImageRows(transaction, "exercise", id);
+    transaction.delete(exercises).where(eq(exercises.id, id)).run();
+    normalizeExerciseFolder(exercise.folderId);
+    deleteEntityLinks(transaction, "exercise", id, exercise.title);
+    return true;
   });
 
-  return toExerciseDetail(updated);
-}
-
-export async function deleteExerciseImageIfUnused(
-  imagePath: string,
-): Promise<boolean> {
-  const normalizedPath = normalizeStoredExerciseImagePath(imagePath);
-  const reference = db
-    .select({ id: exercises.id })
-    .from(exercises)
-    .where(eq(exercises.imagePath, normalizedPath))
-    .get();
-
-  return reference ? false : deleteExerciseImage(normalizedPath);
-}
-
-export async function deleteExercise(id: number): Promise<boolean> {
-  assertPositiveId(id, "id");
-  const exercise = db
-    .select()
-    .from(exercises)
-    .where(eq(exercises.id, id))
-    .get();
-
-  if (!exercise) {
-    return false;
-  }
-
-  const imagePath = normalizeStoredExerciseImagePath(exercise.imagePath);
-  const sharedImage = db
-    .select({ id: exercises.id })
-    .from(exercises)
-    .where(and(eq(exercises.imagePath, imagePath), ne(exercises.id, id)))
-    .get();
-
-  db.delete(exercises).where(eq(exercises.id, id)).run();
-
-  if (!sharedImage) {
-    await deleteExerciseImage(imagePath);
-  }
-
+  if (!deleted) return false;
   return true;
+}
+
+interface ExerciseOrderPlan {
+  position: number;
+  siblings: Array<{ id: number; position: number }>;
+}
+
+function planExerciseOrder(
+  current: ExerciseRow,
+  folderId: number,
+  requestedPosition: number | undefined,
+): ExerciseOrderPlan {
+  const sameFolder = current.folderId === folderId;
+  const sourceIds = orderedExerciseIds(current.folderId).filter((id) => id !== current.id);
+  const targetIds = sameFolder
+    ? sourceIds
+    : orderedExerciseIds(folderId).filter((id) => id !== current.id);
+  const position = Math.min(requestedPosition ?? targetIds.length, targetIds.length);
+  const orderedTargetIds = [...targetIds];
+  orderedTargetIds.splice(position, 0, current.id);
+  return {
+    position,
+    siblings: [
+      ...(sameFolder ? [] : sourceIds.map((id, index) => ({ id, position: index }))),
+      ...orderedTargetIds
+        .map((id, index) => ({ id, position: index }))
+        .filter(({ id }) => id !== current.id),
+    ],
+  };
+}
+
+function orderedExerciseIds(folderId: number): number[] {
+  return db.select({ id: exercises.id })
+    .from(exercises)
+    .where(eq(exercises.folderId, folderId))
+    .orderBy(asc(exercises.position), asc(exercises.id))
+    .all()
+    .map(({ id }) => id);
+}
+
+function normalizeExerciseFolder(folderId: number): void {
+  for (const [position, id] of orderedExerciseIds(folderId).entries()) {
+    db.update(exercises).set({ position }).where(eq(exercises.id, id)).run();
+  }
+}
+
+function normalizePosition(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new RepositoryError("VALIDATION", "position must be a non-negative integer.", {
+      field: "position",
+    });
+  }
+  return value;
 }
 
 function toExerciseSummary(row: ExerciseRow): ExerciseSummaryDto {
@@ -265,18 +405,24 @@ function toExerciseSummary(row: ExerciseRow): ExerciseSummaryDto {
     id: row.id,
     folderId: row.folderId,
     title: row.title,
-    imagePath: row.imagePath,
     tags: tagsFromJson(row.tags),
+    position: row.position,
     updatedAt: row.updatedAt,
   };
 }
 
-function toExerciseDetail(row: ExerciseRow): ExerciseDetailDto {
+function toExerciseDetail(
+  row: ExerciseRow,
+  relatedKnowledge: ExerciseDetailDto["relatedKnowledge"],
+  links: ExerciseDetailDto["links"],
+): ExerciseDetailDto {
   return {
     ...toExerciseSummary(row),
+    problemMd: row.problemMd,
     answerMd: row.answerMd,
     solutionMd: row.solutionMd,
     createdAt: row.createdAt,
-    relatedKnowledge: listExerciseKnowledge(row.id),
+    relatedKnowledge,
+    links,
   };
 }

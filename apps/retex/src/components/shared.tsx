@@ -5,9 +5,11 @@ import { type ReactNode, useMemo, useRef, useState } from "react";
 import type { RelatedItemDto } from "@/lib/types";
 
 export function Tags({ tags }: { tags: string[] }) {
-  if (tags.length === 0) return <span className="muted">No tags</span>;
+  if (tags.length === 0) {
+    return <span className="muted" data-search-field="tags">No tags</span>;
+  }
   return (
-    <ul className="tag-list" aria-label="Tags">
+    <ul className="tag-list" aria-label="Tags" data-search-field="tags">
       {tags.map((tag) => (
         <li key={tag}>{tag}</li>
       ))}
@@ -55,6 +57,7 @@ export function ConfirmButton({
     <>
       <button
         className={className}
+        data-babel-command="delete"
         type="button"
         disabled={disabled}
         onClick={() => dialogRef.current?.showModal()}
@@ -71,10 +74,10 @@ export function ConfirmButton({
             </p>
           ) : null}
           <div className="dialog-actions">
-            <button type="button" onClick={() => dialogRef.current?.close()}>
+            <button data-babel-command="cancel" type="button" onClick={() => dialogRef.current?.close()}>
               Cancel
             </button>
-            <button className="danger-button" type="button" disabled={pending} onClick={confirm}>
+            <button data-babel-command="confirm" className="danger-button" type="button" disabled={pending} onClick={confirm}>
               {pending ? "Working…" : confirmLabel}
             </button>
           </div>
