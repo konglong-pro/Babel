@@ -56,10 +56,7 @@ body.babel-detached-reader-window .markdown-body :not(pre) > code {
 body.babel-detached-reader-window .markdown-body th {
   background: var(--blue-soft);
 }
-body.babel-detached-reader-window .outline-panel button:hover:not(:disabled),
-body.babel-detached-reader-window .babel-reader-annotations__toolbar button:hover:not(:disabled),
-body.babel-detached-reader-window .babel-reader-annotations__entry:hover:not(:disabled),
-body.babel-detached-reader-window .babel-keyboard-status button:hover:not(:disabled) {
+body.babel-detached-reader-window button:hover:not(:disabled) {
   border-color: var(--blue-line);
   background: var(--blue-soft);
   color: var(--ink);
