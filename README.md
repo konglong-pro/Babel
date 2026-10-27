@@ -105,6 +105,57 @@ schemas are unchanged. Rendering uses bundled [PDF.js](https://github.com/mozill
 assets locally; no cloud service is needed. Scanned pages support reading and
 image excerpts now; OCR is deferred.
 
+## Read and annotate HTML
+
+Select **HTML** in an APP's header to import a `.html` or `.htm` file, then
+select **Open HTML** to read it in a separate window on either screen. Each APP
+has its own HTML library and folders, separate from its PDF and notebook
+folders. The library and reading tools follow the APP's theme while the
+document keeps its original layout.
+
+Use **Single HTML** for a self-contained file. For a page with separate images,
+styles, scripts, fonts or data, use **Folder batch** → **Choose folder** and
+select the folder containing both the HTML and its resources. Nested folder
+structure and relative resource paths are preserved under **Import into**;
+matching library folders are reused. A selection can contain up to 5,000 files
+and 512 MiB in total, including resources. Individual HTML documents have a
+64 MiB reading limit. Empty HTML entries are marked invalid without blocking
+other valid entries in the same batch.
+
+Review the per-document results and use **Retry remaining documents** after a
+failure. **Cancel import** finishes the current operation and leaves remaining
+entries ready to resume. The current title and destination stay fixed for
+retries; choose files again to change them. **Clear selection** discards a
+completed upload only when no imported document uses it. Use **Folders** to
+create nested folders, rename or move them, and delete empty folders. Each
+document has **Move** and **Delete** actions.
+
+The reader supports continuous scrolling, heading-based **Contents**, text
+search, zoom, and saved reading position. Select text for **Highlight**,
+**Underline**, or **Add comment**. **New note** and **Append to [draft title]**
+work as they do in the PDF reader: keep the originating notebook open, and
+select a visible draft to append. Excerpts include the document title and
+section, with the selected text or **Area capture** image, so the resulting
+note can be read independently. Progress and annotations are saved separately
+from the original HTML; page-specific interactive state lasts only for the
+current reading session. Area capture reports an error if a browser-protected
+surface or unavailable resource cannot be rendered.
+
+Local JavaScript can run for interactive charts, calculators and controls.
+Reading is offline: Internet resources are blocked, and missing CDN scripts,
+images or fonts are not downloaded automatically. Include required resources
+locally and update their references before importing. Links can open other
+imported HTML entries from the same folder batch; outside links, form
+submissions, embedded frames and plug-ins remain disabled. Import supports
+local `.html` and `.htm` files, rather than URL fetching or `.mhtml` archives.
+
+Deleting a document removes its library entry, progress and annotations and
+makes its original HTML unavailable. Resource files shared with another entry
+from the same batch remain until the last entry using that bundle is deleted.
+Previously created notes and copied excerpt images remain unchanged. Originals,
+resources and `metadata.sqlite` stay in `html-library/` under the APP's private
+upload directory.
+
 ## Import LLM conversations with David
 
 [David](https://github.com/konglong-pro/David) copies a web selection, a loaded AI

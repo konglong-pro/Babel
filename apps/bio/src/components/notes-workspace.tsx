@@ -2,7 +2,7 @@
 
 import { webArchiveDraftImages } from "@babel-apps/platform/imports/web-archive-client";
 
-import { preparePdfExcerpt, usePdfExcerptCreation } from "@babel-apps/pdf/excerpts";
+import { preparePdfExcerpt, pdfExcerptNoteTitle, usePdfExcerptCreation } from "@babel-apps/pdf/excerpts";
 
 import type { ImportedOriginalDocument } from "@babel-apps/platform/imports/document-core";
 
@@ -336,12 +336,11 @@ export function NotesWorkspace({
       let folderId = folders.find((folder) => folder.id === selectedFolderId)?.id
         ?? folders[0]?.id;
       if (folderId === undefined) {
-        const folder = await createFolder({ name: "PDF Notes", parentId: null });
+        const folder = await createFolder({ name: excerpt.sourceType === "html" ? "HTML Notes" : "PDF Notes", parentId: null });
         folderId = folder.id;
         await refreshIndex();
       }
-      const pageLabel = ` — p. ${excerpt.page}`;
-      const title = `${excerpt.title.slice(0, 240 - pageLabel.length)}${pageLabel}`;
+      const title = pdfExcerptNoteTitle(excerpt);
       openDraft({
         folderId,
         parentId: null,

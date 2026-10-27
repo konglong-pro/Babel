@@ -931,7 +931,7 @@ function EntryForm({
               )}
             </DetachedReaderWindow>
             <span className="eyebrow">
-              {detail ? "Edit entry" : importDraft?.pdfExcerpt ? "PDF excerpt" : importDraft ? "Import Markdown" : "New entry"}
+              {detail ? "Edit entry" : importDraft?.pdfExcerpt ? "Document excerpt" : importDraft ? "Import Markdown" : "New entry"}
             </span>
             <h1>
               {detail ? detail.title : importDraft ? importDraft.title : "Capture technical knowledge"}

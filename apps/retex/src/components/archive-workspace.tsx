@@ -3,7 +3,7 @@
 import { webArchiveDraftImages } from "@babel-apps/platform/imports/web-archive-client";
 
 import type { ImportedOriginalDocument } from "@babel-apps/platform/imports/document-core";
-import { preparePdfExcerpt, usePdfExcerptCreation } from "@babel-apps/pdf/excerpts";
+import { preparePdfExcerpt, pdfExcerptNoteTitle, usePdfExcerptCreation } from "@babel-apps/pdf/excerpts";
 
 import { FolderMoveProvider } from "@babel-apps/platform/folders/move-react";
 import { pageSubtreeIds } from "@/components/page-tree-state";
@@ -278,12 +278,12 @@ export function ArchiveWorkspace({
       const prepared = await preparePdfExcerpt(excerpt, "retex-upload");
       let folder = folders.find((candidate) => candidate.id === visibleFolderId) ?? folders[0];
       if (folder === undefined) {
-        folder = await createFolder({ type: "knowledge", name: "PDF Notes", parentId: null });
+        folder = await createFolder({ type: "knowledge", name: excerpt.sourceType === "html" ? "HTML Notes" : "PDF Notes", parentId: null });
         const created = folder;
         setFolders((current) => [...current, created]);
       }
       const importDraft: MarkdownImportDraft = {
-        title: `${excerpt.title.slice(0, 240 - ` · p. ${excerpt.page}`.length)} · p. ${excerpt.page}`,
+        title: pdfExcerptNoteTitle(excerpt, " · "),
         contentMd: prepared.markdown,
         imageReferences: [],
         pdfExcerpt: true,

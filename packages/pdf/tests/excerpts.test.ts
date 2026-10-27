@@ -72,3 +72,14 @@ test("malformed selections never enter a note", async (t) => {
   const done = reader.result("invalid"); reader.send({ kind: "excerpt", requestId: "invalid", mode: "new", excerpt: { ...excerpt, imageDataUrl: "data:text/html;base64,WA==" } });
   assert.equal((await done).ok, false); assert.equal(created, 0);
 });
+
+test("HTML selections use the existing notebook adapters while retaining chapter metadata", async (t) => {
+  const owner = createPdfExcerptBroker(), reader = peer(t, owner);
+  const html = { ...excerpt, sourceType: "html" as const, location: "Bonding" };
+  let received: unknown;
+  owner.creations.set("notes", { id: "notes", onCreate: (value) => { received = value; } });
+  const done = reader.result("html-request");
+  reader.send({ kind: "excerpt", requestId: "html-request", mode: "new", excerpt: html });
+  assert.equal((await done).ok, true);
+  assert.deepEqual(received, html);
+});

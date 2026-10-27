@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { isPdfExcerpt, type PdfExcerpt } from "./core";
-export { preparePdfExcerpt, appendPdfMarkdown } from "./core";
+export { preparePdfExcerpt, appendPdfMarkdown, pdfExcerptNoteTitle } from "./core";
 export type { PdfExcerpt, PdfPreparedImage, PreparedPdfExcerpt } from "./core";
 
 interface Creation {
@@ -40,7 +40,7 @@ function publish(owner: Broker) {
 }
 
 async function receiveExcerpt(owner: Broker, message: Record<string, unknown>) {
-  if (!isPdfExcerpt(message.excerpt)) throw new Error("Invalid PDF selection.");
+  if (!isPdfExcerpt(message.excerpt)) throw new Error("Invalid document selection.");
   if (message.mode === "append") {
     const target = activeEditor(owner);
     if (!target || target.id !== message.targetId) throw new Error("The active draft changed. Select the intended draft in the notebook and try again.");
@@ -112,7 +112,7 @@ export function usePdfExcerptEditor(options: Editor): void {
   }, [options.id]);
 }
 
-export function usePdfNotebookConnection(ownerId: string) {
+export function usePdfNotebookConnection(ownerId: string, sourceName: "PDF" | "HTML" = "PDF") {
   const [state, setState] = useState<PdfNotebookState>({ connected: false, canCreate: false, target: null });
   const channelRef = useRef<BroadcastChannel | null>(null);
   const pending = useRef(new Map<string, { resolve: () => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>());
@@ -150,13 +150,13 @@ export function usePdfNotebookConnection(ownerId: string) {
       clearInterval(timer);
       channel.close();
       channelRef.current = null;
-      for (const request of requests.values()) { clearTimeout(request.timer); request.reject(new Error("PDF window disconnected.")); }
+      for (const request of requests.values()) { clearTimeout(request.timer); request.reject(new Error(`${sourceName} window disconnected.`)); }
       requests.clear();
     };
-  }, [ownerId]);
+  }, [ownerId, sourceName]);
 
   async function sendExcerpt(mode: "new" | "append", excerpt: PdfExcerpt): Promise<void> {
-    if (!channelRef.current || !state.connected) throw new Error("Open this PDF from the notebook's PDF library to create excerpts.");
+    if (!channelRef.current || !state.connected) throw new Error(`Open this ${sourceName} from the notebook's ${sourceName} library to create excerpts.`);
     if (mode === "append" && (!state.target || state.target.pending)) throw new Error("Open a draft in the notebook before appending.");
     const requestId = crypto.randomUUID();
     const completion = new Promise<void>((resolve, reject) => {

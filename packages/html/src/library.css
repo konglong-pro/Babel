@@ -1,0 +1,3 @@
+.babel-html-library .babel-pdf-library-document-cover > span { font-size: 7px; letter-spacing: .08em; }
+.babel-html-library .babel-pdf-library-search > svg { flex-shrink: 0; }
+.babel-html-library .babel-pdf-library-selected { overflow-wrap: anywhere; }

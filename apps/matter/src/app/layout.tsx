@@ -9,6 +9,8 @@ import "@babel-apps/platform/shortcuts.css";
 import "@babel-apps/platform/imports.css";
 import "./globals.css";
 import "@babel-apps/pdf/pdf.css";
+import "@babel-apps/html/html.css";
+import { HtmlRouteBoundary } from "@babel-apps/html/react";
 import { PdfRouteBoundary } from "@babel-apps/pdf/react";
 
 import { PageSessionProvider } from "@babel-apps/platform/pages/react";
@@ -31,6 +33,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
   return (
     <html lang="en">
       <body>
+        <HtmlRouteBoundary reader={children}>
         <PdfRouteBoundary reader={children}>
           <ShortcutProvider>
             <PageSessionProvider storageKey="babel:matter:pages">
@@ -46,6 +49,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
             </PageSessionProvider>
           </ShortcutProvider>
         </PdfRouteBoundary>
+        </HtmlRouteBoundary>
       </body>
     </html>
   );

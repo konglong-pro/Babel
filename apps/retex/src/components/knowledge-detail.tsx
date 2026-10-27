@@ -770,7 +770,7 @@ function KnowledgeForm({
               )}
             </DetachedReaderWindow>
             <span className="eyebrow">
-              {detail ? "Edit Knowledge" : importDraft?.pdfExcerpt ? "PDF excerpt" : importDraft ? "Import Markdown" : "New Knowledge"}
+              {detail ? "Edit Knowledge" : importDraft?.pdfExcerpt ? "Document excerpt" : importDraft ? "Import Markdown" : "New Knowledge"}
             </span>
             <h1>
               {detail

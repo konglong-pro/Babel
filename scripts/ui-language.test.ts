@@ -22,7 +22,7 @@ async function sourceFiles(directory: string): Promise<string[]> {
 
 const files = (await Promise.all([
   ...workspaces.map((workspace) => sourceFiles(path.join(root, workspace, "src"))),
-  ...["markdown", "platform", "pdf", "typst", "katex"].map((name) => sourceFiles(path.join(root, "packages", name, "src"))),
+  ...["markdown", "platform", "pdf", "html", "typst", "katex"].map((name) => sourceFiles(path.join(root, "packages", name, "src"))),
 ])).flat();
 const sources = await Promise.all(files.map(async (filename) => ts.createSourceFile(
   filename, await readFile(filename, "utf8"), ts.ScriptTarget.Latest, true,

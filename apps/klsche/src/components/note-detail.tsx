@@ -857,7 +857,7 @@ function NoteForm({
               )}
             </DetachedReaderWindow>
             <span className="eyebrow">
-              {detail ? "Revise the draft" : importDraft?.pdfExcerpt ? "PDF excerpt" : importDraft ? "Bring in a fragment" : "Start a draft"}
+              {detail ? "Revise the draft" : importDraft?.pdfExcerpt ? "Document excerpt" : importDraft ? "Bring in a fragment" : "Start a draft"}
             </span>
             <h1>
               {detail ? detail.title : importDraft ? importDraft.title : "Begin with a fragment"}

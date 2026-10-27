@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./html/core": "./src/html/core.ts",
+    "./html/server": "./src/html/server.ts",
     "./pdf/core": "./src/pdf/core.ts",
     "./pdf/server": "./src/pdf/server.ts",
     "./build/next": "./src/build/next.ts",

@@ -3,7 +3,7 @@ import test from "node:test";
 import { isPdfRect } from "@babel-apps/platform/pdf/core";
 import {
   appendPdfMarkdown, isPdfExcerpt, preparePdfExcerpt, rotatePdfRect, unrotatePdfRect,
-  PDF_EXCERPT_MAX_TEXT, type PdfExcerpt,
+  PDF_EXCERPT_MAX_TEXT, pdfExcerptNoteTitle, type PdfExcerpt,
 } from "../src/core";
 
 const excerpt: PdfExcerpt = { id: "selection-1", title: "Chemical bonds", page: 3, text: "Carbon forms four bonds." };
@@ -47,6 +47,22 @@ test("appending preserves every original byte, including hard breaks and trailin
     if (current) assert.ok(result.slice(current.length).startsWith("\n") || current.endsWith("\n\n"));
   }
   assert.equal(appendPdfMarkdown("Original\n\n", "Excerpt"), "Original\n\nExcerpt\n");
+});
+
+test("HTML excerpts reuse managed note attachments and cite a chapter without PDF page numbers or source links", async () => {
+  const html: PdfExcerpt = { ...excerpt, sourceType: "html", location: "Reaction mechanisms", imageDataUrl: png };
+  assert.equal(isPdfExcerpt(html), true);
+  const prepared = await preparePdfExcerpt(html, "carbon-upload");
+  assert.ok(prepared.markdown.includes("Chemical bonds · Reaction mechanisms"));
+  assert.equal(prepared.markdown.includes("p. 3"), false);
+  assert.equal(prepared.markdown.includes("html-reader"), false);
+  assert.equal(prepared.image?.file.name, "html-excerpt.png");
+  assert.equal(isPdfExcerpt({ ...html, location: "x".repeat(241) }), false);
+  assert.equal(isPdfExcerpt({ ...html, sourceType: "script" }), false);
+  assert.equal(isPdfExcerpt({ ...excerpt, location: "Unexpected HTML location" }), false);
+  assert.equal(pdfExcerptNoteTitle(html), "Chemical bonds — Reaction mechanisms");
+  assert.equal(pdfExcerptNoteTitle(excerpt, " · "), "Chemical bonds · p. 3");
+  assert.ok(pdfExcerptNoteTitle({ ...html, title: "x".repeat(240), location: "y".repeat(240) }).length <= 240);
 });
 
 test("annotation rectangles survive rotation and page-edge floating point round trips", () => {

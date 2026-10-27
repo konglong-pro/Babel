@@ -1,0 +1,24 @@
+{
+  "name": "@babel-apps/html",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./react": "./src/react.tsx",
+    "./html.css": "./src/html.css",
+    "./sandbox": "./src/sandbox.ts"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit --incremental false",
+    "test": "tsx --test tests/*.test.ts",
+    "check": "npm run lint && npm run typecheck && npm run test"
+  },
+  "dependencies": {
+    "@babel-apps/platform": "0.1.0",
+    "@babel-apps/pdf": "0.1.0",
+    "next": "^16.2.10",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  }
+}

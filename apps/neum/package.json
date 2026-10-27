@@ -33,6 +33,7 @@
     "next": "^16.2.10",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "@babel-apps/pdf": "0.1.0"
+    "@babel-apps/pdf": "0.1.0",
+    "@babel-apps/html": "0.1.0"
   }
 }

@@ -863,7 +863,7 @@ function NoteForm({
               )}
             </DetachedReaderWindow>
             <span className="eyebrow">
-              {detail ? "Edit note" : importDraft?.pdfExcerpt ? "PDF excerpt" : "New chemistry note"}
+              {detail ? "Edit note" : importDraft?.pdfExcerpt ? "Document excerpt" : "New chemistry note"}
             </span>
             <h1>
               {detail ? detail.title : importDraft ? importDraft.title : "Begin a new record"}
