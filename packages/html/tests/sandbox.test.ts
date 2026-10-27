@@ -66,6 +66,8 @@ test("the emitted bootstrap executes without module helpers, pins its port, and 
   let observedOptions: MutationObserverInit | undefined;
   let mutationCallback: ((records: unknown[]) => void) | undefined;
   let refreshes = 0;
+  const timers: Array<() => void> = [];
+  let pauseAnimationFrames = false;
   class Element {
     parentElement = null;
     closest() { return null; }
@@ -74,13 +76,13 @@ test("the emitted bootstrap executes without module helpers, pins its port, and 
   const parent = { postMessage(value: unknown) { parentMessages.push(value); } };
   const document = {
     createElement: makeElement, head: { appendChild() {} }, body: { appendChild() {}, contains() { return false; } },
-    documentElement: { scrollHeight: 1_000, style: {} }, readyState: "loading", title: "Interactive chemistry",
+    documentElement: { scrollHeight: 1_000, style: {} }, readyState: "loading", visibilityState: "visible", title: "Interactive chemistry",
     querySelectorAll() { return []; }, createTreeWalker() { return { nextNode() { return null; } }; },
     getElementById(id: string) { return id === "chapter two" ? fragment : null; }, getElementsByName() { return []; },
     addEventListener(kind: string, callback: () => void) { documentListeners.set(kind, callback); },
   };
   const frame = {
-    parent, scrollY: 0, innerHeight: 500, scrollTo(this: { scrollY: number }, options: { top: number }) { this.scrollY = options.top; }, setInterval() { return 1; }, setTimeout() { refreshes += 1; return 1; },
+    parent, scrollY: 0, innerHeight: 500, scrollTo(this: { scrollY: number }, options: { top: number }) { this.scrollY = options.top; }, setInterval() { return 1; }, setTimeout(callback: () => void) { timers.push(callback); refreshes += 1; return timers.length; },
     addEventListener(kind: string, callback: (value: unknown) => void) { const entries = listeners.get(kind) ?? []; entries.push(callback); listeners.set(kind, entries); },
   };
   Object.defineProperty(frame, "localStorage", { get() { throw new Error("Opaque storage"); }, configurable: true });
@@ -92,7 +94,7 @@ test("the emitted bootstrap executes without module helpers, pins its port, and 
   }
   const source = htmlBridgeSource({ channelId, documentId, assetBaseUrl: base, entryPath: "Book/index.html" });
   runInNewContext(source, { window: frame, document, CSS: { highlights: new Map() }, MessagePort: Port, URL, DOMException, Element,
-    MutationObserver: class { constructor(callback: (records: unknown[]) => void) { mutationCallback = callback; } observe(_target: unknown, options: MutationObserverInit) { observedOptions = options; } }, clearInterval() {}, clearTimeout() {}, requestAnimationFrame(callback: () => void) { callback(); return 1; }, NodeFilter: { SHOW_TEXT: 4 } });
+    MutationObserver: class { constructor(callback: (records: unknown[]) => void) { mutationCallback = callback; } observe(_target: unknown, options: MutationObserverInit) { observedOptions = options; } }, clearInterval() {}, clearTimeout() {}, requestAnimationFrame(callback: () => void) { if (!pauseAnimationFrames) callback(); return 1; }, NodeFilter: { SHOW_TEXT: 4 } });
   assert.equal(parentMessages.length, 1);
   const receive = listeners.get("message")![0];
   const channel = new Port();
@@ -115,6 +117,18 @@ test("the emitted bootstrap executes without module helpers, pins its port, and 
   assert.ok(restored >= 0 && progress > restored);
   assert.equal(frame.scrollY, 750);
   assert.deepEqual((channel.messages[restored] as { kind: string; progress: { position: number; scale: number } }).progress.position, .75);
+  timers.at(-1)!();
+  assert.equal(channel.messages.filter(message => message.kind === "restored").length, 1, "The animation frame and fallback must not apply progress twice.");
+  pauseAnimationFrames = true;
+  channel.onmessage!({ data: { kind: "restore", progress: { position: .25, scale: 2 } } });
+  assert.equal(channel.messages.filter(message => message.kind === "restored").length, 1);
+  timers.at(-1)!();
+  assert.equal(frame.scrollY, 250);
+  assert.equal(channel.messages.filter(message => message.kind === "restored").length, 2, "A background window restores progress even when animation frames are suspended.");
+  const beforeHeadings = channel.messages.filter(message => message.kind === "headings").length;
+  listeners.get("resize")![0]({});
+  documentListeners.get("visibilitychange")!();
+  assert.equal(channel.messages.filter(message => message.kind === "headings").length, beforeHeadings + 2, "Contents and annotation layout refresh when a background reader becomes visible or changes size.");
   channel.onmessage!({ data: { kind: "fragment", hash: "#chapter%20two" } });
   assert.equal(fragmentScrolls, 1, "Cross-document fragments resolve original DOM ids, independently of generated heading ids.");
   assert.equal(openedDetails, true, "A fragment inside collapsed details is revealed.");
@@ -122,10 +136,11 @@ test("the emitted bootstrap executes without module helpers, pins its port, and 
   assert.equal(fragmentScrolls, 1);
   assert.equal(observedOptions?.attributes, true);
   assert.deepEqual(Array.from(observedOptions?.attributeFilter ?? []), ["open", "hidden", "class", "style"]);
+  const beforeRefresh = refreshes;
   mutationCallback!([{ target: new Element(), type: "attributes", attributeName: "open" }]);
-  assert.equal(refreshes, 1, "Opening details or changing visibility refreshes annotations and contents.");
+  assert.equal(refreshes, beforeRefresh + 1, "Opening details or changing visibility refreshes annotations and contents.");
   mutationCallback!([{ target: { parentElement: { closest() { return {}; } } }, type: "characterData" }]);
-  assert.equal(refreshes, 1, "Painting the bridge's own style text must not create a mutation refresh loop.");
+  assert.equal(refreshes, beforeRefresh + 1, "Painting the bridge's own style text must not create a mutation refresh loop.");
   listeners.get("keydown")![0]({ key: "f", ctrlKey: true, metaKey: false, altKey: false, preventDefault() {} });
   assert.ok(channel.messages.some(message => message.kind === "focus-find"));
   const local = (frame as typeof frame & { localStorage: Storage; sessionStorage: Storage }).localStorage;

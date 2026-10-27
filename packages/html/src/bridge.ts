@@ -178,11 +178,17 @@ function installHtmlBridge(configuration: HtmlBridgeConfiguration, locateQuote: 
   }
   function restoreProgress(progress: HtmlProgress) {
     scale = Math.max(.1, Math.min(8, progress.scale)); document.documentElement.style.zoom = String(scale);
-    requestAnimationFrame(() => requestAnimationFrame(() => {
+    let applied = false;
+    const apply = () => {
+      if (applied) { rebuildHeadings(); paintAnnotations(); return; }
+      applied = true; clearTimeout(fallback);
       const height = Math.max(0, (document.scrollingElement || document.documentElement).scrollHeight - window.innerHeight);
       nativeScroll({ top: Math.max(0, Math.min(1, progress.position)) * height, behavior: "auto" }); paintAnnotations();
       emit({ kind: "restored", progress: safeProgress() }); emitProgress();
-    }));
+    };
+    // Background reading windows may defer animation frames indefinitely.
+    const fallback = window.setTimeout(apply, 100);
+    requestAnimationFrame(() => requestAnimationFrame(apply));
   }
   function emitProgress() {
     if (!loaded || pendingRestore) return;
@@ -319,7 +325,7 @@ function installHtmlBridge(configuration: HtmlBridgeConfiguration, locateQuote: 
       }
     }
     markerStyle.textContent = styles.join("\n");
-    if (missing) notice("Some annotations could not be located in the currently visible content. Expand the relevant section to show them.");
+    if (missing && index.nodes.length) notice("Some annotations could not be located in the currently visible content. Expand the relevant section to show them.");
   }
   function find(query: string, direction?: "next" | "previous") {
     const normalized = query.trim().slice(0, 300);
@@ -377,10 +383,11 @@ function installHtmlBridge(configuration: HtmlBridgeConfiguration, locateQuote: 
     if (capturePending) return;
     capturePending = true;
     captureAbort = new AbortController(); captureAssetBytes = 0; captureAssets.clear();
-    const section = headingsList.find(heading => {
+    let section = "";
+    for (const heading of headingsList) {
       const bounds = headingElements.get(heading.id)?.getBoundingClientRect();
-      return bounds && bounds.top >= rect.top && bounds.top <= rect.top + rect.height;
-    })?.text ?? "";
+      if (bounds && bounds.top <= rect.top + Math.min(24, rect.height)) section = heading.text;
+    }
     try {
       if (rect.width < 3 || rect.height < 3 || rect.width * rect.height > 16_000_000) throw new Error("Choose a capture area from 3 pixels to 16 megapixels.");
       const clone = document.documentElement.cloneNode(true) as HTMLElement;
@@ -547,7 +554,8 @@ function installHtmlBridge(configuration: HtmlBridgeConfiguration, locateQuote: 
   }, { once: true });
   document.addEventListener("selectionchange", () => { clearTimeout(selectionTimer); selectionTimer = window.setTimeout(publishSelection, 80); });
   window.addEventListener("scroll", () => { clearTimeout(progressTimer); progressTimer = window.setTimeout(() => { emitProgress(); if (!highlightRegistry) paintAnnotations(); }, 150); }, { passive: true });
-  window.addEventListener("resize", () => { if (loaded) { paintAnnotations(); emitProgress(); } });
+  window.addEventListener("resize", () => { if (loaded) { rebuildHeadings(); paintAnnotations(); emitProgress(); } });
+  document.addEventListener("visibilitychange", () => { if (loaded && document.visibilityState === "visible") { rebuildHeadings(); paintAnnotations(); } });
   window.addEventListener("keydown", event => {
     if (event.key === "Escape" && captureLayer) { event.preventDefault(); stopCapture(); }
     else if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === "f") { event.preventDefault(); emit({ kind: "focus-find" }); }
