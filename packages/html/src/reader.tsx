@@ -8,6 +8,7 @@ import { usePdfNotebookConnection, type PdfExcerpt } from "@babel-apps/pdf/excer
 import { buildHtmlDocument, HTML_FRAME_SANDBOX } from "./sandbox";
 import { isHtmlBridgeMessage, isHtmlBridgeReady, type HtmlBridgeCommand, type HtmlBridgeMessage, type HtmlHeading, type HtmlSelection } from "./bridge";
 import { decodeHtmlBytes, isHtmlDocument } from "./reader-core";
+import { HtmlResourceWarning } from "./resource-warning";
 
 type Operation = { kind: "add"; annotation: HtmlAnnotation } | { kind: "remove"; id: string };
 class HtmlRequestError extends Error {
@@ -63,6 +64,7 @@ export function HtmlReader({ appId, appName, documentId, ownerId, anchor = "" }:
   const [matches, setMatches] = useState("");
   const [comment, setComment] = useState("");
   const [notice, setNotice] = useState("");
+  const [resourceWarnings, setResourceWarnings] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
   const { state: notebook, sendExcerpt } = usePdfNotebookConnection(ownerId, "HTML");
@@ -156,6 +158,7 @@ export function HtmlReader({ appId, appName, documentId, ownerId, anchor = "" }:
         }
       } else if (data.kind === "find-result") setMatches(`${data.current} / ${data.total}`);
       else if (data.kind === "notice") setNotice(data.message);
+      else if (data.kind === "resource-warning") setResourceWarnings((previous) => previous.includes(data.message) || previous.length >= 100 ? previous : [...previous, data.message]);
       else if (data.kind === "navigate") {
         void (async () => {
           try {
@@ -194,11 +197,12 @@ export function HtmlReader({ appId, appName, documentId, ownerId, anchor = "" }:
         if (bytes.byteLength > HTML_MAX_DOCUMENT_BYTES) throw new Error("The HTML document exceeds the 64 MiB reading limit.");
         const html = decodeHtmlBytes(bytes);
         if (!active) return;
-        const prepared = buildHtmlDocument({ html, entryPath: current.entryPath, assetBaseUrl: new URL(`${endpoint}/assets/`, window.location.origin).href, channelId, documentId });
+        const prepared = buildHtmlDocument({ html, entryPath: current.entryPath, assetBaseUrl: new URL(`${endpoint}/assets/`, window.location.origin).href, channelId, documentId, resourcePaths: current.bundle.files.map((file) => file.path) });
         blobUrl = URL.createObjectURL(new Blob([prepared.html], { type: "text/html;charset=utf-8" }));
         metadata.current = current; pending.current = [];
         setBook(current); setAnnotations(current.annotations); setScale(current.progress.scale); setPosition(current.progress.position);
         if (prepared.warnings.length) setNotice(prepared.warnings.join(" "));
+        setResourceWarnings(prepared.resourceWarnings);
         setFrameUrl(blobUrl);
         timeout = setTimeout(() => { if (active && !ready.current) { setLoadError("The HTML page did not finish opening. Reload it to retry."); setLoading(false); } }, 20_000);
       } catch (failure) { if (active && !controller.signal.aborted) { setLoadError(message(failure)); setLoading(false); } }
@@ -261,6 +265,7 @@ export function HtmlReader({ appId, appName, documentId, ownerId, anchor = "" }:
     {!notebook.connected && <p className="babel-pdf-connection">Keep the originating notebook window open to create and append notes.</p>}
     <div className="babel-pdf-annotation-bar"><button type="button" disabled={!selection?.text || loading} onClick={() => addAnnotation("highlight")}>Highlight</button><button type="button" disabled={!selection?.text || loading} onClick={() => addAnnotation("underline")}>Underline</button><label className="babel-pdf-sr-only" htmlFor="babel-html-comment">Annotation comment</label><input id="babel-html-comment" value={comment} maxLength={4000} placeholder="Add a comment to this selection" onChange={(event) => setComment(event.currentTarget.value)} /><button type="button" disabled={!selection?.text || !comment.trim() || loading} onClick={() => addAnnotation("comment")}>Add comment</button><span>{annotationStatus}</span>{annotationStatus !== "Saved" && annotationStatus !== "Saving…" && <button type="button" onClick={() => void saveAnnotations()}>Retry save</button>}</div>
     <p className="babel-html-offline">Offline · Local scripts enabled · External resources blocked</p>
+    <HtmlResourceWarning warnings={resourceWarnings} />
     {notice && <div className="babel-pdf-message" role="status"><span>{notice}</span><button type="button" aria-label="Dismiss notice" onClick={() => setNotice("")}>×</button></div>}
     {error && <div className="babel-pdf-message error" role="alert"><span>{error}</span><button type="button" aria-label="Dismiss error" onClick={() => setError("")}>×</button></div>}
     <div className="babel-pdf-reading-area">

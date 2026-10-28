@@ -42,6 +42,8 @@ test("frame messages are bounded and pinned to the exact reading session and doc
   }
   assert.equal(isHtmlBridgeMessage({ ...envelope, kind: "find-result", current: 3, total: 2 }, channelId, documentId), false);
   assert.equal(isHtmlBridgeMessage({ ...envelope, kind: "notice", message: "x".repeat(1_001) }, channelId, documentId), false);
+  assert.equal(isHtmlBridgeMessage({ ...envelope, kind: "resource-warning", message: "A script is missing." }, channelId, documentId), true);
+  assert.equal(isHtmlBridgeMessage({ ...envelope, kind: "resource-warning", message: "x".repeat(1_001) }, channelId, documentId), false);
   assert.equal(isHtmlBridgeMessage({ ...envelope, kind: "unknown" }, channelId, documentId), false);
 });
 
@@ -66,6 +68,7 @@ test("the emitted bootstrap executes without module helpers, pins its port, and 
   let observedOptions: MutationObserverInit | undefined;
   let mutationCallback: ((records: unknown[]) => void) | undefined;
   let refreshes = 0;
+  let textScans = 0;
   const timers: Array<() => void> = [];
   let pauseAnimationFrames = false;
   class Element {
@@ -77,7 +80,7 @@ test("the emitted bootstrap executes without module helpers, pins its port, and 
   const document = {
     createElement: makeElement, head: { appendChild() {} }, body: { appendChild() {}, contains() { return false; } },
     documentElement: { scrollHeight: 1_000, style: {} }, readyState: "loading", visibilityState: "visible", title: "Interactive chemistry",
-    querySelectorAll() { return []; }, createTreeWalker() { return { nextNode() { return null; } }; },
+    querySelectorAll() { return []; }, createTreeWalker() { textScans += 1; return { nextNode() { return null; } }; },
     getElementById(id: string) { return id === "chapter two" ? fragment : null; }, getElementsByName() { return []; },
     addEventListener(kind: string, callback: () => void) { documentListeners.set(kind, callback); },
   };
@@ -129,6 +132,13 @@ test("the emitted bootstrap executes without module helpers, pins its port, and 
   listeners.get("resize")![0]({});
   documentListeners.get("visibilitychange")!();
   assert.equal(channel.messages.filter(message => message.kind === "headings").length, beforeHeadings + 2, "Contents and annotation layout refresh when a background reader becomes visible or changes size.");
+  assert.equal(textScans, 0, "Restoring, resizing and displaying an unannotated formula-heavy page must not scan every text node's layout.");
+  const failedScript = new Element() as Element & { matches: () => boolean; getAttribute: () => string };
+  failedScript.matches = () => true;
+  failedScript.getAttribute = () => `${base}Books/assets/missing.js`;
+  listeners.get("error")![0]({ target: failedScript });
+  listeners.get("error")![0]({ target: failedScript });
+  assert.equal(channel.messages.filter(message => message.kind === "resource-warning").length, 1, "Failed local loads are reported once and separately from temporary reader notices.");
   channel.onmessage!({ data: { kind: "fragment", hash: "#chapter%20two" } });
   assert.equal(fragmentScrolls, 1, "Cross-document fragments resolve original DOM ids, independently of generated heading ids.");
   assert.equal(openedDetails, true, "A fragment inside collapsed details is revealed.");

@@ -8,4 +8,9 @@
 .babel-html-reader .babel-pdf-load button + button { margin-left: 8px; }
 .babel-html-reader .babel-pdf-toolbar { gap: 8px; }
 .babel-html-reader .babel-pdf-sidebar { scrollbar-gutter: stable; }
+.babel-html-resource-warning { flex-shrink: 0; max-height: 170px; overflow: auto; margin: 8px 0; padding: 10px 14px; border: 1px solid var(--pdf-line); border-left: 3px solid var(--pdf-accent); background: var(--pdf-raised); color: var(--pdf-ink); font: 12px/1.5 var(--pdf-font); overflow-wrap: anywhere; }
+.babel-html-reader > .babel-html-resource-warning { margin: 0; }
+.babel-html-resource-warning summary { font-weight: 700; cursor: pointer; }
+.babel-html-resource-warning p { margin: 8px 0; }
+.babel-html-resource-warning ul { margin: 0; padding-left: 20px; }
 @media (max-width: 760px) { .babel-html-position { display: none; } .babel-html-offline { font-size: 9px; } }

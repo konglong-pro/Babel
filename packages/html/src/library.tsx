@@ -11,14 +11,18 @@ import { pdfExcerptOwnerId, preparePdfExcerptOwner } from "@babel-apps/pdf/excer
 import { HtmlFolderPicker, HtmlFolders, type HtmlFolderScope } from "./folder-controls";
 import { htmlFolderEntries, isHtmlFolder } from "./folders";
 import { prepareHtmlImport, type HtmlImportEntry, type HtmlImportSelection } from "./imports";
+import { decodeHtmlBytes } from "./reader-core";
+import { inspectHtmlResources } from "./resources";
+import { HtmlResourceWarning } from "./resource-warning";
 
 type Mode = "single" | "folder";
 interface ImportItem extends HtmlImportEntry { id: string; status: "pending" | "importing" | "imported" | "failed" | "invalid" }
 interface ImportChoice {
   selection: HtmlImportSelection | null; items: ImportItem[]; uploadId: string; bundleId: string | null;
   destination: string | null; locked: boolean; title: string;
+  resourceWarnings: string[]; checkingResources: boolean;
 }
-const emptyChoice = (): ImportChoice => ({ selection: null, items: [], uploadId: "", bundleId: null, destination: null, locked: false, title: "" });
+const emptyChoice = (): ImportChoice => ({ selection: null, items: [], uploadId: "", bundleId: null, destination: null, locked: false, title: "", resourceWarnings: [], checkingResources: false });
 
 export interface HtmlLibraryButtonProps { appId: string; appName: string; notebookHref: string }
 
@@ -79,6 +83,7 @@ export function HtmlLibraryButton({ appId, appName, notebookHref }: HtmlLibraryB
   const writeBusy = useRef(false);
   const canceled = useRef(false);
   const mounted = useRef(true);
+  const resourceChecks = useRef({ single: 0, folder: 0 });
   const [documents, setDocuments] = useState<HtmlDocumentSummary[]>([]);
   const [folders, setFolders] = useState<HtmlFolder[]>([]);
   const [scope, setScope] = useState<HtmlFolderScope>("all");
@@ -169,17 +174,39 @@ export function HtmlLibraryButton({ appId, appName, notebookHref }: HtmlLibraryB
   function chooseFiles(files: File[], target: Mode) {
     if (writeBusy.current || !files.length) return;
     const selection = prepareHtmlImport(files, target === "folder");
+    const checkId = ++resourceChecks.current[target];
     const previous = choices[target];
     void releaseBundle(previous.bundleId);
     const destination = previous.destination === null || folders.some((folder) => folder.id === previous.destination) ? previous.destination : scope === "all" ? null : scope;
     setChoices((current) => ({ ...current, [target]: {
       selection, items: selection.entries.map((entry) => ({ ...entry, id: crypto.randomUUID(), status: entry.error ? "invalid" : "pending" })),
       uploadId: crypto.randomUUID(), bundleId: null, destination, locked: false, title: selection.entries[0]?.title ?? "",
+      resourceWarnings: [], checkingResources: !selection.error,
     } }));
     setImportError(selection.error); setNotice(""); setPercent(null);
+    if (!selection.error) void (async () => {
+      const warnings = new Set<string>();
+      const available = selection.files.map((file) => file.path);
+      for (const entry of selection.entries) {
+        if (!mounted.current || resourceChecks.current[target] !== checkId) return;
+        if (entry.error) continue;
+        try {
+          const source = selection.files.find((file) => file.path === entry.path)!;
+          const html = decodeHtmlBytes(new Uint8Array(await source.file.arrayBuffer()));
+          // Template contents stay inert, including images, while inspecting untrusted files.
+          const template = document.createElement("template");
+          template.innerHTML = html;
+          for (const warning of inspectHtmlResources(template.content, entry.path, available)) {
+            if (warnings.size < 100) warnings.add(`${entry.path}: ${warning}`);
+          }
+        } catch { warnings.add(`${entry.path}: Local resources could not be checked. The reader will check again when opened.`); }
+      }
+      if (mounted.current && resourceChecks.current[target] === checkId) updateChoice(target, { resourceWarnings: [...warnings], checkingResources: false });
+    })();
   }
   function clearSelection() {
     if (writeBusy.current) return;
+    resourceChecks.current[mode] += 1;
     void releaseBundle(choice.bundleId);
     setChoices((previous) => ({ ...previous, [mode]: { ...emptyChoice(), destination: previous[mode].destination } }));
     setImportError(""); setNotice(""); setPercent(null);
@@ -214,7 +241,7 @@ export function HtmlLibraryButton({ appId, appName, notebookHref }: HtmlLibraryB
 
   async function importHtml(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (writeBusy.current || loading || !choice.selection || choice.selection.error) return;
+    if (writeBusy.current || loading || !choice.selection || choice.selection.error || choice.checkingResources) return;
     const currentMode = mode;
     const current = choice;
     const selection = current.selection!;
@@ -331,7 +358,7 @@ export function HtmlLibraryButton({ appId, appName, notebookHref }: HtmlLibraryB
   const scoped = documents.filter((document) => scope === "all" || document.folderId === scope);
   const shown = scoped.filter((document) => !query || `${document.title}\n${document.fileName}\n${document.entryPath}`.toLocaleLowerCase().includes(query));
   const pending = choice.items.filter((item) => item.status === "pending" || item.status === "failed").length;
-  const ready = Boolean(choice.selection && !choice.selection.error && pending > 0);
+  const ready = Boolean(choice.selection && !choice.selection.error && !choice.checkingResources && pending > 0);
   const documentHref = (document: HtmlDocumentSummary) => `/html-reader?id=${encodeURIComponent(document.id)}&owner=${encodeURIComponent(pdfExcerptOwnerId())}`;
 
   return <>
@@ -359,6 +386,7 @@ export function HtmlLibraryButton({ appId, appName, notebookHref }: HtmlLibraryB
               <p className="babel-pdf-library-batch-summary" role="status">{choice.selection ? `${choice.selection.folder} · ${choice.items.length} HTML ${choice.items.length === 1 ? "document" : "documents"} · ${choice.selection.files.length - choice.items.length} resource files · ${fileSize(choice.selection.size)}. Folder structure will be preserved.` : "Includes .html and .htm pages plus their local pictures, styles, scripts and other resources. Folder structure is preserved."}</p>
             </>}
             {choice.items.length > 0 && <ul className="babel-pdf-library-batch-results" aria-label="HTML import results">{choice.items.map((item) => <li key={item.id} className={`babel-pdf-library-batch-result${item.status === "failed" || item.status === "invalid" ? " is-error" : ""}`}><span className="babel-pdf-library-batch-label" title={item.path}>{item.path}</span><span className="babel-pdf-library-batch-status">{item.error || ({ pending: "Ready", importing: "Adding…", imported: "Imported", failed: "Failed", invalid: "Invalid file" } as const)[item.status]}</span></li>)}</ul>}
+            <HtmlResourceWarning warnings={choice.resourceWarnings} checking={choice.checkingResources} importing />
             {importError && <p className="babel-pdf-library-error" role="alert">{importError}</p>}
             {importing && <div className="babel-pdf-library-upload-progress" aria-live="polite"><progress aria-label="HTML import progress" max={100} value={percent ?? undefined}/><span>{importLabel}</span>{percent !== null && <span>{percent}%</span>}</div>}
             <button className="babel-pdf-library-primary" type="submit" disabled={!ready || busy}>{importing ? "Importing…" : choice.items.some((item) => item.status === "failed") ? "Retry remaining documents" : mode === "single" ? "Import HTML" : "Import documents"}<span aria-hidden="true">↗</span></button>

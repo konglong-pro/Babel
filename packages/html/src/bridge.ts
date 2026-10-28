@@ -29,6 +29,7 @@ export type HtmlBridgeMessage = Envelope & (
   | { kind: "capture-state"; active: boolean }
   | { kind: "find-result"; current: number; total: number }
   | { kind: "notice"; message: string }
+  | { kind: "resource-warning"; message: string }
 );
 export interface HtmlBridgeReady extends Envelope { kind: "html-ready" }
 export interface HtmlBridgeConfiguration { channelId: string; documentId: string; assetBaseUrl: string; entryPath: string }
@@ -69,7 +70,7 @@ export function isHtmlBridgeMessage(value: unknown, channelId: string, documentI
       !/[:\\\u0000-\u001f\u007f]/u.test(value.path) && !value.path.split("/").some(segment => !segment || segment === "." || segment === "..") && /\.html?$/iu.test(value.path) &&
       text(value.hash, 1_024) && (value.hash === "" || value.hash.startsWith("#"));
     case "find-result": return integer(value.current, 1_000) && integer(value.total, 1_000) && value.current <= value.total;
-    case "notice": return text(value.message, 1_000);
+    case "notice": case "resource-warning": return text(value.message, 1_000);
     default: return false;
   }
 }
@@ -127,6 +128,7 @@ function installHtmlBridge(configuration: HtmlBridgeConfiguration, locateQuote: 
   const nativeScroll = window.scrollTo.bind(window);
   const base = new URL(configuration.assetBaseUrl);
   const seenNotices = new Set<string>();
+  const failedResources = new Set<string>();
   const annotationHighlightNames = new Set<string>();
   // Opaque frames cannot use the notebook's Storage. Keep common page preferences
   // usable inside this frame without exposing or persisting Babel application state.
@@ -302,7 +304,9 @@ function installHtmlBridge(configuration: HtmlBridgeConfiguration, locateQuote: 
     for (const name of annotationHighlightNames) highlightRegistry?.delete(name);
     annotationHighlightNames.clear();
     overlay.replaceChildren();
-    const index = textIndex();
+    // Large formula-heavy pages can contain tens of thousands of text nodes.
+    // Scrolling or expanding a solution needs no text/layout scan without annotations.
+    const index = currentAnnotations.length ? textIndex() : { text: "", nodes: [] };
     const styles = ["::highlight(babel-html-find){background:#f9d977;color:#17241f}::highlight(babel-html-find-active){background:#ed9b4b;color:#17241f}"];
     let missing = 0;
     for (let position = 0; position < currentAnnotations.length; position += 1) {
@@ -534,6 +538,7 @@ function installHtmlBridge(configuration: HtmlBridgeConfiguration, locateQuote: 
     if (document.body && !overlay.isConnected) document.body.appendChild(overlay);
     rebuildHeadings(); paintAnnotations();
     emit({ kind: "ready", title: document.title.trim().slice(0, 240), headings: headingsList });
+    for (const message of failedResources) emit({ kind: "resource-warning", message });
   }
   window.addEventListener("message", event => {
     const data = event.data as { v?: unknown; kind?: unknown; channelId?: unknown; documentId?: unknown } | null;
@@ -587,6 +592,16 @@ function installHtmlBridge(configuration: HtmlBridgeConfiguration, locateQuote: 
   window.addEventListener("securitypolicyviolation", event => {
     if (event.blockedURI && event.blockedURI !== "inline" && event.blockedURI !== "eval") notice("Offline mode blocked an external resource or navigation. Include required resources in the imported folder.");
   });
+  window.addEventListener("error", event => {
+    const element = event.target instanceof Element ? event.target : null;
+    if (!element?.matches("script[src],link[rel~='stylesheet'][href],img[src],video[src],audio[src],source[src]")) return;
+    const reference = element.getAttribute("src") || element.getAttribute("href");
+    if (!reference) return;
+    const message = `Resource failed to load: ${reference.slice(0, 600)}. Include it in the imported project folder.`;
+    if (failedResources.has(message) || failedResources.size >= 30) return;
+    failedResources.add(message);
+    emit({ kind: "resource-warning", message });
+  }, true);
   new MutationObserver(records => {
     if (!loaded || records.every(record => (record.target instanceof Element ? record.target : record.target.parentElement)?.closest(ownSelector))) return;
     clearTimeout(updateTimer); updateTimer = window.setTimeout(() => { rebuildHeadings(); paintAnnotations(); findRanges = []; }, 250);

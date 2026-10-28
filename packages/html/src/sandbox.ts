@@ -1,4 +1,5 @@
 import { htmlBridgeSource } from "./bridge";
+import { inspectHtmlResources } from "./resources";
 
 export const HTML_FRAME_SANDBOX = "allow-scripts";
 
@@ -11,8 +12,9 @@ export interface HtmlDocumentOptions {
   assetBaseUrl: string;
   channelId: string;
   documentId: string;
+  resourcePaths: readonly string[];
 }
-export interface HtmlDocumentSource { html: string; warnings: string[] }
+export interface HtmlDocumentSource { html: string; warnings: string[]; resourceWarnings: string[] }
 
 /** Only the immutable resource namespace for this document may enter child CSP. */
 export function htmlAssetBase(value: string): URL {
@@ -44,6 +46,7 @@ export function buildHtmlDocument(options: HtmlDocumentOptions): HtmlDocumentSou
   if (!/^[A-Za-z0-9_-]{16,128}$/u.test(options.channelId) || !/^[0-9a-f-]{36}$/u.test(options.documentId)) throw new Error("The HTML reading session is invalid.");
   if (options.html.length > 64 * 1024 * 1024) throw new Error("The HTML document exceeds the 64 MiB reading limit.");
   const parsed = new DOMParser().parseFromString(options.html, "text/html");
+  const resourceWarnings = inspectHtmlResources(parsed, options.entryPath, options.resourcePaths, base.href);
   const warnings = new Set<string>();
   for (const element of parsed.querySelectorAll("base, meta[http-equiv], iframe, frame, frameset, object, embed, portal")) {
     if (!element.matches("base,meta")) warnings.add("Embedded frames and plug-ins are disabled in the offline reader.");
@@ -81,5 +84,5 @@ export function buildHtmlDocument(options: HtmlDocumentOptions): HtmlDocumentSou
   bridge.setAttribute("data-babel-html-bridge", "");
   bridge.textContent = htmlBridgeSource({ channelId: options.channelId, documentId: options.documentId, assetBaseUrl: base.href, entryPath: options.entryPath });
   parsed.head.prepend(charset, policy, referrer, baseElement, bridge);
-  return { html: `<!doctype html>\n${parsed.documentElement.outerHTML}`, warnings: [...warnings] };
+  return { html: `<!doctype html>\n${parsed.documentElement.outerHTML}`, warnings: [...warnings], resourceWarnings };
 }

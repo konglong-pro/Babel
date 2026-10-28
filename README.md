@@ -122,6 +122,13 @@ and 512 MiB in total, including resources. Individual HTML documents have a
 64 MiB reading limit. Empty HTML entries are marked invalid without blocking
 other valid entries in the same batch.
 
+The import form checks local styles, scripts and images before upload. Missing
+resources remain listed in the reader, including resources that fail at runtime.
+If a project has sibling `modules/` and `assets/` folders, select their common
+parent folder; selecting only `modules/` or an individual page omits the assets.
+An incomplete page can still be imported and read with a warning. Babel does
+not download missing resources from the Internet or guess replacement styles.
+
 Review the per-document results and use **Retry remaining documents** after a
 failure. **Cancel import** finishes the current operation and leaves remaining
 entries ready to resume. The current title and destination stay fixed for
