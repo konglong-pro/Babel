@@ -39,6 +39,51 @@ test("opening pages deduplicates stable identities and activates the target", ()
   assert.equal(state.activeKey, "1");
 });
 
+test("opening an existing page preserves its unsaved and pending state", () => {
+  for (const status of [
+    { dirty: true, pending: false },
+    { dirty: false, pending: true },
+    { dirty: true, pending: true },
+  ]) {
+    let state = createPageSessionsState([
+      page("1", { ...status, scope: "notes", restorable: false }),
+      page("2"),
+    ], "2");
+    state = pageSessionsReducer(state, {
+      type: "open",
+      page: page(" 1 ", { title: "Updated title", href: "/notes?folder=3&note=1" }),
+    });
+
+    assert.equal(state.activeKey, "1");
+    assert.equal(state.pages.length, 2);
+    assert.deepEqual(state.pages[0], page("1", {
+      ...status,
+      scope: "notes",
+      restorable: false,
+      title: "Updated title",
+      href: "/notes?folder=3&note=1",
+    }));
+  }
+});
+
+test("opening an existing page applies explicitly supplied status fields only", () => {
+  let state = createPageSessionsState([
+    page("1", { dirty: true, pending: true }),
+    page("2"),
+  ], "2");
+  state = pageSessionsReducer(state, {
+    type: "open",
+    page: page("1", { dirty: false }),
+    activate: false,
+  });
+
+  assert.equal(state.activeKey, "2");
+  assert.equal(state.pages[0]?.dirty, false);
+  assert.equal(state.pages[0]?.pending, true);
+  state = pageSessionsReducer(state, { type: "status", key: "1", pending: false });
+  assert.equal(state.pages[0]?.pending, false);
+});
+
 test("closing the active page selects its right neighbor before its left neighbor", () => {
   let state = createPageSessionsState([page("1"), page("2"), page("3")], "2");
   state = pageSessionsReducer(state, { type: "close", key: "2" });

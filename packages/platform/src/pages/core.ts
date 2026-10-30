@@ -190,7 +190,7 @@ export function pageSessionsReducer(
         ? [...state.pages, nextPage]
         : state.pages.map((page, pageIndex) =>
             pageIndex === index
-              ? normalizePage({ ...page, ...nextPage })
+              ? normalizePage({ ...page, ...action.page })
               : page
           );
       return {

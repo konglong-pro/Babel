@@ -282,6 +282,7 @@ interface EntryDetailProps {
   onEdit: () => void;
   onCreateSubnote: () => void;
   onCancel: (discardConfirmed?: boolean) => void;
+  onUpdateEntry: typeof updateEntry;
   onSaved: (detail: EntryDetailDto, readAfterSave?: boolean) => Promise<void> | void;
   onDeleted: () => Promise<void> | void;
   onNavigateEntry: (
@@ -294,6 +295,7 @@ interface EntryDetailProps {
   onEditLinkedEntry: (entryId: number) => void;
   onCreateWikilink?: (title: string, folderId: number) => Promise<void> | void;
   onDirtyChange: (dirty: boolean) => void;
+  onPendingChange: (pending: boolean) => void;
   onRegisterSave: (action: (() => void) | null) => void;
   onBack: () => void;
 }
@@ -314,6 +316,7 @@ export function EntryDetail({
   onEdit,
   onCreateSubnote,
   onCancel,
+  onUpdateEntry,
   onSaved,
   onDeleted,
   onNavigateEntry,
@@ -321,6 +324,7 @@ export function EntryDetail({
   onEditLinkedEntry,
   onCreateWikilink,
   onDirtyChange,
+  onPendingChange,
   onRegisterSave,
   onBack,
 }: EntryDetailProps) {
@@ -412,8 +416,10 @@ export function EntryDetail({
         folders={folders}
         entries={entries}
         onCancel={onCancel}
+        onUpdateEntry={onUpdateEntry}
         onSaved={onSaved}
         onDirtyChange={onDirtyChange}
+        onPendingChange={onPendingChange}
         onRegisterSave={onRegisterSave}
         resolveWikilink={resolveWikilink}
         onNavigateWikilink={navigateWikilink}
@@ -592,8 +598,10 @@ interface EntryFormProps {
   folders: FolderDto[];
   entries: readonly EntrySummaryDto[];
   onCancel: (discardConfirmed?: boolean) => void;
+  onUpdateEntry: typeof updateEntry;
   onSaved: (detail: EntryDetailDto, readAfterSave?: boolean) => Promise<void> | void;
   onDirtyChange: (dirty: boolean) => void;
+  onPendingChange: (pending: boolean) => void;
   onRegisterSave: (action: (() => void) | null) => void;
   resolveWikilink: (titleKey: string) => ResolvedWikilink | null;
   onNavigateWikilink: (target: ResolvedWikilink) => void;
@@ -612,8 +620,10 @@ function EntryForm({
   folders,
   entries,
   onCancel,
+  onUpdateEntry,
   onSaved,
   onDirtyChange,
+  onPendingChange,
   onRegisterSave,
   resolveWikilink,
   onNavigateWikilink,
@@ -769,6 +779,8 @@ function EntryForm({
     };
   }, [onDirtyChange]);
 
+  useEffect(() => () => onPendingChange(false), [onPendingChange]);
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const readAfterSave = submittedForReading(event);
@@ -788,6 +800,7 @@ function EntryForm({
 
     pendingRef.current = true;
     setPending(true);
+    onPendingChange(true);
     setError("");
     try {
       const input = {
@@ -805,7 +818,7 @@ function EntryForm({
         input.notesMd,
         importDraft?.originalDocument,
         (notesMd) => detail
-          ? updateEntry(detail.id, detail.version, { ...input, notesMd }, stagedImages)
+          ? onUpdateEntry(detail.id, detail.version, { ...input, notesMd }, stagedImages)
           : createEntry({ ...input, notesMd }, stagedImages),
       );
       for (const image of stagedRef.current) URL.revokeObjectURL(image.previewUrl);
@@ -825,6 +838,7 @@ function EntryForm({
       setError(getErrorMessage(caught));
     } finally {
       pendingRef.current = false;
+      onPendingChange(false);
       setPending(false);
     }
   }

@@ -58,6 +58,29 @@ namespace Babel {
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool CloseHandle(IntPtr handle);
 
+        public static string FormatArguments(string[] arguments) {
+            var commandLine = new StringBuilder();
+            foreach (var argument in arguments) {
+                if (commandLine.Length > 0) commandLine.Append(' ');
+                commandLine.Append('"');
+                int backslashes = 0;
+                foreach (char character in argument) {
+                    if (character == '\\') {
+                        backslashes++;
+                        continue;
+                    }
+                    // Windows argv parsing doubles backslashes before quotes.
+                    commandLine.Append('\\', character == '"' ? backslashes * 2 + 1 : backslashes);
+                    commandLine.Append(character);
+                    backslashes = 0;
+                }
+                // A trailing backslash must not escape the closing quote.
+                commandLine.Append('\\', backslashes * 2);
+                commandLine.Append('"');
+            }
+            return commandLine.ToString();
+        }
+
         public static int Start(string fileName, string arguments, string workingDirectory) {
             var startupInfo = new StartupInfo {
                 Size = Marshal.SizeOf(typeof(StartupInfo)),

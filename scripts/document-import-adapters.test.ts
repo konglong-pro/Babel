@@ -168,6 +168,7 @@ for (const adapter of adapters) {
     const variables = {
       detail: null, input: originalInput, stagedImages,
       [`create${adapter.entity}`]: save, [`update${adapter.entity}`]: save,
+      [`onUpdate${adapter.entity}`]: save,
     };
     const callbackSource = `const callback = ${call.arguments[2].getText(source)};`;
     const create = evaluate<Save>(callbackSource, variables, "callback");

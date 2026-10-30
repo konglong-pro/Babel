@@ -157,6 +157,7 @@ interface NoteDetailProps {
   onEdit: () => void;
   onCreateSubnote: () => void;
   onCancel: (discardConfirmed?: boolean) => void;
+  onUpdateNote: typeof updateNote;
   onSaved: (detail: NoteDetailDto, readAfterSave?: boolean) => Promise<void> | void;
   onDeleted: () => Promise<void> | void;
   onNavigateNote: (id: number, folderId?: number) => void;
@@ -165,6 +166,7 @@ interface NoteDetailProps {
   onNavigateReflection: (date: string) => void;
   onCreateWikilink: (title: string, folderId: number) => Promise<void> | void;
   onDirtyChange: (dirty: boolean) => void;
+  onPendingChange: (pending: boolean) => void;
   onRegisterSave: (action: (() => void) | null) => void;
   onBack: () => void;
 }
@@ -185,6 +187,7 @@ export function NoteDetail({
   onEdit,
   onCreateSubnote,
   onCancel,
+  onUpdateNote,
   onSaved,
   onDeleted,
   onNavigateNote,
@@ -193,6 +196,7 @@ export function NoteDetail({
   onNavigateReflection,
   onCreateWikilink,
   onDirtyChange,
+  onPendingChange,
   onRegisterSave,
   onBack,
 }: NoteDetailProps) {
@@ -294,8 +298,10 @@ export function NoteDetail({
         notes={notes}
         templates={templates}
         onCancel={onCancel}
+        onUpdateNote={onUpdateNote}
         onSaved={onSaved}
         onDirtyChange={onDirtyChange}
+        onPendingChange={onPendingChange}
         onRegisterSave={onRegisterSave}
         resolveWikilink={resolveWikilink}
         onNavigateWikilink={navigateWikilink}
@@ -453,8 +459,10 @@ interface NoteFormProps {
   notes: NoteSummaryDto[];
   templates: NoteTemplateDto[];
   onCancel: (discardConfirmed?: boolean) => void;
+  onUpdateNote: typeof updateNote;
   onSaved: (detail: NoteDetailDto, readAfterSave?: boolean) => Promise<void> | void;
   onDirtyChange: (dirty: boolean) => void;
+  onPendingChange: (pending: boolean) => void;
   onRegisterSave: (action: (() => void) | null) => void;
   resolveWikilink: (titleKey: string) => ResolvedWikilink | null;
   onNavigateWikilink: (target: ResolvedWikilink) => void;
@@ -473,8 +481,10 @@ function NoteForm({
   notes,
   templates,
   onCancel,
+  onUpdateNote,
   onSaved,
   onDirtyChange,
+  onPendingChange,
   onRegisterSave,
   resolveWikilink,
   onNavigateWikilink,
@@ -581,6 +591,8 @@ function NoteForm({
     };
   }, [onDirtyChange]);
 
+  useEffect(() => () => onPendingChange(false), [onPendingChange]);
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const readAfterSave = submittedForReading(event);
@@ -596,6 +608,7 @@ function NoteForm({
 
     pendingRef.current = true;
     setPending(true);
+    onPendingChange(true);
     setError("");
     try {
       const input = {
@@ -609,7 +622,7 @@ function NoteForm({
         input.contentMd,
         importDraft?.originalDocument,
         (contentMd) => detail
-          ? updateNote(detail.id, { ...input, contentMd }, stagedImages)
+          ? onUpdateNote(detail.id, { ...input, contentMd }, stagedImages)
           : createNote({ ...input, contentMd }, stagedImages),
       );
       for (const image of stagedRef.current) URL.revokeObjectURL(image.previewUrl);
@@ -626,6 +639,7 @@ function NoteForm({
       setError(getErrorMessage(caught));
     } finally {
       pendingRef.current = false;
+      onPendingChange(false);
       setPending(false);
     }
   }

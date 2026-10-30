@@ -215,6 +215,7 @@ interface NoteDetailProps {
   onEdit: () => void;
   onCreateSubnote: () => void;
   onCancel: (discardConfirmed?: boolean) => void;
+  onUpdateNote: typeof updateNote;
   onSaved: (detail: NoteDetailDto, readAfterSave?: boolean) => Promise<void> | void;
   onDeleted: () => Promise<void> | void;
   onNavigateNote: (id: number, folderId?: number) => void;
@@ -243,6 +244,7 @@ export function NoteDetail({
   onEdit,
   onCreateSubnote,
   onCancel,
+  onUpdateNote,
   onSaved,
   onDeleted,
   onNavigateNote,
@@ -336,6 +338,7 @@ export function NoteDetail({
         notes={notes}
         templates={templates}
         onCancel={onCancel}
+        onUpdateNote={onUpdateNote}
         onSaved={onSaved}
         onDirtyChange={onDirtyChange}
         onPendingChange={onPendingChange}
@@ -484,6 +487,7 @@ interface NoteFormProps {
   notes: NoteSummaryDto[];
   templates: NoteTemplateDto[];
   onCancel: (discardConfirmed?: boolean) => void;
+  onUpdateNote: typeof updateNote;
   onSaved: (detail: NoteDetailDto, readAfterSave?: boolean) => Promise<void> | void;
   onDirtyChange: (dirty: boolean) => void;
   onPendingChange: (pending: boolean) => void;
@@ -505,6 +509,7 @@ function NoteForm({
   notes,
   templates,
   onCancel,
+  onUpdateNote,
   onSaved,
   onDirtyChange,
   onPendingChange,
@@ -681,7 +686,7 @@ function NoteForm({
         input.contentMd,
         importDraft?.originalDocument,
         (contentMd) => detail
-          ? updateNote(detail.id, { ...input, contentMd }, stagedImages)
+          ? onUpdateNote(detail.id, { ...input, contentMd }, stagedImages)
           : createNote({ ...input, contentMd }, stagedImages),
       );
       if (

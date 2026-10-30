@@ -16,6 +16,7 @@ import {
   getErrorMessage,
   getNote,
   listBacklinks,
+  type updateNote,
 } from "@/lib/api-client";
 import { persistedEditorModeAfterSave } from "@/lib/editor-save-mode";
 import type { MarkdownImportDraft } from "@/lib/markdown-import";
@@ -51,6 +52,7 @@ interface NotePageSessionProps {
   onOpenNoteForEdit: (id: number, folderId?: number) => void;
   onOpenDraft: (input: Omit<NoteDraftSession, "title"> & { title?: string }) => void;
   onOpenReflection: (date: string) => void;
+  onUpdateNote: typeof updateNote;
   onRefreshIndex: () => Promise<void>;
   onShowList: () => void;
   onError: (message: string) => void;
@@ -83,6 +85,7 @@ export function NotePageSession({
   onOpenNoteForEdit,
   onOpenDraft,
   onOpenReflection,
+  onUpdateNote,
   onRefreshIndex,
   onShowList,
   onError,
@@ -95,15 +98,16 @@ export function NotePageSession({
   const [loadError, setLoadError] = useState("");
   const [reloadVersion, setReloadVersion] = useState(0);
   const [dirty, setDirty] = useState(false);
+  const [pending, setPending] = useState(false);
   const saveActionRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    setPageStatus(pageKey, { dirty, pending: false });
-  }, [dirty, pageKey, setPageStatus]);
+    setPageStatus(pageKey, { dirty, pending });
+  }, [dirty, pageKey, pending, setPageStatus]);
 
   usePageSessionLifecycle(pageKey, {
     save: () => {
-      if (!dirty) return true;
+      if (!dirty && !pending) return true;
       saveActionRef.current?.();
       return false;
     },
@@ -145,6 +149,7 @@ export function NotePageSession({
   }, [onError]);
 
   async function handleSaved(saved: NoteDetailDto, readAfterSave = false) {
+    setPending(false);
     setDetail(saved);
     setMode(readAfterSave ? "view" : persistedEditorModeAfterSave(noteId !== null));
     setDirty(false);
@@ -267,6 +272,7 @@ export function NotePageSession({
           });
         }}
         onCancel={cancelEditing}
+        onUpdateNote={onUpdateNote}
         onSaved={handleSaved}
         onDeleted={handleDeleted}
         onNavigateNote={onOpenNote}
@@ -284,6 +290,7 @@ export function NotePageSession({
         onNavigateReflection={onOpenReflection}
         onCreateWikilink={handleCreateWikilink}
         onDirtyChange={setDirty}
+        onPendingChange={setPending}
         onRegisterSave={(action) => {
           saveActionRef.current = action;
         }}

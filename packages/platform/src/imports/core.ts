@@ -721,11 +721,11 @@ function titleKey(value: string): string {
 function resolveRelativePath(sourcePath: string, rawDestination: string): string | null {
   let decoded: string;
   try {
-    decoded = decodeURIComponent(rawDestination);
+    decoded = decodeURIComponent(rawDestination.split(/[?#]/u, 1)[0]);
   } catch {
     return null;
   }
-  const pathOnly = decoded.split(/[?#]/u, 1)[0].replaceAll("\\", "/");
+  const pathOnly = decoded.replaceAll("\\", "/");
   if (
     !pathOnly ||
     pathOnly.includes("\0") ||

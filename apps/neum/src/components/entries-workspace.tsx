@@ -44,6 +44,7 @@ import {
   listEntries,
   reorderEntry,
   moveEntry,
+  updateEntry,
   listFolders,
   updateFolder,
 } from "@/lib/api-client";
@@ -589,23 +590,34 @@ export function EntriesWorkspace({
     }
   }
 
-  async function handleMoveEntry(id: number, folderId: number) {
-    const entry = entries.find((candidate) => candidate.id === id && candidate.kind === kind);
+  async function withEntryFolderMove<T>(
+    id: number,
+    folderId: number,
+    save: () => Promise<T>,
+    editingId: number | null = null,
+  ): Promise<T> {
+    const entry = quickOpenEntries.find((candidate) => candidate.id === id && candidate.kind === kind)
+      ?? entries.find((candidate) => candidate.id === id && candidate.kind === kind);
     if (!entry || !folders.some((folder) => folder.id === folderId)) {
       throw new Error("This entry or destination folder is no longer available. Refresh and try again.");
     }
-    if (entry.folderId === folderId) return;
-    const affectedIds = entrySubtreeIds(entries, id);
+    if (entry.folderId === folderId) return save();
+    const affectedIds = entrySubtreeIds(quickOpenEntries.length > 0 ? quickOpenEntries : entries, id);
     const blocked = pages.some((page) => {
       const savedId = savedEntryId(page.key);
-      if (savedId !== null && affectedIds.has(savedId) && (page.dirty || page.pending)) return true;
+      if (
+        savedId !== null && savedId !== editingId && affectedIds.has(savedId) &&
+        (page.dirty || page.pending)
+      ) return true;
       const draft = drafts[page.key];
       return draft?.parentId !== null && draft?.parentId !== undefined && affectedIds.has(draft.parentId);
     });
     if (blocked) throw new Error("Save or close open drafts in this note and its child notes before moving it.");
-    setMovingItemIds(affectedIds);
+    // The submitting editor keeps its draft mounted; only clean descendants reload.
+    const reloadIds = new Set([...affectedIds].filter((affectedId) => affectedId !== editingId));
+    setMovingItemIds(reloadIds);
     try {
-      await moveEntry(id, entry.version, folderId);
+      const result = await save();
       for (const page of pages) {
         const savedId = savedEntryId(page.key);
         if (savedId === null || !affectedIds.has(savedId)) continue;
@@ -613,13 +625,24 @@ export function EntriesWorkspace({
       }
       setMoveRevisions((current) => {
         const next = { ...current };
-        for (const affectedId of affectedIds) next[affectedId] = (next[affectedId] ?? 0) + 1;
+        for (const affectedId of reloadIds) next[affectedId] = (next[affectedId] ?? 0) + 1;
         return next;
       });
-      await refreshWorkspaceIndex(selectedEntryId !== null && affectedIds.has(selectedEntryId) ? folderId : visibleFolderId);
+      return result;
     } finally {
       setMovingItemIds(new Set());
     }
+  }
+
+  const updateEntryFromEditor: typeof updateEntry = (id, version, input, images) =>
+    withEntryFolderMove(id, input.folderId, () => updateEntry(id, version, input, images), id);
+
+  async function handleMoveEntry(id: number, folderId: number) {
+    const entry = entries.find((candidate) => candidate.id === id);
+    if (!entry) throw new Error("This entry is no longer available. Refresh and try again.");
+    await withEntryFolderMove(id, folderId, () => moveEntry(id, entry.version, folderId));
+    const affectedIds = entrySubtreeIds(entries, id);
+    await refreshWorkspaceIndex(selectedEntryId !== null && affectedIds.has(selectedEntryId) ? folderId : visibleFolderId);
   }
 
   async function handleReorderEntry(id: number, position: number) {
@@ -839,6 +862,7 @@ export function EntriesWorkspace({
                   }));
                 }}
                 onOpenDraft={openDraft}
+                onUpdateEntry={updateEntryFromEditor}
                 onRefreshIndex={refreshWorkspaceIndex}
                 onShowList={() => showList()}
                 onError={setError}

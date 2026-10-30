@@ -17,6 +17,7 @@ import {
   getErrorMessage,
   getNote,
   listBacklinks,
+  type updateNote,
 } from "@/lib/api-client";
 import type { MarkdownImportDraft } from "@/lib/markdown-import";
 import { noteModeAfterSave } from "@/lib/editor-save-mode";
@@ -51,6 +52,7 @@ interface NotePageSessionProps {
   onOpenNote: (id: number, folderId?: number) => void;
   onOpenNoteForEdit: (id: number, folderId?: number) => void;
   onOpenDraft: (input: Omit<NoteDraftSession, "title"> & { title?: string }) => void;
+  onUpdateNote: typeof updateNote;
   onRefreshIndex: () => Promise<void>;
   onShowList: () => void;
   onError: (message: string) => void;
@@ -81,6 +83,7 @@ export function NotePageSession({
   onOpenNote,
   onOpenNoteForEdit,
   onOpenDraft,
+  onUpdateNote,
   onRefreshIndex,
   onShowList,
   onError,
@@ -270,6 +273,7 @@ export function NotePageSession({
           });
         }}
         onCancel={cancelEditing}
+        onUpdateNote={onUpdateNote}
         onSaved={handleSaved}
         onDeleted={handleDeleted}
         onNavigateNote={onOpenNote}

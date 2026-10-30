@@ -17,6 +17,7 @@ import {
   getEntry,
   getErrorMessage,
   listEntryBacklinks,
+  type updateEntry,
 } from "@/lib/api-client";
 import { entryUnitLabel, entryWorkspaceHref } from "@/lib/entry-routes";
 import { entryModeAfterSave } from "@/lib/editor-save-mode";
@@ -59,6 +60,7 @@ interface EntryPageSessionProps {
   onOpenEntryForEdit: (id: number, kind: EntryKind, folderId: number) => void;
   onOpenLinkedKnowledgeDraft: (folderId: number, underlineId: number) => void;
   onOpenDraft: (input: Omit<EntryDraftSession, "title"> & { title?: string }) => void;
+  onUpdateEntry: typeof updateEntry;
   onRefreshIndex: (folderId: number | null) => Promise<void>;
   onShowList: () => void;
   onError: (message: string) => void;
@@ -94,6 +96,7 @@ export function EntryPageSession({
   onOpenEntryForEdit,
   onOpenLinkedKnowledgeDraft,
   onOpenDraft,
+  onUpdateEntry,
   onRefreshIndex,
   onShowList,
   onError,
@@ -107,15 +110,16 @@ export function EntryPageSession({
   const [loadError, setLoadError] = useState("");
   const [reloadVersion, setReloadVersion] = useState(0);
   const [dirty, setDirty] = useState(false);
+  const [pending, setPending] = useState(false);
   const saveActionRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    setPageStatus(pageKey, { dirty, pending: false });
-  }, [dirty, pageKey, setPageStatus]);
+    setPageStatus(pageKey, { dirty, pending });
+  }, [dirty, pageKey, pending, setPageStatus]);
 
   usePageSessionLifecycle(pageKey, {
     save: () => {
-      if (!dirty) return true;
+      if (!dirty && !pending) return true;
       saveActionRef.current?.();
       return false;
     },
@@ -164,6 +168,7 @@ export function EntryPageSession({
   }, [onError]);
 
   async function handleSaved(saved: EntryDetailDto, readAfterSave = false) {
+    setPending(false);
     setDetail(saved);
     setMode(readAfterSave ? "view" : entryModeAfterSave(entryId));
     setDirty(false);
@@ -295,6 +300,7 @@ export function EntryPageSession({
           });
         }}
         onCancel={cancelEditing}
+        onUpdateEntry={onUpdateEntry}
         onSaved={handleSaved}
         onDeleted={handleDeleted}
         onNavigateEntry={onOpenEntry}
@@ -320,6 +326,7 @@ export function EntryPageSession({
         }}
         onCreateWikilink={handleCreateWikilink}
         onDirtyChange={setDirty}
+        onPendingChange={setPending}
         onRegisterSave={(action) => {
           saveActionRef.current = action;
         }}

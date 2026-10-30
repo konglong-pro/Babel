@@ -3,13 +3,11 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MarkdownRenderer } from "@babel-apps/markdown/react";
-import { ReaderImageZoom, fitReaderImage, clampReaderImageZoom } from "../src/reader-image-zoom";
+import { ReaderImage, fitReaderImage, clampReaderImageZoom } from "../src/reader-image-zoom";
 
-test("reader images are keyboard accessible without changing the image or its surrounding link", () => {
+test("inline and detached Markdown readers enable image zoom without a separate wrapper", () => {
   const content = '[![Diagram](/api/notes/1/images/diagram.png "Caption")](https://example.com/source)';
-  const html = renderToStaticMarkup(createElement(ReaderImageZoom, null,
-    createElement(MarkdownRenderer, { content }),
-  ));
+  const html = renderToStaticMarkup(createElement(MarkdownRenderer, { content }));
   assert.match(html, /href="https:\/\/example.com\/source"/u);
   assert.match(html, /src="\/api\/notes\/1\/images\/diagram.png"/u);
   assert.match(html, /alt="Diagram"/u);
@@ -21,20 +19,18 @@ test("reader images are keyboard accessible without changing the image or its su
   assert.doesNotMatch(html, /<dialog/u);
 });
 
-test("ordinary Markdown previews do not opt into reader image controls", () => {
-  const html = renderToStaticMarkup(createElement(MarkdownRenderer, { content: "![Diagram](/diagram.png)" }));
+test("standalone images outside Markdown readers do not opt into reader image controls", () => {
+  const html = renderToStaticMarkup(createElement(ReaderImage, { src: "/diagram.png", alt: "Diagram" }));
   assert.match(html, /loading="lazy"/u);
   assert.doesNotMatch(html, /babel-reader-image|role="button"|tabindex|Click to zoom/u);
 });
 
 test("readers zoom resolved draft blobs but preserve missing-image and canvas placeholders", () => {
-  const html = renderToStaticMarkup(createElement(ReaderImageZoom, null,
-    createElement(MarkdownRenderer, {
-      content: "![Draft](test-upload://found)\n\n![Missing](test-upload://missing)\n\n![[canvas:12|Map]]",
-      uploadScheme: "test-upload",
-      imagePreviews: new Map([["found", "blob:existing-preview"]]),
-    }),
-  ));
+  const html = renderToStaticMarkup(createElement(MarkdownRenderer, {
+    content: "![Draft](test-upload://found)\n\n![Missing](test-upload://missing)\n\n![[canvas:12|Map]]",
+    uploadScheme: "test-upload",
+    imagePreviews: new Map([["found", "blob:existing-preview"]]),
+  }));
   assert.match(html, /src="blob:existing-preview"/u);
   assert.equal((html.match(/aria-haspopup="dialog"/gu) ?? []).length, 1);
   assert.match(html, /Image awaiting file: Missing/u);
@@ -42,9 +38,7 @@ test("readers zoom resolved draft blobs but preserve missing-image and canvas pl
 });
 
 test("blocked image URLs cannot become interactive zoom triggers", () => {
-  const html = renderToStaticMarkup(createElement(ReaderImageZoom, null,
-    createElement(MarkdownRenderer, { content: "![Bad](javascript:alert)" }),
-  ));
+  const html = renderToStaticMarkup(createElement(MarkdownRenderer, { content: "![Bad](javascript:alert)" }));
   assert.doesNotMatch(html, /aria-haspopup|role="button"|javascript:/u);
 });
 

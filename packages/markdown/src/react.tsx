@@ -313,22 +313,24 @@ export function MarkdownRenderer({
   if (!content.trim()) return <p className="empty-copy">{emptyText}</p>;
 
   return (
-    <div className="markdown-body">
-      <SearchFocusLineContext.Provider value={focusSourceLine}>
-        <TaskToggleContext.Provider value={onToggleTask}>
-          <ReactMarkdown
-            components={components}
-            remarkPlugins={[
-              ...(useGfm ? [remarkGfm, remarkTableBreaks] : []),
-              ...(preparedFormulaMath === null ? [] : [createRemarkFormulaMath(preparedFormulaMath)]),
-            ]}
-            urlTransform={urlTransform}
-          >
-            {preprocessedContent}
-          </ReactMarkdown>
-        </TaskToggleContext.Provider>
-      </SearchFocusLineContext.Provider>
-    </div>
+    <ReaderImageZoom>
+      <div className="markdown-body">
+        <SearchFocusLineContext.Provider value={focusSourceLine}>
+          <TaskToggleContext.Provider value={onToggleTask}>
+            <ReactMarkdown
+              components={components}
+              remarkPlugins={[
+                ...(useGfm ? [remarkGfm, remarkTableBreaks] : []),
+                ...(preparedFormulaMath === null ? [] : [createRemarkFormulaMath(preparedFormulaMath)]),
+              ]}
+              urlTransform={urlTransform}
+            >
+              {preprocessedContent}
+            </ReactMarkdown>
+          </TaskToggleContext.Provider>
+        </SearchFocusLineContext.Provider>
+      </div>
+    </ReaderImageZoom>
   );
 }
 
@@ -1082,7 +1084,7 @@ function DetachedReaderWindowInstance({
         <ShortcutProvider ownerDocument={host.root.ownerDocument} fixedMode="read"
           onReturnToApp={() => { executeShortcutSourceCommand(fallbackButtonRef.current, "app"); host.popup.close(); }}
           onEditSource={() => executeShortcutSourceCommand(fallbackButtonRef.current, "edit")}>
-          <ReaderImageZoom>{readerContent}</ReaderImageZoom>
+          {readerContent}
         </ShortcutProvider>, host.root, portalKey)}
     </>
   );

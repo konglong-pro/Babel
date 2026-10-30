@@ -48,6 +48,7 @@ import {
   listNotes,
   reorderNote,
   moveNote,
+  updateNote,
   listNoteTemplates,
   updateNoteTemplate,
   updateFolder,
@@ -408,23 +409,33 @@ export function NotesWorkspace({
     }
   }
 
-  async function handleMoveNote(id: number, folderId: number) {
+  async function withNoteFolderMove<T>(
+    id: number,
+    folderId: number,
+    save: () => Promise<T>,
+    editingId: number | null = null,
+  ): Promise<T> {
     const note = notes.find((candidate) => candidate.id === id);
     if (!note || !folders.some((folder) => folder.id === folderId)) {
       throw new Error("This note or destination folder is no longer available. Refresh and try again.");
     }
-    if (note.folderId === folderId) return;
+    if (note.folderId === folderId) return save();
     const affectedIds = subtreeIds(id, notes);
     const blocked = pages.some((page) => {
       const savedId = savedNoteId(page.key);
-      if (savedId !== null && affectedIds.has(savedId) && (page.dirty || page.pending)) return true;
+      if (
+        savedId !== null && savedId !== editingId && affectedIds.has(savedId) &&
+        (page.dirty || page.pending)
+      ) return true;
       const draft = drafts[page.key];
       return draft?.parentId !== null && draft?.parentId !== undefined && affectedIds.has(draft.parentId);
     });
     if (blocked) throw new Error("Save or close open drafts in this note and its child notes before moving it.");
-    setMovingItemIds(affectedIds);
+    // The submitting editor keeps its draft mounted; only clean descendants reload.
+    const reloadIds = new Set([...affectedIds].filter((affectedId) => affectedId !== editingId));
+    setMovingItemIds(reloadIds);
     try {
-      await moveNote(id, folderId);
+      const result = await save();
       for (const page of pages) {
         const savedId = savedNoteId(page.key);
         if (savedId === null || !affectedIds.has(savedId)) continue;
@@ -432,13 +443,21 @@ export function NotesWorkspace({
       }
       setMoveRevisions((current) => {
         const next = { ...current };
-        for (const affectedId of affectedIds) next[affectedId] = (next[affectedId] ?? 0) + 1;
+        for (const affectedId of reloadIds) next[affectedId] = (next[affectedId] ?? 0) + 1;
         return next;
       });
-      await refreshIndex();
+      return result;
     } finally {
       setMovingItemIds(new Set());
     }
+  }
+
+  const updateNoteFromEditor: typeof updateNote = (id, input, images) =>
+    withNoteFolderMove(id, input.folderId, () => updateNote(id, input, images), id);
+
+  async function handleMoveNote(id: number, folderId: number) {
+    await withNoteFolderMove(id, folderId, () => moveNote(id, folderId));
+    await refreshIndex();
   }
 
   async function handleReorderNote(id: number, position: number) {
@@ -724,6 +743,7 @@ export function NotesWorkspace({
                   onOpenNote={openNote}
                   onOpenNoteForEdit={openNoteForEdit}
                   onOpenDraft={openDraft}
+                  onUpdateNote={updateNoteFromEditor}
                   onRefreshIndex={refreshIndex}
                   onShowList={() => showList()}
                   onError={setError}

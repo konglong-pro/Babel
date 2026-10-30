@@ -23,7 +23,7 @@ export function clampReaderImageZoom(scale: number, fit: number): number {
   return Math.min(8, Math.max(Math.min(0.1, fit), scale));
 }
 
-/** Only detached Read content opts in; editing previews keep their existing behavior. */
+/** Markdown reading surfaces share the viewer in the image's own document. */
 export function ReaderImageZoom({ children }: { children: ReactNode }) {
   const [image, setImage] = useState<OpenImage | null>(null);
   const close = useCallback(() => setImage(null), []);

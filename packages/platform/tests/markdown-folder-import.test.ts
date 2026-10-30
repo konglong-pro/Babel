@@ -165,6 +165,63 @@ test("renderer preserves Markdown labels and wikilink aliases", () => {
   assert.equal(rendered.contentMd, "[[Same|Same]]\n[[Same| Same ]]");
 });
 
+test("folder import preserves encoded filename characters while removing URL suffixes", async () => {
+  const contentMd = [
+    "![Chart](assets/image%231.png?download=1#preview)",
+    "![Literal percent][asset]",
+    "[Next](chapter%232.md#section)",
+    "[Ordinary](plain.md?view=read#section)",
+    "",
+    "[asset]: assets/image%2523.png",
+  ].join("\n");
+  const analysis = await preflightMarkdownFolder([
+    textFile("Vault/index.md", contentMd),
+    textFile("Vault/chapter#2.md", "Second chapter"),
+    textFile("Vault/plain.md", "Plain chapter"),
+    pngFile("Vault/assets/image#1.png"),
+    pngFile("Vault/assets/image%23.png"),
+  ]);
+
+  assert.deepEqual(analysis.issues, []);
+  assert.ok(analysis.notes.every((note) => note.issues.length === 0));
+  assert.deepEqual(analysis.assets.map(({ path }) => path), [
+    "assets/image#1.png",
+    "assets/image%23.png",
+  ]);
+  const rendered = renderMarkdownFolderNote({
+    sourcePath: "index.md",
+    contentMd,
+    titlesBySourcePath: new Map([
+      ["index.md", "Index"],
+      ["chapter#2.md", "Second chapter"],
+      ["plain.md", "Plain chapter"],
+    ]),
+    uploadPlaceholderPrefix: "test-upload://",
+  });
+
+  assert.deepEqual(rendered.images.map(({ path }) => path), [
+    "assets/image#1.png",
+    "assets/image%23.png",
+  ]);
+  assert.match(rendered.contentMd, /\[\[Second chapter\|Next\]\]/u);
+  assert.match(rendered.contentMd, /\[\[Plain chapter\|Ordinary\]\]/u);
+  assert.doesNotMatch(rendered.contentMd, /download=1|#preview|#section/u);
+});
+
+test("encoded paths still reject traversal and ignore malformed URL suffixes", async () => {
+  const analysis = await preflightMarkdownFolder([
+    textFile("Vault/sub/note.md", [
+      "![Outside](%2e%2e/%2e%2e/outside.png)",
+      "![Broken](bad%ZZ.png)",
+      "![Local](../assets/local.png?value=%ZZ#preview)",
+    ].join("\n")),
+    pngFile("Vault/assets/local.png"),
+  ]);
+
+  assert.deepEqual(analysis.notes[0].imagePaths, ["assets/local.png"]);
+  assert.equal(analysis.notes[0].issues.filter(({ code }) => code === "INVALID_PATH").length, 2);
+});
+
 test("ambiguous wikilinks require an explicit target or preserve decision", () => {
   const sources = [
     { path: "index.md", contentMd: "[[topic]]", size: 9 },

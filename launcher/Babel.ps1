@@ -518,9 +518,11 @@ function Get-BabelApps {
             (Join-Path $workspace ".env.production.local"),
             (Join-Path $RootPath "packages\config"),
             (Join-Path $RootPath "packages\html"),
+            (Join-Path $RootPath "packages\katex"),
             (Join-Path $RootPath "packages\markdown"),
             (Join-Path $RootPath "packages\platform"),
             (Join-Path $RootPath "packages\pdf"),
+            (Join-Path $RootPath "packages\typst"),
             (Join-Path $RootPath "package.json"),
             (Join-Path $RootPath "package-lock.json"),
             $registryPath
@@ -645,15 +647,25 @@ function Get-NewestInputTimeUtc {
                 $newest = $rootDirectory.LastWriteTimeUtc
             }
 
-            foreach ($directory in Get-ChildItem -LiteralPath $path -Recurse -Directory) {
-                if ($directory.LastWriteTimeUtc -gt $newest) {
-                    $newest = $directory.LastWriteTimeUtc
-                }
-            }
-
-            foreach ($file in Get-ChildItem -LiteralPath $path -Recurse -File) {
-                if ($file.LastWriteTimeUtc -gt $newest) {
-                    $newest = $file.LastWriteTimeUtc
+            $directories = [Collections.Generic.Stack[string]]::new()
+            $directories.Push($path)
+            while ($directories.Count -gt 0) {
+                foreach ($entry in Get-ChildItem -LiteralPath $directories.Pop()) {
+                    if ($entry.PSIsContainer) {
+                        if (
+                            ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or
+                            $entry.Name -in @("node_modules", ".next", ".git", ".runtime", ".playwright-cli") -or
+                            ($entry.Parent.Name -eq "public" -and $entry.Name -in @("_typst", "_pdf"))
+                        ) {
+                            continue
+                        }
+                        $directories.Push($entry.FullName)
+                    } elseif ($entry.Name -like "*.tsbuildinfo" -or $entry.Name -like "*.log") {
+                        continue
+                    }
+                    if ($entry.LastWriteTimeUtc -gt $newest) {
+                        $newest = $entry.LastWriteTimeUtc
+                    }
                 }
             }
         } elseif (Test-Path -LiteralPath $path -PathType Leaf) {
@@ -848,7 +860,7 @@ function Start-AppProcess {
     try {
         return Start-BabelDetachedProcess `
             -FilePath $command.Source `
-            -Arguments (@($App.StartArguments) -join " ") `
+            -Arguments ([Babel.DetachedProcess]::FormatArguments([string[]]$App.StartArguments)) `
             -WorkingDirectory $App.StartWorkingDirectory
     } finally {
         Restore-Environment -Snapshot $environmentSnapshot
