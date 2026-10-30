@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 
 import { db } from "@/lib/db/client";
 import { folders, noteImages, notes } from "@/lib/db/schema";
@@ -6,6 +6,12 @@ import { managedImagePathsInMarkdown, normalizeStoredNoteImagePath } from "@/lib
 import type { NoteDetailDto, NoteSummaryDto } from "@/lib/types";
 
 import { RepositoryError } from "./errors";
+import {
+  listOutgoingNoteLinks,
+  reconcileNoteTitleChange,
+  replaceSourceNoteLinks,
+  resolveIncomingLinksForTitle,
+} from "./links";
 import {
   assertPositiveId,
   normalizeMarkdown,
@@ -19,6 +25,7 @@ type NoteRow = typeof notes.$inferSelect;
 
 export interface CreateNoteInput {
   folderId: number;
+  parentId?: number | null;
   title: string;
   contentMd?: string;
   tags?: readonly string[];
@@ -26,9 +33,11 @@ export interface CreateNoteInput {
 
 export interface UpdateNoteInput {
   folderId?: number;
+  parentId?: number | null;
   title?: string;
   contentMd?: string;
   tags?: readonly string[];
+  position?: number;
 }
 
 export interface UpdatedNoteResult {
@@ -45,7 +54,7 @@ export function listNotes(folderId?: number): NoteSummaryDto[] {
     return db
       .select()
       .from(notes)
-      .orderBy(desc(notes.updatedAt), desc(notes.id))
+      .orderBy(asc(notes.position), asc(notes.id))
       .all()
       .map(toNoteSummary);
   }
@@ -75,7 +84,7 @@ export function listNotes(folderId?: number): NoteSummaryDto[] {
     .select()
     .from(notes)
     .where(inArray(notes.folderId, [...descendants]))
-    .orderBy(desc(notes.updatedAt), desc(notes.id))
+    .orderBy(asc(notes.position), asc(notes.id))
     .all()
     .map(toNoteSummary);
 }
@@ -83,7 +92,7 @@ export function listNotes(folderId?: number): NoteSummaryDto[] {
 export function getNote(id: number): NoteDetailDto | null {
   assertPositiveId(id, "id");
   const row = db.select().from(notes).where(eq(notes.id, id)).get();
-  return row ? toNoteDetail(row) : null;
+  return row ? toNoteDetail(row, listOutgoingNoteLinks(id)) : null;
 }
 
 export function listNoteImagePaths(noteId: number): string[] {
@@ -101,16 +110,23 @@ export function createNote(
   newImagePaths: readonly string[] = [],
 ): NoteDetailDto {
   requireFolder(input.folderId);
+  const parentId = input.parentId ?? null;
+  if (parentId !== null) requireNoteParent(parentId, input.folderId);
   const title = normalizeRequiredText(input.title, "title");
   const contentMd = normalizeMarkdown(input.contentMd ?? "", "contentMd");
   const tags = tagsToJson(input.tags ?? []);
   const imagePaths = normalizeNewImagePaths(newImagePaths);
   assertManagedImageOwnership(contentMd, [], imagePaths);
 
-  const row = db.transaction((transaction) => {
+  return db.transaction((transaction) => {
+    transaction
+      .update(notes)
+      .set({ position: sql`${notes.position} + 1` })
+      .where(noteScopeCondition(input.folderId, parentId))
+      .run();
     const inserted = transaction
       .insert(notes)
-      .values({ folderId: input.folderId, title, contentMd, tags })
+      .values({ folderId: input.folderId, parentId, title, contentMd, tags, position: 0 })
       .returning()
       .get();
     if (imagePaths.length > 0) {
@@ -119,10 +135,13 @@ export function createNote(
         .values(imagePaths.map((imagePath) => ({ noteId: inserted.id, imagePath })))
         .run();
     }
-    return inserted;
+    replaceSourceNoteLinks(transaction, inserted.id, contentMd);
+    resolveIncomingLinksForTitle(transaction, title);
+    return toNoteDetail(
+      inserted,
+      listOutgoingNoteLinks(inserted.id, transaction),
+    );
   });
-
-  return toNoteDetail(row);
 }
 
 export function updateNote(
@@ -148,15 +167,29 @@ export function updateNote(
 
   const changes: {
     folderId?: number;
+    parentId?: number | null;
     title?: string;
     contentMd?: string;
     tags?: string;
+    position?: number;
     updatedAt: SQL;
   } = { updatedAt: sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))` };
   let changed = imagePaths.length > 0;
+  let movedDescendantIds: number[] = [];
+  let folderChanged = false;
   if (input.folderId !== undefined) {
     requireFolder(input.folderId);
     changes.folderId = input.folderId;
+    if (input.folderId !== current.folderId) {
+      folderChanged = true;
+      movedDescendantIds = noteDescendantIds(id);
+    }
+    changed = true;
+  }
+  if (input.parentId !== undefined || folderChanged) {
+    const parentId = input.parentId === undefined ? null : input.parentId ?? null;
+    assertValidParent(id, parentId, changes.folderId ?? current.folderId);
+    changes.parentId = parentId;
     changed = true;
   }
   if (input.title !== undefined) {
@@ -171,7 +204,22 @@ export function updateNote(
     changes.tags = tagsToJson(input.tags);
     changed = true;
   }
-  if (!changed) return { note: toNoteDetail(current), removedImagePaths: [] };
+  const nextFolderId = changes.folderId ?? current.folderId;
+  const nextParentId = changes.parentId === undefined ? current.parentId : changes.parentId;
+  const requestedPosition = input.position === undefined
+    ? undefined
+    : normalizePosition(input.position);
+  const orderPlan =
+    nextFolderId !== current.folderId ||
+    nextParentId !== current.parentId ||
+    requestedPosition !== undefined
+      ? planNoteOrder(current, nextFolderId, nextParentId, requestedPosition)
+      : null;
+  if (orderPlan !== null) {
+    changes.position = orderPlan.position;
+    changed = true;
+  }
+  if (!changed) return { note: getNote(id)!, removedImagePaths: [] };
 
   const ownedImagePaths = listNoteImagePaths(id);
   const contentMd = changes.contentMd ?? current.contentMd;
@@ -186,12 +234,25 @@ export function updateNote(
   assertPreparedImageRemoval(removedImagePaths, expectedRemovedImagePaths);
 
   const updated = db.transaction((transaction) => {
+    for (const change of orderPlan?.siblings ?? []) {
+      transaction.update(notes)
+        .set({ position: change.position })
+        .where(eq(notes.id, change.id))
+        .run();
+    }
     const row = transaction
       .update(notes)
       .set(changes)
       .where(eq(notes.id, id))
       .returning()
       .get();
+    if (changes.folderId !== undefined && movedDescendantIds.length > 0) {
+      transaction
+        .update(notes)
+        .set({ folderId: changes.folderId, updatedAt: changes.updatedAt })
+        .where(inArray(notes.id, movedDescendantIds))
+        .run();
+    }
     if (removedImagePaths.length > 0) {
       transaction
         .delete(noteImages)
@@ -209,10 +270,14 @@ export function updateNote(
         .values(imagePaths.map((imagePath) => ({ noteId: id, imagePath })))
         .run();
     }
-    return row;
+    replaceSourceNoteLinks(transaction, id, contentMd);
+    if (input.title !== undefined) {
+      reconcileNoteTitleChange(transaction, id, current.title, changes.title!);
+    }
+    return toNoteDetail(row, listOutgoingNoteLinks(id, transaction));
   });
 
-  return { note: toNoteDetail(updated), removedImagePaths };
+  return { note: updated, removedImagePaths };
 }
 
 export function deleteNote(
@@ -220,11 +285,34 @@ export function deleteNote(
   expectedImagePaths?: readonly string[],
 ): DeletedNoteResult | null {
   assertPositiveId(id, "id");
-  const current = db.select({ id: notes.id }).from(notes).where(eq(notes.id, id)).get();
+  const current = db
+    .select({
+      id: notes.id,
+      folderId: notes.folderId,
+      parentId: notes.parentId,
+      title: notes.title,
+    })
+    .from(notes)
+    .where(eq(notes.id, id))
+    .get();
   if (!current) return null;
+  const child = db
+    .select({ id: notes.id })
+    .from(notes)
+    .where(eq(notes.parentId, id))
+    .get();
+  if (child) {
+    throw new RepositoryError("NOT_EMPTY", "Notes with child pages cannot be deleted.", {
+      noteId: id,
+    });
+  }
   const imagePaths = listNoteImagePaths(id);
   assertPreparedImageRemoval(imagePaths, expectedImagePaths);
-  db.delete(notes).where(eq(notes.id, id)).run();
+  db.transaction((transaction) => {
+    transaction.delete(notes).where(eq(notes.id, id)).run();
+    normalizeNoteScope(current.folderId, current.parentId);
+    resolveIncomingLinksForTitle(transaction, current.title);
+  });
   return { imagePaths };
 }
 
@@ -289,20 +377,154 @@ function assertManagedImageOwnership(
   return referenced;
 }
 
+interface NoteOrderPlan {
+  position: number;
+  siblings: Array<{ id: number; position: number }>;
+}
+
+function planNoteOrder(
+  current: NoteRow,
+  folderId: number,
+  parentId: number | null,
+  requestedPosition: number | undefined,
+): NoteOrderPlan {
+  const sameScope = current.folderId === folderId && current.parentId === parentId;
+  const sourceIds = orderedNoteIds(current.folderId, current.parentId)
+    .filter((id) => id !== current.id);
+  const targetIds = sameScope
+    ? sourceIds
+    : orderedNoteIds(folderId, parentId).filter((id) => id !== current.id);
+  const position = Math.min(requestedPosition ?? targetIds.length, targetIds.length);
+  const orderedTargetIds = [...targetIds];
+  orderedTargetIds.splice(position, 0, current.id);
+  return {
+    position,
+    siblings: [
+      ...(sameScope ? [] : sourceIds.map((id, index) => ({ id, position: index }))),
+      ...orderedTargetIds
+        .map((id, index) => ({ id, position: index }))
+        .filter(({ id }) => id !== current.id),
+    ],
+  };
+}
+
+function orderedNoteIds(folderId: number, parentId: number | null): number[] {
+  return db.select({ id: notes.id })
+    .from(notes)
+    .where(noteScopeCondition(folderId, parentId))
+    .orderBy(asc(notes.position), asc(notes.id))
+    .all()
+    .map(({ id }) => id);
+}
+
+function noteScopeCondition(folderId: number, parentId: number | null): SQL {
+  return and(
+    eq(notes.folderId, folderId),
+    parentId === null ? isNull(notes.parentId) : eq(notes.parentId, parentId),
+  )!;
+}
+
+function normalizeNoteScope(folderId: number, parentId: number | null): void {
+  for (const [position, id] of orderedNoteIds(folderId, parentId).entries()) {
+    db.update(notes).set({ position }).where(eq(notes.id, id)).run();
+  }
+}
+
+function normalizePosition(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new RepositoryError("VALIDATION", "position must be a non-negative integer.", {
+      field: "position",
+    });
+  }
+  return value;
+}
+
 function toNoteSummary(row: NoteRow): NoteSummaryDto {
   return {
     id: row.id,
+    parentId: row.parentId,
     folderId: row.folderId,
     title: row.title,
     tags: tagsFromJson(row.tags),
+    position: row.position,
     updatedAt: row.updatedAt,
   };
 }
 
-function toNoteDetail(row: NoteRow): NoteDetailDto {
+function requireNoteParent(parentId: number, folderId: number): NoteRow {
+  const parent = db.select().from(notes).where(eq(notes.id, parentId)).get();
+  if (!parent) {
+    throw new RepositoryError("NOT_FOUND", "Parent note not found.", { parentId });
+  }
+  if (parent.folderId !== folderId) {
+    throw new RepositoryError("CONFLICT", "Parent and child notes must use the same folder.", {
+      parentId,
+      folderId,
+    });
+  }
+  return parent;
+}
+
+function noteDescendantIds(noteId: number): number[] {
+  const rows = db.select({ id: notes.id, parentId: notes.parentId }).from(notes).all();
+  const grouped = new Map<number, number[]>();
+  for (const row of rows) {
+    if (row.parentId === null) continue;
+    const children = grouped.get(row.parentId) ?? [];
+    children.push(row.id);
+    grouped.set(row.parentId, children);
+  }
+
+  const descendants: number[] = [];
+  const visited = new Set([noteId]);
+  const stack = [...(grouped.get(noteId) ?? [])];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (current === undefined || visited.has(current)) continue;
+    visited.add(current);
+    descendants.push(current);
+    stack.push(...(grouped.get(current) ?? []));
+  }
+  return descendants;
+}
+
+function assertValidParent(noteId: number, parentId: number | null, folderId: number): void {
+  if (parentId === null) return;
+  if (parentId === noteId) {
+    throw new RepositoryError("CONFLICT", "A note cannot be its own parent.", {
+      noteId,
+      parentId,
+    });
+  }
+
+  let cursor: number | null = parentId;
+  const visited = new Set<number>();
+  while (cursor !== null) {
+    if (cursor === noteId) {
+      throw new RepositoryError("CONFLICT", "Moving this note would create a cycle.", {
+        noteId,
+        parentId,
+      });
+    }
+    if (visited.has(cursor)) {
+      throw new RepositoryError("CONFLICT", "The existing note hierarchy contains a cycle.", {
+        noteId,
+        parentId,
+      });
+    }
+    visited.add(cursor);
+    cursor = requireNoteParent(cursor, folderId).parentId;
+  }
+}
+
+function toNoteDetail(
+  row: NoteRow,
+  links: NoteDetailDto["links"],
+): NoteDetailDto {
   return {
     ...toNoteSummary(row),
     contentMd: row.contentMd,
     createdAt: row.createdAt,
+    links,
   };
 }

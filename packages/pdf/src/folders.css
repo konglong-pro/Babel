@@ -1,0 +1,101 @@
+.babel-pdf-folders { margin-bottom: 22px; padding-bottom: 20px; border-bottom: 1px solid var(--pdf-line); }
+.babel-pdf-folders__heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+.babel-pdf-folders__heading h3 { color: var(--pdf-ink); font: var(--pdf-display-weight) 19px/1.3 var(--pdf-display-font); letter-spacing: -.01em; }
+.babel-pdf-library .babel-pdf-folders__heading > button,
+.babel-pdf-library .babel-pdf-folders__actions > button,
+.babel-pdf-library .babel-pdf-folders__editor button:not(.babel-folder-picker__trigger):not(.babel-folder-picker__disclosure),
+.babel-pdf-library .babel-pdf-folders__move-panel button:not(.babel-folder-picker__trigger):not(.babel-folder-picker__disclosure) { min-height: 31px; padding: 6px 9px; border: 1px solid var(--pdf-line); border-radius: var(--pdf-radius); background: var(--pdf-raised); color: var(--pdf-ink); font-size: 10px; font-weight: 650; }
+.babel-pdf-library .babel-pdf-folders__heading > button:hover:not(:disabled),
+.babel-pdf-library .babel-pdf-folders__actions > button:hover:not(:disabled),
+.babel-pdf-library .babel-pdf-folders__editor button:hover:not(:disabled):not(.babel-folder-picker__disclosure),
+.babel-pdf-library .babel-pdf-folders__move-panel button:hover:not(:disabled):not(.babel-folder-picker__disclosure) { border-color: var(--pdf-accent); background: var(--pdf-accent-soft); color: var(--pdf-ink); }
+.babel-pdf-folders__special { display: flex; gap: 7px; margin-bottom: 10px; }
+.babel-pdf-library button.babel-pdf-folders__special,
+.babel-pdf-library .babel-pdf-folders__special > button { display: flex; align-items: center; justify-content: space-between; flex: 1; gap: 8px; min-height: 33px; padding: 7px 9px; border: 1px solid var(--pdf-line); border-radius: var(--pdf-radius); background: var(--pdf-raised); color: var(--pdf-ink); box-shadow: none; font-size: 11px; font-weight: 600; }
+.babel-pdf-library button.babel-pdf-folders__special[aria-current="page"],
+.babel-pdf-library .babel-pdf-folders__special > button[aria-current="page"] { border-color: var(--pdf-accent); background: var(--pdf-accent); color: var(--pdf-accent-ink); }
+.babel-pdf-library button.babel-pdf-folders__special:hover:not(:disabled):not([aria-current="page"]),
+.babel-pdf-library .babel-pdf-folders__special > button:hover:not(:disabled):not([aria-current="page"]) { border-color: var(--pdf-accent); background: var(--pdf-accent-soft); }
+.babel-pdf-folders__tree { max-height: 220px; min-height: 0; padding: 2px 4px 2px 0; overflow: auto; }
+.babel-pdf-folders__tree ul { display: grid; gap: 3px; margin: 0; padding: 0; list-style: none; }
+.babel-pdf-folders__tree ul ul { margin-top: 3px; padding-left: 12px; }
+.babel-pdf-folders__tree li { min-width: 0; }
+.babel-pdf-folders__row { display: flex; align-items: center; gap: 3px; min-width: 160px; min-height: 34px; padding: 1px 5px 1px 1px; border: 1px solid transparent; border-radius: var(--pdf-radius); }
+.babel-pdf-folders__row:has(.babel-pdf-folders__select[aria-current="page"]) { border-color: var(--pdf-line); background: var(--pdf-accent-soft); }
+.babel-pdf-folders__row:hover { background: var(--pdf-accent-soft); }
+.babel-pdf-library .babel-pdf-folders__disclosure { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 24px; height: 28px; min-height: 28px; padding: 0; border: 0; border-radius: var(--pdf-radius); background: transparent; color: var(--pdf-muted); box-shadow: none; font-size: 13px; }
+.babel-pdf-folders__disclosure svg { width: 13px; height: 13px; }
+.babel-pdf-folders__disclosure[aria-expanded="true"] svg { transform: rotate(90deg); }
+.babel-pdf-library .babel-pdf-folders__select { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; min-height: 30px; padding: 4px 2px; border: 0; border-radius: var(--pdf-radius); background: transparent; color: var(--pdf-ink); box-shadow: none; font: 500 11px/1.4 var(--pdf-font); text-align: left; text-transform: none; overflow-wrap: anywhere; }
+.babel-pdf-folders__select > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.babel-pdf-folders__select svg { width: 15px; height: 15px; flex-shrink: 0; color: var(--pdf-muted); }
+.babel-pdf-library .babel-pdf-folders__select[aria-current="page"] { font-weight: 750; }
+.babel-pdf-folders__count { margin-left: auto; color: var(--pdf-muted); font: 500 10px/1.4 var(--pdf-label-font); font-variant-numeric: tabular-nums; }
+.babel-pdf-folders__special[aria-current="page"] .babel-pdf-folders__count,
+.babel-pdf-folders__special > [aria-current="page"] .babel-pdf-folders__count { color: inherit; opacity: .8; }
+.babel-pdf-folders__actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+.babel-pdf-library .babel-pdf-folders__actions > button[data-danger="true"] { border-color: color-mix(in srgb, var(--pdf-error) 50%, var(--pdf-line)); color: var(--pdf-error); }
+.babel-pdf-folders__editor { display: grid; gap: 9px; margin-top: 12px; padding: 12px; border: 1px solid var(--pdf-line); border-radius: var(--pdf-radius); background: var(--pdf-background); }
+.babel-pdf-folders__editor > form { display: grid; gap: 9px; min-width: 0; font-size: 11px; }
+.babel-pdf-folders__editor > form > strong { color: var(--pdf-ink); font-size: 12px; }
+.babel-pdf-folders__editor > label,
+.babel-pdf-folders__editor > form > label,
+.babel-pdf-folders__destination > label,
+.babel-pdf-folders__destination > span,
+.babel-pdf-folders__move-panel > label { display: grid; gap: 6px; color: var(--pdf-ink); font-size: 11px; font-weight: 650; }
+.babel-pdf-library .babel-pdf-folders__editor input:not(.babel-folder-picker__search) { width: 100%; min-width: 0; min-height: 36px; padding: 8px 9px; border: 1px solid var(--pdf-line); border-radius: var(--pdf-radius); background: var(--pdf-raised); color: var(--pdf-ink); font-size: 12px; }
+.babel-pdf-folders__editor input::placeholder { color: var(--pdf-muted); }
+.babel-pdf-folders__editor > div:not(.babel-folder-picker),
+.babel-pdf-folders__editor > form > div:not(.babel-folder-picker):not(.babel-pdf-folders__picker),
+.babel-pdf-folders__move-panel > div:not(.babel-folder-picker):not(.babel-pdf-folders__picker) { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+.babel-pdf-folders__picker { width: 100%; min-width: 0; }
+.babel-pdf-library .babel-pdf-folders__editor button[type="submit"],
+.babel-pdf-library .babel-pdf-folders__move-panel button[type="submit"],
+.babel-pdf-library .babel-pdf-folders__move-panel > div:not(.babel-folder-picker) > button:last-child { border-color: var(--pdf-accent); background: var(--pdf-accent); color: var(--pdf-accent-ink); }
+.babel-pdf-folders__error { margin-top: 8px !important; color: var(--pdf-error); font-size: 11px; overflow-wrap: anywhere; }
+.babel-pdf-folders__hint { margin-top: 8px !important; color: var(--pdf-muted); font-size: 10px; line-height: 1.7; overflow-wrap: anywhere; }
+.babel-pdf-folders__destination { display: grid; gap: 7px; margin: 16px 0; }
+.babel-pdf-folders__breadcrumb { flex-shrink: 0; margin: -8px 0 14px !important; color: var(--pdf-muted); font-size: 11px; overflow-wrap: anywhere; }
+.babel-pdf-folders__children { display: flex; flex-shrink: 0; flex-wrap: wrap; gap: 7px; margin-bottom: 14px; }
+.babel-pdf-library .babel-pdf-folders__children > button { max-width: 100%; font-family: var(--pdf-font); text-transform: none; white-space: normal; overflow-wrap: anywhere; text-align: left; }
+.babel-pdf-library .babel-pdf-folders__document-path { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; min-height: 22px; margin-top: 5px; padding: 1px 0; border: 0; border-radius: 0; background: none; color: var(--pdf-muted); box-shadow: none; font: 500 10px/1.5 var(--pdf-font); text-align: left; text-transform: none; text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
+.babel-pdf-library .babel-pdf-folders__document-path:hover:not(:disabled) { color: var(--pdf-ink); }
+.babel-pdf-folders__document-path svg { width: 12px; height: 12px; flex-shrink: 0; }
+.babel-pdf-folders__move-panel { display: grid; flex: 1 0 100%; gap: 10px; min-width: 0; padding: 12px; border: 1px solid var(--pdf-line); border-radius: var(--pdf-radius); background: var(--pdf-surface); color: var(--pdf-ink); font-size: 11px; }
+.babel-pdf-library .babel-pdf-library-import-intro .babel-pdf-library-import-heading { max-width: none; margin: 0 0 8px; color: var(--pdf-ink); font: var(--pdf-display-weight) 19px/1.3 var(--pdf-display-font); letter-spacing: -.01em; }
+.babel-pdf-library .babel-pdf-library-import-intro:has(.babel-pdf-library-import-heading) p { margin-bottom: 16px; font-size: 11px; line-height: 1.6; }
+
+/* The shared picker inherits this APP's PDF palette, including in the top layer. */
+.babel-pdf-library .babel-folder-picker {
+  --paper: var(--pdf-background);
+  --paper-muted: var(--pdf-surface);
+  --paper-raised: var(--pdf-raised);
+  --ink: var(--pdf-ink);
+  --ink-soft: var(--pdf-muted);
+  --line-strong: var(--pdf-line);
+  --blue-soft: var(--pdf-accent-soft);
+  --focus: var(--pdf-focus);
+  --shadow: var(--pdf-dialog-shadow);
+  color: var(--pdf-ink);
+  font: 11px/1.5 var(--pdf-font);
+}
+.babel-pdf-library .babel-folder-picker .babel-folder-picker__trigger { min-height: 36px; padding: 8px 9px; border-radius: var(--pdf-radius); box-shadow: var(--pdf-control-shadow); font: 500 11px/1.5 var(--pdf-font); }
+.babel-pdf-library .babel-folder-picker .babel-folder-picker__popup { border-radius: var(--pdf-radius); color-scheme: var(--pdf-scheme); }
+.babel-pdf-library .babel-folder-picker .babel-folder-picker__search { min-height: 35px; border-radius: var(--pdf-radius); font: 400 11px/1.5 var(--pdf-font); }
+.babel-pdf-library .babel-folder-picker .babel-folder-picker__row { min-height: 33px; border-radius: var(--pdf-radius); font: 500 11px/1.5 var(--pdf-font); }
+.babel-pdf-library .babel-folder-picker .babel-folder-picker__row[aria-selected="true"] { font-weight: 750; }
+.babel-pdf-library .babel-folder-picker .babel-folder-picker__disclosure { width: 24px; height: 24px; min-height: 24px; border: 0; box-shadow: none; background: transparent; color: var(--pdf-ink); }
+.babel-pdf-library .babel-folder-picker .babel-folder-picker__hint { margin: 8px 5px 2px; font-size: 10px; }
+.babel-pdf-library .babel-folder-picker .babel-folder-picker__empty { margin: 8px 5px 2px; font-size: 11px; }
+.babel-pdf-folders__tree,
+.babel-pdf-library .babel-folder-picker__tree { scrollbar-width: auto; scrollbar-color: var(--pdf-scroll-thumb) var(--pdf-scroll-track); scrollbar-gutter: stable; overscroll-behavior: contain; }
+.babel-pdf-library :is(.babel-pdf-folders__tree, .babel-folder-picker__tree)::-webkit-scrollbar { display: block; width: 14px; height: 14px; }
+.babel-pdf-library :is(.babel-pdf-folders__tree, .babel-folder-picker__tree)::-webkit-scrollbar-track { background: var(--pdf-scroll-track); }
+.babel-pdf-library :is(.babel-pdf-folders__tree, .babel-folder-picker__tree)::-webkit-scrollbar-thumb { min-height: 36px; border: 3px solid var(--pdf-scroll-track); border-radius: 8px; background: var(--pdf-scroll-thumb); }
+.babel-pdf-library :is(.babel-pdf-folders__tree, .babel-folder-picker__tree)::-webkit-scrollbar-thumb:hover { background: var(--pdf-muted); }
+
+@media (max-width: 760px) {
+  .babel-pdf-folders { margin-bottom: 18px; padding-bottom: 16px; }
+  .babel-pdf-folders__tree { max-height: 200px; }
+  .babel-pdf-folders__move-panel { padding: 10px; }
+}

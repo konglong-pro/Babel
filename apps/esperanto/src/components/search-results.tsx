@@ -1,24 +1,60 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { useListKeyboardNavigation } from "@babel-apps/platform/navigation/react";
+import { useCommandPaletteActions } from "@babel-apps/platform/shortcuts/react";
+import { appendSearchFocus } from "@babel-apps/platform/search/focus";
 
-import { formatDate, Tags } from "@/components/shared";
+import { formatDate } from "@/components/shared";
 import { getErrorMessage, searchNotes } from "@/lib/api-client";
-import type { SearchResultsDto } from "@/lib/types";
+import type {
+  NoteSearchField,
+  SearchResultsDto,
+  SearchTagDto,
+  SearchTextPartDto,
+} from "@/lib/types";
 
-const EMPTY_RESULTS: SearchResultsDto = { notes: [] };
+const SEARCH_PAGE_LIMIT = 50;
+const EMPTY_RESULTS: SearchResultsDto = {
+  notes: [],
+  total: 0,
+  limit: SEARCH_PAGE_LIMIT,
+  offset: 0,
+};
+const SEARCH_FIELD_LABELS: Record<NoteSearchField, string> = {
+  title: "Title",
+  content: "Body",
+  tags: "Tags",
+};
+
+function noteSearchHref(
+  folderId: number,
+  noteId: number,
+  query: string,
+  field: NoteSearchField,
+): string {
+  const params = new URLSearchParams({
+    folder: String(folderId),
+    note: String(noteId),
+  });
+  appendSearchFocus(params, { query, field });
+  return `/notes?${params.toString()}`;
+}
 
 export function SearchResults({ query }: { query: string }) {
+  const router = useRouter();
   const [results, setResults] = useState<SearchResultsDto>(EMPTY_RESULTS);
   const [loading, setLoading] = useState(Boolean(query));
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     if (!query) return;
 
     let active = true;
-    searchNotes(query)
+    searchNotes(query, { limit: SEARCH_PAGE_LIMIT, offset: 0 })
       .then((nextResults) => {
         if (active) setResults(nextResults);
       })
@@ -33,7 +69,50 @@ export function SearchResults({ query }: { query: string }) {
     };
   }, [query]);
 
-  const total = results.notes.length;
+  const total = results.total;
+  const canLoadMore = results.notes.length < results.total;
+  useCommandPaletteActions("esperanto.search", canLoadMore ? [
+    {
+      id: "search.loadMore",
+      label: "Load more search results",
+      keywords: ["next", "page", "results"],
+      group: "Search",
+      available: !loadingMore,
+      run: loadMore,
+    },
+  ] : []);
+  const navigation = useListKeyboardNavigation<number>({
+    items: results.notes.map((note) => ({
+      id: note.id,
+      label: note.match.title.map((part) => part.text).join(""),
+    })),
+    onActivate: (id) => {
+      const note = results.notes.find((candidate) => candidate.id === id);
+      if (note) {
+        router.push(noteSearchHref(note.folderId, note.id, query, note.match.snippet.field));
+      }
+    },
+    label: "Search results",
+  });
+
+  function loadMore() {
+    if (loadingMore || !canLoadMore) return;
+    setLoadingMore(true);
+    setError("");
+    searchNotes(query, {
+      limit: SEARCH_PAGE_LIMIT,
+      offset: results.notes.length,
+    })
+      .then((nextResults) => {
+        setResults((current) => ({
+          ...nextResults,
+          notes: [...current.notes, ...nextResults.notes],
+          offset: 0,
+        }));
+      })
+      .catch((caught) => setError(getErrorMessage(caught)))
+      .finally(() => setLoadingMore(false));
+  }
 
   return (
     <div className="search-page">
@@ -64,19 +143,67 @@ export function SearchResults({ query }: { query: string }) {
       ) : null}
 
       {!loading && total > 0 ? (
-        <ul className="search-result-list" aria-label="Search results">
+        <>
+        <ul className="search-result-list" {...navigation.listboxProps}>
           {results.notes.map((note) => (
-            <li key={note.id}>
-              <Link href={`/notes?folder=${note.folderId}&note=${note.id}`}>
+            <li key={note.id} role="presentation">
+              <Link
+                {...navigation.getOptionProps(note.id)}
+                href={noteSearchHref(
+                  note.folderId,
+                  note.id,
+                  query,
+                  note.match.snippet.field,
+                )}
+              >
                 <span className="eyebrow">Note</span>
-                <strong>{note.title}</strong>
-                <Tags tags={note.tags} />
+                <strong><HighlightedText parts={note.match.title} /></strong>
+                <span className="search-match-fields">
+                  Matched in {note.match.matchedFields.map((field) => SEARCH_FIELD_LABELS[field]).join(" · ")}
+                </span>
+                <p className="search-snippet">
+                  {note.match.snippet.truncatedStart ? "…" : null}
+                  <HighlightedText parts={note.match.snippet.parts} />
+                  {note.match.snippet.truncatedEnd ? "…" : null}
+                </p>
+                <SearchTags tags={note.match.tags} />
                 <time dateTime={note.updatedAt}>Updated {formatDate(note.updatedAt)}</time>
               </Link>
             </li>
           ))}
         </ul>
+        {canLoadMore ? (
+          <button
+            type="button"
+            className="primary-button"
+            disabled={loadingMore}
+            onClick={loadMore}
+          >
+            {loadingMore ? "Loading\u2026" : "Load more"}
+          </button>
+        ) : null}
+        </>
       ) : null}
     </div>
+  );
+}
+
+function HighlightedText({ parts }: { parts: SearchTextPartDto[] }) {
+  return parts.map((part, index) =>
+    part.highlighted
+      ? <mark key={`${part.text}-${index}`}>{part.text}</mark>
+      : <span key={`${part.text}-${index}`}>{part.text}</span>,
+  );
+}
+
+function SearchTags({ tags }: { tags: SearchTagDto[] }) {
+  if (tags.length === 0) return <span className="muted no-tags">No tags</span>;
+
+  return (
+    <ul className="tag-list" aria-label="Tags">
+      {tags.map((tag, index) => (
+        <li key={`${tag.value}-${index}`}><HighlightedText parts={tag.parts} /></li>
+      ))}
+    </ul>
   );
 }

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { createFolder, listFolders } from "@/lib/repositories";
 import { handleApi } from "@/lib/http/errors";
 import {
+  assertSameOrigin,
   optionalNullablePositiveInteger,
   queryFolderType,
   readJsonObject,
@@ -22,6 +23,7 @@ export function GET(request: Request): Promise<Response> {
 
 export function POST(request: Request): Promise<Response> {
   return handleApi(async () => {
+    assertSameOrigin(request);
     const body = await readJsonObject(request);
     const folder = createFolder({
       type: requiredFolderType(body),

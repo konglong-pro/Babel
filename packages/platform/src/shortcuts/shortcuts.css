@@ -1,0 +1,232 @@
+.babel-command-palette {
+  width: min(36rem, calc(100vw - 2rem));
+  max-height: min(38rem, calc(100vh - 2rem));
+  overflow: auto;
+  padding: 1rem;
+  color: var(--foreground, #1f2937);
+  background: var(--background, #ffffff);
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 0.75rem;
+  box-shadow: 0 1.25rem 4rem rgb(0 0 0 / 25%);
+}
+
+.babel-command-palette::backdrop {
+  background: rgb(0 0 0 / 42%);
+}
+
+.babel-command-palette__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.babel-command-palette__header h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.babel-command-palette__header button {
+  min-width: 2.25rem;
+  min-height: 2.25rem;
+  font: inherit;
+}
+
+.babel-command-palette label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.babel-command-palette__search {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.55rem 0.7rem;
+  color: inherit;
+  background: inherit;
+  border: 1px solid color-mix(in srgb, currentColor 24%, transparent);
+  border-radius: 0.45rem;
+  font: inherit;
+}
+
+.babel-command-palette__commands {
+  display: grid;
+  gap: 0.35rem;
+  max-height: 24rem;
+  padding: 0;
+  margin: 0.8rem 0 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.babel-command-palette__commands button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.2rem 0.8rem;
+  align-items: center;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.65rem;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0.45rem;
+  font: inherit;
+}
+
+.babel-command-palette__commands button:not(:disabled):hover,
+.babel-command-palette__commands button:not(:disabled):focus-visible,
+.babel-command-palette__commands button[data-active]:not(:disabled) {
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  border-color: color-mix(in srgb, currentColor 20%, transparent);
+  outline: none;
+}
+
+.babel-command-palette__commands button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.babel-command-palette__commands kbd {
+  padding: 0.15rem 0.35rem;
+  background: color-mix(in srgb, currentColor 9%, transparent);
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 0.3rem;
+  font: 0.75rem/1.3 ui-monospace, monospace;
+}
+
+.babel-command-palette__availability {
+  grid-column: 1 / -1;
+  font-size: 0.75rem;
+  opacity: 0.72;
+}
+
+.babel-command-palette__empty {
+  margin: 1rem 0 0;
+  text-align: center;
+  opacity: 0.72;
+}
+
+.babel-shortcut-help {
+  width: min(48rem, calc(100vw - 2rem));
+  max-height: min(44rem, calc(100vh - 2rem));
+  padding: 1rem;
+  overflow: auto;
+  color: var(--foreground, #1f2937);
+  background: var(--background, #ffffff);
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 0.75rem;
+  box-shadow: 0 1.25rem 4rem rgb(0 0 0 / 25%);
+}
+
+.babel-shortcut-help::backdrop {
+  background: rgb(0 0 0 / 42%);
+}
+
+.babel-shortcut-help h3 {
+  margin: 1rem 0 0.5rem;
+  font-size: 1rem;
+}
+
+.babel-shortcut-help__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.babel-shortcut-help__grid > div {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.6rem;
+  background: color-mix(in srgb, currentColor 5%, transparent);
+  border-radius: 0.4rem;
+}
+
+.babel-shortcut-help__grid dt {
+  font-weight: 650;
+}
+
+.babel-shortcut-help__grid dd {
+  margin: 0;
+  opacity: 0.82;
+}
+
+.babel-shortcut-help kbd {
+  padding: 0.15rem 0.35rem;
+  background: color-mix(in srgb, currentColor 9%, transparent);
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 0.3rem;
+  font: 0.75rem/1.3 ui-monospace, monospace;
+}
+:root { --babel-keyboard-status-height: 2.75rem; }
+body:has(.babel-keyboard-status) { padding-bottom: var(--babel-keyboard-status-height); }
+.babel-keyboard-status {
+  position: fixed;
+  z-index: 40;
+  inset: auto 0 0;
+  box-sizing: border-box;
+  height: var(--babel-keyboard-status-height);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  overflow-x: auto;
+  white-space: nowrap;
+  padding: 0.3rem 0.45rem;
+  border-top: 1px solid var(--line, #c9c7c1);
+  background: var(--paper, var(--background, #faf8f1));
+  color: var(--ink, var(--foreground, #242721));
+  font: 12px/1.4 ui-monospace, monospace;
+}
+.babel-keyboard-status > * { flex-shrink: 0; }
+.babel-shortcut-sequence {
+  display: block;
+  padding: 0.2rem 0.45rem;
+  border: 1px solid var(--line, #809b61);
+  border-radius: 0.25rem;
+  background: var(--paper, var(--background, #faf8f1));
+  color: var(--ink, var(--foreground, #242721));
+  font: 12px/1.5 ui-monospace, monospace;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.babel-keyboard-status .babel-shortcut-sequence {
+  position: fixed;
+  z-index: 41;
+  inset: auto 0.45rem calc(var(--babel-keyboard-status-height) + 0.4rem) auto;
+  max-width: min(40rem, calc(100vw - 1rem));
+  max-height: 30vh;
+  overflow: auto;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
+}
+.babel-keyboard-status [role='group'] { display: flex; gap: 0.15rem; }
+.babel-keyboard-status button {
+  min-height: 24px;
+  padding: 0.15rem 0.4rem;
+  border: 1px solid transparent;
+  border-radius: 0.2rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: normal;
+  text-transform: none;
+  box-shadow: none;
+  cursor: pointer;
+}
+.babel-keyboard-status button[aria-pressed='true'] {
+  background: #e4ebd3;
+  color: #23341d;
+  border-color: #809b61;
+}
+.babel-keyboard-status button:focus-visible { outline: 2px solid #54753b; outline-offset: 1px; }
+[data-babel-pane='detail'] { scroll-padding-bottom: 1rem; }
+@media (max-width: 520px) { .babel-keyboard-status { justify-content: flex-start; } }
+@media print {
+  :root { --babel-keyboard-status-height: 0rem; }
+  .babel-keyboard-status { display: none; }
+}

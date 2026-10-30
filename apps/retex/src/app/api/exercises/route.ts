@@ -1,20 +1,24 @@
 import { NextResponse } from "next/server";
 
-import {
-  createExercise,
-  deleteExerciseImageIfUnused,
-  listExercises,
-} from "@/lib/repositories";
+import { createExercise, listExercises } from "@/lib/repositories";
 import { handleApi } from "@/lib/http/errors";
+import { rollbackNoteImageMutation } from "@/lib/http/note-image-mutation";
 import {
+  assertSameOrigin,
   optionalIdArray,
   optionalString,
   optionalStringArray,
   parsePositiveInteger,
-  readJsonObject,
+  readNoteMutationRequest,
   requiredPositiveInteger,
+  requiredMarkdown,
   requiredString,
 } from "@/lib/http/request";
+import {
+  ensureNoteImageStorageRecovered,
+  stageNoteImagesInMarkdown,
+  withNoteImageMutationLock,
+} from "@/lib/storage";
 
 export const runtime = "nodejs";
 
@@ -29,31 +33,51 @@ export function GET(request: Request): Promise<Response> {
 
 export function POST(request: Request): Promise<Response> {
   return handleApi(async () => {
-    const body = await readJsonObject(request);
-    const knowledgeIds =
-      optionalIdArray(body, "knowledgeIds", "relatedKnowledgeIds") ?? [];
+    assertSameOrigin(request);
+    await ensureNoteImageStorageRecovered();
+    return withNoteImageMutationLock(async () => {
+      const { payload: body, uploads } = await readNoteMutationRequest(request);
+      const knowledgeIds =
+        optionalIdArray(body, "knowledgeIds", "relatedKnowledgeIds") ?? [];
+      const problemMd = requiredMarkdown(body, "problemMd");
+      const answerMd = optionalString(
+        body,
+        "answerMd",
+        { allowEmpty: true, trim: false },
+      ) ?? "";
+      const solutionMd = optionalString(
+        body,
+        "solutionMd",
+        { allowEmpty: true, trim: false },
+      ) ?? "";
 
-    const input = {
-      folderId: requiredPositiveInteger(body, "folderId"),
-      title: requiredString(body, "title"),
-      imagePath: requiredString(body, "imagePath"),
-      answerMd: optionalString(body, "answerMd", { allowEmpty: true, trim: false }) ?? "",
-      solutionMd:
-        optionalString(body, "solutionMd", { allowEmpty: true, trim: false }) ?? "",
-      tags: optionalStringArray(body, "tags") ?? [],
-      knowledgeIds,
-    };
+      const input = {
+        folderId: requiredPositiveInteger(body, "folderId"),
+        title: requiredString(body, "title"),
+        tags: optionalStringArray(body, "tags") ?? [],
+        knowledgeIds,
+      };
 
-    let exercise;
-    try {
-      exercise = createExercise(input);
-    } catch (error) {
-      await deleteExerciseImageIfUnused(input.imagePath).catch((cleanupError) => {
-        console.error("Failed to clean up an unused exercise image", cleanupError);
-      });
-      throw error;
-    }
-
-    return NextResponse.json(exercise, { status: 201 });
+      let stagedImagePaths: string[] = [];
+      try {
+        const staged = await stageNoteImagesInMarkdown(
+          [problemMd, answerMd, solutionMd],
+          uploads,
+        );
+        stagedImagePaths = staged.imagePaths;
+        const exercise = createExercise(
+          {
+            ...input,
+            problemMd: staged.markdownSources[0] ?? problemMd,
+            answerMd: staged.markdownSources[1] ?? answerMd,
+            solutionMd: staged.markdownSources[2] ?? solutionMd,
+          },
+          staged.imagePaths,
+        );
+        return NextResponse.json(exercise, { status: 201 });
+      } catch (error) {
+        return rollbackNoteImageMutation(error, undefined, stagedImagePaths);
+      }
+    });
   });
 }

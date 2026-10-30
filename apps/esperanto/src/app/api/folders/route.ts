@@ -1,30 +1,20 @@
-import { NextResponse } from "next/server";
+import { createFolderCollectionRoute } from "@babel-apps/platform/http/folder-routes";
 
 import { handleApi } from "@/lib/http/errors";
-import {
-  assertOnlyFields,
-  assertSameOrigin,
-  optionalNullablePositiveInteger,
-  readJsonObject,
-  requiredString,
-} from "@/lib/http/request";
 import { createFolder, listFolders } from "@/lib/repositories";
 
 export const runtime = "nodejs";
 
+const route = createFolderCollectionRoute({
+  handleApi,
+  listFolders,
+  createFolder,
+});
+
 export function GET(): Promise<Response> {
-  return handleApi(() => NextResponse.json(listFolders()));
+  return route.GET();
 }
 
 export function POST(request: Request): Promise<Response> {
-  return handleApi(async () => {
-    assertSameOrigin(request);
-    const body = await readJsonObject(request);
-    assertOnlyFields(body, ["name", "parentId"]);
-    const folder = createFolder({
-      name: requiredString(body, "name"),
-      parentId: optionalNullablePositiveInteger(body, "parentId"),
-    });
-    return NextResponse.json(folder, { status: 201 });
-  });
+  return route.POST(request);
 }

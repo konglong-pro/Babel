@@ -1,0 +1,310 @@
+/* Shared reading tools keep each notebook's visual language in detached windows. */
+.babel-pdf-theme {
+  --pdf-background: #ffffff;
+  --pdf-surface: #f7f7f7;
+  --pdf-raised: #ffffff;
+  --pdf-ink: #3b3d47;
+  --pdf-muted: #6f717b;
+  --pdf-line: #dcdde1;
+  --pdf-accent: #82315e;
+  --pdf-accent-ink: #ffffff;
+  --pdf-accent-soft: #fff0f8;
+  --pdf-header: #fff0f8;
+  --pdf-header-ink: #3b3d47;
+  --pdf-stage: #e9e9eb;
+  --pdf-focus: #d448a0;
+  --pdf-error: #ac302b;
+  --pdf-font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --pdf-display-font: var(--pdf-font);
+  --pdf-display-weight: 700;
+  --pdf-control-font: var(--pdf-font);
+  --pdf-label-font: "Cascadia Code", Consolas, monospace;
+  --pdf-control-case: none;
+  --pdf-radius: 6px;
+  --pdf-dialog-radius: 12px;
+  --pdf-control-shadow: none;
+  --pdf-dialog-shadow: 0 24px 80px #14141933;
+  --pdf-texture: none;
+  --pdf-header-texture: none;
+  --pdf-scheme: light;
+  --pdf-scroll-thumb: color-mix(in srgb, var(--pdf-ink) 42%, var(--pdf-surface));
+  --pdf-scroll-track: color-mix(in srgb, var(--pdf-line) 28%, var(--pdf-surface));
+  --pdf-error-surface: color-mix(in srgb, var(--pdf-error) 10%, var(--pdf-background));
+  color-scheme: var(--pdf-scheme);
+}
+
+.babel-pdf-theme[data-pdf-app="retex"] {
+  --pdf-header: #ffffff;
+  --pdf-header-texture: linear-gradient(90deg, #ff79c6 0 5px, transparent 5px);
+}
+
+.babel-pdf-theme[data-pdf-app="esperanto"] {
+  --pdf-background: #fffef5;
+  --pdf-surface: #eef0dc;
+  --pdf-raised: #fffef5;
+  --pdf-ink: #10120f;
+  --pdf-muted: #5b5e50;
+  --pdf-line: #b7bba0;
+  --pdf-accent: #10120f;
+  --pdf-accent-ink: #dff532;
+  --pdf-accent-soft: #e7f768;
+  --pdf-header: #dff532;
+  --pdf-header-ink: #10120f;
+  --pdf-stage: #e4e6cd;
+  --pdf-focus: #617400;
+  --pdf-font: ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  --pdf-display-font: "Arial Black", Arial, sans-serif;
+  --pdf-control-font: "Cascadia Mono", "Lucida Console", Consolas, monospace;
+  --pdf-control-case: uppercase;
+  --pdf-radius: 0px;
+  --pdf-dialog-radius: 0px;
+  --pdf-control-shadow: 2px 2px 0 #10120f;
+  --pdf-dialog-shadow: 8px 8px 0 #10120f;
+  --pdf-texture: linear-gradient(90deg, #10120f08 1px, transparent 1px), linear-gradient(#10120f08 1px, transparent 1px);
+}
+
+.babel-pdf-theme[data-pdf-app="vali"] {
+  --pdf-background: #050505;
+  --pdf-surface: #0d0d0f;
+  --pdf-raised: #080809;
+  --pdf-ink: #f0f0fa;
+  --pdf-muted: #b5b5bd;
+  --pdf-line: #444448;
+  --pdf-accent: #f0f0fa;
+  --pdf-accent-ink: #000000;
+  --pdf-accent-soft: #252529;
+  --pdf-header: #000000;
+  --pdf-header-ink: #f0f0fa;
+  --pdf-stage: #171719;
+  --pdf-focus: #ffffff;
+  --pdf-error: #ffb6a7;
+  --pdf-font: "D-DIN", "Arial Narrow", Arial, sans-serif;
+  --pdf-control-case: uppercase;
+  --pdf-radius: 3px;
+  --pdf-dialog-radius: 3px;
+  --pdf-dialog-shadow: 0 24px 80px #00000099;
+  --pdf-scheme: dark;
+}
+
+.babel-pdf-theme[data-pdf-app="neum"] {
+  --pdf-background: #f8f8f2;
+  --pdf-surface: #e9edf0;
+  --pdf-raised: #f8f8f2;
+  --pdf-ink: #000000;
+  --pdf-muted: #555955;
+  --pdf-line: #a9adaa;
+  --pdf-accent: #000000;
+  --pdf-accent-ink: #ffffff;
+  --pdf-accent-soft: #dce2e6;
+  --pdf-header: #f8f8f2;
+  --pdf-header-ink: #000000;
+  --pdf-stage: #dce2e6;
+  --pdf-focus: #000000;
+  --pdf-font: "Helvetica Neue", Arial, "Segoe UI", sans-serif;
+  --pdf-display-font: "Arial Narrow", "Liberation Sans Narrow", Arial, sans-serif;
+  --pdf-control-font: var(--pdf-display-font);
+  --pdf-control-case: uppercase;
+  --pdf-radius: 4px;
+  --pdf-dialog-radius: 4px;
+  --pdf-dialog-shadow: 0 24px 80px #00000033;
+  --pdf-header-texture: linear-gradient(90deg, #00000007 1px, transparent 1px);
+}
+
+.babel-pdf-theme[data-pdf-app="herodotus"] {
+  --pdf-background: #fffdf7;
+  --pdf-surface: #e8d9fb;
+  --pdf-raised: #fffdf7;
+  --pdf-ink: #0b0b0d;
+  --pdf-muted: #5c4869;
+  --pdf-line: #9e81af;
+  --pdf-accent: #0b0b0d;
+  --pdf-accent-ink: #ffffff;
+  --pdf-accent-soft: #dcc2f9;
+  --pdf-header: #cba6f7;
+  --pdf-header-ink: #0b0b0d;
+  --pdf-stage: #cbb6dd;
+  --pdf-focus: #63318b;
+  --pdf-font: Arial, Helvetica, sans-serif;
+  --pdf-display-font: "Arial Black", Arial, sans-serif;
+  --pdf-radius: 7px;
+  --pdf-dialog-radius: 9px;
+  --pdf-control-shadow: 2px 2px 0 #0b0b0d;
+  --pdf-dialog-shadow: 8px 8px 0 #0b0b0d;
+}
+
+.babel-pdf-theme[data-pdf-app="leviathan"] {
+  --pdf-background: #011627;
+  --pdf-surface: #061f35;
+  --pdf-raised: #0a2943;
+  --pdf-ink: #aebaff;
+  --pdf-muted: #91a3ef;
+  --pdf-line: #43568e;
+  --pdf-accent: #8290ff;
+  --pdf-accent-ink: #011627;
+  --pdf-accent-soft: #142b52;
+  --pdf-header: #011627;
+  --pdf-header-ink: #f5f7ff;
+  --pdf-stage: #00101d;
+  --pdf-focus: #67e8f9;
+  --pdf-error: #ffadc4;
+  --pdf-font: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  --pdf-display-font: "Arial Black", Arial, sans-serif;
+  --pdf-radius: 0px;
+  --pdf-dialog-radius: 0px;
+  --pdf-control-shadow: 2px 2px 0 #315bff;
+  --pdf-dialog-shadow: 8px 8px 0 #315bff;
+  --pdf-scheme: dark;
+}
+
+.babel-pdf-theme[data-pdf-app="klsche"] {
+  --pdf-background: #fbfff1;
+  --pdf-surface: #e6f371;
+  --pdf-raised: #fbfff1;
+  --pdf-ink: #191b3f;
+  --pdf-muted: #53566d;
+  --pdf-line: #afb861;
+  --pdf-accent: #191b3f;
+  --pdf-accent-ink: #e6f371;
+  --pdf-accent-soft: #eff7a8;
+  --pdf-header: #dff05a;
+  --pdf-header-ink: #191b3f;
+  --pdf-stage: #d4dc97;
+  --pdf-focus: #087cff;
+  --pdf-font: Inter, Avenir, "Segoe UI", Arial, sans-serif;
+  --pdf-display-font: "Arial Narrow", "Aptos Narrow", Arial, sans-serif;
+  --pdf-control-font: var(--pdf-display-font);
+  --pdf-radius: 0px;
+  --pdf-dialog-radius: 0px;
+  --pdf-dialog-shadow: 8px 8px 0 #191b3f4d;
+}
+
+.babel-pdf-theme[data-pdf-app="ruider"] {
+  --pdf-background: #ffffff;
+  --pdf-surface: #edf3ff;
+  --pdf-raised: #ffffff;
+  --pdf-ink: #050505;
+  --pdf-muted: #3e3e3e;
+  --pdf-line: #7889a6;
+  --pdf-accent: #050505;
+  --pdf-accent-ink: #ffffff;
+  --pdf-accent-soft: #d6e7ff;
+  --pdf-header: #0967f4;
+  --pdf-header-ink: #ffffff;
+  --pdf-stage: #0967f4;
+  --pdf-focus: #050505;
+  --pdf-font: "Arial Narrow", "Aptos Narrow", "Roboto Condensed", Arial, sans-serif;
+  --pdf-display-font: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
+  --pdf-label-font: "Segoe Print", "Bradley Hand", "Comic Sans MS", cursive;
+  --pdf-control-case: uppercase;
+  --pdf-radius: 0px;
+  --pdf-dialog-radius: 0px;
+  --pdf-control-shadow: 2px 2px 0 #050505;
+  --pdf-dialog-shadow: 8px 8px 0 #050505;
+  --pdf-texture: radial-gradient(circle at 4px 4px, #0505050d 0 1px, transparent 1.6px);
+}
+
+.babel-pdf-theme[data-pdf-app="matter"] {
+  --pdf-background: #e0e0dc;
+  --pdf-surface: #cececb;
+  --pdf-raised: #e8e8e4;
+  --pdf-ink: #151515;
+  --pdf-muted: #555551;
+  --pdf-line: #9b9b96;
+  --pdf-accent: #e11111;
+  --pdf-accent-ink: #ffffff;
+  --pdf-accent-soft: #efd0c9;
+  --pdf-header: #d5d5d2;
+  --pdf-header-ink: #151515;
+  --pdf-stage: #bcbcb8;
+  --pdf-focus: #a50606;
+  --pdf-font: Arial, Helvetica, "Segoe UI", sans-serif;
+  --pdf-display-font: "Arial Black", Arial, sans-serif;
+  --pdf-control-case: uppercase;
+  --pdf-radius: 0px;
+  --pdf-dialog-radius: 0px;
+  --pdf-dialog-shadow: 0 24px 80px #0000004d;
+  --pdf-header-texture: linear-gradient(125deg, transparent 65%, #e1111133 65% 76%, transparent 76%);
+}
+
+.babel-pdf-theme[data-pdf-app="bio"] {
+  --pdf-display-weight: 400;
+  --pdf-background: #171611;
+  --pdf-surface: #1d1b16;
+  --pdf-raised: #24211b;
+  --pdf-ink: #c9b486;
+  --pdf-muted: #a99772;
+  --pdf-line: #4d4637;
+  --pdf-accent: #c9b486;
+  --pdf-accent-ink: #171611;
+  --pdf-accent-soft: #392f20;
+  --pdf-header: #171611;
+  --pdf-header-ink: #ead8ad;
+  --pdf-stage: #100f0c;
+  --pdf-focus: #ead8ad;
+  --pdf-error: #edb29b;
+  --pdf-font: "Bahnschrift", "Arial Narrow", Arial, sans-serif;
+  --pdf-display-font: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
+  --pdf-control-font: "Cascadia Mono", "Cascadia Code", Consolas, monospace;
+  --pdf-control-case: uppercase;
+  --pdf-radius: 0px;
+  --pdf-dialog-radius: 0px;
+  --pdf-dialog-shadow: 0 24px 80px #00000099;
+  --pdf-header-texture: repeating-linear-gradient(90deg, #c9b4860d 0 1px, transparent 1px 11px);
+  --pdf-scheme: dark;
+}
+
+.babel-pdf-theme[data-pdf-app="carbon"] {
+  --pdf-display-weight: 400;
+  --pdf-background: #fcfdf4;
+  --pdf-surface: #eef2df;
+  --pdf-raised: #fcfdf4;
+  --pdf-ink: #082f18;
+  --pdf-muted: #53684c;
+  --pdf-line: #bccba4;
+  --pdf-accent: #062e15;
+  --pdf-accent-ink: #b4ff00;
+  --pdf-accent-soft: #e1edc9;
+  --pdf-header: #b4ff00;
+  --pdf-header-ink: #062e15;
+  --pdf-stage: #0b351b;
+  --pdf-focus: #456b12;
+  --pdf-font: ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  --pdf-display-font: Impact, "Arial Black", Arial, sans-serif;
+  --pdf-radius: 5px;
+  --pdf-dialog-radius: 8px;
+  --pdf-header-texture: repeating-linear-gradient(120deg, transparent 0 120px, #2e55000c 121px, transparent 123px 240px);
+  --pdf-dialog-shadow: 0 24px 80px #062e1566;
+}
+
+/* Scoped bars stay visible and draggable when an APP hides its other scrollbars. */
+.babel-pdf-library-import,
+.babel-pdf-library-documents,
+.babel-pdf-library-batch-results,
+.babel-pdf-sidebar,
+.babel-pdf-scroll {
+  scrollbar-width: auto;
+  scrollbar-color: var(--pdf-scroll-thumb) var(--pdf-scroll-track);
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+}
+
+.babel-pdf-theme :is(.babel-pdf-library-import, .babel-pdf-library-documents, .babel-pdf-library-batch-results, .babel-pdf-library-body, .babel-pdf-sidebar, .babel-pdf-scroll)::-webkit-scrollbar {
+  display: block;
+  width: 14px;
+  height: 14px;
+}
+
+.babel-pdf-theme :is(.babel-pdf-library-import, .babel-pdf-library-documents, .babel-pdf-library-batch-results, .babel-pdf-library-body, .babel-pdf-sidebar, .babel-pdf-scroll)::-webkit-scrollbar-track {
+  background: var(--pdf-scroll-track);
+}
+
+.babel-pdf-theme :is(.babel-pdf-library-import, .babel-pdf-library-documents, .babel-pdf-library-batch-results, .babel-pdf-library-body, .babel-pdf-sidebar, .babel-pdf-scroll)::-webkit-scrollbar-thumb {
+  border: 3px solid var(--pdf-scroll-track);
+  border-radius: 8px;
+  background: var(--pdf-scroll-thumb);
+  min-height: 36px;
+}
+
+.babel-pdf-theme :is(.babel-pdf-library-import, .babel-pdf-library-documents, .babel-pdf-library-batch-results, .babel-pdf-library-body, .babel-pdf-sidebar, .babel-pdf-scroll)::-webkit-scrollbar-thumb:hover {
+  background: var(--pdf-muted);
+}

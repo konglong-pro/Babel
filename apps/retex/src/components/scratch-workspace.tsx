@@ -1,27 +1,104 @@
 "use client";
 
+import {
+  DetachedReaderWindow,
+  MarkdownRenderer,
+  OutlinePanel,
+} from "@babel-apps/markdown/react";
+import { EditorExitActions, submittedForReading } from "@babel-apps/platform/shortcuts/react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { type FormEvent, useEffect, useRef, useState } from "react";
+import {
+  PageDeckPage,
+  usePageSessionHistoryGuard,
+  usePageSessionLifecycle,
+  usePageSessions,
+  useWorkspaceProcessActive,
+} from "@babel-apps/platform/pages/react";
 
 import {
   deleteScratch,
   getErrorMessage,
   getExercise,
   getScratch,
+  listFolders,
   saveScratch,
 } from "@/lib/api-client";
-import { imageUrl, type ExerciseDetailDto } from "@/lib/types";
-import { MarkdownEditor } from "@/components/markdown";
-import { ConfirmButton, formatDate } from "@/components/shared";
+import {
+  BEFORE_NAVIGATE_EVENT,
+  type BeforeNavigateDetail,
+  navigationAllowed,
+} from "@/components/app-header";
+import type { ExerciseDetailDto } from "@/lib/types";
+import { isRetexWorkspaceDestination } from "@/lib/workspace-process";
+import { MarkdownEditor } from "@/components/markdown-editor";
+import { ReaderSourceUnderlines, useReaderKnowledgeOptions } from "@/components/reader-note-underlines";
+import { ConfirmButton, formatDate, Tags } from "@/components/shared";
+
+const SCRATCH_HEADING_ID_PREFIX = "retex-scratch-heading-";
+const REMARK_FEATURES = ["gfm", "formula-math"] as const;
 
 export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
+  const router = useRouter();
+  const readerNotes = useReaderKnowledgeOptions();
+  const processActive = useWorkspaceProcessActive();
+  const pageKey = `scratch:${exerciseId}`;
+  const readerTriggerId = `retex-scratch-${exerciseId}-reader-trigger`;
+  const { openPage, setPageStatus, updatePage } = usePageSessions();
+  const formRef = useRef<HTMLFormElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const savingRef = useRef(false);
+  const openedPageRef = useRef(false);
   const [exercise, setExercise] = useState<ExerciseDetailDto | null>(null);
   const [content, setContent] = useState("");
+  const [savedContent, setSavedContent] = useState("");
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState(true);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const dirty = content !== savedContent;
+
+  useEffect(() => {
+    if (!processActive || openedPageRef.current) return;
+    openedPageRef.current = true;
+    openPage({
+      key: pageKey,
+      kind: "Scratch",
+      title: `Scratch ${exerciseId}`,
+      href: `/exercise/${exerciseId}/scratch`,
+      scope: pageKey,
+    });
+  }, [exerciseId, openPage, pageKey, processActive]);
+
+  useEffect(() => {
+    setPageStatus(pageKey, { dirty, pending: saving });
+  }, [dirty, pageKey, saving, setPageStatus]);
+
+  usePageSessionLifecycle(pageKey, {
+    save: () => {
+      if (!dirty && !saving) return true;
+      formRef.current?.requestSubmit();
+      return false;
+    },
+    discard: () => setSavedContent(content),
+  });
+  useEffect(() => {
+    if (!processActive) return;
+    const beforeNavigate = (event: Event) => {
+      const navigationEvent = event as CustomEvent<BeforeNavigateDetail>;
+      if (isRetexWorkspaceDestination(navigationEvent.detail?.destination ?? "")) {
+        return;
+      }
+      if ((dirty || saving) && !window.confirm("Discard your unsaved changes?")) {
+        event.preventDefault();
+      }
+    };
+    window.addEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
+    return () => window.removeEventListener(BEFORE_NAVIGATE_EVENT, beforeNavigate);
+  }, [dirty, processActive, saving]);
 
   useEffect(() => {
     let active = true;
@@ -29,7 +106,14 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
       .then(([nextExercise, scratch]) => {
         if (!active) return;
         setExercise(nextExercise);
-        setContent(scratch?.contentMd ?? "");
+        updatePage(pageKey, {
+          title: `${nextExercise.title} — Scratch`,
+          href: `/exercise/${exerciseId}/scratch`,
+          scope: pageKey,
+        });
+        const nextContent = scratch?.contentMd ?? "";
+        setContent(nextContent);
+        setSavedContent(nextContent);
         setUpdatedAt(scratch?.updatedAt ?? null);
       })
       .catch((caught) => {
@@ -41,44 +125,177 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
     return () => {
       active = false;
     };
-  }, [exerciseId]);
+  }, [exerciseId, pageKey, updatePage]);
 
-  async function save() {
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const readAfterSave = submittedForReading(event);
+    if (savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     setError("");
     setMessage("");
     try {
       const scratch = await saveScratch(exerciseId, content);
+      setSavedContent(content);
       setUpdatedAt(scratch.updatedAt);
+      if (readAfterSave) setEditing(false);
       setMessage("Scratch saved. Previous content was replaced.");
     } catch (caught) {
       setError(getErrorMessage(caught));
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
 
+  async function createLinkedKnowledge(underlineId: number) {
+    try {
+      const folders = await listFolders("knowledge");
+      const folderId = folders[0]?.id;
+      if (folderId === undefined) throw new Error("Create a Knowledge folder before adding a linked note.");
+      const params = new URLSearchParams({
+        folder: String(folderId),
+        new: "1",
+        readerUnderline: String(underlineId),
+        request: crypto.randomUUID(),
+      });
+      router.push(`/knowledge?${params}`);
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+    }
+  }
+
+  function editLinkedKnowledge(noteId: number) {
+    router.push(`/knowledge?item=${noteId}&edit=1`);
+  }
+
   if (loading) {
-    return <div className="standalone-status">Opening Scratch…</div>;
+    return (
+      <PageDeckPage pageKey={pageKey}>
+        <div className="standalone-status" data-babel-pane="detail" tabIndex={-1}>Opening Scratch…</div>
+      </PageDeckPage>
+    );
   }
 
   if (error && !exercise) {
     return (
-      <div className="standalone-status error-state" role="alert">
-        <h1>Couldn’t Open Scratch</h1>
-        <p>{error}</p>
-        <Link href="/exercise">Back to Exercise</Link>
-      </div>
+      <PageDeckPage pageKey={pageKey}>
+        <div className="standalone-status error-state" data-babel-pane="detail" tabIndex={-1} role="alert">
+          <h1>Couldn’t Open Scratch</h1>
+          <p>{error}</p>
+          <Link href="/exercise">Back to Exercise</Link>
+        </div>
+      </PageDeckPage>
     );
   }
 
   if (!exercise) return null;
 
   return (
-    <div className="scratch-page">
+    <PageDeckPage pageKey={pageKey}>
+      {processActive ? <ActiveScratchHistoryGuard /> : null}
+      <div className="scratch-page" data-babel-pane="detail" tabIndex={-1}>
       <header className="scratch-header">
         <div>
-          <Link href={`/exercise?folder=${exercise.folderId}&item=${exercise.id}`}>← Back to Exercise</Link>
+          <Link
+            data-babel-escape="list"
+            href={`/exercise?folder=${exercise.folderId}&item=${exercise.id}`}
+            onClick={(event) => {
+              if (
+                !event.metaKey &&
+                !event.ctrlKey &&
+                !event.shiftKey &&
+                !event.altKey &&
+                !navigationAllowed(
+                  `/exercise?folder=${exercise.folderId}&item=${exercise.id}`,
+                  () => router.push(
+                    `/exercise?folder=${exercise.folderId}&item=${exercise.id}`,
+                  ),
+                )
+              ) {
+                event.preventDefault();
+              }
+            }}
+          >
+            ← Back to Exercise
+          </Link>
+          <DetachedReaderWindow
+            title={`${exercise.title} - Scratch reader`}
+            windowKey={`retex-scratch-${exercise.id}`}
+            buttonLabel="Read"
+            buttonPortalTargetId={readerTriggerId}
+            disabled={saving}
+          >
+            {({ document: readerDocument }) => {
+              const headingIdPrefix = `${SCRATCH_HEADING_ID_PREFIX}reader-`;
+              return (
+                <article className="document-view" aria-label="Live Scratch reader">
+                  <header className="document-header">
+                    <div>
+                      <span className="eyebrow">Scratch - Temporary Work</span>
+                      <h1>{exercise.title}</h1>
+                      <Tags tags={exercise.tags} />
+                      <p className="document-meta">Live draft. Save changes in the editor.</p>
+                    </div>
+                  </header>
+                  <section className="exercise-problem" aria-labelledby="reader-scratch-problem-heading">
+                    <h2 id="reader-scratch-problem-heading">Problem</h2>
+                    <div className="document-content">
+                      <ReaderSourceUnderlines
+                        sourceKind="exercise"
+                        sourceId={exercise.id}
+                        fieldKey="problem"
+                        enabled
+                        notes={readerNotes}
+                        onCreateLinkedNote={createLinkedKnowledge}
+                        onEditLinkedNote={editLinkedKnowledge}
+                      >
+                        <MarkdownRenderer
+                          content={exercise.problemMd}
+                          emptyText="No archived problem yet."
+                          uploadScheme="retex-upload"
+                          remarkFeatures={REMARK_FEATURES}
+                          defaultWikilinkKind="knowledge"
+                        />
+                      </ReaderSourceUnderlines>
+                    </div>
+                  </section>
+                  <section aria-labelledby="reader-scratch-work-heading">
+                    <h2 id="reader-scratch-work-heading">Current work</h2>
+                    <div className="document-outline-layout">
+                      <div className="document-content">
+                        <ReaderSourceUnderlines
+                          sourceKind="scratch"
+                          sourceId={exerciseId}
+                          fieldKey="work"
+                          enabled={updatedAt !== null && !dirty && !saving}
+                          notes={readerNotes}
+                          onCreateLinkedNote={createLinkedKnowledge}
+                          onEditLinkedNote={editLinkedKnowledge}
+                        >
+                          <MarkdownRenderer
+                            content={content}
+                            emptyText="No scratch work yet."
+                            uploadScheme="retex-upload"
+                            remarkFeatures={REMARK_FEATURES}
+                            defaultWikilinkKind="knowledge"
+                            headingIdPrefix={headingIdPrefix}
+                          />
+                        </ReaderSourceUnderlines>
+                      </div>
+                      <OutlinePanel
+                        content={content}
+                        mode="read"
+                        ownerDocument={readerDocument}
+                        headingIdPrefix={headingIdPrefix}
+                      />
+                    </div>
+                  </section>
+                </article>
+              );
+            }}
+          </DetachedReaderWindow>
           <span className="eyebrow">Scratch · Temporary Work</span>
           <h1>{exercise.title}</h1>
         </div>
@@ -92,41 +309,77 @@ export function ScratchWorkspace({ exerciseId }: { exerciseId: number }) {
             onConfirm={async () => {
               await deleteScratch(exerciseId);
               setContent("");
+              setSavedContent("");
               setUpdatedAt(null);
               setMessage("Scratch cleared.");
             }}
           >
             Clear
           </ConfirmButton>
-          <button className="primary-button" type="button" disabled={saving} onClick={save}>
+          {editing ? <button
+            data-babel-command="save"
+            className="primary-button"
+            type="button"
+            disabled={saving}
+            onClick={() => formRef.current?.requestSubmit()}
+          >
             {saving ? "Saving…" : "Save Scratch"}
-          </button>
+          </button> : <button type="button" data-babel-command="edit" onClick={() => setEditing(true)}>Edit Scratch</button>}
+          <div id={readerTriggerId} className="reader-trigger-slot" />
         </div>
       </header>
 
-      <div className="status-line" aria-live="polite">
-        {error ? <span className="form-error">{error}</span> : message}
-      </div>
+      <form ref={formRef} data-dirty={dirty} onSubmit={submit}>
+        {editing ? <EditorExitActions dirty={dirty} pending={saving} formRef={formRef}
+          onDiscard={() => { setContent(savedContent); setEditing(false); }} /> : null}
+        <div className="status-line" aria-live="polite">
+          {error ? <span className="form-error">{error}</span> : message}
+        </div>
 
-      <div className="scratch-grid">
-        <section className="scratch-image" aria-label="Problem image">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={imageUrl(exercise.imagePath)} alt={`${exercise.title} problem image`} />
-        </section>
-        <section className="scratch-editor" aria-label="Temporary work editor">
-          <MarkdownEditor
-            label="Work It Out Again"
-            name="contentMd"
-            value={content}
-            onChange={(value) => {
-              setContent(value);
-              setMessage("");
-            }}
-            rows={24}
-            placeholder="Start from scratch. This space always holds only your current derivation…"
-          />
-        </section>
+        <div className="scratch-grid">
+          <section className="scratch-problem" aria-labelledby="scratch-problem-heading">
+            <h2 id="scratch-problem-heading">Problem</h2>
+            <MarkdownRenderer
+              content={exercise.problemMd}
+              emptyText="No archived problem yet."
+              uploadScheme="retex-upload"
+              remarkFeatures={REMARK_FEATURES}
+              defaultWikilinkKind="knowledge"
+            />
+          </section>
+          <section className="scratch-editor" aria-label={editing ? "Temporary work editor" : "Saved temporary work"}>
+            <div className="editor-outline-layout">
+              {editing ? <MarkdownEditor
+                label="Work It Out Again"
+                name="contentMd"
+                value={content}
+                onChange={(value) => {
+                  setContent(value);
+                  setMessage("");
+                }}
+                rows={24}
+                placeholder="Start from scratch. This space always holds only your current derivation…"
+                textareaRef={textareaRef}
+                headingIdPrefix={SCRATCH_HEADING_ID_PREFIX}
+              /> : <MarkdownRenderer content={savedContent} emptyText="No scratch work yet."
+                uploadScheme="retex-upload" remarkFeatures={REMARK_FEATURES}
+                defaultWikilinkKind="knowledge" headingIdPrefix={SCRATCH_HEADING_ID_PREFIX} />}
+              <OutlinePanel
+                content={content}
+                mode={editing ? "edit" : "read"}
+                textareaRef={textareaRef}
+                headingIdPrefix={SCRATCH_HEADING_ID_PREFIX}
+              />
+            </div>
+          </section>
+        </div>
+      </form>
       </div>
-    </div>
+    </PageDeckPage>
   );
+}
+
+function ActiveScratchHistoryGuard() {
+  usePageSessionHistoryGuard({ preserveOnHistoryNavigation: true });
+  return null;
 }

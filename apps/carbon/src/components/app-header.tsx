@@ -1,0 +1,104 @@
+"use client";
+
+import { PdfLibraryButton } from "@babel-apps/pdf/react";
+import { HtmlLibraryButton } from "@babel-apps/html/react";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { type FormEvent, type MouseEvent, useState } from "react";
+import { openSearchWindow } from "@babel-apps/platform/search/window";
+
+export const BEFORE_NAVIGATE_EVENT = "carbon:before-navigate";
+
+export interface BeforeNavigateDetail {
+  destination: string;
+}
+
+function navigationAllowed(destination: string): boolean {
+  return window.dispatchEvent(
+    new CustomEvent<BeforeNavigateDetail>(BEFORE_NAVIGATE_EVENT, {
+      cancelable: true,
+      detail: { destination },
+    }),
+  );
+}
+
+export function AppHeader() {
+  const pathname = usePathname();
+  const [query, setQuery] = useState("");
+  const [searchWindowError, setSearchWindowError] = useState("");
+
+  function visitHome(event: MouseEvent<HTMLAnchorElement>) {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    if (!navigationAllowed("/notes")) event.preventDefault();
+  }
+
+  function visitCanvas(event: MouseEvent<HTMLAnchorElement>) {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    if (!navigationAllowed("/canvases")) event.preventDefault();
+  }
+
+  function submitSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const value = query.trim();
+    if (!value) return;
+    const destination = `/search?q=${encodeURIComponent(value)}`;
+    setSearchWindowError("");
+    if (!openSearchWindow(
+      window,
+      destination,
+      "babel-carbon-search",
+      { sessionStorageKeys: ["babel:carbon:pages"] },
+    )) {
+      setSearchWindowError("Allow pop-ups to search without leaving this workspace.");
+    }
+  }
+
+  return (
+    <header className="app-header">
+      <Link className="brand" href="/notes" aria-label="Carbon notes home" onClick={visitHome}>
+        <span className="carbon-element" aria-hidden="true"><small>06</small>C</span>
+        <span className="carbon-wordmark"><strong>Carbon</strong><small>THE CHEMISTRY NOTEBOOK</small></span>
+      </Link>
+
+      <nav className="app-nav" aria-label="Primary navigation">
+        <Link
+          href="/notes"
+          aria-current={pathname.startsWith("/notes") ? "page" : undefined}
+          onClick={visitHome}
+        >
+          Notes
+        </Link>
+        <Link
+          href="/canvases"
+          aria-current={pathname.startsWith("/canvases") ? "page" : undefined}
+          onClick={visitCanvas}
+        >
+          Canvases
+        </Link>
+        <PdfLibraryButton appId="carbon" appName="Carbon" notebookHref="/notes" />
+        <HtmlLibraryButton appId="carbon" appName="Carbon" notebookHref="/notes" />
+      </nav>
+
+      <form className="global-search" role="search" onSubmit={submitSearch}>
+        <label className="sr-only" htmlFor="global-search-input">
+          Search all notes
+        </label>
+        <input
+          id="global-search-input"
+          data-babel-command="search"
+          name="q"
+          type="search"
+          autoComplete="off"
+          placeholder="Find a concept, reaction, or note…"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        <button type="submit">Search</button>
+        {searchWindowError ? (
+          <span className="babel-search-window-error" role="alert">{searchWindowError}</span>
+        ) : null}
+      </form>
+    </header>
+  );
+}
